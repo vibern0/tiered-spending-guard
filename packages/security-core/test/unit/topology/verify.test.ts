@@ -73,7 +73,7 @@ function plan(): VaultDeploymentPlan {
       functionName: "setup",
       args: [{ guard: a(6), delay: a(5), maintenance: a(7), passkey: a(2), safeContractSecondary: a(4), ecdsaSecondary: a(3), periodSeconds: 86400n, periodAnchor: 0n, assets: policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })) }],
     }),
-    review: { owners: expectedOwners as readonly [Address], threshold: 1, fallbackHandler: zero, paymentToken: zero, payment: 0n, paymentReceiver: zero, transactionGuard: a(6), moduleGuard: a(6), modules: [a(5)], delay: { owner: a(1), avatar: a(1), target: a(1), upstreamModules: [a(1)], cooldownSeconds: 3600, expirationSeconds: 86400 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash }, runtimeCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash } },
+    review: { owners: expectedOwners as readonly [Address], threshold: 1, fallbackHandler: zero, paymentToken: zero, payment: 0n, paymentReceiver: zero, transactionGuard: a(6), moduleGuard: a(6), modules: [a(5)], safeContractSecondary: a(2), ecdsaSecondary: a(3), assets: policy.assets, delay: { owner: a(1), avatar: a(1), target: a(1), upstreamModules: [a(1)], cooldownSeconds: 3600, expirationSeconds: 86400 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash }, runtimeCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash } },
   };
 }
 

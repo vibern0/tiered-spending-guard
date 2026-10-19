@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Address, Hex } from "viem";
 import { buildDeploymentPlan, sha256, type PublicDeploymentConfig } from "./plan-deployment";
 import {
   isReviewedVaultDeploymentPlan,
@@ -8,6 +7,7 @@ import {
   type PlannedDeploymentTransaction,
   type VaultDeploymentPlan,
 } from "../src/topology/build";
+import { isCollectedVaultDeploymentReviewEvidence, type VaultDeploymentEstimate, type VaultDeploymentReviewEvidence } from "./live/prepare-vault-review";
 
 const FORBIDDEN_KEY = /(?:signature|signatures|privateKey|private_key|secret|seed|mnemonic|rpcUrl|rpc_url|pin|recovery)/i;
 const FORBIDDEN_VALUE = /(?:https?:\/\/|wss?:\/\/|PRIVATE KEY|MNEMONIC|BURNER PIN|broadcast this|cast send|safe-cli|recovery owner)/i;
@@ -16,28 +16,6 @@ type PackageResult = Readonly<{
   outputDir: string;
   files: readonly string[];
   packageHash: `0x${string}`;
-}>;
-
-export type VaultDeploymentEstimate = Readonly<{
-  id: "vault-setup-helper" | "vault-guard" | "vault-delay" | "vault-maintenance" | "vault-safe";
-  nonce: bigint;
-  estimateStatus: "estimated" | "deferred-until-prerequisites";
-  estimatedGas?: bigint;
-  reviewedGasLimit: bigint;
-  limitSimulationStatus?: "eth_call-succeeded";
-  maxFeePerGas: bigint;
-  maxPriorityFeePerGas: bigint;
-}>;
-
-export type VaultDeploymentReviewEvidence = Readonly<{
-  snapshotBlockNumber: bigint;
-  observedDeployerNonce: bigint;
-  funderBalance: bigint;
-  phaseOutlayCeiling: bigint;
-  maximumReservedOutlay: bigint;
-  transactions: readonly VaultDeploymentEstimate[];
-  runtimeChecks: readonly Readonly<{ name: string; address: Address; runtimeCodeHash: Hex; bindingHash?: Hex }>[];
-  assetChecks: readonly Readonly<{ token: Address; kind: "native" | "erc20"; symbol: string; decimals: number; runtimeCodeHash?: Hex }>[];
 }>;
 
 function publicArtifact(value: unknown): unknown {
@@ -190,6 +168,7 @@ function assertReviewedEvidence(plan: VaultDeploymentPlan, evidence: VaultDeploy
 /** Writes a concrete package only from the opaque production planner result. */
 export function writeReviewedVaultDeploymentPackage(plan: VaultDeploymentPlan, evidence: VaultDeploymentReviewEvidence, outputDir: string): PackageResult {
   if (!isReviewedVaultDeploymentPlan(plan)) throw new Error("fail closed: vault deployment plan was not produced by the reviewed planner");
+  if (!isCollectedVaultDeploymentReviewEvidence(plan, evidence)) throw new Error("fail closed: review package requires collector-produced evidence for this exact plan");
   assertReviewedEvidence(plan, evidence);
   prepareEmptyOutputDirectory(outputDir);
 

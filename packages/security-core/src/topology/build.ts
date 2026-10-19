@@ -96,6 +96,9 @@ export type VaultDeploymentPlan = Readonly<{
     transactionGuard: Address;
     moduleGuard: Address;
     modules: readonly [Address];
+    safeContractSecondary: Address;
+    ecdsaSecondary: Address;
+    assets: VaultPolicy["assets"];
     delay: Readonly<{ owner: Address; avatar: Address; target: Address; upstreamModules: readonly [Address]; cooldownSeconds: number; expirationSeconds: number }>;
     periodAnchor: bigint;
     policyHash: Hex;
@@ -369,6 +372,9 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       transactionGuard: components.guard,
       moduleGuard: components.guard,
       modules: [components.delay],
+      safeContractSecondary: optionB.safeContractSecondary,
+      ecdsaSecondary: optionB.ecdsaSecondary,
+      assets: input.policy.assets.map((asset) => Object.freeze({ ...asset, recipients: Object.freeze([...asset.recipients]) })),
       delay: { owner: input.policy.safe, avatar: input.policy.safe, target: input.policy.safe, upstreamModules: [input.policy.safe], cooldownSeconds: input.policy.cooldownSeconds, expirationSeconds: input.policy.expirationSeconds },
       periodAnchor: input.policy.periodAnchor,
       policyHash: policyHash(input.policy),
