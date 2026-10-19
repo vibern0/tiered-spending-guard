@@ -9,8 +9,7 @@ import { deriveComponentAddresses } from "../../src/topology/addressing";
 import { buildVaultPlan, deriveVaultSafeProxyAddress, verifyVaultPrerequisites } from "../../src/topology/build";
 import { resolveReviewedVaultArtifacts } from "../../src/topology/reviewed-artifacts";
 import { ZODIAC_DELAY_V1_1_1 } from "../../src/config/zodiac-delay";
-import { verifyTopology } from "../../src/topology/verify";
-import { executeVaultDeployment } from "./vault-runner";
+import { executeVaultPrerequisites } from "./vault-runner";
 
 const directory = "/Users/bernardo/.local/share/recent-tx-safe-guard/sepolia";
 const primary = "0x6F9c2f4f8526A17f38c9409a8cBF605b34Fa146c" as const;
@@ -50,7 +49,7 @@ async function main(): Promise<void> {
   const plan = buildVaultPlan({ policy: { ...draft, safe }, deployer: account.address, startingNonce, safeProxySaltNonce: 0n, artifacts, deployments, completedPrerequisites: completed });
   try {
     const live = createSepoliaLiveContext({ account, client, verify: async () => { if (await client.getChainId() !== sepolia.id) throw new Error("wrong chain"); }, persist: async journalValue => journal.save(journalValue) });
-    const result = await executeVaultDeployment(plan, { live, journal: loadedJournal, feeFor: async tx => {
+    const result = await executeVaultPrerequisites(plan, { live, journal: loadedJournal, feeFor: async tx => {
       const existing = loadedJournal.entries.find((entry) => entry.nonce === Number(tx.nonce));
       if (existing) {
         const original = await client.getTransaction({ hash: existing.transactionHash });
@@ -63,8 +62,8 @@ async function main(): Promise<void> {
       const gas = await client.estimateGas({ account, to: tx.to === zero ? undefined : tx.to, data: tx.data, value: tx.value });
       const maxFeePerGas = fees.maxFeePerGas ?? 2_000_000n;
       return { gas: gas + gas / 5n, maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas ?? 1_000_000n };
-    }, waitForReceipt: async hash => { await client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120_000 }); }, verifyPrerequisites: (value, stage) => verifyVaultPrerequisites(client, value, stage), verifyTopology: (_value, prerequisites) => verifyTopology({ chainId: sepolia.id, policy: { ...draft, safe }, safe, guard: components.guard, delay: components.delay, deployments, prerequisites, client }) });
-    console.log(JSON.stringify({ safe, entries: result.journal.entries.map(entry => ({ id: entry.id, transactionHash: entry.transactionHash, status: entry.status })) }, (_key, value) => typeof value === "bigint" ? value.toString() : value));
+    }, waitForReceipt: async hash => { await client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120_000 }); }, verifyPrerequisites: (value, stage) => verifyVaultPrerequisites(client, value, stage) });
+    console.log(JSON.stringify({ status: "PREREQUISITES_COMPLETE_SAFE_REVIEW_REQUIRED", safe, entries: result.journal.entries.map(entry => ({ id: entry.id, transactionHash: entry.transactionHash, status: entry.status })) }, (_key, value) => typeof value === "bigint" ? value.toString() : value));
   } finally { journal.close(); }
 }
 void main();

@@ -5,7 +5,6 @@ import {
   type VaultDeploymentPlan,
   type VerifiedVaultPrerequisites,
 } from "../../src/topology/build";
-import type { TopologyReport } from "../../src/topology/verify";
 import {
   submitLiveIntent,
   type JournalEntry,
@@ -19,10 +18,9 @@ type PlannedStep = Readonly<{
   transaction: VaultDeploymentPlan["prerequisites"]["setupHelper"];
 }>;
 
-export type VaultDeploymentExecution = Readonly<{
+export type VaultPrerequisiteExecution = Readonly<{
   journal: LiveJournal;
   prerequisiteEvidence: VerifiedVaultPrerequisites;
-  topology: TopologyReport;
 }>;
 
 export type VaultDeploymentExecutionContext = Readonly<{
@@ -31,7 +29,6 @@ export type VaultDeploymentExecutionContext = Readonly<{
   feeFor(transaction: PlannedStep["transaction"]): Promise<Readonly<{ gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>>;
   waitForReceipt(transactionHash: JournalEntry["transactionHash"]): Promise<void>;
   verifyPrerequisites(plan: VaultDeploymentPlan, stage: "before-setup" | "after-setup"): Promise<VerifiedVaultPrerequisites>;
-  verifyTopology(plan: VaultDeploymentPlan, prerequisites: VerifiedVaultPrerequisites): Promise<TopologyReport>;
 }>;
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -63,8 +60,12 @@ async function reconcileStep(plan: VaultDeploymentPlan, step: PlannedStep, conte
   return entry;
 }
 
-/** Executes exactly the reviewed plan, with durable receipt reconciliation between every nonce. */
-export async function executeVaultDeployment(plan: VaultDeploymentPlan, context: VaultDeploymentExecutionContext): Promise<VaultDeploymentExecution> {
+/**
+ * Executes only the four reviewed prerequisite deployments. Safe creation is a
+ * separate approval stage because its exact gas can only be estimated after
+ * these receipts and runtime bindings exist.
+ */
+export async function executeVaultPrerequisites(plan: VaultDeploymentPlan, context: VaultDeploymentExecutionContext): Promise<VaultPrerequisiteExecution> {
   if (!isReviewedVaultDeploymentPlan(plan)) throw new Error("fail closed: vault deployment plan was not produced by the reviewed planner");
   const prerequisites: readonly PlannedStep[] = [
     { id: "vault-setup-helper", transaction: plan.prerequisites.setupHelper },
@@ -76,10 +77,5 @@ export async function executeVaultDeployment(plan: VaultDeploymentPlan, context:
 
   const beforeSetup = await context.verifyPrerequisites(plan, "before-setup");
   assertSafeCreationReady(plan, beforeSetup, BigInt(await context.live.nonce()));
-  await reconcileStep(plan, { id: "vault-safe", transaction: plan.safeProxyDeployment }, context);
-
-  const afterSetup = await context.verifyPrerequisites(plan, "after-setup");
-  const topology = await context.verifyTopology(plan, afterSetup);
-  if (!topology.ok) throw new Error(`fail closed: deployed topology verification failed: ${topology.failures.join(", ")}`);
-  return Object.freeze({ journal: context.journal, prerequisiteEvidence: afterSetup, topology });
+  return Object.freeze({ journal: context.journal, prerequisiteEvidence: beforeSetup });
 }

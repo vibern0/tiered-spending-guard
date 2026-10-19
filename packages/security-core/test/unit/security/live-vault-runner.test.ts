@@ -11,7 +11,7 @@ import {
   type VaultDeploymentPlan,
   type VerifiedVaultPrerequisites,
 } from "../../../src/topology/build";
-import { executeVaultDeployment } from "../../../scripts/live/vault-runner";
+import { executeVaultPrerequisites } from "../../../scripts/live/vault-runner";
 import { captureVaultReviewSnapshot, collectVaultDeploymentReviewEvidence, type VaultReviewSnapshot } from "../../../scripts/live/prepare-vault-review";
 import { writeReviewedVaultDeploymentPackage } from "../../../scripts/package-sepolia-rehearsal";
 import type { LiveContext, LiveJournal } from "../../../scripts/live/submission";
@@ -221,10 +221,10 @@ describe("reviewed vault deployment runner", () => {
 
   it("requires a reviewed plan before signing", async () => {
     const value = plan();
-    await expect(executeVaultDeployment({ ...value } as VaultDeploymentPlan, {} as never)).to.be.rejectedWith("reviewed planner");
+    await expect(executeVaultPrerequisites({ ...value } as VaultDeploymentPlan, {} as never)).to.be.rejectedWith("reviewed planner");
   });
 
-  it("reconciles each receipt, verifies pre-setup bindings, then verifies the completed topology", async () => {
+  it("stops after reconciling and verifying all four prerequisites", async () => {
     const value = plan();
     const journal: LiveJournal = { chainId: 11155111, funder: account.address, entries: [] };
     let nonce = 0;
@@ -242,18 +242,18 @@ describe("reviewed vault deployment runner", () => {
       receipt: async (transactionHash) => receipts.get(transactionHash) ? { transactionHash, status: "success" as const, gasUsed: 21_000n, effectiveGasPrice: 1n, blockNumber: 1n, blockHash: hash } : undefined,
       persist: async () => undefined,
     };
-    const result = await executeVaultDeployment(value, {
+    const result = await executeVaultPrerequisites(value, {
       live, journal,
       feeFor: async () => ({ gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
       waitForReceipt: async (transactionHash) => { calls.push(`receipt:${transactionHash}`); receipts.set(transactionHash, true); },
       verifyPrerequisites: async (_plan, stage) => { calls.push(stage); return evidence(value, stage); },
-      verifyTopology: async () => ({ ok: true, failures: [], checked: ["all"] }),
     });
-    expect(result.topology.ok).to.equal(true);
-    expect(journal.entries.map((entry) => entry.id)).to.deep.equal(["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance", "vault-safe"]);
+    expect(result.prerequisiteEvidence.stage).to.equal("before-setup");
+    expect(journal.entries.map((entry) => entry.id)).to.deep.equal(["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance"]);
     expect(journal.entries.every((entry) => entry.status === "success")).to.equal(true);
-    expect(calls).to.include.members(["before-setup", "after-setup"]);
-    expect(signed.size).to.equal(5);
+    expect(calls).to.include("before-setup");
+    expect(calls).not.to.include("after-setup");
+    expect(signed.size).to.equal(4);
   });
 
   it("obtains each fee only when its nonce is ready to submit", async () => {
@@ -273,7 +273,7 @@ describe("reviewed vault deployment runner", () => {
       receipt: async (transactionHash) => receipts.has(transactionHash) ? { transactionHash, status: "success" as const, gasUsed: 21_000n, effectiveGasPrice: 1n, blockNumber: 1n, blockHash: hash } : undefined,
       persist: async () => undefined,
     };
-    await executeVaultDeployment(value, {
+    await executeVaultPrerequisites(value, {
       live,
       journal,
       feeFor: async (transaction) => {
@@ -283,8 +283,7 @@ describe("reviewed vault deployment runner", () => {
       },
       waitForReceipt: async (transactionHash) => { receipts.add(transactionHash); },
       verifyPrerequisites: async (_plan, stage) => evidence(value, stage),
-      verifyTopology: async () => ({ ok: true, failures: [], checked: ["all"] }),
     });
-    expect(feeCalls).to.deep.equal(["test", "test", "test", "test", "test"]);
+    expect(feeCalls).to.deep.equal(["test", "test", "test", "test"]);
   });
 });
