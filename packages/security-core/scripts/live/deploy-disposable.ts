@@ -9,7 +9,7 @@ import { deriveComponentAddresses } from "../../src/topology/addressing";
 import { buildVaultPlan, deriveVaultSafeProxyAddress, verifyVaultPrerequisites } from "../../src/topology/build";
 import { resolveReviewedVaultArtifacts } from "../../src/topology/reviewed-artifacts";
 import { ZODIAC_DELAY_V1_1_1 } from "../../src/config/zodiac-delay";
-import { executeVaultPrerequisites } from "./vault-runner";
+import { executeVaultPrerequisites, loadReviewedVaultPrerequisiteApproval } from "./vault-runner";
 
 const directory = "/Users/bernardo/.local/share/recent-tx-safe-guard/sepolia";
 const primary = "0x6F9c2f4f8526A17f38c9409a8cBF605b34Fa146c" as const;
@@ -48,8 +48,12 @@ async function main(): Promise<void> {
   const artifacts = await resolveReviewedVaultArtifacts({ client, deployments, safe, primaryPasskey: primary, ecdsaSecondary: ecdsa, delay: components.delay, maintenance: components.maintenance, periodAnchor: 0n, cooldownSeconds: 120n, expirationSeconds: 600n, delayArtifactSource: await response.text() });
   const plan = buildVaultPlan({ policy: { ...draft, safe }, deployer: account.address, startingNonce, safeProxySaltNonce: 0n, artifacts, deployments, completedPrerequisites: completed });
   try {
+    const packageDirectory = process.env.VAULT_REVIEW_PACKAGE_DIR;
+    const packageHash = process.env.VAULT_REVIEW_PACKAGE_HASH;
+    if (!packageDirectory || !packageHash || !/^0x[0-9a-fA-F]{64}$/.test(packageHash)) throw new Error("exact reviewed package directory and hash are required for prerequisite execution");
+    const approval = loadReviewedVaultPrerequisiteApproval(plan, packageDirectory, packageHash as Hex);
     const live = createSepoliaLiveContext({ account, client, verify: async () => { if (await client.getChainId() !== sepolia.id) throw new Error("wrong chain"); }, persist: async journalValue => journal.save(journalValue) });
-    const result = await executeVaultPrerequisites(plan, { live, journal: loadedJournal, feeFor: async tx => {
+    const result = await executeVaultPrerequisites(plan, approval, { live, journal: loadedJournal, feeFor: async tx => {
       const existing = loadedJournal.entries.find((entry) => entry.nonce === Number(tx.nonce));
       if (existing) {
         const original = await client.getTransaction({ hash: existing.transactionHash });

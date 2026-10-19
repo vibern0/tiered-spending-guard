@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { keccak256, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,11 +11,12 @@ import {
   type VaultDeploymentPlan,
   type VerifiedVaultPrerequisites,
 } from "../../../src/topology/build";
-import { executeVaultPrerequisites } from "../../../scripts/live/vault-runner";
+import { executeVaultPrerequisites, loadReviewedVaultPrerequisiteApproval } from "../../../scripts/live/vault-runner";
 import { captureVaultReviewSnapshot, collectVaultDeploymentReviewEvidence, type VaultReviewSnapshot } from "../../../scripts/live/prepare-vault-review";
 import { writeReviewedVaultDeploymentPackage } from "../../../scripts/package-sepolia-rehearsal";
 import type { LiveContext, LiveJournal } from "../../../scripts/live/submission";
 import { OFFICIAL_DEPLOYMENT_REGISTRY } from "../../../src/config/deployments";
+import { sha256 } from "../../../scripts/plan-deployment";
 
 process.env.NODE_ENV = "test";
 
@@ -74,6 +75,15 @@ const reviewClient = () => ({
   estimateGas: async () => 21_000n,
   call: async () => ({}),
 });
+
+async function reviewedPackage(value: VaultDeploymentPlan): Promise<Readonly<{ directory: string; packageHash: Hex }>> {
+  const directory = mkdtempSync(join(tmpdir(), "reviewed-vault-execution-"));
+  const client = reviewClient();
+  const snapshot = await captureVaultReviewSnapshot(client);
+  const collected = await collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot));
+  const result = writeReviewedVaultDeploymentPackage(value, collected, directory);
+  return { directory, packageHash: result.packageHash as Hex };
+}
 
 describe("reviewed vault deployment runner", () => {
   it("collects read-only prerequisite estimates and leaves Safe creation behind an exact follow-up gate", async () => {
@@ -224,8 +234,88 @@ describe("reviewed vault deployment runner", () => {
     await expect(executeVaultPrerequisites({ ...value } as VaultDeploymentPlan, {} as never)).to.be.rejectedWith("reviewed planner");
   });
 
+  it("rejects an unmatched package hash and aggregate before signing", async () => {
+    const value = plan();
+    const reviewed = await reviewedPackage(value);
+    try {
+      expect(() => loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, keccak256("0x1234"))).to.throw(/package hash/i);
+
+      const decodedPath = join(reviewed.directory, "decoded-review.json");
+      const manifestPath = join(reviewed.directory, "public-manifest.json");
+      const hashesPath = join(reviewed.directory, "expected-evidence-hashes.json");
+      const decoded = JSON.parse(readFileSync(decodedPath, "utf8"));
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const hashes = JSON.parse(readFileSync(hashesPath, "utf8"));
+      decoded.estimates.maximumReservedOutlay = "1";
+      manifest.decodedReviewHash = sha256(decoded);
+      hashes.decodedReviewHash = manifest.decodedReviewHash;
+      hashes.publicManifestHash = sha256(manifest);
+      writeFileSync(decodedPath, `${JSON.stringify(decoded, null, 2)}\n`);
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      writeFileSync(hashesPath, `${JSON.stringify(hashes, null, 2)}\n`);
+      const names = ["unsigned-plan.json", "decoded-review.json", "public-manifest.json", "expected-evidence-hashes.json"];
+      const mutatedHash = sha256(names.map((name) => readFileSync(join(reviewed.directory, name), "utf8")));
+      expect(() => loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, mutatedHash)).to.throw(/aggregate|outlay/i);
+    } finally {
+      rmSync(reviewed.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a package transaction nonce that does not match the plan", async () => {
+    const value = plan();
+    const reviewed = await reviewedPackage(value);
+    try {
+      const decodedPath = join(reviewed.directory, "decoded-review.json");
+      const manifestPath = join(reviewed.directory, "public-manifest.json");
+      const hashesPath = join(reviewed.directory, "expected-evidence-hashes.json");
+      const decoded = JSON.parse(readFileSync(decodedPath, "utf8"));
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const hashes = JSON.parse(readFileSync(hashesPath, "utf8"));
+      decoded.transactions[0].nonce = "1";
+      manifest.decodedReviewHash = sha256(decoded);
+      hashes.decodedReviewHash = manifest.decodedReviewHash;
+      hashes.publicManifestHash = sha256(manifest);
+      writeFileSync(decodedPath, `${JSON.stringify(decoded, null, 2)}\n`);
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      writeFileSync(hashesPath, `${JSON.stringify(hashes, null, 2)}\n`);
+      const names = ["unsigned-plan.json", "decoded-review.json", "public-manifest.json", "expected-evidence-hashes.json"];
+      const mutatedHash = sha256(names.map((name) => readFileSync(join(reviewed.directory, name), "utf8")));
+      expect(() => loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, mutatedHash)).to.throw(/transaction mismatch.*setup-helper/i);
+    } finally {
+      rmSync(reviewed.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects fresh gas and fee bounds before signing", async () => {
+    const value = plan();
+    for (const excessive of ["gas", "maxFeePerGas", "maxPriorityFeePerGas"] as const) {
+      const reviewed = await reviewedPackage(value);
+      let signed = 0;
+      const journal: LiveJournal = { chainId: 11155111, funder: account.address, entries: [] };
+      const live: LiveContext = {
+        funder: account.address, chainId: async () => 11155111, nonce: async () => 0,
+        balance: async () => 50_000_000_000_000_000n, verify: async () => undefined,
+        sign: async () => { signed += 1; throw new Error("must not sign"); }, broadcast: async () => keccak256("0x01"),
+        receipt: async () => undefined, persist: async () => undefined,
+      };
+      try {
+        const approval = loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, reviewed.packageHash);
+        await expect(executeVaultPrerequisites(value, approval, {
+          live, journal,
+          feeFor: async () => ({ gas: excessive === "gas" ? 25_201n : 21_000n, maxFeePerGas: excessive === "maxFeePerGas" ? 11n : 10n, maxPriorityFeePerGas: excessive === "maxPriorityFeePerGas" ? 11n : 1n }),
+          waitForReceipt: async () => undefined,
+          verifyPrerequisites: async (_plan, stage) => evidence(value, stage),
+        })).to.be.rejectedWith(/reviewed.*cap/i);
+        expect(signed).to.equal(0);
+      } finally {
+        rmSync(reviewed.directory, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("stops after reconciling and verifying all four prerequisites", async () => {
     const value = plan();
+    const reviewed = await reviewedPackage(value);
     const journal: LiveJournal = { chainId: 11155111, funder: account.address, entries: [] };
     let nonce = 0;
     const receipts = new Map<Hex, boolean>();
@@ -242,22 +332,28 @@ describe("reviewed vault deployment runner", () => {
       receipt: async (transactionHash) => receipts.get(transactionHash) ? { transactionHash, status: "success" as const, gasUsed: 21_000n, effectiveGasPrice: 1n, blockNumber: 1n, blockHash: hash } : undefined,
       persist: async () => undefined,
     };
-    const result = await executeVaultPrerequisites(value, {
-      live, journal,
-      feeFor: async () => ({ gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
-      waitForReceipt: async (transactionHash) => { calls.push(`receipt:${transactionHash}`); receipts.set(transactionHash, true); },
-      verifyPrerequisites: async (_plan, stage) => { calls.push(stage); return evidence(value, stage); },
-    });
-    expect(result.prerequisiteEvidence.stage).to.equal("before-setup");
-    expect(journal.entries.map((entry) => entry.id)).to.deep.equal(["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance"]);
-    expect(journal.entries.every((entry) => entry.status === "success")).to.equal(true);
-    expect(calls).to.include("before-setup");
-    expect(calls).not.to.include("after-setup");
-    expect(signed.size).to.equal(4);
+    try {
+      const approval = loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, reviewed.packageHash);
+      const result = await executeVaultPrerequisites(value, approval, {
+        live, journal,
+        feeFor: async () => ({ gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+        waitForReceipt: async (transactionHash) => { calls.push(`receipt:${transactionHash}`); receipts.set(transactionHash, true); },
+        verifyPrerequisites: async (_plan, stage) => { calls.push(stage); return evidence(value, stage); },
+      });
+      expect(result.prerequisiteEvidence.stage).to.equal("before-setup");
+      expect(journal.entries.map((entry) => entry.id)).to.deep.equal(["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance"]);
+      expect(journal.entries.every((entry) => entry.status === "success")).to.equal(true);
+      expect(calls).to.include("before-setup");
+      expect(calls).not.to.include("after-setup");
+      expect(signed.size).to.equal(4);
+    } finally {
+      rmSync(reviewed.directory, { recursive: true, force: true });
+    }
   });
 
   it("obtains each fee only when its nonce is ready to submit", async () => {
     const value = plan();
+    const reviewed = await reviewedPackage(value);
     const journal: LiveJournal = { chainId: 11155111, funder: account.address, entries: [] };
     let nonce = 0;
     const receipts = new Set<Hex>();
@@ -273,17 +369,22 @@ describe("reviewed vault deployment runner", () => {
       receipt: async (transactionHash) => receipts.has(transactionHash) ? { transactionHash, status: "success" as const, gasUsed: 21_000n, effectiveGasPrice: 1n, blockNumber: 1n, blockHash: hash } : undefined,
       persist: async () => undefined,
     };
-    await executeVaultPrerequisites(value, {
-      live,
-      journal,
-      feeFor: async (transaction) => {
-        expect(journal.entries).to.have.length(Number(transaction.nonce));
-        feeCalls.push(transaction.description);
-        return { gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n };
-      },
-      waitForReceipt: async (transactionHash) => { receipts.add(transactionHash); },
-      verifyPrerequisites: async (_plan, stage) => evidence(value, stage),
-    });
-    expect(feeCalls).to.deep.equal(["test", "test", "test", "test"]);
+    try {
+      const approval = loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, reviewed.packageHash);
+      await executeVaultPrerequisites(value, approval, {
+        live,
+        journal,
+        feeFor: async (transaction) => {
+          expect(journal.entries).to.have.length(Number(transaction.nonce));
+          feeCalls.push(transaction.description);
+          return { gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n };
+        },
+        waitForReceipt: async (transactionHash) => { receipts.add(transactionHash); },
+        verifyPrerequisites: async (_plan, stage) => evidence(value, stage),
+      });
+      expect(feeCalls).to.deep.equal(["test", "test", "test", "test"]);
+    } finally {
+      rmSync(reviewed.directory, { recursive: true, force: true });
+    }
   });
 });
