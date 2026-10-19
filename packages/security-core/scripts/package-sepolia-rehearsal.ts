@@ -140,6 +140,8 @@ function planTransactions(plan: VaultDeploymentPlan): readonly Readonly<{ id: Va
 
 function assertReviewedEvidence(plan: VaultDeploymentPlan, evidence: VaultDeploymentReviewEvidence): void {
   if (evidence.snapshotBlockNumber <= 0n) throw new Error("review snapshot block number is required");
+  if (!/^0x[0-9a-fA-F]{64}$/.test(evidence.snapshotBlockHash)) throw new Error("review snapshot block hash is required");
+  if (evidence.readContext.chainState !== "block-number-pinned" || evidence.readContext.gasEstimates !== "block-number-pinned" || evidence.readContext.finalization !== "canonical-block-and-latest-account-rechecked") throw new Error("review read context is invalid");
   if (evidence.observedDeployerNonce !== plan.startingNonce) throw new Error("review deployer nonce does not match plan");
   if (evidence.phaseOutlayCeiling <= 0n || evidence.maximumReservedOutlay < 0n || evidence.maximumReservedOutlay > evidence.phaseOutlayCeiling) {
     throw new Error("reviewed deployment exceeds phase outlay ceiling");
@@ -211,6 +213,8 @@ export function writeReviewedVaultDeploymentPackage(plan: VaultDeploymentPlan, e
     delay: plan.review.modules[0],
     policyHash: plan.review.policyHash,
     snapshotBlockNumber: evidence.snapshotBlockNumber,
+    snapshotBlockHash: evidence.snapshotBlockHash,
+    readContext: evidence.readContext,
     phaseOutlayCeiling: evidence.phaseOutlayCeiling,
     maximumReservedOutlay: evidence.maximumReservedOutlay,
     unsignedPlanHash: sha256(publicPlan),

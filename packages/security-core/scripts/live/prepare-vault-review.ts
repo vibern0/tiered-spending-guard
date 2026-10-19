@@ -18,6 +18,12 @@ export type VaultDeploymentEstimate = Readonly<{
 
 export type VaultDeploymentReviewEvidence = Readonly<{
   snapshotBlockNumber: bigint;
+  snapshotBlockHash: Hex;
+  readContext: Readonly<{
+    chainState: "block-number-pinned";
+    gasEstimates: "block-number-pinned";
+    finalization: "canonical-block-and-latest-account-rechecked";
+  }>;
   observedDeployerNonce: bigint;
   funderBalance: bigint;
   phaseOutlayCeiling: bigint;
@@ -34,17 +40,29 @@ export function isCollectedVaultDeploymentReviewEvidence(plan: VaultDeploymentPl
 }
 
 export type VaultReviewClient = Readonly<{
-  getBlockNumber(): Promise<bigint>;
-  getTransactionCount(args: { address: Address }): Promise<number | bigint>;
-  getBalance(args: { address: Address }): Promise<bigint>;
-  estimateGas(args: { account: Address; to?: Address; data: Hex; value: bigint; nonce: number }): Promise<bigint>;
-  call(args: { account: Address; to?: Address; data: Hex; value: bigint; nonce: number; gas: bigint }): Promise<unknown>;
+  getBlock(args?: { blockNumber?: bigint }): Promise<{ number: bigint | null; hash: Hex | null }>;
+  getTransactionCount(args: { address: Address; blockNumber?: bigint }): Promise<number | bigint>;
+  getBalance(args: { address: Address; blockNumber?: bigint }): Promise<bigint>;
+  estimateGas(args: { account: Address; to?: Address; data: Hex; value: bigint; nonce: number; blockNumber?: bigint }): Promise<bigint>;
+  call(args: { account: Address; to?: Address; data: Hex; value: bigint; nonce: number; gas: bigint; blockNumber?: bigint }): Promise<unknown>;
 }>;
+
+export type VaultReviewSnapshot = Readonly<{ blockNumber: bigint; blockHash: Hex }>;
+const capturedSnapshots = new WeakSet<object>();
+
+export async function captureVaultReviewSnapshot(client: Pick<VaultReviewClient, "getBlock">): Promise<VaultReviewSnapshot> {
+  const block = await client.getBlock();
+  if (block.number === null || block.number <= 0n || !block.hash || !/^0x[0-9a-fA-F]{64}$/.test(block.hash)) throw new Error("review snapshot block is incomplete");
+  const snapshot = Object.freeze({ blockNumber: block.number, blockHash: block.hash });
+  capturedSnapshots.add(snapshot);
+  return snapshot;
+}
 
 export type VaultReviewLimits = Readonly<{
   maxFeePerGas: bigint;
   maxPriorityFeePerGas: bigint;
   safeCreationGasLimit: bigint;
+  snapshot: VaultReviewSnapshot;
   runtimeChecks: VaultDeploymentReviewEvidence["runtimeChecks"];
   assetChecks: VaultDeploymentReviewEvidence["assetChecks"];
 }>;
@@ -101,18 +119,17 @@ export async function collectVaultDeploymentReviewEvidence(
   limits: VaultReviewLimits,
 ): Promise<VaultDeploymentReviewEvidence> {
   if (!isReviewedVaultDeploymentPlan(plan)) throw new Error("fail closed: vault deployment plan was not produced by the reviewed planner");
+  if (!capturedSnapshots.has(limits.snapshot)) throw new Error("fail closed: review snapshot must be captured from the public client");
   assertExactReviewChecks(plan, limits);
   if (limits.maxFeePerGas <= 0n || limits.maxPriorityFeePerGas < 0n || limits.maxPriorityFeePerGas > limits.maxFeePerGas || limits.safeCreationGasLimit <= 0n) {
     throw new Error("invalid reviewed deployment fee limits");
   }
-  const observedNonceRaw = await client.getTransactionCount({ address: plan.deployer });
+  const { blockNumber: snapshotBlockNumber, blockHash: snapshotBlockHash } = limits.snapshot;
+  const observedNonceRaw = await client.getTransactionCount({ address: plan.deployer, blockNumber: snapshotBlockNumber });
   const observedDeployerNonce = typeof observedNonceRaw === "bigint" ? observedNonceRaw : BigInt(observedNonceRaw);
   if (observedDeployerNonce !== plan.startingNonce) throw new Error(`deployer nonce changed: expected ${plan.startingNonce}, observed ${observedDeployerNonce}`);
 
-  const [snapshotBlockNumber, funderBalance] = await Promise.all([
-    client.getBlockNumber(),
-    client.getBalance({ address: plan.deployer }),
-  ]);
+  const funderBalance = await client.getBalance({ address: plan.deployer, blockNumber: snapshotBlockNumber });
   const transactions: VaultDeploymentReviewEvidence["transactions"][number][] = [];
   for (const { id, transaction } of prerequisiteSteps(plan)) {
     const estimatedGas = await client.estimateGas({
@@ -121,6 +138,7 @@ export async function collectVaultDeploymentReviewEvidence(
       data: transaction.data,
       value: transaction.value,
       nonce: Number(transaction.nonce),
+      blockNumber: snapshotBlockNumber,
     });
     const proposedGasLimit = reviewedGasLimit(estimatedGas);
     await client.call({
@@ -130,6 +148,7 @@ export async function collectVaultDeploymentReviewEvidence(
       value: transaction.value,
       nonce: Number(transaction.nonce),
       gas: proposedGasLimit,
+      blockNumber: snapshotBlockNumber,
     });
     transactions.push({
       id,
@@ -157,8 +176,26 @@ export async function collectVaultDeploymentReviewEvidence(
   }
   if (funderBalance < maximumReservedOutlay) throw new Error("funder balance is below maximum reviewed deployment outlay");
 
+  const [canonicalBlock, finalNonceRaw, finalBalance] = await Promise.all([
+    client.getBlock({ blockNumber: snapshotBlockNumber }),
+    client.getTransactionCount({ address: plan.deployer }),
+    client.getBalance({ address: plan.deployer }),
+  ]);
+  if (canonicalBlock.number !== snapshotBlockNumber || !canonicalBlock.hash || canonicalBlock.hash.toLowerCase() !== snapshotBlockHash.toLowerCase()) {
+    throw new Error("review snapshot is no longer canonical");
+  }
+  const finalNonce = typeof finalNonceRaw === "bigint" ? finalNonceRaw : BigInt(finalNonceRaw);
+  if (finalNonce !== observedDeployerNonce) throw new Error(`deployer nonce changed during review: expected ${observedDeployerNonce}, observed ${finalNonce}`);
+  if (finalBalance !== funderBalance) throw new Error(`funder balance changed during review: expected ${funderBalance}, observed ${finalBalance}`);
+
   const result = Object.freeze({
     snapshotBlockNumber,
+    snapshotBlockHash,
+    readContext: Object.freeze({
+      chainState: "block-number-pinned" as const,
+      gasEstimates: "block-number-pinned" as const,
+      finalization: "canonical-block-and-latest-account-rechecked" as const,
+    }),
     observedDeployerNonce,
     funderBalance,
     phaseOutlayCeiling: PHASE_OUTLAY_LIMIT,

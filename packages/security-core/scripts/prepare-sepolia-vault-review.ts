@@ -17,7 +17,7 @@ import { buildVaultPlan, deriveVaultSafeProxyAddress, planHash } from "../src/to
 import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../src/topology/evidence";
 import { resolveReviewedVaultArtifacts } from "../src/topology/reviewed-artifacts";
 import { loadCredential } from "./live/secrets";
-import { collectVaultDeploymentReviewEvidence } from "./live/prepare-vault-review";
+import { captureVaultReviewSnapshot, collectVaultDeploymentReviewEvidence } from "./live/prepare-vault-review";
 import { writeReviewedVaultDeploymentPackage } from "./package-sepolia-rehearsal";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -97,10 +97,17 @@ async function main(): Promise<void> {
   const secondary = { x: secondaryLoaded.x, y: secondaryLoaded.y };
   const client = createPublicClient({ chain: sepolia, transport: http(PUBLIC_RPC) });
   if (await client.getChainId() !== sepolia.id) throw new Error("public RPC returned the wrong chain");
-  const startingNonce = BigInt(await client.getTransactionCount({ address: config.funder }));
-  const primaryRuntime = await client.getBytecode({ address: config.primaryPasskey });
+  const snapshot = await captureVaultReviewSnapshot(client);
+  const snapshotClient = {
+    getBytecode: ({ address }: { address: Address }) => client.getBytecode({ address, blockNumber: snapshot.blockNumber }),
+    getTransactionCount: ({ address }: { address: Address }) => client.getTransactionCount({ address, blockNumber: snapshot.blockNumber }),
+    readContract: (args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }) => client.readContract({ ...args, blockNumber: snapshot.blockNumber } as never),
+    call: ({ data }: { data: Hex }) => client.call({ data, blockNumber: snapshot.blockNumber }),
+  };
+  const startingNonce = BigInt(await snapshotClient.getTransactionCount({ address: config.funder }));
+  const primaryRuntime = await snapshotClient.getBytecode({ address: config.primaryPasskey });
   if (!primaryRuntime) throw new Error("primary passkey signer is absent");
-  const deployments = await resolveVerifiedDeploymentInfrastructure(client, {
+  const deployments = await resolveVerifiedDeploymentInfrastructure(snapshotClient, {
     chainId: config.chainId,
     deployer: config.funder,
     expectedDeployerNonce: startingNonce,
@@ -112,9 +119,9 @@ async function main(): Promise<void> {
       binding: { x: primary.x, y: primary.y, verifiers: VERIFIER },
     },
   });
-  const secondaryRuntime = await client.getBytecode({ address: config.safeContractSecondary });
+  const secondaryRuntime = await snapshotClient.getBytecode({ address: config.safeContractSecondary });
   if (!secondaryRuntime) throw new Error("Safe-contract secondary signer is absent");
-  const verifiedSecondary = await verifyPasskeySignerComponent(client, {
+  const verifiedSecondary = await verifyPasskeySignerComponent(snapshotClient, {
     name: "safeContractSecondary",
     address: config.safeContractSecondary,
     runtimeCodeHash: keccak256(secondaryRuntime),
@@ -123,10 +130,10 @@ async function main(): Promise<void> {
     source: "approved local automated secondary credential",
     binding: { x: secondary.x, y: secondary.y, verifiers: VERIFIER },
   });
-  const ecdsaCode = await client.getBytecode({ address: config.ecdsaSecondary });
+  const ecdsaCode = await snapshotClient.getBytecode({ address: config.ecdsaSecondary });
   if (ecdsaCode && ecdsaCode !== "0x") throw new Error("ECDSA secondary must remain an EOA in the ordinary baseline profile");
 
-  const proxyCreationCode = await client.readContract({
+  const proxyCreationCode = await snapshotClient.readContract({
     address: deployments.safeProxyFactory.address,
     abi: [{ name: "proxyCreationCode", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] }] as const,
     functionName: "proxyCreationCode",
@@ -157,7 +164,7 @@ async function main(): Promise<void> {
   const delayResponse = await fetch(ZODIAC_DELAY_V1_1_1.sourceUrl);
   if (!delayResponse.ok) throw new Error("pinned Delay artifact fetch failed");
   const artifacts = await resolveReviewedVaultArtifacts({
-    client,
+    client: snapshotClient,
     deployments,
     safe,
     primaryPasskey: config.primaryPasskey,
@@ -170,12 +177,12 @@ async function main(): Promise<void> {
     delayArtifactSource: await delayResponse.text(),
   });
   const plan = buildVaultPlan({ policy: { ...draft, safe }, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, artifacts, deployments });
-  const erc20Runtime = await client.getBytecode({ address: config.erc20 });
+  const erc20Runtime = await snapshotClient.getBytecode({ address: config.erc20 });
   if (!erc20Runtime) throw new Error("selected ERC-20 has no runtime code");
   const [name, symbol, decimals] = await Promise.all([
-    client.readContract({ address: config.erc20, abi: ERC20_ABI, functionName: "name" }),
-    client.readContract({ address: config.erc20, abi: ERC20_ABI, functionName: "symbol" }),
-    client.readContract({ address: config.erc20, abi: ERC20_ABI, functionName: "decimals" }),
+    snapshotClient.readContract({ address: config.erc20, abi: ERC20_ABI, functionName: "name" }),
+    snapshotClient.readContract({ address: config.erc20, abi: ERC20_ABI, functionName: "symbol" }),
+    snapshotClient.readContract({ address: config.erc20, abi: ERC20_ABI, functionName: "decimals" }),
   ]);
   if (name !== config.erc20Name || symbol !== config.erc20Symbol || decimals !== config.erc20Decimals) throw new Error("selected ERC-20 metadata does not match the reviewed public profile");
   const runtimeChecks = [
@@ -192,6 +199,7 @@ async function main(): Promise<void> {
     maxFeePerGas: config.maxFeePerGas,
     maxPriorityFeePerGas: config.maxPriorityFeePerGas,
     safeCreationGasLimit: config.safeCreationGasLimit,
+    snapshot,
     runtimeChecks,
     assetChecks: [
       { token: ZERO, kind: "native", symbol: "ETH", decimals: 18 },

@@ -12,7 +12,7 @@ import {
   type VerifiedVaultPrerequisites,
 } from "../../../src/topology/build";
 import { executeVaultDeployment } from "../../../scripts/live/vault-runner";
-import { collectVaultDeploymentReviewEvidence } from "../../../scripts/live/prepare-vault-review";
+import { captureVaultReviewSnapshot, collectVaultDeploymentReviewEvidence, type VaultReviewSnapshot } from "../../../scripts/live/prepare-vault-review";
 import { writeReviewedVaultDeploymentPackage } from "../../../scripts/package-sepolia-rehearsal";
 import type { LiveContext, LiveJournal } from "../../../scripts/live/submission";
 import { OFFICIAL_DEPLOYMENT_REGISTRY } from "../../../src/config/deployments";
@@ -46,12 +46,13 @@ function evidence(value: VaultDeploymentPlan, stage: "before-setup" | "after-set
   }));
 }
 
-function reviewLimits(value: VaultDeploymentPlan) {
+function reviewLimits(value: VaultDeploymentPlan, snapshot: VaultReviewSnapshot) {
   const registry = OFFICIAL_DEPLOYMENT_REGISTRY[11155111]!;
   return {
     maxFeePerGas: 10n,
     maxPriorityFeePerGas: 1n,
     safeCreationGasLimit: 50_000n,
+    snapshot,
     runtimeChecks: [
       ...Object.values(registry).map((record) => ({ name: record.name, address: record.address!, runtimeCodeHash: record.runtimeCodeHash! })),
       { name: "primaryPasskey", address: address(7), runtimeCodeHash: hash, bindingHash: hash },
@@ -67,7 +68,7 @@ function reviewLimits(value: VaultDeploymentPlan) {
 }
 
 const reviewClient = () => ({
-  getBlockNumber: async () => 123n,
+  getBlock: async () => ({ number: 123n, hash }),
   getTransactionCount: async () => 0,
   getBalance: async () => 50_000_000_000_000_000n,
   estimateGas: async () => 21_000n,
@@ -78,13 +79,15 @@ describe("reviewed vault deployment runner", () => {
   it("collects read-only prerequisite estimates and leaves Safe creation behind an exact follow-up gate", async () => {
     const value = plan();
     const estimated: string[] = [];
-    const evidence = await collectVaultDeploymentReviewEvidence(value, {
-      getBlockNumber: async () => 123n,
+    const client = {
+      getBlock: async () => ({ number: 123n, hash }),
       getTransactionCount: async ({ address: deployer }) => { expect(deployer).to.equal(account.address); return 0; },
       getBalance: async ({ address: deployer }) => { expect(deployer).to.equal(account.address); return 50_000_000_000_000_000n; },
-      estimateGas: async (transaction) => { estimated.push(`${transaction.account}:${transaction.data}`); return 21_000n; },
-      call: async ({ gas }) => { expect(gas).to.equal(25_200n); return {}; },
-    }, reviewLimits(value));
+      estimateGas: async (transaction: { account: Address; data: Hex; blockNumber?: bigint }) => { expect(transaction.blockNumber).to.equal(123n); estimated.push(`${transaction.account}:${transaction.data}`); return 21_000n; },
+      call: async ({ gas, blockNumber }: { gas: bigint; blockNumber?: bigint }) => { expect(gas).to.equal(25_200n); expect(blockNumber).to.equal(123n); return {}; },
+    };
+    const snapshot = await captureVaultReviewSnapshot(client);
+    const evidence = await collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot));
     expect(estimated).to.have.length(4);
     expect(estimated.every((entry) => entry.startsWith(`${account.address}:0x6000`))).to.equal(true);
     expect(evidence.transactions.slice(0, 4).every((transaction) => transaction.estimateStatus === "estimated" && transaction.reviewedGasLimit === 25_200n && transaction.limitSimulationStatus === "eth_call-succeeded")).to.equal(true);
@@ -94,23 +97,27 @@ describe("reviewed vault deployment runner", () => {
 
   it("fails review preparation on nonce drift before estimating", async () => {
     const value = plan();
-    await expect(collectVaultDeploymentReviewEvidence(value, {
-      getBlockNumber: async () => 123n,
+    const client = {
+      getBlock: async () => ({ number: 123n, hash }),
       getTransactionCount: async () => 1,
       getBalance: async () => 50_000_000_000_000_000n,
       estimateGas: async () => { throw new Error("must not estimate"); },
       call: async () => { throw new Error("must not simulate"); },
-    }, reviewLimits(value))).to.be.rejectedWith(/nonce changed/i);
+    };
+    const snapshot = await captureVaultReviewSnapshot(client);
+    await expect(collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot))).to.be.rejectedWith(/nonce changed/i);
   });
 
   it("rejects missing checklist entries and cloned collector evidence", async () => {
     const value = plan();
-    const complete = reviewLimits(value);
-    await expect(collectVaultDeploymentReviewEvidence(value, reviewClient(), {
+    const client = reviewClient();
+    const snapshot = await captureVaultReviewSnapshot(client);
+    const complete = reviewLimits(value, snapshot);
+    await expect(collectVaultDeploymentReviewEvidence(value, client, {
       ...complete,
       runtimeChecks: complete.runtimeChecks.slice(0, -1),
     })).to.be.rejectedWith(/runtime checklist is incomplete/i);
-    const collected = await collectVaultDeploymentReviewEvidence(value, reviewClient(), complete);
+    const collected = await collectVaultDeploymentReviewEvidence(value, client, complete);
     expect(Object.isFrozen(collected)).to.equal(true);
     expect(Object.isFrozen(collected.runtimeChecks[0])).to.equal(true);
     const directory = mkdtempSync(join(tmpdir(), "reviewed-vault-package-clone-"));
@@ -121,11 +128,39 @@ describe("reviewed vault deployment runner", () => {
     }
   });
 
+  it("fails closed when the pinned review block changes before finalization", async () => {
+    const value = plan();
+    let blockReads = 0;
+    const client = {
+      ...reviewClient(),
+      getBlock: async () => ({ number: 123n, hash: blockReads++ === 0 ? hash : keccak256("0x6001") }),
+    };
+    const snapshot = await captureVaultReviewSnapshot(client);
+    await expect(collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot))).to.be.rejectedWith(/snapshot.*canonical/i);
+  });
+
+  it("fails closed when nonce or balance changes before finalization", async () => {
+    const value = plan();
+    for (const drift of ["nonce", "balance"] as const) {
+      let nonceReads = 0;
+      let balanceReads = 0;
+      const client = {
+        ...reviewClient(),
+        getTransactionCount: async () => drift === "nonce" && nonceReads++ > 0 ? 1 : 0,
+        getBalance: async () => drift === "balance" && balanceReads++ > 0 ? 49_999_999_999_999_999n : 50_000_000_000_000_000n,
+      };
+      const snapshot = await captureVaultReviewSnapshot(client);
+      await expect(collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot))).to.be.rejectedWith(new RegExp(`${drift} changed during review`, "i"));
+    }
+  });
+
   it("packages the branded artifact-backed plan with exact decoded transactions and bounded public estimates", async () => {
     const value = plan();
     const directory = mkdtempSync(join(tmpdir(), "reviewed-vault-package-"));
     try {
-      const collected = await collectVaultDeploymentReviewEvidence(value, reviewClient(), reviewLimits(value));
+      const client = reviewClient();
+      const snapshot = await captureVaultReviewSnapshot(client);
+      const collected = await collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot));
       const result = writeReviewedVaultDeploymentPackage(value, collected, directory);
       expect(result.files.map((file) => file.split("/").pop()).sort()).to.deep.equal(["decoded-review.json", "expected-evidence-hashes.json", "public-manifest.json", "unsigned-plan.json"]);
       const unsignedPlan = JSON.parse(readFileSync(join(directory, "unsigned-plan.json"), "utf8"));
@@ -137,6 +172,8 @@ describe("reviewed vault deployment runner", () => {
       expect(decoded.transactions[0]).to.include({ nonce: "0", to: address(0), data: code, expectedCreatedAddress: address(1) });
       expect(decoded.estimates.transactions[4]).to.include({ id: "vault-safe", estimateStatus: "deferred-until-prerequisites", reviewedGasLimit: "50000" });
       expect(manifest.status).to.equal("AWAITING_HUMAN_REVIEW");
+      expect(manifest).to.include({ snapshotBlockNumber: "123", snapshotBlockHash: hash });
+      expect(manifest.readContext).to.deep.equal({ chainState: "block-number-pinned", gasEstimates: "block-number-pinned", finalization: "canonical-block-and-latest-account-rechecked" });
       expect(manifest.reviewBoundary).to.match(/no signing or broadcast/i);
       expect(BigInt(decoded.estimates.maximumReservedOutlay) <= BigInt(decoded.estimates.phaseOutlayCeiling)).to.equal(true);
     } finally {
