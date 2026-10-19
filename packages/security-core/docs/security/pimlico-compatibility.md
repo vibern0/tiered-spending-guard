@@ -8,6 +8,8 @@ The prior ordinary-Safe live gate is open. Task 1 Step 1 therefore permits inves
 
 **2026-10-17 follow-up:** The [native one-Safe design proposal](../superpowers/specs/2026-10-17-native-safe-4337-design.md) selects a restricted handler, locked bootstrap followed by execution-phase activation, contract-only secondary and manual ready Delay transport. It replaces the stock-module approach as a research candidate. It does not change this report's blocked verdict or supply the missing native-profile gas, trace, sponsorship, inclusion or live evidence.
 
+**2026-10-19 disposition:** The native design is the approved implementation scope once the ordinary-Safe live gate passes. It supersedes this report's hypothetical stock-module nesting and funder-deposit resolution path; the source findings explaining why the stock candidate was rejected remain evidence. Only the named restricted handler/bootstrap/anchors, contract-only secondary, restricted nonzero fallback, sponsored gas, and delayed handler/profile maintenance are in scope. `apps/backend` remains the browser write boundary until replacement evidence is complete.
+
 ## Prior evidence audit
 
 | Required evidence | Recorded result | Evidence / limit |

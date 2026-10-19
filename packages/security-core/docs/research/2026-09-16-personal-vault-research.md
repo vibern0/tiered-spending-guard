@@ -4,6 +4,12 @@
 **Date:** 2026-09-16
 **Repository:** `recent-tx-safe-guard`
 
+## 2026-10-19 supersession: approved native Safe ERC-4337 candidate
+
+The approved [native Safe design](../superpowers/specs/2026-10-17-native-safe-4337-design.md) replaces the stock Safe4337Module, nested owner-call wrapper, and funder-paid EntryPoint-deposit direction. The selected candidate keeps one asset-holding Safe, an ordinary guarded Safe transaction as the policy-bearing inner action, Delay as the only enabled module, and sponsored gas. It adds only a selector-restricted fallback handler, locked bootstrap factory/helper, and inert creation-code anchors. The locked shared passkey owner must transition during the exact nonce-0 activation to the same public key's credential-specific signer. The active profile has one primary owner and one guard-only contract/passkey secondary; the ECDSA secondary is absent and disabled.
+
+The nonzero fallback is allowed only with exact handler/runtime/profile identity, authenticated EntryPoint caller suffixes, canonical ABI, approved nonzero paymaster, zero missing-account funds, and denial of both ERC-1271 message selectors and unknown calls. Handler or sponsor-profile changes are delayed maintenance actions. Ordinary Safe Sepolia receipts, the X/Y/Z/cancel/expiry/repair matrix, and independent alerts remain a prerequisite; local tests and an unsigned package do not pass that gate. `apps/backend` remains required until a native replacement is independently evidenced.
+
 ## 2026-10-09 supersession: primary owner, guard-only secondaries
 
 The approved [guard validation plan](../superpowers/plans/2026-10-09-guard-live-validation.md) supersedes the three-owner topology below. The primary passkey is the sole Safe owner at threshold 1. Contract and ECDSA secondaries are configured and independently validated by `TieredSpendingGuard` over the exact Safe transaction; neither is a Safe owner. Primary rotation atomically swaps the owner and guard identity after Delay. Secondary rotation changes guard configuration only, after Delay. No recovery owner is installed.

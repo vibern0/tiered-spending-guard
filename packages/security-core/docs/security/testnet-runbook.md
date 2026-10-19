@@ -41,6 +41,14 @@ npm run package:sepolia-rehearsal -- config/sepolia.example.json /tmp/recent-tx-
 
 The package directory contains only `unsigned-plan.json`, `decoded-review.json`, `public-manifest.json`, and `expected-evidence-hashes.json`. It must not contain signatures, private keys, RPC URLs, passkey material, Burner PINs, broadcast instructions, or recovery fields. Treat the package as input to human review; it is not an instruction to submit any transaction.
 
+For the concrete ordinary-Safe review, use `config/sepolia.ordinary-review.json` plus the two private external credential target paths with the approved loader:
+
+```sh
+npm run prepare:sepolia-vault-review -- config/sepolia.ordinary-review.json /absolute/private/primary-passkey.json /absolute/private/secondary-passkey.json /tmp/sepolia-vault-review
+```
+
+This command performs public runtime, signer-binding, token-metadata, nonce, balance, `eth_estimateGas`, and exact-limit `eth_call` checks. It emits an artifact-backed package with status `AWAITING_HUMAN_REVIEW`; its fee and gas values are proposals until a human approves the decoded package. Safe creation stays `deferred-until-prerequisites`: after the four prerequisite receipts and bindings are reconciled, re-estimate the exact factory transaction and require it to fit every recorded cap before signing. A successful command is read-only evidence, not permission to sign or broadcast.
+
 Verify using a separately collected public read-only snapshot:
 
 ```sh

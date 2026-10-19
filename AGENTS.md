@@ -13,6 +13,12 @@ Before adding or changing passkey, Burner, Cometh, embedded-wallet, or account-a
 
 The research document defines the intended security properties and scope. The implementation plan defines the approved sequence, file boundaries, tests, and delivery gates. If code and documentation disagree, stop and resolve the discrepancy explicitly; do not silently weaken the documented property.
 
+## 2026-10-19 native Safe ERC-4337 scope amendment
+
+The approved native design permits only the named restricted fallback handler, locked bootstrap factory/helper, and immutable artifact anchors. It permits an initialization-only shared signer followed by a same-key credential-specific owner swap, a contract-only secondary profile with no ECDSA placeholder, and a nonzero fallback only when its exact handler identity, caller suffix, selector, sponsor, and sealed phase are verified. Handler/profile replacement is a separately enumerated delayed maintenance action. This amendment supersedes the older stock-module, nested `execTransaction`, and funder-paid EntryPoint-deposit Phase Two design. It does not authorize implementation until the ordinary-Safe Sepolia receipt, X/Y/Z/cancel/expiry/repair, and independent-alert gate is complete.
+
+Keep `apps/backend` as the browser write boundary until the native replacement passes its own provider, browser, monitoring, and live gates. The native profile must not add an enabled account-abstraction module, generic message validation, a user EOA, an application relay/deployment key, a hidden sponsor proxy, or vault-funded gas.
+
 ## Historical code
 
 `RecentTransactionGuard.sol`, `GnosisSafeMock.sol`, and their tests are a 2024 experiment. They are not a production foundation:

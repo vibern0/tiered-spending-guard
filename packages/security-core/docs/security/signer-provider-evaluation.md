@@ -3,6 +3,12 @@
 **Status:** Security-core design note
 **Date:** 2026-09-16
 
+## 2026-10-19 native-profile amendment
+
+The approved native candidate uses contract passkeys only: the primary is the sole active Safe owner and the distinct secondary is guard-only. No ECDSA secondary, dummy EOA, user EOA, application relay/deployment key, WalletConnect path, or alternate custody account is allowed. During locked bootstrap only, Safe's shared WebAuthn signer may own the Safe for the committed primary key; exact nonce-0 activation must replace it with the same key's credential-specific signer. The restricted fallback handler validates the outer EntryPoint 0.8 user-operation signature but exposes no general execute or ERC-1271 message API. Provider and sponsor acceptance remain unproven until real quotes, validation traces, inclusion receipts, browser requests, and bounded-policy tests exist.
+
+This amendment supersedes the stock Safe4337Module and nested owner-call transport described in older notes. The ordinary Safe live gate and `apps/backend` remain in force until their documented replacement gates pass.
+
 ## 2026-10-09 active design
 
 Primary passkey: sole Safe owner, threshold 1. Contract/ECDSA secondary: guard-only approval over the exact Safe transaction digest; Safe ownership is not required. The earlier three-owner implementation notes below are historical. Preserve the provider-neutral request binding and non-WalletConnect boundary. Direct Burner NFC and device-passkey UX are unverified; automated live tests must use real WebAuthn cryptography and real passkey contracts, never permissive mocks. The funded test EOA is a gas/deployment payer, not a vault authorizer.

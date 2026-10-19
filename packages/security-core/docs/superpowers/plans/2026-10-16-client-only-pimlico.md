@@ -10,6 +10,8 @@
 
 **Spec:** `packages/security-core/docs/superpowers/specs/2026-10-16-client-only-pimlico-design.md`
 
+**2026-10-19 scope supersession:** The approved [native Safe design](../specs/2026-10-17-native-safe-4337-design.md) replaces this plan's stock Safe4337Module, nested `execTransaction`, sponsored prerequisite deployment, and funder-paid EntryPoint-deposit assumptions. Its only accepted candidate uses the named restricted handler, locked bootstrap helper/factory, inert creation-code anchors, sponsored gas, a contract-only secondary, and delayed handler/profile maintenance. This historical plan's ordinary-Safe live prerequisite and backend-retention gates remain binding. None of its unchecked implementation steps are authorized by the supersession alone.
+
 ## Global Constraints
 
 - Sepolia (`chainId = 11155111`) only. No WalletConnect, mainnet, arbitrary DeFi, or production/audit claim.
