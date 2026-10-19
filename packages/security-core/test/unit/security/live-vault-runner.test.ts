@@ -17,6 +17,8 @@ import { writeReviewedVaultDeploymentPackage } from "../../../scripts/package-se
 import type { LiveContext, LiveJournal } from "../../../scripts/live/submission";
 import { OFFICIAL_DEPLOYMENT_REGISTRY } from "../../../src/config/deployments";
 import { sha256 } from "../../../scripts/plan-deployment";
+import { assertOrdinaryReviewPlan, buildOrdinaryReviewPolicyDraft, readOrdinaryReviewConfig, selectApprovedFees } from "../../../scripts/live/ordinary-review-profile";
+import { deriveComponentAddresses } from "../../../src/topology/addressing";
 
 process.env.NODE_ENV = "test";
 
@@ -25,16 +27,49 @@ const code = "0x6000" as Hex;
 const hash = keccak256(code);
 const account = privateKeyToAccount(generatePrivateKey());
 
-function plan(): VaultDeploymentPlan {
+function plan(reviewAssets?: VaultDeploymentPlan["review"]["assets"]): VaultDeploymentPlan {
   const transaction = (nonce: bigint, created: Address) => ({ description: "test", nonce, to: address(0), value: 0n, operation: 0 as const, data: code, expectedCreatedAddress: created, creationCodeHash: hash, expectedRuntimeCodeHash: hash });
   const value = {
     unsigned: true as const, broadcast: false as const, chainId: 11155111, deployer: account.address, startingNonce: 0n, safeProxySaltNonce: 7n,
     prerequisites: { setupHelper: transaction(0n, address(1)), guard: transaction(1n, address(2)), delay: transaction(2n, address(3)), maintenance: transaction(3n, address(4)) },
     safeProxyDeployment: { ...transaction(4n, address(5)), to: address(6) },
     safeInitializer: "0x" as Hex, setupHelperCalldata: "0x" as Hex,
-    review: { owners: [address(7)] as readonly [Address], threshold: 1 as const, fallbackHandler: address(0), paymentToken: address(0), payment: 0n, paymentReceiver: address(0), transactionGuard: address(2), moduleGuard: address(2), modules: [address(3)] as const, safeContractSecondary: address(8), ecdsaSecondary: address(9), assets: [{ token: address(0), basePerTransaction: 1n, stepUpPerTransaction: 2n, baseDailyLimit: 1n, instantDailyLimit: 2n, recipients: [address(10)] }], delay: { owner: address(5), avatar: address(5), target: address(5), upstreamModules: [address(5)] as const, cooldownSeconds: 120, expirationSeconds: 600 }, periodAnchor: 0n, policyHash: hash, creationCodeHashes: { setupHelper: hash, guard: hash, delay: hash, maintenance: hash }, runtimeCodeHashes: { setupHelper: hash, guard: hash, delay: hash, maintenance: hash } },
+    review: { owners: [address(7)] as readonly [Address], threshold: 1 as const, fallbackHandler: address(0), paymentToken: address(0), payment: 0n, paymentReceiver: address(0), transactionGuard: address(2), moduleGuard: address(2), modules: [address(3)] as const, safeContractSecondary: address(8), ecdsaSecondary: address(9), assets: reviewAssets ?? [{ token: address(0), basePerTransaction: 1n, stepUpPerTransaction: 2n, baseDailyLimit: 1n, instantDailyLimit: 2n, recipients: [address(10)] }], delay: { owner: address(5), avatar: address(5), target: address(5), upstreamModules: [address(5)] as const, cooldownSeconds: 120, expirationSeconds: 600 }, periodAnchor: 0n, policyHash: hash, creationCodeHashes: { setupHelper: hash, guard: hash, delay: hash, maintenance: hash }, runtimeCodeHashes: { setupHelper: hash, guard: hash, delay: hash, maintenance: hash } },
   } satisfies VaultDeploymentPlan;
   return brandVaultDeploymentPlanForTestsOnly(Object.freeze(value));
+}
+
+function planForOrdinaryReviewConfig(config: ReturnType<typeof readOrdinaryReviewConfig>, startingNonce: bigint): VaultDeploymentPlan {
+  const draft = buildOrdinaryReviewPolicyDraft(config, startingNonce);
+  const components = deriveComponentAddresses({ deployer: config.funder, startingNonce });
+  const base = plan(draft.assets);
+  const transaction = (original: typeof base.prerequisites.setupHelper, nonce: bigint, expectedCreatedAddress: Address) => Object.freeze({ ...original, nonce, expectedCreatedAddress });
+  const safe = base.safeProxyDeployment.expectedCreatedAddress;
+  return brandVaultDeploymentPlanForTestsOnly(Object.freeze({
+    ...base,
+    deployer: config.funder,
+    startingNonce,
+    safeProxySaltNonce: config.safeProxySaltNonce,
+    prerequisites: Object.freeze({
+      setupHelper: transaction(base.prerequisites.setupHelper, startingNonce, components.setupHelper),
+      guard: transaction(base.prerequisites.guard, startingNonce + 1n, components.guard),
+      delay: transaction(base.prerequisites.delay, startingNonce + 2n, components.delay),
+      maintenance: transaction(base.prerequisites.maintenance, startingNonce + 3n, components.maintenance),
+    }),
+    safeProxyDeployment: transaction(base.safeProxyDeployment, startingNonce + 4n, safe),
+    review: Object.freeze({
+      ...base.review,
+      owners: [config.primaryPasskey] as const,
+      transactionGuard: components.guard,
+      moduleGuard: components.guard,
+      modules: [components.delay] as const,
+      safeContractSecondary: config.safeContractSecondary,
+      ecdsaSecondary: config.ecdsaSecondary,
+      assets: draft.assets,
+      delay: Object.freeze({ ...base.review.delay, upstreamModules: [safe] as const, owner: safe, avatar: safe, target: safe }),
+      periodAnchor: config.periodAnchor,
+    }),
+  }));
 }
 
 function evidence(value: VaultDeploymentPlan, stage: "before-setup" | "after-setup"): VerifiedVaultPrerequisites {
@@ -56,21 +91,23 @@ function reviewLimits(value: VaultDeploymentPlan, snapshot: VaultReviewSnapshot)
     snapshot,
     runtimeChecks: [
       ...Object.values(registry).map((record) => ({ name: record.name, address: record.address!, runtimeCodeHash: record.runtimeCodeHash! })),
-      { name: "primaryPasskey", address: address(7), runtimeCodeHash: hash, bindingHash: hash },
-      { name: "safeContractSecondary", address: address(8), runtimeCodeHash: hash, bindingHash: hash },
-      { name: "plannedSetupHelper", address: address(1), runtimeCodeHash: hash, bindingHash: hash },
-      { name: "plannedGuard", address: address(2), runtimeCodeHash: hash, bindingHash: hash },
-      { name: "plannedDelay", address: address(3), runtimeCodeHash: hash, bindingHash: hash },
-      { name: "plannedMaintenance", address: address(4), runtimeCodeHash: hash, bindingHash: hash },
-      { name: "plannedSafeProxy", address: address(5), runtimeCodeHash: hash },
+      { name: "primaryPasskey", address: value.review.owners[0], runtimeCodeHash: hash, bindingHash: hash },
+      { name: "safeContractSecondary", address: value.review.safeContractSecondary, runtimeCodeHash: hash, bindingHash: hash },
+      { name: "plannedSetupHelper", address: value.prerequisites.setupHelper.expectedCreatedAddress, runtimeCodeHash: hash, bindingHash: hash },
+      { name: "plannedGuard", address: value.prerequisites.guard.expectedCreatedAddress, runtimeCodeHash: hash, bindingHash: hash },
+      { name: "plannedDelay", address: value.prerequisites.delay.expectedCreatedAddress, runtimeCodeHash: hash, bindingHash: hash },
+      { name: "plannedMaintenance", address: value.prerequisites.maintenance.expectedCreatedAddress, runtimeCodeHash: hash, bindingHash: hash },
+      { name: "plannedSafeProxy", address: value.safeProxyDeployment.expectedCreatedAddress, runtimeCodeHash: hash },
     ],
-    assetChecks: [{ token: address(0), kind: "native" as const, symbol: "ETH", decimals: 18 }],
+    assetChecks: value.review.assets.map((asset) => asset.token.toLowerCase() === address(0)
+      ? { token: asset.token, kind: "native" as const, symbol: "ETH", decimals: 18 }
+      : { token: asset.token, kind: "erc20" as const, symbol: "USDC", decimals: 6, runtimeCodeHash: hash }),
   };
 }
 
-const reviewClient = () => ({
+const reviewClient = (nonce = 0) => ({
   getBlock: async () => ({ number: 123n, hash }),
-  getTransactionCount: async () => 0,
+  getTransactionCount: async () => nonce,
   getBalance: async () => 50_000_000_000_000_000n,
   estimateGas: async () => 21_000n,
   call: async () => ({}),
@@ -78,7 +115,7 @@ const reviewClient = () => ({
 
 async function reviewedPackage(value: VaultDeploymentPlan): Promise<Readonly<{ directory: string; packageHash: Hex }>> {
   const directory = mkdtempSync(join(tmpdir(), "reviewed-vault-execution-"));
-  const client = reviewClient();
+  const client = reviewClient(Number(value.startingNonce));
   const snapshot = await captureVaultReviewSnapshot(client);
   const collected = await collectVaultDeploymentReviewEvidence(value, client, reviewLimits(value, snapshot));
   const result = writeReviewedVaultDeploymentPackage(value, collected, directory);
@@ -86,6 +123,27 @@ async function reviewedPackage(value: VaultDeploymentPlan): Promise<Readonly<{ d
 }
 
 describe("reviewed vault deployment runner", () => {
+  it("uses the committed ordinary review profile for both assets and package preflight", async () => {
+    const config = readOrdinaryReviewConfig(join(process.cwd(), "config/sepolia.ordinary-review.json"));
+    const draft = buildOrdinaryReviewPolicyDraft(config, 545n);
+    expect(draft.assets.map((asset) => asset.token.toLowerCase())).to.deep.equal([address(0), config.erc20.toLowerCase()]);
+    expect(draft.assets[0]).to.include({ basePerTransaction: 10_000_000_000_000n, stepUpPerTransaction: 30_000_000_000_000n });
+    expect(draft.assets[1]).to.include({ basePerTransaction: 10_000_000n, stepUpPerTransaction: 30_000_000n });
+    const value = planForOrdinaryReviewConfig(config, 545n);
+    expect(() => assertOrdinaryReviewPlan(config, value)).not.to.throw();
+    const reviewed = await reviewedPackage(value);
+    try {
+      expect(() => loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, reviewed.packageHash)).not.to.throw();
+    } finally {
+      rmSync(reviewed.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("caps provider fee suggestions at approved values and fails below base fee", () => {
+    expect(selectApprovedFees({ maxFeePerGas: 2_000_000n, maxPriorityFeePerGas: 2_000_000n }, 15n, { maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n })).to.deep.equal({ maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 999_985n });
+    expect(() => selectApprovedFees({ maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, 1_000_001n, { maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n })).to.throw(/base fee.*approved/i);
+  });
+
   it("collects read-only prerequisite estimates and leaves Safe creation behind an exact follow-up gate", async () => {
     const value = plan();
     const estimated: string[] = [];
