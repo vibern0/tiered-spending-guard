@@ -18,6 +18,7 @@
     "watch:activity": "if [ -f scripts/watch-activity.ts ]; then tsx scripts/watch-activity.ts; else echo 'scripts/watch-activity.ts not present; skipped until a later task adds it'; fi",
     "rehearse": "if [ -f scripts/rehearse.ts ]; then tsx scripts/rehearse.ts; else echo 'scripts/rehearse.ts not present; skipped until a later task adds it'; fi",
     "package:sepolia-rehearsal": "tsx scripts/package-sepolia-rehearsal.ts",
+    "prepare:sepolia-vault-review": "tsx scripts/prepare-sepolia-vault-review.ts",
     "live": "tsx scripts/live/runner.ts"
   },
   "devDependencies": {

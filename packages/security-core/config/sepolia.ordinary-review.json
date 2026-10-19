@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "chainId": 11155111,
+  "funder": "0xad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc",
+  "primaryPasskey": "0x6F9c2f4f8526A17f38c9409a8cBF605b34Fa146c",
+  "safeContractSecondary": "0xF94b0fbDCa0eF0Bf7Bd142aF832Bab17108C0D42",
+  "ecdsaSecondary": "0xe789E36f46E2445d807D726E4a064c8048e19980",
+  "erc20": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  "erc20Name": "USDC",
+  "erc20Symbol": "USDC",
+  "erc20Decimals": 6,
+  "recipient": "0xad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc",
+  "safeProxySaltNonce": "0",
+  "periodAnchor": "0",
+  "maxFeePerGas": "1000000",
+  "maxPriorityFeePerGas": "1000000",
+  "safeCreationGasLimit": "2000000"
+}

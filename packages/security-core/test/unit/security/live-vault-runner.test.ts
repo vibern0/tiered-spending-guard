@@ -1,6 +1,9 @@
 import { expect } from "chai";
 import { keccak256, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   brandVaultDeploymentPlanForTestsOnly,
   brandVerifiedVaultPrerequisitesForTestsOnly,
@@ -9,6 +12,8 @@ import {
   type VerifiedVaultPrerequisites,
 } from "../../../src/topology/build";
 import { executeVaultDeployment } from "../../../scripts/live/vault-runner";
+import { collectVaultDeploymentReviewEvidence } from "../../../scripts/live/prepare-vault-review";
+import { writeReviewedVaultDeploymentPackage } from "../../../scripts/package-sepolia-rehearsal";
 import type { LiveContext, LiveJournal } from "../../../scripts/live/submission";
 
 process.env.NODE_ENV = "test";
@@ -41,6 +46,104 @@ function evidence(value: VaultDeploymentPlan, stage: "before-setup" | "after-set
 }
 
 describe("reviewed vault deployment runner", () => {
+  it("collects read-only prerequisite estimates and leaves Safe creation behind an exact follow-up gate", async () => {
+    const value = plan();
+    const estimated: string[] = [];
+    const evidence = await collectVaultDeploymentReviewEvidence(value, {
+      getBlockNumber: async () => 123n,
+      getTransactionCount: async ({ address: deployer }) => { expect(deployer).to.equal(account.address); return 0; },
+      getBalance: async ({ address: deployer }) => { expect(deployer).to.equal(account.address); return 50_000_000_000_000_000n; },
+      estimateGas: async (transaction) => { estimated.push(`${transaction.account}:${transaction.data}`); return 21_000n; },
+      call: async ({ gas }) => { expect(gas).to.equal(25_200n); return {}; },
+    }, {
+      maxFeePerGas: 10n,
+      maxPriorityFeePerGas: 1n,
+      safeCreationGasLimit: 50_000n,
+      runtimeChecks: [{ name: "primaryPasskey", address: address(7), runtimeCodeHash: hash, bindingHash: hash }],
+      assetChecks: [{ token: address(0), kind: "native", symbol: "ETH", decimals: 18 }],
+    });
+    expect(estimated).to.have.length(4);
+    expect(estimated.every((entry) => entry.startsWith(`${account.address}:0x6000`))).to.equal(true);
+    expect(evidence.transactions.slice(0, 4).every((transaction) => transaction.estimateStatus === "estimated" && transaction.reviewedGasLimit === 25_200n && transaction.limitSimulationStatus === "eth_call-succeeded")).to.equal(true);
+    expect(evidence.transactions[4]).to.include({ id: "vault-safe", estimateStatus: "deferred-until-prerequisites", reviewedGasLimit: 50_000n });
+    expect(evidence.maximumReservedOutlay).to.equal(1_508_000n);
+  });
+
+  it("fails review preparation on nonce drift before estimating", async () => {
+    const value = plan();
+    await expect(collectVaultDeploymentReviewEvidence(value, {
+      getBlockNumber: async () => 123n,
+      getTransactionCount: async () => 1,
+      getBalance: async () => 50_000_000_000_000_000n,
+      estimateGas: async () => { throw new Error("must not estimate"); },
+      call: async () => { throw new Error("must not simulate"); },
+    }, {
+      maxFeePerGas: 10n,
+      maxPriorityFeePerGas: 1n,
+      safeCreationGasLimit: 50_000n,
+      runtimeChecks: [{ name: "primaryPasskey", address: address(7), runtimeCodeHash: hash }],
+      assetChecks: [{ token: address(0), kind: "native", symbol: "ETH", decimals: 18 }],
+    })).to.be.rejectedWith(/nonce changed/i);
+  });
+
+  it("packages the branded artifact-backed plan with exact decoded transactions and bounded public estimates", () => {
+    const value = plan();
+    const directory = mkdtempSync(join(tmpdir(), "reviewed-vault-package-"));
+    try {
+      const result = writeReviewedVaultDeploymentPackage(value, {
+        snapshotBlockNumber: 123n,
+        observedDeployerNonce: 0n,
+        funderBalance: 50_000_000_000_000_000n,
+        phaseOutlayCeiling: 50_000_000_000_000_000n,
+        maximumReservedOutlay: 1_508_000n,
+        transactions: [
+          { id: "vault-setup-helper", nonce: 0n, estimateStatus: "estimated", estimatedGas: 21_000n, reviewedGasLimit: 25_200n, limitSimulationStatus: "eth_call-succeeded", maxFeePerGas: 10n, maxPriorityFeePerGas: 1n },
+          { id: "vault-guard", nonce: 1n, estimateStatus: "estimated", estimatedGas: 21_000n, reviewedGasLimit: 25_200n, limitSimulationStatus: "eth_call-succeeded", maxFeePerGas: 10n, maxPriorityFeePerGas: 1n },
+          { id: "vault-delay", nonce: 2n, estimateStatus: "estimated", estimatedGas: 21_000n, reviewedGasLimit: 25_200n, limitSimulationStatus: "eth_call-succeeded", maxFeePerGas: 10n, maxPriorityFeePerGas: 1n },
+          { id: "vault-maintenance", nonce: 3n, estimateStatus: "estimated", estimatedGas: 21_000n, reviewedGasLimit: 25_200n, limitSimulationStatus: "eth_call-succeeded", maxFeePerGas: 10n, maxPriorityFeePerGas: 1n },
+          { id: "vault-safe", nonce: 4n, estimateStatus: "deferred-until-prerequisites", reviewedGasLimit: 50_000n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n },
+        ],
+        runtimeChecks: [{ name: "primaryPasskey", address: address(7), runtimeCodeHash: hash, bindingHash: hash }],
+        assetChecks: [{ token: address(0), kind: "native", symbol: "ETH", decimals: 18 }],
+      }, directory);
+      expect(result.files.map((file) => file.split("/").pop()).sort()).to.deep.equal(["decoded-review.json", "expected-evidence-hashes.json", "public-manifest.json", "unsigned-plan.json"]);
+      const unsignedPlan = JSON.parse(readFileSync(join(directory, "unsigned-plan.json"), "utf8"));
+      const decoded = JSON.parse(readFileSync(join(directory, "decoded-review.json"), "utf8"));
+      const manifest = JSON.parse(readFileSync(join(directory, "public-manifest.json"), "utf8"));
+      expect(unsignedPlan.startingNonce).to.equal("0");
+      expect(unsignedPlan.prerequisites.guard.data).to.equal(code);
+      expect(decoded.transactions.map((transaction: { id: string }) => transaction.id)).to.deep.equal(["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance", "vault-safe"]);
+      expect(decoded.transactions[0]).to.include({ nonce: "0", to: address(0), data: code, expectedCreatedAddress: address(1) });
+      expect(decoded.estimates.transactions[4]).to.include({ id: "vault-safe", estimateStatus: "deferred-until-prerequisites", reviewedGasLimit: "50000" });
+      expect(manifest.status).to.equal("AWAITING_HUMAN_REVIEW");
+      expect(manifest.reviewBoundary).to.match(/no signing or broadcast/i);
+      expect(BigInt(decoded.estimates.maximumReservedOutlay) <= BigInt(decoded.estimates.phaseOutlayCeiling)).to.equal(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects fabricated plans and outlay estimates before writing public review artifacts", () => {
+    const value = plan();
+    const directory = mkdtempSync(join(tmpdir(), "reviewed-vault-package-reject-"));
+    const estimates = {
+      snapshotBlockNumber: 123n,
+      observedDeployerNonce: 0n,
+      funderBalance: 1n,
+      phaseOutlayCeiling: 1n,
+      maximumReservedOutlay: 2n,
+      transactions: [],
+      runtimeChecks: [],
+      assetChecks: [],
+    } as const;
+    try {
+      expect(() => writeReviewedVaultDeploymentPackage({ ...value } as VaultDeploymentPlan, estimates, join(directory, "fabricated"))).to.throw(/reviewed planner/i);
+      expect(() => writeReviewedVaultDeploymentPackage(value, estimates, join(directory, "over-budget"))).to.throw(/outlay ceiling/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("requires a reviewed plan before signing", async () => {
     const value = plan();
     await expect(executeVaultDeployment({ ...value } as VaultDeploymentPlan, {} as never)).to.be.rejectedWith("reviewed planner");
