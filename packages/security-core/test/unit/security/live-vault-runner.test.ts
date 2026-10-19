@@ -18,6 +18,7 @@ import type { LiveContext, LiveJournal } from "../../../scripts/live/submission"
 import { OFFICIAL_DEPLOYMENT_REGISTRY } from "../../../src/config/deployments";
 import { sha256 } from "../../../scripts/plan-deployment";
 import { assertOrdinaryReviewPlan, buildOrdinaryReviewPolicyDraft, readOrdinaryReviewConfig, selectApprovedFees } from "../../../scripts/live/ordinary-review-profile";
+import { prepareOrdinaryReviewExecutionPreflight, runOnlyWithLiveSubmitAuthorization } from "../../../scripts/live/ordinary-review-execution";
 import { deriveComponentAddresses } from "../../../src/topology/addressing";
 
 process.env.NODE_ENV = "test";
@@ -133,7 +134,14 @@ describe("reviewed vault deployment runner", () => {
     expect(() => assertOrdinaryReviewPlan(config, value)).not.to.throw();
     const reviewed = await reviewedPackage(value);
     try {
-      expect(() => loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, reviewed.packageHash)).not.to.throw();
+      const preflight = prepareOrdinaryReviewExecutionPreflight(config, value, reviewed.directory, reviewed.packageHash);
+      expect(preflight.report).to.deep.include({ packageHash: reviewed.packageHash, planHash: planHash(value), startingNonce: "545", status: "PREFLIGHT_ONLY" });
+      expect(preflight.report.prerequisites).to.have.length(4);
+      let submissions = 0;
+      expect(await runOnlyWithLiveSubmitAuthorization(undefined, async () => { submissions += 1; })).to.deep.equal({ status: "PREFLIGHT_ONLY" });
+      expect(submissions).to.equal(0);
+      await expect(runOnlyWithLiveSubmitAuthorization("NO", async () => { submissions += 1; })).to.be.rejectedWith(/LIVE_SUBMIT=YES/);
+      expect(submissions).to.equal(0);
     } finally {
       rmSync(reviewed.directory, { recursive: true, force: true });
     }

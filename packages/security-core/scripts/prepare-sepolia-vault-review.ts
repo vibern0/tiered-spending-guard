@@ -14,7 +14,7 @@ import { buildVaultPlan, deriveVaultSafeProxyAddress, planHash } from "../src/to
 import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../src/topology/evidence";
 import { resolveReviewedVaultArtifacts } from "../src/topology/reviewed-artifacts";
 import { loadCredential } from "./live/secrets";
-import { buildOrdinaryReviewPolicyDraft, readOrdinaryReviewConfig } from "./live/ordinary-review-profile";
+import { buildOrdinaryReviewPolicyDraft, ORDINARY_REVIEW_SIGNER_SOURCE, readOrdinaryReviewConfig } from "./live/ordinary-review-profile";
 import { captureVaultReviewSnapshot, collectVaultDeploymentReviewEvidence } from "./live/prepare-vault-review";
 import { writeReviewedVaultDeploymentPackage } from "./package-sepolia-rehearsal";
 
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
       address: config.primaryPasskey,
       runtimeCodeHash: keccak256(primaryRuntime),
       bindingHash: passkeySignerBindingHash({ factory: PASSKEY_FACTORY, x: primary.x, y: primary.y, verifiers: VERIFIER }),
-      source: "approved local automated primary credential",
+      source: ORDINARY_REVIEW_SIGNER_SOURCE,
       binding: { x: primary.x, y: primary.y, verifiers: VERIFIER },
     },
   });
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
     runtimeCodeHash: keccak256(secondaryRuntime),
     bindingHash: passkeySignerBindingHash({ factory: PASSKEY_FACTORY, x: secondary.x, y: secondary.y, verifiers: VERIFIER }),
     factory: PASSKEY_FACTORY,
-    source: "approved local automated secondary credential",
+    source: ORDINARY_REVIEW_SIGNER_SOURCE,
     binding: { x: secondary.x, y: secondary.y, verifiers: VERIFIER },
   });
   const ecdsaCode = await snapshotClient.getBytecode({ address: config.ecdsaSecondary });

@@ -90,6 +90,10 @@ function decodeJournal(serialized: string, funder: Address): LiveJournal {
 
 export type LiveJournalStore = Readonly<{ load(): LiveJournal; save(journal: LiveJournal): void; close(): void }>;
 
+export function readLiveJournal(path: string, funder: Address): LiveJournal {
+  return existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), funder) : { chainId: SEPOLIA, funder, entries: [] };
+}
+
 export function createLiveJournalStore(path: string, funder: Address): LiveJournalStore {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const lockPath = `${path}.lock`;
@@ -99,7 +103,7 @@ export function createLiveJournalStore(path: string, funder: Address): LiveJourn
     writeFileSync(lock, `${process.pid}\n`, "utf8");
     fsyncSync(lock);
   } catch { throw new Error("live journal writer lock unavailable"); }
-  const load = (): LiveJournal => existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), funder) : { chainId: SEPOLIA, funder, entries: [] };
+  const load = (): LiveJournal => readLiveJournal(path, funder);
   const save = (journal: LiveJournal): void => {
     if (lock === undefined) throw new Error("live journal writer lock is closed");
     if (journal.chainId !== SEPOLIA || journal.funder.toLowerCase() !== funder.toLowerCase()) throw new Error("live journal identity mismatch");

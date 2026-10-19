@@ -1,10 +1,10 @@
 import { expect } from "chai";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeFunctionData } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { createLiveJournalStore, decodeLiveIntent, createSepoliaLiveContext, verifyBootstrapIntent } from "../../../scripts/live/runtime";
+import { createLiveJournalStore, decodeLiveIntent, createSepoliaLiveContext, readLiveJournal, verifyBootstrapIntent } from "../../../scripts/live/runtime";
 
 describe("Sepolia live runtime", () => {
   let directory: string;
@@ -29,6 +29,18 @@ describe("Sepolia live runtime", () => {
     first.save({ chainId: 11155111, funder, entries: [] });
     expect(first.load()).to.deep.include({ chainId: 11155111, funder });
     first.close();
+  });
+
+  it("reads a resumable journal without creating a writer lock", () => {
+    const path = join(directory, "journal.json");
+    const funder = privateKeyToAccount(generatePrivateKey()).address;
+    expect(readLiveJournal(path, funder)).to.deep.equal({ chainId: 11155111, funder, entries: [] });
+    expect(existsSync(`${path}.lock`)).to.equal(false);
+    const store = createLiveJournalStore(path, funder);
+    store.save({ chainId: 11155111, funder, entries: [] });
+    store.close();
+    expect(readLiveJournal(path, funder)).to.deep.equal({ chainId: 11155111, funder, entries: [] });
+    expect(existsSync(`${path}.lock`)).to.equal(false);
   });
 
   it("restores a finalized receipt so later intents do not mistake it for drift", () => {

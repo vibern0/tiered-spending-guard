@@ -6,6 +6,7 @@ import { deriveComponentAddresses } from "../../src/topology/addressing";
 import type { VaultDeploymentPlan } from "../../src/topology/build";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+export const ORDINARY_REVIEW_SIGNER_SOURCE = "approved local automated credential";
 
 export type OrdinaryReviewConfig = Readonly<{
   formatVersion: 1;
