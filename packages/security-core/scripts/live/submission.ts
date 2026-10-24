@@ -20,16 +20,20 @@ export type LiveContext = Readonly<{
   persist(journal: LiveJournal): Promise<void>;
 }>;
 
+export function liveIntentHash(intent: LiveIntent, funder: Address): Hex {
+  return keccak256(stringToHex(JSON.stringify([
+    SEPOLIA, funder.toLowerCase(), intent.id, intent.to?.toLowerCase() ?? null, intent.data.toLowerCase(),
+    intent.value.toString(), intent.nonce, intent.gas.toString(), intent.maxFeePerGas.toString(), intent.maxPriorityFeePerGas.toString(),
+  ])));
+}
+
 export async function submitLiveIntent(input: LiveIntent, journal: LiveJournal, context: LiveContext): Promise<JournalEntry> {
   const intent = Object.freeze({ ...input });
   if (await context.chainId() !== SEPOLIA) throw new Error("live runner requires Ethereum Sepolia");
   if (journal.chainId !== SEPOLIA || journal.funder.toLowerCase() !== context.funder.toLowerCase()) throw new Error("journal identity mismatch");
   if (!/^[a-z0-9-]{1,80}$/.test(intent.id) || !/^0x(?:[0-9a-f]{2})*$/i.test(intent.data) || (intent.to !== undefined && !/^0x[0-9a-f]{40}$/i.test(intent.to))) throw new Error("invalid live intent");
   if (!Number.isSafeInteger(intent.nonce) || intent.nonce < 0 || intent.value < 0n || intent.gas <= 0n || intent.maxFeePerGas <= 0n || intent.maxPriorityFeePerGas < 0n || intent.maxPriorityFeePerGas > intent.maxFeePerGas) throw new Error("invalid transaction bounds");
-  const intentHash = keccak256(stringToHex(JSON.stringify([
-    SEPOLIA, context.funder.toLowerCase(), intent.id, intent.to?.toLowerCase() ?? null, intent.data.toLowerCase(),
-    intent.value.toString(), intent.nonce, intent.gas.toString(), intent.maxFeePerGas.toString(), intent.maxPriorityFeePerGas.toString(),
-  ])));
+  const intentHash = liveIntentHash(intent, context.funder);
   const existing = journal.entries.find(entry => entry.id === intent.id);
   if (existing) {
     if (existing.intentHash !== intentHash) throw new Error("resume intent changed");

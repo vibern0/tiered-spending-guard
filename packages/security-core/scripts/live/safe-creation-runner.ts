@@ -8,7 +8,7 @@ import {
   type VerifiedVaultPrerequisites,
 } from "../../src/topology/build";
 import { sha256 } from "../plan-deployment";
-import { PHASE_OUTLAY_LIMIT, submitLiveIntent, type JournalEntry, type LiveContext, type LiveJournal, type LiveReceipt } from "./submission";
+import { liveIntentHash, PHASE_OUTLAY_LIMIT, submitLiveIntent, type JournalEntry, type LiveContext, type LiveIntent, type LiveJournal, type LiveReceipt } from "./submission";
 
 const IDS = ["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance"] as const;
 const FILE = "safe-creation-review.json";
@@ -82,6 +82,7 @@ const same = (left: string, right: string): boolean => left.toLowerCase() === ri
 const snapshotPrerequisites = (journal: LiveJournal): readonly Readonly<JournalEntry>[] => Object.freeze(journal.entries.map(entry => Object.freeze({ ...entry, receipt: entry.receipt && Object.freeze({ ...entry.receipt }) })));
 const sameReceipt = (left: LiveReceipt | undefined, right: LiveReceipt | undefined): boolean => left === undefined ? right === undefined : right !== undefined && left.transactionHash === right.transactionHash && left.status === right.status && left.gasUsed === right.gasUsed && left.effectiveGasPrice === right.effectiveGasPrice && left.blockNumber === right.blockNumber && same(left.blockHash, right.blockHash);
 const sameEntry = (left: JournalEntry, right: Readonly<JournalEntry>): boolean => left.id === right.id && left.intentHash === right.intentHash && left.transactionHash === right.transactionHash && left.nonce === right.nonce && left.reserved === right.reserved && left.status === right.status && sameReceipt(left.receipt, right.receipt);
+const prerequisitePrefix = (journal: LiveJournal): LiveJournal => ({ chainId: journal.chainId, funder: journal.funder, entries: journal.entries.slice(0, 4) });
 const assertNoForbiddenFields = (value: unknown, path = "Safe review package"): void => {
   if (Array.isArray(value)) return value.forEach((child, index) => assertNoForbiddenFields(child, `${path}[${index}]`));
   if (!value || typeof value !== "object") return;
@@ -161,7 +162,9 @@ export function writeSafeCreationReviewPackage(quote: SafeCreationQuote, directo
 
 export function loadSafeCreationApproval(plan: VaultDeploymentPlan, verification: PublicPrerequisiteVerification, journal: LiveJournal, directory: string, expectedHash: Hex): SafeCreationApproval {
   if (!isReviewedVaultDeploymentPlan(plan) || !HASH.test(expectedHash)) throw new Error("Safe approval inputs invalid");
-  validatePrerequisiteProof(plan, verification, journal);
+  if (journal.entries.length < 4 || journal.entries.length > 5) throw new Error("Safe approval journal must contain the four prerequisites and at most one vault-safe tail");
+  const prerequisites = prerequisitePrefix(journal);
+  validatePrerequisiteProof(plan, verification, prerequisites);
   let report: SafeCreationReviewReport;
   try { report = JSON.parse(readFileSync(join(directory, FILE), "utf8")); } catch { throw new Error("Safe review package is unreadable"); }
   assertNoForbiddenFields(report);
@@ -171,11 +174,19 @@ export function loadSafeCreationApproval(plan: VaultDeploymentPlan, verification
   if (report.schemaVersion !== 1 || report.status !== "AWAITING_HUMAN_REVIEW" || report.chainId !== "11155111" || !same(report.planHash, planHash(plan)) || !same(report.prerequisitePackageHash, verification.packageHash) || !same(report.prerequisiteVerificationHash, sha256(verification)) || report.signed !== false || report.broadcast !== false || tx.id !== "vault-safe" || !same(tx.to, plan.safeProxyDeployment.to) || !same(tx.data, plan.safeProxyDeployment.data) || tx.value !== "0" || tx.operation !== 0 || !same(tx.predictedSafe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(tx.initializerHash, keccak256(plan.safeInitializer))) throw new Error("Safe review package does not match exact plan and proof");
   const nonce = decimal(report.currentFundingNonce, "Safe funding nonce");
   if (nonce < plan.startingNonce + 4n || report.latestNonce !== report.currentFundingNonce || report.pendingNonce !== report.currentFundingNonce || tx.nonce !== report.currentFundingNonce) throw new Error("Safe review package nonce binding invalid");
-  if (!Array.isArray(report.prerequisiteReceipts) || report.prerequisiteReceipts.length !== 4 || report.prerequisiteReceipts.some((receipt, index) => { const entry = journal.entries[index]!; return receipt.id !== entry.id || receipt.transactionHash !== entry.transactionHash || receipt.blockNumber !== entry.receipt!.blockNumber.toString() || !same(receipt.blockHash, entry.receipt!.blockHash) || receipt.gasUsed !== entry.receipt!.gasUsed.toString() || receipt.effectiveGasPrice !== entry.receipt!.effectiveGasPrice.toString() || receipt.actualCostWei !== entry.reserved.toString(); })) throw new Error("Safe review package prerequisite receipts do not match canonical journal");
+  if (!Array.isArray(report.prerequisiteReceipts) || report.prerequisiteReceipts.length !== 4 || report.prerequisiteReceipts.some((receipt, index) => { const entry = prerequisites.entries[index]!; return receipt.id !== entry.id || receipt.transactionHash !== entry.transactionHash || receipt.blockNumber !== entry.receipt!.blockNumber.toString() || !same(receipt.blockHash, entry.receipt!.blockHash) || receipt.gasUsed !== entry.receipt!.gasUsed.toString() || receipt.effectiveGasPrice !== entry.receipt!.effectiveGasPrice.toString() || receipt.actualCostWei !== entry.reserved.toString(); })) throw new Error("Safe review package prerequisite receipts do not match canonical journal");
   const actualCost = decimal(report.actualPrerequisiteCostWei, "prerequisite cost"); const gas = decimal(report.gasLimitCap, "gas cap"); const fee = decimal(report.maxFeePerGasCap, "fee cap");
   if (actualCost !== decimal(verification.actualCostWei, "verified prerequisite cost") || gas <= 0n || fee <= 0n || decimal(report.maxPriorityFeePerGasCap, "priority cap") > fee || !HASH.test(report.snapshotBlockHash) || report.exactLimitCallSucceeded !== true) throw new Error("Safe review package bounds invalid");
   if (actualCost + gas * fee !== decimal(report.totalMaximumPhaseOutlayWei, "phase total") || decimal(report.maximumSafeReservationWei, "reservation") !== gas * fee || actualCost + gas * fee > PHASE_OUTLAY_LIMIT) throw new Error("Safe review package accounting invalid");
-  const approval = Object.freeze({ reportHash: actual }); approvals.set(approval, Object.freeze({ plan, report, prerequisites: snapshotPrerequisites(journal) })); return approval;
+  const intent: LiveIntent = Object.freeze({ id: "vault-safe", to: plan.safeProxyDeployment.to, data: plan.safeProxyDeployment.data, value: 0n, nonce: Number(nonce), gas, maxFeePerGas: fee, maxPriorityFeePerGas: decimal(report.maxPriorityFeePerGasCap, "priority cap") });
+  const tail = journal.entries[4];
+  if (tail) {
+    const receipt = tail.receipt;
+    const validPending = tail.status === "pending" && receipt === undefined && tail.reserved === gas * fee;
+    const validSuccess = tail.status === "success" && receipt?.status === "success" && receipt.transactionHash === tail.transactionHash && HASH.test(receipt.blockHash) && receipt.gasUsed >= 0n && receipt.gasUsed <= gas && receipt.effectiveGasPrice >= 0n && receipt.effectiveGasPrice <= fee && tail.reserved === receipt.gasUsed * receipt.effectiveGasPrice;
+    if (tail.id !== "vault-safe" || tail.intentHash !== liveIntentHash(intent, plan.deployer) || !HASH.test(tail.transactionHash) || tail.nonce !== Number(nonce) || tail.reserved < 0n || tail.reserved > gas * fee || (!validPending && !validSuccess)) throw new Error("Safe approval vault-safe tail does not match the exact reviewed intent");
+  }
+  const approval = Object.freeze({ reportHash: actual }); approvals.set(approval, Object.freeze({ plan, report, prerequisites: snapshotPrerequisites(prerequisites) })); return approval;
 }
 
 export type SafeCreationExecutionContext = Readonly<{

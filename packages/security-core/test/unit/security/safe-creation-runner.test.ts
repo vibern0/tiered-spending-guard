@@ -17,6 +17,7 @@ import {
   writeSafeCreationReviewPackage,
 } from "../../../scripts/live/safe-creation-runner";
 import type { LiveContext, LiveJournal, LiveReceipt } from "../../../scripts/live/submission";
+import { createLiveJournalStore } from "../../../scripts/live/runtime";
 
 process.env.NODE_ENV = "test";
 
@@ -141,5 +142,56 @@ describe("separately approved Safe creation runner", () => {
       const failedQuote = await collectSafeCreationQuote(failed.value, failed.verification, failed.journal, failed.client, { gasLimit: 120n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n });
       expect(failedQuote.report.totalMaximumPhaseOutlayWei).to.equal("2012");
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("reloads approval under lock for an exact durable pending or successful Safe hash", async () => {
+    const f = fixture();
+    const quote = await collectSafeCreationQuote(f.value, f.verification, f.journal, f.client, { gasLimit: 120n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n });
+    const dir = mkdtempSync(join(tmpdir(), "safe-restart-"));
+    const journalPath = join(dir, "journal.json");
+    let store = createLiveJournalStore(journalPath, account.address);
+    try {
+      const written = writeSafeCreationReviewPackage(quote, dir);
+      const approval = loadSafeCreationApproval(f.value, f.verification, f.journal, dir, written.packageHash);
+      store.save(f.journal);
+      let signed = 0; let broadcast = 0; let mined = false;
+      const receipt: LiveReceipt = { transactionHash: h(900), status: "success", gasUsed: 100n, effectiveGasPrice: 2n, blockNumber: 4000n, blockHash: h(901) };
+      const before = f.prerequisites;
+      const after = brandVerifiedVaultPrerequisitesForTestsOnly({ ...before, stage: "after-setup" });
+      const live = (persist: (value: LiveJournal) => void): LiveContext => ({ funder: account.address, chainId: f.client.chainId, nonce: f.client.latestNonce, balance: f.client.balance, verify: async () => undefined, sign: async intent => { signed++; return account.signTransaction({ chainId: 11155111, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }); }, broadcast: async raw => { broadcast++; receipt.transactionHash = keccak256(raw); return receipt.transactionHash; }, receipt: async hash => f.receipts.find(r => r.transactionHash === hash) ?? (mined && hash === receipt.transactionHash ? receipt : undefined), persist: async value => persist(value) });
+      const context = (journal: LiveJournal, currentLive: LiveContext) => ({ live: currentLive, journal, latestNonce: f.client.latestNonce, pendingNonce: f.client.pendingNonce, currentBalance: f.client.balance, safeCode: async () => "0x" as Hex, currentFees: f.client.fees, estimateGas: f.client.estimateGas, exactCall: f.client.call, canonicalBlockHash: f.client.blockHash, verifyBeforeSetup: async () => before, waitForReceipt: async () => { throw new Error("simulated process stop after durable pending hash"); }, verifyAfterSetup: async () => after, verifyTopology: async () => ({ ok: true, failures: [], checked: ["safe"] }) });
+      await expect(executeSafeCreation(f.value, approval, context(f.journal, live(value => store.save(value))))).to.be.rejectedWith("simulated process stop");
+      expect(f.journal.entries[4]).to.include({ id: "vault-safe", status: "pending", nonce: 677, reserved: 1200n });
+      expect({ signed, broadcast }).to.deep.equal({ signed: 1, broadcast: 1 });
+      store.close();
+
+      store = createLiveJournalStore(journalPath, account.address);
+      const pending = store.load();
+      const restartedApproval = loadSafeCreationApproval(f.value, f.verification, pending, dir, written.packageHash);
+      mined = true;
+      const resumed = await executeSafeCreation(f.value, restartedApproval, { ...context(pending, live(value => store.save(value))), waitForReceipt: async () => undefined, latestNonce: async () => 678, pendingNonce: async () => 678, safeCode: async () => "0x6000" });
+      expect(resumed.status).to.equal("SAFE_CREATED_TOPOLOGY_VERIFIED");
+      expect({ signed, broadcast }).to.deep.equal({ signed: 1, broadcast: 1 });
+      store.close();
+
+      store = createLiveJournalStore(journalPath, account.address);
+      const successful = store.load();
+      const successfulApproval = loadSafeCreationApproval(f.value, f.verification, successful, dir, written.packageHash);
+      expect((await executeSafeCreation(f.value, successfulApproval, { ...context(successful, live(value => store.save(value))), waitForReceipt: async () => undefined })).status).to.equal("SAFE_CREATED_TOPOLOGY_VERIFIED");
+      expect({ signed, broadcast }).to.deep.equal({ signed: 1, broadcast: 1 });
+
+      const changedTail = { ...successful, entries: successful.entries.map(entry => ({ ...entry })) };
+      changedTail.entries[4]!.intentHash = h(999);
+      expect(() => loadSafeCreationApproval(f.value, f.verification, changedTail, dir, written.packageHash)).to.throw(/vault-safe.*tail/i);
+      const unknownTail = { ...successful, entries: successful.entries.map(entry => ({ ...entry })) };
+      unknownTail.entries[4]!.id = "unknown-safe-tail";
+      expect(() => loadSafeCreationApproval(f.value, f.verification, unknownTail, dir, written.packageHash)).to.throw(/vault-safe.*tail/i);
+      const changedPrefix = { ...successful, entries: successful.entries.map(entry => ({ ...entry })) };
+      changedPrefix.entries[0]!.reserved += 1n;
+      expect(() => loadSafeCreationApproval(f.value, f.verification, changedPrefix, dir, written.packageHash)).to.throw(/prerequisite accounting/i);
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
