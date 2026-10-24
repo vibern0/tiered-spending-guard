@@ -4,6 +4,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { encodeAbiParameters, encodeFunctionData, getContractAddress, keccak256, type Address, type Hex } from "viem";
 import { ZERO, fn } from "../helpers/safe";
+import { brandVerifiedDeploymentInfrastructureForTestsOnly, type DeploymentInfrastructure } from "../../src/config/deployments";
+import { policyHash, verifyVaultPrerequisites, type VaultDeploymentPlan } from "../../src/topology/build";
+import { verifyTopology } from "../../src/topology/verify";
+import type { VaultPolicy } from "../../src/config/policy";
 
 const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
 const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
@@ -187,6 +191,29 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     expect((await f.guard.read.safeContractSecondary())[2]).to.equal(true);
     expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(100n);
     expect(await f.guard.read.allowedRecipient([ZERO, f.recipient.account.address])).to.equal(true);
+  });
+
+  it("passes the post-setup prerequisite and full topology verifiers on the real Safe 1.5 proxy", async () => {
+    const f = await deployAtomicTopology();
+    const runtime = async (address: Address) => keccak256((await f.client.getBytecode({ address }))!);
+    const policy: VaultPolicy = { chainId: 31337, safe: f.safeAddress, primary: f.passkey.address, passkey: f.passkey.address, ecdsaSecondary: f.ecdsaSecondary.account.address, secondaries: [{ address: f.safeContractSecondary.address, role: "secondary", kind: "safe-contract", enabled: true }, { address: f.ecdsaSecondary.account.address, role: "secondary", kind: "ecdsa-extension", enabled: true }], delay: f.delay.address, periodSeconds: 86400, periodAnchor: 0n, cooldownSeconds: 10, expirationSeconds: 60, assets: [{ token: ZERO, basePerTransaction: 50n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, recipients: [f.recipient.account.address] }] };
+    const tx = async (address: Address) => ({ description: "verified local fixture", nonce: 0n, to: ZERO, value: 0n, operation: 0 as const, data: "0x60" as Hex, expectedCreatedAddress: address, creationCodeHash: keccak256("0x60"), expectedRuntimeCodeHash: await runtime(address) });
+    const plan: VaultDeploymentPlan = { unsigned: true, broadcast: false, chainId: 31337, deployer: f.deployer.account.address, startingNonce: 0n, safeProxySaltNonce: 99n, prerequisites: { setupHelper: await tx(f.helper.address), guard: await tx(f.guard.address), delay: await tx(f.delay.address), maintenance: await tx(f.maintenance.address) }, safeProxyDeployment: { ...(await tx(f.safeAddress)), to: f.factory.address }, safeInitializer: f.initializerWithoutSafeAddress, setupHelperCalldata: encodeFunctionData({ abi: HELPER_SETUP_ABI, functionName: "setup", args: [{ guard: f.guard.address, delay: f.delay.address, maintenance: f.maintenance.address, passkey: f.passkey.address, safeContractSecondary: f.safeContractSecondary.address, ecdsaSecondary: f.ecdsaSecondary.account.address, periodSeconds: 86400n, periodAnchor: 0n, assets: policy.assets.map(asset => ({ ...asset, recipients: [...asset.recipients] })) }] }), review: { owners: [f.passkey.address], threshold: 1, fallbackHandler: ZERO, paymentToken: ZERO, payment: 0n, paymentReceiver: ZERO, transactionGuard: f.guard.address, moduleGuard: f.guard.address, modules: [f.delay.address], safeContractSecondary: f.safeContractSecondary.address, ecdsaSecondary: f.ecdsaSecondary.account.address, assets: policy.assets, delay: { owner: f.safeAddress, avatar: f.safeAddress, target: f.safeAddress, upstreamModules: [f.safeAddress], cooldownSeconds: 10, expirationSeconds: 60 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: keccak256("0x60"), guard: keccak256("0x60"), delay: keccak256("0x60"), maintenance: keccak256("0x60") }, runtimeCodeHashes: { setupHelper: await runtime(f.helper.address), guard: await runtime(f.guard.address), delay: await runtime(f.delay.address), maintenance: await runtime(f.maintenance.address) } } };
+    const prerequisites = await verifyVaultPrerequisites(f.client, plan, "after-setup");
+    const dep = (address: Address, version: string) => Object.freeze({ name: version, version, address, runtimeCodeHash: keccak256("0x60"), evidence: "verified" as const, source: "local fixture" });
+    const singleton = { ...dep(f.singleton.address, "1.5.0"), supportsModuleGuards: true };
+    const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.freeze({ chainId: 31337, deployer: f.deployer.account.address, observedDeployerNonce: 0n, safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0"), passkeySigner: { name: "passkeySigner" as const, address: f.passkey.address, runtimeCodeHash: await runtime(f.passkey.address), bindingHash: keccak256("0x60"), source: "local fixture" }, dependencies: { safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0") } } satisfies DeploymentInfrastructure));
+    const topologyClient = { ...f.client, readContract: async (args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }) => {
+      // The compiler-compat test fixture exposes the real Zodiac module linked
+      // list through isModuleEnabled but omits the upstream pagination view.
+      if (args.address.toLowerCase() === f.delay.address.toLowerCase() && args.functionName === "getModulesPaginated") {
+        expect(await f.delay.read.isModuleEnabled([f.safeAddress])).to.equal(true);
+        return [[f.safeAddress], SENTINEL_MODULES] as const;
+      }
+      return f.client.readContract(args as never);
+    } };
+    const report = await verifyTopology({ chainId: 31337, policy, safe: f.safeAddress, guard: f.guard.address, delay: f.delay.address, deployments, prerequisites, client: topologyClient });
+    expect(report.ok, report.failures.join(", ")).to.equal(true);
   });
 
   it("rejects direct helper calls outside Safe setup delegatecall", async () => {
