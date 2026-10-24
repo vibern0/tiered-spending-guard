@@ -8,7 +8,7 @@ import {
   type VerifiedVaultPrerequisites,
 } from "../../src/topology/build";
 import { sha256 } from "../plan-deployment";
-import { PHASE_OUTLAY_LIMIT, submitLiveIntent, type LiveContext, type LiveJournal, type LiveReceipt } from "./submission";
+import { PHASE_OUTLAY_LIMIT, submitLiveIntent, type JournalEntry, type LiveContext, type LiveJournal, type LiveReceipt } from "./submission";
 
 const IDS = ["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance"] as const;
 const FILE = "safe-creation-review.json";
@@ -39,6 +39,7 @@ type QuoteClient = Readonly<{
   estimateGas(transaction: Readonly<{ account: Address; to: Address; data: Hex; value: bigint; nonce: number; blockNumber: bigint }>): Promise<bigint>;
   call(transaction: Readonly<{ account: Address; to: Address; data: Hex; value: bigint; gas: bigint; nonce: number; blockNumber: bigint }>): Promise<unknown>;
   fees(): Promise<Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint; baseFeePerGas: bigint }>>;
+  verifyPrerequisites(): Promise<VerifiedVaultPrerequisites>;
 }>;
 
 export type SafeCreationReviewReport = Readonly<{
@@ -71,13 +72,16 @@ export type SafeCreationReviewReport = Readonly<{
 export type SafeCreationQuote = Readonly<{ report: SafeCreationReviewReport }>;
 export type SafeCreationApproval = Readonly<{ reportHash: Hex }>;
 const quotes = new WeakMap<object, VaultDeploymentPlan>();
-const approvals = new WeakMap<object, Readonly<{ plan: VaultDeploymentPlan; report: SafeCreationReviewReport }>>();
+const approvals = new WeakMap<object, Readonly<{ plan: VaultDeploymentPlan; report: SafeCreationReviewReport; prerequisites: readonly Readonly<JournalEntry>[] }>>();
 
 const decimal = (value: unknown, label: string): bigint => {
   if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${label} must be a decimal string`);
   return BigInt(value);
 };
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
+const snapshotPrerequisites = (journal: LiveJournal): readonly Readonly<JournalEntry>[] => Object.freeze(journal.entries.map(entry => Object.freeze({ ...entry, receipt: entry.receipt && Object.freeze({ ...entry.receipt }) })));
+const sameReceipt = (left: LiveReceipt | undefined, right: LiveReceipt | undefined): boolean => left === undefined ? right === undefined : right !== undefined && left.transactionHash === right.transactionHash && left.status === right.status && left.gasUsed === right.gasUsed && left.effectiveGasPrice === right.effectiveGasPrice && left.blockNumber === right.blockNumber && same(left.blockHash, right.blockHash);
+const sameEntry = (left: JournalEntry, right: Readonly<JournalEntry>): boolean => left.id === right.id && left.intentHash === right.intentHash && left.transactionHash === right.transactionHash && left.nonce === right.nonce && left.reserved === right.reserved && left.status === right.status && sameReceipt(left.receipt, right.receipt);
 const assertNoForbiddenFields = (value: unknown, path = "Safe review package"): void => {
   if (Array.isArray(value)) return value.forEach((child, index) => assertNoForbiddenFields(child, `${path}[${index}]`));
   if (!value || typeof value !== "object") return;
@@ -116,6 +120,8 @@ export async function collectSafeCreationQuote(plan: VaultDeploymentPlan, verifi
   if (!isReviewedVaultDeploymentPlan(plan)) throw new Error("Safe review requires the opaque reviewed deployment plan");
   const actualCost = validatePrerequisiteProof(plan, verification, journal);
   if (await client.chainId() !== 11155111) throw new Error("Safe review requires Ethereum Sepolia");
+  const currentPrerequisites = await client.verifyPrerequisites();
+  if (currentPrerequisites.stage !== "before-setup" || !same(currentPrerequisites.planHash, planHash(plan))) throw new Error("Safe review current prerequisite topology mismatch");
   await verifyCanonicalReads(plan, verification, journal, client);
   const minimumNonce = plan.startingNonce + 4n;
   const [snapshot, latest, pending, balance, safeCode, fees] = await Promise.all([client.block(), client.latestNonce(), client.pendingNonce(), client.balance(), client.code(plan.safeProxyDeployment.expectedCreatedAddress), client.fees()]);
@@ -169,7 +175,7 @@ export function loadSafeCreationApproval(plan: VaultDeploymentPlan, verification
   const actualCost = decimal(report.actualPrerequisiteCostWei, "prerequisite cost"); const gas = decimal(report.gasLimitCap, "gas cap"); const fee = decimal(report.maxFeePerGasCap, "fee cap");
   if (actualCost !== decimal(verification.actualCostWei, "verified prerequisite cost") || gas <= 0n || fee <= 0n || decimal(report.maxPriorityFeePerGasCap, "priority cap") > fee || !HASH.test(report.snapshotBlockHash) || report.exactLimitCallSucceeded !== true) throw new Error("Safe review package bounds invalid");
   if (actualCost + gas * fee !== decimal(report.totalMaximumPhaseOutlayWei, "phase total") || decimal(report.maximumSafeReservationWei, "reservation") !== gas * fee || actualCost + gas * fee > PHASE_OUTLAY_LIMIT) throw new Error("Safe review package accounting invalid");
-  const approval = Object.freeze({ reportHash: actual }); approvals.set(approval, Object.freeze({ plan, report })); return approval;
+  const approval = Object.freeze({ reportHash: actual }); approvals.set(approval, Object.freeze({ plan, report, prerequisites: snapshotPrerequisites(journal) })); return approval;
 }
 
 export type SafeCreationExecutionContext = Readonly<{
@@ -188,6 +194,11 @@ export async function executeSafeCreation(plan: VaultDeploymentPlan, approval: S
   const report = bound.report; const nonce = Number(decimal(report.currentFundingNonce, "funding nonce"));
   const gasCap = decimal(report.gasLimitCap, "gas cap"), maxFee = decimal(report.maxFeePerGasCap, "fee cap"), priority = decimal(report.maxPriorityFeePerGasCap, "priority cap"), reservation = decimal(report.maximumSafeReservationWei, "reservation");
   const intent = Object.freeze({ id: "vault-safe", to: plan.safeProxyDeployment.to, data: plan.safeProxyDeployment.data, value: 0n, nonce, gas: gasCap, maxFeePerGas: maxFee, maxPriorityFeePerGas: priority });
+  if (context.journal.entries.length < 4 || context.journal.entries.slice(0, 4).some((entry, index) => !sameEntry(entry, bound.prerequisites[index]!))) throw new Error("Safe execution journal does not match the approved prerequisite journal");
+  if (context.journal.entries.length > 5 || context.journal.entries.slice(4).some(entry => entry.id !== "vault-safe")) throw new Error("Safe execution permits only the exact vault-safe resume entry after prerequisites");
+  const prerequisiteOutlay = context.journal.entries.slice(0, 4).reduce((sum, entry) => sum + entry.reserved, 0n);
+  const resume = context.journal.entries[4];
+  if (prerequisiteOutlay !== decimal(report.actualPrerequisiteCostWei, "prerequisite cost") || prerequisiteOutlay + reservation !== decimal(report.totalMaximumPhaseOutlayWei, "phase total") || prerequisiteOutlay + reservation > PHASE_OUTLAY_LIMIT || (resume && (resume.reserved < 0n || resume.reserved > reservation || prerequisiteOutlay + resume.reserved > PHASE_OUTLAY_LIMIT))) throw new Error("Safe execution journal phase accounting exceeds approval");
   const finish = async (entry: Awaited<ReturnType<typeof submitLiveIntent>>) => {
     if (entry.status === "pending") { await context.waitForReceipt(entry.transactionHash); entry = await submitLiveIntent(intent, context.journal, context.live); }
     if (entry.status !== "success" || !entry.receipt) throw new Error("Safe creation receipt is not successful");

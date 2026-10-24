@@ -203,17 +203,38 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const dep = (address: Address, version: string) => Object.freeze({ name: version, version, address, runtimeCodeHash: keccak256("0x60"), evidence: "verified" as const, source: "local fixture" });
     const singleton = { ...dep(f.singleton.address, "1.5.0"), supportsModuleGuards: true };
     const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.freeze({ chainId: 31337, deployer: f.deployer.account.address, observedDeployerNonce: 0n, safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0"), passkeySigner: { name: "passkeySigner" as const, address: f.passkey.address, runtimeCodeHash: await runtime(f.passkey.address), bindingHash: keccak256("0x60"), source: "local fixture" }, dependencies: { safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0") } } satisfies DeploymentInfrastructure));
+    const moduleSlot = (module: Address) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [module, 3n]));
+    const readDelayModules = async (start: Address, pageSize: bigint) => {
+      const modules: Address[] = [];
+      let cursor = start;
+      for (let i = 0n; i < pageSize; i++) {
+        const word = await f.client.getStorageAt({ address: f.delay.address, slot: moduleSlot(cursor) });
+        if (!word) throw new Error("Delay module linked-list storage is absent");
+        const next = storageAddress(word);
+        if (next.toLowerCase() === SENTINEL_MODULES.toLowerCase()) return [modules, SENTINEL_MODULES] as const;
+        if (next === ZERO || modules.some(module => module.toLowerCase() === next.toLowerCase())) throw new Error("Delay module linked list is corrupt");
+        modules.push(next);
+        cursor = next;
+      }
+      return [modules, cursor] as const;
+    };
     const topologyClient = { ...f.client, readContract: async (args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }) => {
-      // The compiler-compat test fixture exposes the real Zodiac module linked
-      // list through isModuleEnabled but omits the upstream pagination view.
+      // The compiler-compat fixture omits the view, so enumerate its actual
+      // Zodiac modules mapping instead of substituting the expected result.
       if (args.address.toLowerCase() === f.delay.address.toLowerCase() && args.functionName === "getModulesPaginated") {
-        expect(await f.delay.read.isModuleEnabled([f.safeAddress])).to.equal(true);
-        return [[f.safeAddress], SENTINEL_MODULES] as const;
+        const [start, pageSize] = args.args as readonly [Address, bigint];
+        return readDelayModules(start, pageSize);
       }
       return f.client.readContract(args as never);
     } };
     const report = await verifyTopology({ chainId: 31337, policy, safe: f.safeAddress, guard: f.guard.address, delay: f.delay.address, deployments, prerequisites, client: topologyClient });
     expect(report.ok, report.failures.join(", ")).to.equal(true);
+
+    await hre.network.provider.send("hardhat_setStorageAt", [f.delay.address, moduleSlot(SENTINEL_MODULES), encodeAbiParameters([{ type: "address" }], [f.recipient.account.address])]);
+    await hre.network.provider.send("hardhat_setStorageAt", [f.delay.address, moduleSlot(f.recipient.account.address), encodeAbiParameters([{ type: "address" }], [f.safeAddress])]);
+    const rejected = await verifyTopology({ chainId: 31337, policy, safe: f.safeAddress, guard: f.guard.address, delay: f.delay.address, deployments, prerequisites, client: topologyClient });
+    expect(rejected.ok).to.equal(false);
+    expect(rejected.failures).to.include("only Safe upstream module");
   });
 
   it("rejects direct helper calls outside Safe setup delegatecall", async () => {

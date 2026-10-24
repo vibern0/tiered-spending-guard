@@ -13,6 +13,7 @@ import { buildOrdinaryReviewPolicyDraft, ORDINARY_REVIEW_SIGNER_SOURCE, readOrdi
 import { createSepoliaLiveContext, readLiveJournal, withLiveJournalStore } from "./runtime";
 import { loadFundingKey } from "./secrets";
 import { collectSafeCreationQuote, executeSafeCreation, loadSafeCreationApproval, writeSafeCreationReviewPackage, type PublicPrerequisiteVerification } from "./safe-creation-runner";
+import { bindSafeCreationPrerequisitePackage, createPinnedSafeReviewClient } from "./safe-creation-adapter";
 
 const decimalEnv = (name: string): bigint => {
   const value = process.env[name];
@@ -56,32 +57,47 @@ async function main(): Promise<void> {
   const secondary = { x: decimal(bindings.secondary.x, "public secondary x"), y: decimal(bindings.secondary.y, "public secondary y"), verifiers: verifier };
   const rpc = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
   const client = createPublicClient({ chain: sepolia, transport: http(rpc) });
+  const manifest = json<{ snapshotBlockNumber: string }>(`${packageDirectory}/public-manifest.json`);
+  const historicalBlock = decimal(manifest.snapshotBlockNumber, "reviewed historical snapshot block");
+  const historicalClient = createPinnedSafeReviewClient(client as never, historicalBlock);
   const factory = bindings.factory;
   if (!same(passkeySignerBindingHash({ factory, ...primary }), primaryBindingHash) || !same(passkeySignerBindingHash({ factory, ...secondary }), secondaryBindingHash)) throw new Error("public signer coordinates do not match reviewed binding hashes");
-  const primaryRuntime = await client.getBytecode({ address: config.primaryPasskey });
-  const secondaryRuntime = await client.getBytecode({ address: config.safeContractSecondary });
+  const primaryRuntime = await historicalClient.getBytecode({ address: config.primaryPasskey });
+  const secondaryRuntime = await historicalClient.getBytecode({ address: config.safeContractSecondary });
   if (!primaryRuntime || !secondaryRuntime) throw new Error("reviewed public signer runtime is absent");
-  const deployments = await resolveVerifiedDeploymentInfrastructure(client, { chainId: sepolia.id, deployer: config.funder, expectedDeployerNonce: currentNonce, passkeySigner: { address: config.primaryPasskey, runtimeCodeHash: keccak256(primaryRuntime), bindingHash: primaryBindingHash, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: primary } });
-  await verifyPasskeySignerComponent(client, { name: "safeContractSecondary", address: config.safeContractSecondary, runtimeCodeHash: keccak256(secondaryRuntime), bindingHash: secondaryBindingHash, factory, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: secondary });
-  const proxyCode = await client.readContract({ address: deployments.safeProxyFactory.address, abi: [{ name: "proxyCreationCode", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] }] as const, functionName: "proxyCreationCode" });
+  const deployments = await resolveVerifiedDeploymentInfrastructure(historicalClient, { chainId: sepolia.id, deployer: config.funder, expectedDeployerNonce: startingNonce, passkeySigner: { address: config.primaryPasskey, runtimeCodeHash: keccak256(primaryRuntime), bindingHash: primaryBindingHash, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: primary } });
+  await verifyPasskeySignerComponent(historicalClient, { address: config.safeContractSecondary, runtimeCodeHash: keccak256(secondaryRuntime), bindingHash: secondaryBindingHash, factory, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: secondary });
+  const proxyCode = await historicalClient.readContract({ address: deployments.safeProxyFactory.address, abi: [{ name: "proxyCreationCode", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] }] as const, functionName: "proxyCreationCode" }) as Hex;
   const components = deriveComponentAddresses({ deployer: config.funder, startingNonce });
   const draft = buildOrdinaryReviewPolicyDraft(config, startingNonce);
   const safe = deriveVaultSafeProxyAddress({ policy: draft, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, safeProxyCreationCode: proxyCode, deployments });
   const response = await fetch(ZODIAC_DELAY_V1_1_1.sourceUrl); if (!response.ok) throw new Error("pinned Delay artifact fetch failed");
-  const artifacts = await resolveReviewedVaultArtifacts({ client, deployments, safe, primaryPasskey: config.primaryPasskey, ecdsaSecondary: config.ecdsaSecondary, delay: components.delay, maintenance: components.maintenance, periodAnchor: config.periodAnchor, cooldownSeconds: 120n, expirationSeconds: 600n, delayArtifactSource: await response.text() });
+  const artifacts = await resolveReviewedVaultArtifacts({ client: historicalClient, deployments, safe, primaryPasskey: config.primaryPasskey, ecdsaSecondary: config.ecdsaSecondary, delay: components.delay, maintenance: components.maintenance, periodAnchor: config.periodAnchor, cooldownSeconds: 120n, expirationSeconds: 600n, delayArtifactSource: await response.text() });
   const policy = { ...draft, safe };
-  const plan = buildVaultPlan({ policy, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, artifacts, deployments, completedPrerequisites: 4 });
+  const plan = buildVaultPlan({ policy, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, artifacts, deployments });
+  bindSafeCreationPrerequisitePackage(plan, packageDirectory, prerequisitePackageHash);
   const proof = json<PublicPrerequisiteVerification>(proofPath);
   if (!same(proof.packageHash, prerequisitePackageHash)) throw new Error("public prerequisite proof does not match frozen reviewed package hash");
-  const journal = readLiveJournal(journalPath, config.funder);
+
+  const [liveLatestNonce, livePendingNonce, livePrimaryRuntime, liveSecondaryRuntime] = await Promise.all([
+    client.getTransactionCount({ address: config.funder, blockTag: "latest" }),
+    client.getTransactionCount({ address: config.funder, blockTag: "pending" }),
+    client.getBytecode({ address: config.primaryPasskey }),
+    client.getBytecode({ address: config.safeContractSecondary }),
+  ]);
+  if (BigInt(liveLatestNonce) !== currentNonce || liveLatestNonce !== livePendingNonce || !livePrimaryRuntime || !liveSecondaryRuntime) throw new Error("current Safe delivery nonce or signer runtime changed");
+  const currentDeployments = await resolveVerifiedDeploymentInfrastructure(client, { chainId: sepolia.id, deployer: config.funder, expectedDeployerNonce: BigInt(liveLatestNonce), passkeySigner: { address: config.primaryPasskey, runtimeCodeHash: keccak256(livePrimaryRuntime), bindingHash: primaryBindingHash, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: primary } });
+  await verifyPasskeySignerComponent(client, { address: config.safeContractSecondary, runtimeCodeHash: keccak256(liveSecondaryRuntime), bindingHash: secondaryBindingHash, factory, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: secondary });
 
   if (process.env.LIVE_SUBMIT === undefined) {
+    const journal = readLiveJournal(journalPath, config.funder);
     const quote = await collectSafeCreationQuote(plan, proof, journal, {
       chainId: () => client.getChainId(), block: async () => { const block = await client.getBlock(); if (block.number === null || !block.hash) throw new Error("latest canonical block unavailable"); return { number: block.number, hash: block.hash }; }, blockHash: async number => { const block = await client.getBlock({ blockNumber: number }); if (!block.hash) throw new Error("canonical block unavailable"); return block.hash; },
       latestNonce: async () => Number(await client.getTransactionCount({ address: config.funder, blockTag: "latest" })), pendingNonce: async () => Number(await client.getTransactionCount({ address: config.funder, blockTag: "pending" })), balance: () => client.getBalance({ address: config.funder }), code: address => client.getBytecode({ address }),
       transaction: async hash => { const tx = await client.getTransaction({ hash }); if (tx.type !== "eip1559") throw new Error("canonical prerequisite is not EIP-1559"); return { hash: tx.hash, from: tx.from, to: tx.to ?? undefined, nonce: tx.nonce, chainId: tx.chainId!, type: "eip1559", value: tx.value, input: tx.input }; },
       receipt: async hash => { try { const receipt = await client.getTransactionReceipt({ hash }); return { transactionHash: receipt.transactionHash, status: receipt.status, gasUsed: receipt.gasUsed, effectiveGasPrice: receipt.effectiveGasPrice, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash }; } catch { return undefined; } },
       estimateGas: args => client.estimateGas(args), call: args => client.call(args), fees: async () => { const suggested = await client.estimateFeesPerGas(); const block = await client.getBlock(); if (block.baseFeePerGas === null) throw new Error("base fee unavailable"); return { ...selectApprovedFees(suggested, block.baseFeePerGas, config), baseFeePerGas: block.baseFeePerGas }; },
+      verifyPrerequisites: () => verifyVaultPrerequisites(client, plan, "before-setup"),
     }, { gasLimit: decimalEnv("VAULT_SAFE_GAS_LIMIT_CAP"), maxFeePerGas: decimalEnv("VAULT_SAFE_MAX_FEE_CAP"), maxPriorityFeePerGas: decimalEnv("VAULT_SAFE_PRIORITY_FEE_CAP") });
     const written = writeSafeCreationReviewPackage(quote, outputDirectory);
     console.log(JSON.stringify({ ...quote.report, packageHash: written.packageHash, path: written.path }));
@@ -89,14 +105,14 @@ async function main(): Promise<void> {
   }
   if (process.env.LIVE_SUBMIT !== "YES") throw new Error("Safe creation requires exact LIVE_SUBMIT=YES");
   const approvedHash = hexEnv("VAULT_SAFE_REVIEW_PACKAGE_HASH");
-  const approval = loadSafeCreationApproval(plan, proof, journal, outputDirectory, approvedHash);
   const account = privateKeyToAccount(loadFundingKey(process.env.VAULT_FUNDING_KEY_PATH ?? "", repository));
   if (!same(account.address, config.funder)) throw new Error("funding key does not match reviewed funder");
   await withLiveJournalStore(journalPath, config.funder, async store => {
     const locked = store.load();
+    const approval = loadSafeCreationApproval(plan, proof, locked, outputDirectory, approvedHash);
     const live = createSepoliaLiveContext({ account, client, verify: async () => { if (await client.getChainId() !== sepolia.id) throw new Error("wrong chain"); }, persist: async value => store.save(value) });
     const currentFees = async () => { const suggested = await client.estimateFeesPerGas(); const block = await client.getBlock(); if (block.baseFeePerGas === null) throw new Error("base fee unavailable"); return { ...selectApprovedFees(suggested, block.baseFeePerGas, config), baseFeePerGas: block.baseFeePerGas }; };
-    const result = await executeSafeCreation(plan, approval, { live, journal: locked, latestNonce: async () => Number(await client.getTransactionCount({ address: config.funder, blockTag: "latest" })), pendingNonce: async () => Number(await client.getTransactionCount({ address: config.funder, blockTag: "pending" })), currentBalance: () => client.getBalance({ address: config.funder }), safeCode: () => client.getBytecode({ address: safe }), currentFees, estimateGas: () => client.estimateGas({ account, to: plan.safeProxyDeployment.to, data: plan.safeProxyDeployment.data, value: 0n }), exactCall: async () => { await client.call({ account, to: plan.safeProxyDeployment.to, data: plan.safeProxyDeployment.data, value: 0n, gas: decimalEnv("VAULT_SAFE_GAS_LIMIT_CAP") }); }, canonicalBlockHash: async number => (await client.getBlock({ blockNumber: number })).hash!, verifyBeforeSetup: () => verifyVaultPrerequisites(client, plan, "before-setup"), waitForReceipt: async hash => { await client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120_000 }); }, verifyAfterSetup: () => verifyVaultPrerequisites(client, plan, "after-setup"), verifyTopology: async () => verifyTopology({ chainId: sepolia.id, policy, safe, guard: components.guard, delay: components.delay, deployments, prerequisites: await verifyVaultPrerequisites(client, plan, "after-setup"), client }) });
+    const result = await executeSafeCreation(plan, approval, { live, journal: locked, latestNonce: async () => Number(await client.getTransactionCount({ address: config.funder, blockTag: "latest" })), pendingNonce: async () => Number(await client.getTransactionCount({ address: config.funder, blockTag: "pending" })), currentBalance: () => client.getBalance({ address: config.funder }), safeCode: () => client.getBytecode({ address: safe }), currentFees, estimateGas: () => client.estimateGas({ account, to: plan.safeProxyDeployment.to, data: plan.safeProxyDeployment.data, value: 0n }), exactCall: async () => { await client.call({ account, to: plan.safeProxyDeployment.to, data: plan.safeProxyDeployment.data, value: 0n, gas: decimalEnv("VAULT_SAFE_GAS_LIMIT_CAP") }); }, canonicalBlockHash: async number => (await client.getBlock({ blockNumber: number })).hash!, verifyBeforeSetup: () => verifyVaultPrerequisites(client, plan, "before-setup"), waitForReceipt: async hash => { await client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120_000 }); }, verifyAfterSetup: () => verifyVaultPrerequisites(client, plan, "after-setup"), verifyTopology: async () => verifyTopology({ chainId: sepolia.id, policy, safe, guard: components.guard, delay: components.delay, deployments: currentDeployments, prerequisites: await verifyVaultPrerequisites(client, plan, "after-setup"), client }) });
     console.log(JSON.stringify({ status: result.status, safe, transactionHash: result.receipt.transactionHash }));
   });
 }

@@ -40,6 +40,7 @@ function fixture(value = testPlan()) {
   const receipts = [0, 1, 2, 3].map((i): LiveReceipt => ({ transactionHash: h(i + 100), status: "success", gasUsed: BigInt(100 + i), effectiveGasPrice: 2n, blockNumber: BigInt(1000 + i), blockHash: h(i + 200) }));
   const journal: LiveJournal = { chainId: 11155111, funder: account.address, entries: receipts.map((receipt, i) => ({ id: ["vault-setup-helper", "vault-guard", "vault-delay", "vault-maintenance"][i]!, intentHash: h(i + 300), transactionHash: receipt.transactionHash, nonce: 673 + i, reserved: receipt.gasUsed * receipt.effectiveGasPrice, status: "success", receipt })) };
   const verification = { schemaVersion: 1, chainId: "11155111", packageHash: h(40), planHash: planHash(value), result: "PASS", actualCostWei: journal.entries.reduce((n, e) => n + e.reserved, 0n).toString(), transactions: receipts.map((receipt, i) => ({ id: journal.entries[i]!.id, hash: receipt.transactionHash, from: account.address, to: null, nonce: String(673 + i), chainId: "11155111", type: "0x2", value: "0", inputHash: keccak256(Object.values(value.prerequisites)[i]!.data), gas: "100000", maxFeePerGas: "10", maxPriorityFeePerGas: "1", blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, status: "0x1", contractAddress: Object.values(value.prerequisites)[i]!.expectedCreatedAddress, gasUsed: receipt.gasUsed.toString(), effectiveGasPrice: receipt.effectiveGasPrice.toString(), actualCostWei: (receipt.gasUsed * receipt.effectiveGasPrice).toString() })) } as const;
+  const prerequisites = brandVerifiedVaultPrerequisitesForTestsOnly({ stage: "before-setup", planHash: planHash(value), safeProxyRuntimeCodeHash: h(10), setupHelper: { name: "setupHelper", address: address(1), runtimeCodeHash: h(11), bindingHash: h(1), source: "test" }, guard: { name: "guard", address: address(2), runtimeCodeHash: h(12), bindingHash: h(2), source: "test" }, delay: { name: "delay", address: address(3), runtimeCodeHash: h(13), bindingHash: h(3), source: "test" }, maintenance: { name: "maintenance", address: address(4), runtimeCodeHash: h(14), bindingHash: h(4), source: "test" } });
   const client = {
     chainId: async () => 11155111,
     block: async () => ({ number: 2000n, hash: h(500) }),
@@ -56,8 +57,9 @@ function fixture(value = testPlan()) {
     estimateGas: async () => 100n,
     call: async () => undefined,
     fees: async () => ({ maxFeePerGas: 10n, maxPriorityFeePerGas: 1n, baseFeePerGas: 1n }),
+    verifyPrerequisites: async () => prerequisites,
   };
-  return { value, receipts, journal, verification, client };
+  return { value, receipts, journal, verification, prerequisites, client };
 }
 
 describe("separately approved Safe creation runner", () => {
@@ -87,6 +89,10 @@ describe("separately approved Safe creation runner", () => {
       const prereq = brandVerifiedVaultPrerequisitesForTestsOnly({ stage: "before-setup", planHash: planHash(f.value), safeProxyRuntimeCodeHash: h(10), setupHelper: { name: "setupHelper", address: address(1), runtimeCodeHash: h(11), bindingHash: h(1), source: "test" }, guard: { name: "guard", address: address(2), runtimeCodeHash: h(12), bindingHash: h(2), source: "test" }, delay: { name: "delay", address: address(3), runtimeCodeHash: h(13), bindingHash: h(3), source: "test" }, maintenance: { name: "maintenance", address: address(4), runtimeCodeHash: h(14), bindingHash: h(4), source: "test" } });
       const context = { live, journal: f.journal, latestNonce: f.client.latestNonce, pendingNonce: f.client.pendingNonce, currentBalance: f.client.balance, safeCode: async () => "0x" as Hex, currentFees: f.client.fees, estimateGas: f.client.estimateGas, exactCall: f.client.call, canonicalBlockHash: f.client.blockHash, verifyBeforeSetup: async () => prereq, waitForReceipt: async () => undefined, verifyAfterSetup: async () => ({ ...prereq, stage: "after-setup" as const }), verifyTopology: async () => ({ ok: true, failures: [], checked: [] }) };
       await expect(executeSafeCreation(f.value, { ...approval }, context)).to.be.rejectedWith("exact opaque approval");
+      const originalIntentHash = f.journal.entries[0]!.intentHash;
+      f.journal.entries[0]!.intentHash = h(998);
+      await expect(executeSafeCreation(f.value, approval, context)).to.be.rejectedWith("approved prerequisite journal");
+      f.journal.entries[0]!.intentHash = originalIntentHash;
       await expect(executeSafeCreation(f.value, approval, { ...context, pendingNonce: async () => 678 })).to.be.rejectedWith("latest and pending nonce");
       await expect(executeSafeCreation(f.value, approval, { ...context, currentFees: async () => ({ maxFeePerGas: 11n, maxPriorityFeePerGas: 1n, baseFeePerGas: 1n }) })).to.be.rejectedWith("fee cap");
       await expect(executeSafeCreation(f.value, approval, { ...context, estimateGas: async () => 121n })).to.be.rejectedWith("gas cap");
@@ -96,6 +102,7 @@ describe("separately approved Safe creation runner", () => {
       await expect(executeSafeCreation(f.value, approval, { ...context, verifyBeforeSetup: async () => { throw new Error("topology prerequisite failure"); } })).to.be.rejectedWith("topology prerequisite failure");
       expect(signed).to.equal(0);
       await expect(collectSafeCreationQuote(f.value, f.verification, f.journal, { ...f.client, receipt: async () => undefined }, { gasLimit: 120n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n })).to.be.rejectedWith("canonical receipt changed");
+      await expect(collectSafeCreationQuote(f.value, f.verification, f.journal, { ...f.client, verifyPrerequisites: async () => { throw new Error("current prerequisite runtime changed"); } }, { gasLimit: 120n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n })).to.be.rejectedWith("current prerequisite runtime changed");
       await expect(collectSafeCreationQuote(f.value, f.verification, f.journal, { ...f.client, balance: async () => 100_000_000_000_000_000n }, { gasLimit: 60_000_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1n })).to.be.rejectedWith("phase outlay cap");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -120,6 +127,16 @@ describe("separately approved Safe creation runner", () => {
       const resumed = await executeSafeCreation(f.value, approval, { ...context, latestNonce: async () => 678, pendingNonce: async () => 678, safeCode: async () => "0x6000", verifyBeforeSetup: async () => { throw new Error("must not run pre-setup verifier for known included hash"); } });
       expect(resumed.status).to.equal("SAFE_CREATED_TOPOLOGY_VERIFIED");
       expect({ signed, broadcast }).to.deep.equal({ signed: 1, broadcast: 1 });
+      f.journal.entries[0]!.reserved += 1n;
+      await expect(executeSafeCreation(f.value, approval, context)).to.be.rejectedWith("approved prerequisite journal");
+      f.journal.entries[0]!.reserved -= 1n;
+      const safeReserved = f.journal.entries[4]!.reserved;
+      f.journal.entries[4]!.reserved = 1201n;
+      await expect(executeSafeCreation(f.value, approval, context)).to.be.rejectedWith("phase accounting exceeds approval");
+      f.journal.entries[4]!.reserved = safeReserved;
+      f.journal.entries.push({ ...f.journal.entries[4]!, id: "unexpected-extra" });
+      await expect(executeSafeCreation(f.value, approval, context)).to.be.rejectedWith("only the exact vault-safe resume entry");
+      f.journal.entries.pop();
       const failed = fixture();
       const failedQuote = await collectSafeCreationQuote(failed.value, failed.verification, failed.journal, failed.client, { gasLimit: 120n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n });
       expect(failedQuote.report.totalMaximumPhaseOutlayWei).to.equal("2012");

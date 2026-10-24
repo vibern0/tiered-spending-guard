@@ -20,6 +20,7 @@ import { sha256 } from "../../../scripts/plan-deployment";
 import { assertOrdinaryReviewPlan, buildOrdinaryReviewPolicyDraft, readOrdinaryReviewConfig, selectApprovedFees } from "../../../scripts/live/ordinary-review-profile";
 import { prepareOrdinaryReviewExecutionPreflight, runOnlyWithLiveSubmitAuthorization } from "../../../scripts/live/ordinary-review-execution";
 import { deriveComponentAddresses } from "../../../src/topology/addressing";
+import { bindSafeCreationPrerequisitePackage } from "../../../scripts/live/safe-creation-adapter";
 
 process.env.NODE_ENV = "test";
 
@@ -347,6 +348,32 @@ describe("reviewed vault deployment runner", () => {
       const names = ["unsigned-plan.json", "decoded-review.json", "public-manifest.json", "expected-evidence-hashes.json"];
       const mutatedHash = sha256(names.map((name) => readFileSync(join(reviewed.directory, name), "utf8")));
       expect(() => loadReviewedVaultPrerequisiteApproval(value, reviewed.directory, mutatedHash)).to.throw(/transaction mismatch.*setup-helper/i);
+    } finally {
+      rmSync(reviewed.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("binds Safe creation to the strict original package and exact decoded Safe tuple", async () => {
+    const value = plan();
+    const reviewed = await reviewedPackage(value);
+    try {
+      expect(bindSafeCreationPrerequisitePackage(value, reviewed.directory, reviewed.packageHash).packageHash).to.equal(reviewed.packageHash);
+      const decodedPath = join(reviewed.directory, "decoded-review.json");
+      const manifestPath = join(reviewed.directory, "public-manifest.json");
+      const hashesPath = join(reviewed.directory, "expected-evidence-hashes.json");
+      const decoded = JSON.parse(readFileSync(decodedPath, "utf8"));
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const hashes = JSON.parse(readFileSync(hashesPath, "utf8"));
+      decoded.transactions[4].data = "0x6001";
+      manifest.decodedReviewHash = sha256(decoded);
+      hashes.decodedReviewHash = manifest.decodedReviewHash;
+      hashes.publicManifestHash = sha256(manifest);
+      writeFileSync(decodedPath, `${JSON.stringify(decoded, null, 2)}\n`);
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      writeFileSync(hashesPath, `${JSON.stringify(hashes, null, 2)}\n`);
+      const names = ["unsigned-plan.json", "decoded-review.json", "public-manifest.json", "expected-evidence-hashes.json"];
+      const mutatedHash = sha256(names.map((name) => readFileSync(join(reviewed.directory, name), "utf8")));
+      expect(() => bindSafeCreationPrerequisitePackage(value, reviewed.directory, mutatedHash)).to.throw(/transaction mismatch.*vault-safe/i);
     } finally {
       rmSync(reviewed.directory, { recursive: true, force: true });
     }
