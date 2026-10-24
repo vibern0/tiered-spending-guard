@@ -124,6 +124,15 @@ export function createLiveJournalStore(path: string, funder: Address): LiveJourn
   return Object.freeze({ load, save, close });
 }
 
+export async function withLiveJournalStore<T>(path: string, funder: Address, callback: (store: LiveJournalStore) => Promise<T>): Promise<T> {
+  const store = createLiveJournalStore(path, funder);
+  try {
+    return await callback(store);
+  } finally {
+    store.close();
+  }
+}
+
 export function createSepoliaLiveContext(input: Readonly<{ account: Account; client: SepoliaRpc; verify(): Promise<void>; persist(journal: LiveJournal): Promise<void> }>): LiveContext {
   const funder = input.account.address;
   return Object.freeze({

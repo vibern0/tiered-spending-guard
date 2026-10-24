@@ -2,7 +2,7 @@ import { createPublicClient, http, keccak256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { loadCredential, loadFundingKey } from "./secrets";
-import { createLiveJournalStore, createSepoliaLiveContext, readLiveJournal } from "./runtime";
+import { createSepoliaLiveContext, readLiveJournal, withLiveJournalStore } from "./runtime";
 import { resolveVerifiedDeploymentInfrastructure } from "../../src/config/deployments";
 import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../../src/topology/evidence";
 import { deriveComponentAddresses } from "../../src/topology/addressing";
@@ -59,13 +59,12 @@ async function main(): Promise<void> {
   const submission = await runOnlyWithLiveSubmitAuthorization(process.env.LIVE_SUBMIT, async () => {
     const account = privateKeyToAccount(loadFundingKey(`${directory}/funding-key`, repository));
     if (account.address.toLowerCase() !== config.funder.toLowerCase()) throw new Error("funding key does not match the reviewed public funder");
-    const journal = createLiveJournalStore(journalPath, account.address);
-    try {
+    return withLiveJournalStore(journalPath, account.address, async journal => {
       const lockedJournal = journal.load();
       const encodeJournal = (value: typeof loadedJournal): string => JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item);
       if (encodeJournal(lockedJournal) !== encodeJournal(loadedJournal)) throw new Error("deployment journal changed after read-only preflight");
       const live = createSepoliaLiveContext({ account, client, verify: async () => { if (await client.getChainId() !== sepolia.id) throw new Error("wrong chain"); }, persist: async journalValue => journal.save(journalValue) });
-      return executeVaultPrerequisites(plan, preflight.approval, { live, journal: loadedJournal, feeFor: async tx => {
+      return await executeVaultPrerequisites(plan, preflight.approval, { live, journal: loadedJournal, feeFor: async tx => {
         const existing = loadedJournal.entries.find((entry) => entry.nonce === Number(tx.nonce));
         if (existing) {
           const original = await client.getTransaction({ hash: existing.transactionHash });
@@ -81,7 +80,7 @@ async function main(): Promise<void> {
         const gas = await client.estimateGas({ account, to: tx.to === zero ? undefined : tx.to, data: tx.data, value: tx.value });
         return { gas: (gas * 120n + 99n) / 100n, ...approvedFees };
       }, waitForReceipt: async hash => { await client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120_000 }); }, verifyPrerequisites: (value, stage) => verifyVaultPrerequisites(client, value, stage) });
-    } finally { journal.close(); }
+    });
   });
   if (submission.status === "LIVE_SUBMIT") console.log(JSON.stringify({ status: "PREREQUISITES_COMPLETE_SAFE_REVIEW_REQUIRED", safe, entries: submission.result.journal.entries.map(entry => ({ id: entry.id, transactionHash: entry.transactionHash, status: entry.status })) }, (_key, value) => typeof value === "bigint" ? value.toString() : value));
 }

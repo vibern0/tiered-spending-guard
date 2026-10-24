@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeFunctionData } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { createLiveJournalStore, decodeLiveIntent, createSepoliaLiveContext, readLiveJournal, verifyBootstrapIntent } from "../../../scripts/live/runtime";
+import { createLiveJournalStore, decodeLiveIntent, createSepoliaLiveContext, readLiveJournal, verifyBootstrapIntent, withLiveJournalStore } from "../../../scripts/live/runtime";
 
 describe("Sepolia live runtime", () => {
   let directory: string;
@@ -53,6 +53,34 @@ describe("Sepolia live runtime", () => {
     const second = createLiveJournalStore(path, funder);
     expect(second.load().entries[0].receipt).to.deep.equal({ transactionHash: hash, status: "success", gasUsed: 1n, effectiveGasPrice: 1n, blockNumber: 1n, blockHash: hash });
     second.close();
+  });
+
+  it("keeps the writer lock through deferred asynchronous persistence and releases it after success", async () => {
+    const path = join(directory, "journal.json");
+    const funder = privateKeyToAccount(generatePrivateKey()).address;
+    const result = await withLiveJournalStore(path, funder, async (store) => {
+      await Promise.resolve();
+      expect(() => createLiveJournalStore(path, funder)).to.throw("writer lock");
+      store.save({ chainId: 11155111, funder, entries: [] });
+      return "persisted";
+    });
+
+    expect(result).to.equal("persisted");
+    expect(readLiveJournal(path, funder)).to.deep.equal({ chainId: 11155111, funder, entries: [] });
+    const reopened = createLiveJournalStore(path, funder);
+    reopened.close();
+  });
+
+  it("releases the writer lock after an asynchronous callback rejects", async () => {
+    const path = join(directory, "journal.json");
+    const funder = privateKeyToAccount(generatePrivateKey()).address;
+    await expect(withLiveJournalStore(path, funder, async () => {
+      await Promise.resolve();
+      throw new Error("deferred failure");
+    })).to.be.rejectedWith("deferred failure");
+
+    const reopened = createLiveJournalStore(path, funder);
+    reopened.close();
   });
 
   it("refuses an RPC result from another chain before signing", async () => {
