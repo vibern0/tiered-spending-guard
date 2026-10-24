@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "status": "PREREQUISITES_DEPLOYED_SAFE_NOT_CREATED",
+  "network": "sepolia",
+  "chainId": "11155111",
+  "verifiedAt": "2026-10-24T22:20:21.162Z",
+  "sourceVerificationSha256": "a4a9ae6dd5a844b3c85f775db41fc244d0fccf0ce0b61c858cc1b2bc1358a336",
+  "sourceCheckCount": 103,
+  "sourceResult": "PASS",
+  "packageHash": "0x8e1139e816a322db4611fe35eb62f4f93a33bacec039a1e2a6c63166af4208b3",
+  "planHash": "0x95ef22995ba9c1527d4c12463663aca0b07d092676df12cea4064476a89855cb",
+  "funder": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+  "immutableCreateNonceRange": ["673", "676"],
+  "predictedSafe": "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6",
+  "predictedSafeCodeAtVerification": "0x",
+  "actualCostWei": "67220151000000",
+  "transactions": [
+    {
+      "id": "vault-setup-helper",
+      "hash": "0xef8c11a8ebd5aa80be3c3447140a8eafd3f79130108d910ac25487456bb1a545",
+      "nonce": "673",
+      "to": null,
+      "value": "0",
+      "inputHash": "0x5bc11ff89e2d5fe8f416e6af06e58a83731a8a0a8ab50fefc286433d55110f8f",
+      "contractAddress": "0xc3Ba1567fb0E5961E9E4fD72F88B2AC3318360A3",
+      "blockNumber": "11986683",
+      "blockHash": "0x9f06bde72b24fa67b2b435c16752b34649f532f8426223df1a8bd9d2f9a82181",
+      "status": "success",
+      "gasUsed": "6206548",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "6206548000000",
+      "runtimeCodeHash": "0x2c62cef9dddba841212bfa15b5dd294cff919569311c42df4ddda20b65796381"
+    },
+    {
+      "id": "vault-guard",
+      "hash": "0xfb55c9d71af54b90e0ed413c901e86fcd40f5405618e4b1823d0a707380600c4",
+      "nonce": "674",
+      "to": null,
+      "value": "0",
+      "inputHash": "0xddf8aca93acde0e3f9cb5aa44f14a7c7b6c38877b599549522f2547bea80df1d",
+      "contractAddress": "0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA",
+      "blockNumber": "11986684",
+      "blockHash": "0xa2ffad2ac3463fbd52dbf1f000254ce70eda3e7a08221672c1eaacaa8d342568",
+      "status": "success",
+      "gasUsed": "24370686",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "24370686000000",
+      "runtimeCodeHash": "0x9321a6a896d85ec04efe82171b12f5f93c4e0c4ea9b34eb376b63ddbbb4ec070"
+    },
+    {
+      "id": "vault-delay",
+      "hash": "0xc6bf893c8782a5a85b848acde2c69d59aaa2dd8dddd721a3b707aba509c058d8",
+      "nonce": "675",
+      "to": null,
+      "value": "0",
+      "inputHash": "0x9a672214bf6c00c349c37ca06e1d6336c306c84227499ccf81c365e7e391f96d",
+      "contractAddress": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+      "blockNumber": "11986685",
+      "blockHash": "0x97cf80d2e8a7aedc51670444d58af4af2754a29a3aafd07c59d97ecf6bc7d7e9",
+      "status": "success",
+      "gasUsed": "27824209",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "27824209000000",
+      "runtimeCodeHash": "0xdd928eddfff7b68bd8fff28178c29e3388c1d098051d9262f151c4b534c577b8"
+    },
+    {
+      "id": "vault-maintenance",
+      "hash": "0x7f243eaedc93f3ee028231561fa36f6f4fedbcca6bb7db601cef7df85a35a397",
+      "nonce": "676",
+      "to": null,
+      "value": "0",
+      "inputHash": "0xca3fa3692277f829578694a5dc27a0defeac432b646df3b081020e8a5bdc3c1c",
+      "contractAddress": "0x3D20c6c361bdb1970827c9450beeC0e3cD78E654",
+      "blockNumber": "11986686",
+      "blockHash": "0xb9869cbf8b3dad19afde52dc8900eceeda618a805037e43b444e3d896c4ca0cb",
+      "status": "success",
+      "gasUsed": "8818708",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "8818708000000",
+      "runtimeCodeHash": "0xb4f0d7b5cb73d811d7ac4a66dc3e67424057c296eed95e0f78d7b6a739a12c33"
+    }
+  ],
+  "independentProviderCorroboration": [
+    {
+      "provider": "PublicNode",
+      "latestBlock": "11986695",
+      "latestFunderNonce": "677",
+      "canonicalReceipts": 4,
+      "matchingRuntimeCodeHashes": 4,
+      "predictedSafeUndeployed": true
+    },
+    {
+      "provider": "dRPC",
+      "latestBlock": "11986695",
+      "latestFunderNonce": "677",
+      "canonicalReceipts": 4,
+      "matchingRuntimeCodeHashes": 4,
+      "predictedSafeUndeployed": true
+    }
+  ],
+  "omissions": [
+    "raw EIP-1559 transaction signature r/s/v/yParity fields"
+  ]
+}
