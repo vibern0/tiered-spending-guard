@@ -1,0 +1,5030 @@
+{
+  "schemaVersion": 1,
+  "status": "BLOCKED",
+  "authorization": "NONE",
+  "chainId": "11155111",
+  "planHash": "0x95ef22995ba9c1527d4c12463663aca0b07d092676df12cea4064476a89855cb",
+  "topologyEvidenceHash": "0x9e3c9ff01d6057fc8995e6760e419cb0be14cef1aeb9efe0b134bff6829f66a0",
+  "baselineEvidenceHash": "0x01abafec70c938b3d720ca6563270696cb514e8a30157a379b545dc7f19fce12",
+  "snapshot": {
+    "blockNumber": "12007532",
+    "blockHash": "0x53de37f8cb012ea5f53b041c63c60975e3d62b9e2fda3641882057928cfc43b1",
+    "blockTimestamp": "1793133012",
+    "safeNonce": "0",
+    "funderNonce": "767",
+    "delayNonce": "0",
+    "balances": {
+      "funder": {
+        "address": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "nativeWei": "7840932493075050",
+        "usdcUnits": "20000000"
+      },
+      "safe": {
+        "address": "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6",
+        "nativeWei": "0",
+        "usdcUnits": "0"
+      },
+      "recipient": {
+        "address": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "nativeWei": "7840932493075050",
+        "usdcUnits": "20000000"
+      }
+    },
+    "counters": [
+      {
+        "token": "0x0000000000000000000000000000000000000000",
+        "window": "0",
+        "baseSpent": "0",
+        "instantSpent": "0"
+      },
+      {
+        "token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "window": "0",
+        "baseSpent": "0",
+        "instantSpent": "0"
+      }
+    ],
+    "token": {
+      "address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      "name": "USDC",
+      "symbol": "USDC",
+      "decimals": 6
+    }
+  },
+  "publicIdentities": {
+    "safe": "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6",
+    "guard": "0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA",
+    "delay": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+    "maintenance": "0x3D20c6c361bdb1970827c9450beeC0e3cD78E654",
+    "signers": {
+      "primary": {
+        "address": "0x6F9c2f4f8526A17f38c9409a8cBF605b34Fa146c",
+        "kind": "safe-contract",
+        "available": true,
+        "source": "public factory-bound passkey descriptor"
+      },
+      "safeContractSecondary": {
+        "address": "0xF94b0fbDCa0eF0Bf7Bd142aF832Bab17108C0D42",
+        "kind": "safe-contract",
+        "available": true,
+        "source": "public factory-bound passkey descriptor"
+      },
+      "ecdsaSecondary": {
+        "address": "0xe789E36f46E2445d807D726E4a064c8048e19980",
+        "kind": "ecdsa-extension",
+        "available": true,
+        "source": "approved non-WalletConnect public capability descriptor"
+      }
+    },
+    "runtimeCodeHashes": {
+      "safe": "0x4e381985ca68b3e5d27b4425fa581c19cf33146d3f887a3cfca96f55528ea46f",
+      "guard": "0x9321a6a896d85ec04efe82171b12f5f93c4e0c4ea9b34eb376b63ddbbb4ec070",
+      "delay": "0xdd928eddfff7b68bd8fff28178c29e3388c1d098051d9262f151c4b534c577b8",
+      "maintenance": "0xb4f0d7b5cb73d811d7ac4a66dc3e67424057c296eed95e0f78d7b6a739a12c33",
+      "primary": "0xa0e8181d6603a5bf321082e1563b4484d5aa5dfe273a335b548a3fe44a2fe31c",
+      "safeContractSecondary": "0xd780306197c7b8de020a63dd1e01f17da9c90475b673baad94cb91f5aceec012",
+      "ecdsaSecondary": "0x",
+      "replacementContractSecondary": "0x"
+    },
+    "observer": {
+      "kind": "https-webhook",
+      "publicId": "temporary-test-receiver:0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0",
+      "independentFromProposer": true,
+      "endpointHash": "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0",
+      "probeEvidenceHash": "0xfe96d4c070dec9493496f2ddd1a028d00fcd6e74f8e499fc7daee01bd3db5d61",
+      "actualActivityAlerts": "NOT_RUN"
+    },
+    "repair": {
+      "formatVersion": 1,
+      "scope": "ordinary-baseline-proposed-contract-secondary-repair",
+      "chainId": 11155111,
+      "factory": "0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf",
+      "verifiers": "1111636484949241205398856388087597953580887526884",
+      "address": "0xCc3C12cFB2508E5E9E4EB9b21CC44A9dEEFf0908",
+      "x": "10342510752483659319190807637330965811978365685423845568184481734592673940696",
+      "y": "83007955684183101275699917860538633816962061613045139387258186696967867907135",
+      "observedRuntime": "0x",
+      "deployed": false,
+      "signed": false,
+      "broadcast": false
+    }
+  },
+  "requiredInventory": {
+    "nativeWei": "30000000000001",
+    "usdcUnits": "31000000",
+    "initialExternalUsdcUnits": "20000000",
+    "grossUsdcFundingUnits": "31000000",
+    "explanation": "20 initial external USDC units fund base X plus the contract-secondary row. Because the controlled recipient is the funder, canonical returns support an exact 10-unit top-up before the ECDSA row and an exact 1-unit top-up before delayed execution. Gross funding is 31, immediate cumulative spend is 30 at shared Y, and the delayed transaction is 1 unit. Funding does not reset counters or consume Safe/Delay nonces."
+  },
+  "blockers": [
+    {
+      "code": "MISSING_REPAIR_SIGNER_DEPLOYMENT",
+      "detail": "replacement 0xCc3C12cFB2508E5E9E4EB9b21CC44A9dEEFf0908 has no runtime at the pinned block; factory creation and canonical runtime/binding verification require separate review"
+    },
+    {
+      "code": "MISSING_REPAIR_WEBAUTHN_PROOF",
+      "detail": "the exact non-public WebAuthn assertion over repairProofHash must be produced only at later signing time and separately reviewed before repair calldata can be fixed"
+    }
+  ],
+  "actions": [
+    {
+      "id": "native-funding",
+      "kind": "funding",
+      "asset": "native",
+      "dependsOn": [],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "publicTransaction": {
+        "to": "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6",
+        "value": "30000000000001",
+        "data": "0x",
+        "operation": 0,
+        "funderNonce": "767",
+        "safeNonce": null,
+        "safeTxHash": null
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "740292",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Safe native inventory increases by 30000000000001",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7810932493075049",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "30000000000001",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7810932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "740292000000",
+          "minimumAfterAtProposedCapsWei": "7810192201075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "767",
+            "safe": "0",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "768",
+            "safe": "0",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-funding",
+      "kind": "funding",
+      "asset": "USDC",
+      "dependsOn": [
+        "native-funding"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "publicTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a60000000000000000000000000000000000000000000000000000000001312d00",
+        "operation": 0,
+        "funderNonce": "768",
+        "safeNonce": null,
+        "safeTxHash": null
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "740292",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Safe USDC inventory increases by 20000000; spend counters and Safe/Delay nonces remain unchanged",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7810932493075049",
+          "nativeFunderAfter": "7810932493075049",
+          "nativeSafeBefore": "30000000000001",
+          "nativeSafeAfter": "30000000000001",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7810932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7810932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "1480584000000",
+          "minimumAfterAtProposedCapsWei": "7809451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "768",
+            "safe": "0",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "0",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-base-x",
+      "kind": "base-transfer",
+      "asset": "native",
+      "dependsOn": [
+        "native-funding"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey"
+      ],
+      "safeTransaction": {
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "10000000000000",
+        "data": "0x",
+        "operation": 0,
+        "safeNonce": "0",
+        "safeTxHash": "0xd0307e9a7d39ac0892bb7f44bd9848fa8e112a85907417eef95f557521ae1b20",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "baseSpent=10000000000000; instantSpent=10000000000000",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7810932493075049",
+          "nativeFunderAfter": "7820932493075049",
+          "nativeSafeBefore": "30000000000001",
+          "nativeSafeAfter": "20000000000001",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7810932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7820932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "3480584000000",
+          "minimumAfterAtProposedCapsWei": "7817451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "0",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "1",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "10000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-step-up-contract",
+      "kind": "step-up-transfer",
+      "asset": "native",
+      "dependsOn": [
+        "native-base-x"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "10000000000000",
+        "data": "0x",
+        "operation": 0,
+        "safeNonce": "1",
+        "safeTxHash": "0xe2a8b2964eb5d07437952af5426a3f167efe0890ecf2e4d573e3ad3c7f8f6171",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "baseSpent=10000000000000; instantSpent=20000000000000",
+      "observerAlert": "step-up-executed",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7820932493075049",
+          "nativeFunderAfter": "7830932493075049",
+          "nativeSafeBefore": "20000000000001",
+          "nativeSafeAfter": "10000000000001",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7820932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7830932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "5480584000000",
+          "minimumAfterAtProposedCapsWei": "7825451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "1",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "2",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "10000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "20000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-step-up-ecdsa",
+      "kind": "step-up-transfer",
+      "asset": "native",
+      "dependsOn": [
+        "native-step-up-contract"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "legacy-ecdsa-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "10000000000000",
+        "data": "0x",
+        "operation": 0,
+        "safeNonce": "2",
+        "safeTxHash": "0x05de530e70892fca295cc21da926095d425d4d0ac3059abc9adaad5766690b34",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "baseSpent=10000000000000; instantSpent=30000000000000",
+      "observerAlert": "step-up-executed",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7830932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "10000000000001",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7830932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "7480584000000",
+          "minimumAfterAtProposedCapsWei": "7833451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "2",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "20000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-direct-overspend-rejection",
+      "kind": "expected-direct-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-step-up-ecdsa"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0,
+        "safeNonce": "3",
+        "safeTxHash": "0x8dbdec07cd5af7359b5146ae241c348458f2187eab3ecaf187d0c63ce130186b",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter change; shared Y remains 30000000000000",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "9480584000000",
+          "minimumAfterAtProposedCapsWei": "7831451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-replay-rejection",
+      "kind": "expected-replay-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-base-x"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "replay previously reviewed signed envelope only in later executor"
+      ],
+      "safeTransaction": {
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "10000000000000",
+        "data": "0x",
+        "operation": 0,
+        "safeNonce": "0",
+        "safeTxHash": "0xd0307e9a7d39ac0892bb7f44bd9848fa8e112a85907417eef95f557521ae1b20",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter/Safe nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "11480584000000",
+          "minimumAfterAtProposedCapsWei": "7829451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-unsupported-path-rejection",
+      "kind": "expected-unsupported-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-step-up-ecdsa"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0x095ea7b3000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0,
+        "safeNonce": "3",
+        "safeTxHash": "0xe065a1142cfeca426c84defe398b0f71e17341c93414d2579cc8f01f29dec928",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No approval, balance, counter, or Safe nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "13480584000000",
+          "minimumAfterAtProposedCapsWei": "7827451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-cancel",
+      "kind": "queue-proposal",
+      "asset": "native",
+      "dependsOn": [
+        "native-step-up-ecdsa"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a7000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "3",
+        "safeTxHash": "0xc46d262c12c745788013ce7f408d19eafec061574f27c82a55178e8a6539f0db",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "0",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0xaac59acd5431debce34e2da3ca150ad01bd867623fd8f97a7f8bb63c3ee10f1c",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay item 0 queued; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "15480584000000",
+          "minimumAfterAtProposedCapsWei": "7825451909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "3",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "4",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EMPTY",
+            "queueNonce": null,
+            "fingerprint": null
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-cancel-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-cancel"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "0",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0xaac59acd5431debce34e2da3ca150ad01bd867623fd8f97a7f8bb63c3ee10f1c",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No Delay nonce or balance change before Z",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "15780584000000",
+          "minimumAfterAtProposedCapsWei": "7825151909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "4",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "4",
+            "delay": "0"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-cancel-action",
+      "kind": "queue-cancellation",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-cancel"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x46ba23070000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0,
+        "safeNonce": "4",
+        "safeTxHash": "0x5704bedcddb5efda0ef6d82be16f5ce1880a8edcb7e51447263ef54c86db766b",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay nonce advances from 0 to 1; balance unchanged",
+      "observerAlert": "delayed-cancelled",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "17780584000000",
+          "minimumAfterAtProposedCapsWei": "7823151909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "4",
+            "delay": "0"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "5",
+            "delay": "1"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-cancelled-execution-rejection",
+      "kind": "expected-cancelled-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-cancel-action"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "0",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0xaac59acd5431debce34e2da3ca150ad01bd867623fd8f97a7f8bb63c3ee10f1c",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter/Delay nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "18080584000000",
+          "minimumAfterAtProposedCapsWei": "7822851909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "5",
+            "delay": "1"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "5",
+            "delay": "1"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-expiry",
+      "kind": "queue-proposal",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-cancel-action"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a7000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "5",
+        "safeTxHash": "0x0b15cdd137956938556287e95e44a0ed4e58cc0e00b4a29947d31c4657d0ea58",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "1",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x63d8751424687b93036548a9c516196c907fbc71ca25951d16d35982e49e8962",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay item 1 queued; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "20080584000000",
+          "minimumAfterAtProposedCapsWei": "7820851909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "5",
+            "delay": "1"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "1"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "0",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-expiry-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-expiry"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "1",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x63d8751424687b93036548a9c516196c907fbc71ca25951d16d35982e49e8962",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No Delay nonce or balance change before Z",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "20380584000000",
+          "minimumAfterAtProposedCapsWei": "7820551909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "1"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "1"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-expiry-skip",
+      "kind": "queue-expiry",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-expiry"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xb19d4758",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "1",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x63d8751424687b93036548a9c516196c907fbc71ca25951d16d35982e49e8962",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "After canonical createdAt+120+600, Delay nonce advances from 1 to 2; balance unchanged",
+      "observerAlert": "delayed-expired",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "20680584000000",
+          "minimumAfterAtProposedCapsWei": "7820251909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "1"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "2"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-expired-execution-rejection",
+      "kind": "expected-expired-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-expiry-skip"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "1",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x63d8751424687b93036548a9c516196c907fbc71ca25951d16d35982e49e8962",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter/Delay nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "20980584000000",
+          "minimumAfterAtProposedCapsWei": "7819951909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "2"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "2"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-execute",
+      "kind": "queue-proposal",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-expiry-skip"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a7000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "6",
+        "safeTxHash": "0x9dc63b0291213e7fd60c54f13181d7b5710055905c688675e3881bb22a0d4b9c",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "2",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x99820442f618c22ec4ad2bfb79bb59c1d13f33eb29c2da756e486651380df13d",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay item 2 queued; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "22980584000000",
+          "minimumAfterAtProposedCapsWei": "7817951909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "6",
+            "delay": "2"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "7",
+            "delay": "2"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "1",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-execute-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-execute"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "2",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x99820442f618c22ec4ad2bfb79bb59c1d13f33eb29c2da756e486651380df13d",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No Delay nonce or balance change before Z",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075049",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "1",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075049 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "23280584000000",
+          "minimumAfterAtProposedCapsWei": "7817651909075049"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "7",
+            "delay": "2"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "7",
+            "delay": "2"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "native-queue-ready-execute",
+      "kind": "ready-delay-execution",
+      "asset": "native",
+      "dependsOn": [
+        "native-queue-execute-early-rejection"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "2",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0x99820442f618c22ec4ad2bfb79bb59c1d13f33eb29c2da756e486651380df13d",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "After the canonical queue block +120 seconds, recipient outflow reaches 31 native matrix units; Delay nonce advances to 3",
+      "observerAlert": "delayed-executed",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075049",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "1",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "0",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "20000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075049 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "23580584000000",
+          "minimumAfterAtProposedCapsWei": "7817351909075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "7",
+            "delay": "2"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "7",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-base-x",
+      "kind": "base-transfer",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-funding",
+        "native-queue-ready-execute"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeNonce": "7",
+        "safeTxHash": "0x5c4a3e201842ab53b495600cb0d31386d0fe1b7e911a7b6f7a2be91576cb6732",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "baseSpent=10000000; instantSpent=10000000",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "0",
+          "usdcFunderAfter": "10000000",
+          "usdcSafeBefore": "20000000",
+          "usdcSafeAfter": "10000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "25580584000000",
+          "minimumAfterAtProposedCapsWei": "7815351909075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "7",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "8",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "0",
+              "instantSpent": "0"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "10000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-step-up-contract",
+      "kind": "step-up-transfer",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-base-x"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeNonce": "8",
+        "safeTxHash": "0x5f224b0e10443bae24f87d74f0d9611766241c26827e1be9f05b050627255dc3",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "baseSpent=10000000; instantSpent=20000000",
+      "observerAlert": "step-up-executed",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "10000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "10000000",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "27580584000000",
+          "minimumAfterAtProposedCapsWei": "7813351909075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "8",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "769",
+            "safe": "9",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "10000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "20000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-recycle-topup-step-up",
+      "kind": "controlled-recipient-recycled-funding",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-step-up-contract"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "publicTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a60000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "funderNonce": "769",
+        "safeNonce": null,
+        "safeTxHash": null
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "740292",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Controlled recipient returns 10000000 USDC units to Safe; baseSpent=10000000, instantSpent=20000000, and both Safe/Delay nonces remain unchanged",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "10000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "10000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "28320876000000",
+          "minimumAfterAtProposedCapsWei": "7812611617075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "769",
+            "safe": "9",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "770",
+            "safe": "9",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "20000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "20000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-step-up-ecdsa",
+      "kind": "step-up-transfer",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-recycle-topup-step-up"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "legacy-ecdsa-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeNonce": "9",
+        "safeTxHash": "0xe569d230abb7560eac3eb81c291bf59771c55a84d633c716a7bd788b3dea4107",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "baseSpent=10000000; instantSpent=30000000",
+      "observerAlert": "step-up-executed",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "10000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "10000000",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "30320876000000",
+          "minimumAfterAtProposedCapsWei": "7810611617075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "770",
+            "safe": "9",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "20000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-direct-overspend-rejection",
+      "kind": "expected-direct-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-step-up-ecdsa"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0,
+        "safeNonce": "10",
+        "safeTxHash": "0x4aeb69e2ff15215584578a4a094f5fa12510562f11807a701e57a24ac9f31bc6",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter change; shared Y remains 30000000",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "32320876000000",
+          "minimumAfterAtProposedCapsWei": "7808611617075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-replay-rejection",
+      "kind": "expected-replay-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-base-x"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "replay previously reviewed signed envelope only in later executor"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeNonce": "7",
+        "safeTxHash": "0x5c4a3e201842ab53b495600cb0d31386d0fe1b7e911a7b6f7a2be91576cb6732",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter/Safe nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "34320876000000",
+          "minimumAfterAtProposedCapsWei": "7806611617075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-unsupported-path-rejection",
+      "kind": "expected-unsupported-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-step-up-ecdsa"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0x095ea7b3000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0,
+        "safeNonce": "10",
+        "safeTxHash": "0x669274840909e31bccfaca1825bb4689455bcf11111bfe93f5861d36d18942be",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No approval, balance, counter, or Safe nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "36320876000000",
+          "minimumAfterAtProposedCapsWei": "7804611617075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-recycle-topup-delayed",
+      "kind": "controlled-recipient-recycled-funding",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-step-up-ecdsa"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "publicTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a600000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0,
+        "funderNonce": "770",
+        "safeNonce": null,
+        "safeTxHash": null
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "740292",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Controlled recipient returns 1000000 USDC units to Safe after cumulative immediate spend reaches Y; counters and both Safe/Delay nonces remain unchanged",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "37061168000000",
+          "minimumAfterAtProposedCapsWei": "7803871325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "770",
+            "safe": "10",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "10",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-cancel",
+      "kind": "queue-proposal",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-recycle-topup-delayed"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "10",
+        "safeTxHash": "0x56c837966815182610c6dcaf1b96db8c45fea998396de837ef3908ad5ec4b67c",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "3",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xa23c99f73bb45c521e5aa219f00a4969cfa67634a8ef9702edf3a378ce568750",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay item 3 queued; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "39061168000000",
+          "minimumAfterAtProposedCapsWei": "7801871325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "10",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "11",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "2",
+            "fingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-cancel-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-cancel"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "3",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xa23c99f73bb45c521e5aa219f00a4969cfa67634a8ef9702edf3a378ce568750",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No Delay nonce or balance change before Z",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "39361168000000",
+          "minimumAfterAtProposedCapsWei": "7801571325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "11",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "11",
+            "delay": "3"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-cancel-action",
+      "kind": "queue-cancellation",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-cancel"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x46ba23070000000000000000000000000000000000000000000000000000000000000004",
+        "operation": 0,
+        "safeNonce": "11",
+        "safeTxHash": "0x6ee936d786d415b254e157bed3fa44a5716cbd2c62fd9035059be7e879786268",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay nonce advances from 3 to 4; balance unchanged",
+      "observerAlert": "delayed-cancelled",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "41361168000000",
+          "minimumAfterAtProposedCapsWei": "7799571325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "11",
+            "delay": "3"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "12",
+            "delay": "4"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-cancelled-execution-rejection",
+      "kind": "expected-cancelled-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-cancel-action"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "3",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xa23c99f73bb45c521e5aa219f00a4969cfa67634a8ef9702edf3a378ce568750",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter/Delay nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "41661168000000",
+          "minimumAfterAtProposedCapsWei": "7799271325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "12",
+            "delay": "4"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "12",
+            "delay": "4"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-expiry",
+      "kind": "queue-proposal",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-cancel-action"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "12",
+        "safeTxHash": "0x9d4b5c9176f492bb752ec3709074b7a24541976a58d5e2f24cbf8d80af2963b6",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay item 4 queued; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "43661168000000",
+          "minimumAfterAtProposedCapsWei": "7797271325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "12",
+            "delay": "4"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "4"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "CANCELLED_CONDITIONAL",
+            "queueNonce": "3",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-expiry-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-expiry"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No Delay nonce or balance change before Z",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "43961168000000",
+          "minimumAfterAtProposedCapsWei": "7796971325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "4"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "4"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-expiry-skip",
+      "kind": "queue-expiry",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-expiry"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xb19d4758",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "After canonical createdAt+120+600, Delay nonce advances from 4 to 5; balance unchanged",
+      "observerAlert": "delayed-expired",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "44261168000000",
+          "minimumAfterAtProposedCapsWei": "7796671325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "4"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "5"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-expired-execution-rejection",
+      "kind": "expected-expired-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-expiry-skip"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No balance/counter/Delay nonce change",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "44561168000000",
+          "minimumAfterAtProposedCapsWei": "7796371325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "5"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "5"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-execute",
+      "kind": "queue-proposal",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-expiry-skip"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "13",
+        "safeTxHash": "0xd6e64106a0b3923a54af5535a9219f67b52f55e8ad07018a5fd193cfa941048b",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay item 5 queued; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "46561168000000",
+          "minimumAfterAtProposedCapsWei": "7794371325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "13",
+            "delay": "5"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "5"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXPIRED_CONDITIONAL",
+            "queueNonce": "4",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-execute-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-execute"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "No Delay nonce or balance change before Z",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "19000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "1000000"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "46861168000000",
+          "minimumAfterAtProposedCapsWei": "7794071325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "5"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "5"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "usdc-queue-ready-execute",
+      "kind": "ready-delay-execution",
+      "asset": "USDC",
+      "dependsOn": [
+        "usdc-queue-execute-early-rejection"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "publicTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": null,
+        "safeTxHash": null,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_EXECUTION"
+      },
+      "queue": {
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "After the canonical queue block +120 seconds, recipient outflow reaches 31 USDC; Delay nonce advances to 6",
+      "observerAlert": "delayed-executed",
+      "expectedState": {
+        "stateAvailability": "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "19000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "1000000",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "5"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "QUEUED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "repair-signer-create",
+      "kind": "conditional-factory-signer-creation",
+      "asset": "control",
+      "dependsOn": [
+        "usdc-queue-ready-execute"
+      ],
+      "status": "BLOCKED_INPUT",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "publicTransaction": {
+        "to": "0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf",
+        "value": "0",
+        "data": "0x0d2f048916dda754f7752e800b62ed684f89fb19d607485fbb8b9b77f5d877e4903904d8b784d685cc3013eab599b6d9696b06414ca74554ec8de222b6cdc43de410bc3f000000000000000000000000c2b78104907f722dabac4c69f826a522b2754de4",
+        "operation": 0,
+        "outerTransactionNonce": "REVALIDATE_BEFORE_SEPARATE_REVIEW",
+        "safeNonce": null,
+        "safeTxHash": null
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "740292",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Deploy 0xCc3C12cFB2508E5E9E4EB9b21CC44A9dEEFf0908 through the pinned factory; verify factory=0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf, verifier=0xc2b78104907F722DABAc4C69f826a522B2754De4, factoryRuntime=0xbe9db61b4ee533cb4b1136ef244141db4ca3b7867b44d154db9faeb22f39d7bb, bindingHash=0x0b6ee6df2bef06f7b57292fef28157928a7026b668d3e1e2a9a641d7a5bedeef",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "repair-queue",
+      "kind": "delayed-contract-secondary-repair",
+      "asset": "control",
+      "dependsOn": [
+        "repair-signer-create"
+      ],
+      "status": "BLOCKED_INPUT",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "current-safe-contract-secondary"
+      ],
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "repairProofHash=0x0914781ff9eb80767d7ac821c6202faeff67d931f8f7e5c106c604bb8d5575af; exact maintenance calldata, queue tuple, Safe nonce 14, SafeTx hash, and Delay nonce 6 remain NOT_RUN until a fresh non-public WebAuthn proof is produced and separately reviewed",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "repair-ready-execute",
+      "kind": "delayed-contract-secondary-repair-execution",
+      "asset": "control",
+      "dependsOn": [
+        "repair-queue"
+      ],
+      "status": "BLOCKED_INPUT",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "proposedGasAndFee": {
+        "gasLimit": "300000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Execute only the exact proof-bound queue tuple after Z; contract secondary becomes 0xCc3C12cFB2508E5E9E4EB9b21CC44A9dEEFf0908; owners/guards/modules/policy/counters/balances require rotation-aware re-verification",
+      "observerAlert": "delayed-executed",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "post-rotation-old-secondary-rejection",
+      "kind": "expected-old-secondary-rejection",
+      "asset": "control",
+      "dependsOn": [
+        "repair-ready-execute"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "old-safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a7000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "15",
+        "safeTxHash": "0xab90ccc05139e15601b117f1112de9d4c5fdbe7452fed0142ccb59986a1c9ece",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Safe nonce, Delay nonce, counters, and balances remain unchanged",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "post-rotation-new-secondary-queue",
+      "kind": "post-rotation-usability-queue",
+      "asset": "control",
+      "dependsOn": [
+        "post-rotation-old-secondary-rejection"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "new-safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a7000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeNonce": "15",
+        "safeTxHash": "0xab90ccc05139e15601b117f1112de9d4c5fdbe7452fed0142ccb59986a1c9ece",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "queue": {
+        "queueNonce": "7",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67",
+        "monitoringFingerprint": "0xa3f2d397daa11d3d7cb5a78054c2eded334a9a3b66a89a908e22786a48ea6207",
+        "to": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+        "value": "1",
+        "data": "0x",
+        "operation": 0
+      },
+      "timing": {
+        "source": "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK",
+        "createdAt": null,
+        "readyAt": null,
+        "expiresAt": null,
+        "cooldownSeconds": "120",
+        "expirationSeconds": "600",
+        "status": "CONDITIONAL_NOT_RUN",
+        "revalidateFromCanonicalReceipt": true
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "New secondary queues the exact one-wei native transfer at Delay nonce 7; counters and balances unchanged",
+      "observerAlert": "delayed-queued",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "post-rotation-proof-cancel",
+      "kind": "post-rotation-proof-cancellation",
+      "asset": "control",
+      "dependsOn": [
+        "post-rotation-new-secondary-queue"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "new-safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x46ba23070000000000000000000000000000000000000000000000000000000000000008",
+        "operation": 0,
+        "safeNonce": "16",
+        "safeTxHash": "0x84a2699a33faf7e846c692ef385efab627288a27c7a9e207e699894399627036",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Delay nonce advances from 7 to 8; proof transfer never executes",
+      "observerAlert": "delayed-cancelled",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    },
+    {
+      "id": "final-freeze",
+      "kind": "emergency-freeze",
+      "asset": "control",
+      "dependsOn": [
+        "post-rotation-proof-cancel"
+      ],
+      "status": "CONDITIONAL_NOT_RUN",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "new-safe-contract-secondary"
+      ],
+      "safeTransaction": {
+        "to": "0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA",
+        "value": "0",
+        "data": "0x62a5af3b",
+        "operation": 0,
+        "safeNonce": "17",
+        "safeTxHash": "0xc7eac997d8463a9a3e0e1e62e5cb5a5cc9f71552016d81102d8001c530c39ccf",
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000"
+      },
+      "proposedGasAndFee": {
+        "gasLimit": "2000000",
+        "maxFeePerGas": "1000000",
+        "maxPriorityFeePerGas": "1000000",
+        "liveEstimated": false,
+        "preSendEstimateRequired": true
+      },
+      "expectedTransition": "Instant and delayed transfer paths reject after freeze; topology and counters remain bound",
+      "observerAlert": "none",
+      "expectedState": {
+        "stateAvailability": "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+        "futureStateStatus": "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+        "principalBalances": {
+          "nativeFunderBefore": "7840932493075050",
+          "nativeFunderAfter": "7840932493075050",
+          "nativeSafeBefore": "0",
+          "nativeSafeAfter": "0",
+          "usdcFunderBefore": "20000000",
+          "usdcFunderAfter": "20000000",
+          "usdcSafeBefore": "0",
+          "usdcSafeAfter": "0"
+        },
+        "nativeFunderGasAccounting": {
+          "beforeExpression": "7840932493075050 - cumulativeActualReceiptGasCostBeforeWei",
+          "afterExpression": "7840932493075050 - cumulativeActualReceiptGasCostAfterWei",
+          "cumulativeProposedGasCapAfterWei": "47161168000000",
+          "minimumAfterAtProposedCapsWei": "7793771325075050"
+        },
+        "nonces": {
+          "before": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          },
+          "after": {
+            "funder": "771",
+            "safe": "14",
+            "delay": "6"
+          }
+        },
+        "counters": {
+          "before": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "after": {
+            "native": {
+              "baseSpent": "10000000000000",
+              "instantSpent": "30000000000000"
+            },
+            "USDC": {
+              "baseSpent": "10000000",
+              "instantSpent": "30000000"
+            }
+          },
+          "fundingNeverResetsCounters": true
+        },
+        "queue": {
+          "before": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          },
+          "after": {
+            "status": "EXECUTED_CONDITIONAL",
+            "queueNonce": "5",
+            "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+          }
+        }
+      }
+    }
+  ],
+  "phaseAccounting": {
+    "phaseLimitWei": "50000000000000000",
+    "prerequisiteAndSafeActualCostWei": "71035976000000",
+    "nativeFundingValueWei": "30000000000001",
+    "nativeSafeTransferPrincipalWei": "30000000000001",
+    "grossUsdcFundingUnits": "31000000",
+    "proposedGasReservationWei": "58201460000000",
+    "maximumGrossPhaseOutlayWei": "189237436000002",
+    "proposedCapsOnly": true,
+    "signedSimulationOrEstimateStatus": "NOT_RUN_REQUIRES_LATER_AUTHORIZED_PRE_SEND_GATE"
+  },
+  "finalRevalidation": {
+    "blockHashRechecked": true,
+    "safeNonceRechecked": true,
+    "delayNonceRechecked": true,
+    "countersRechecked": true,
+    "balancesRechecked": true,
+    "runtimeIdentitiesRechecked": true
+  },
+  "signed": false,
+  "broadcast": false,
+  "liveEstimated": false
+}

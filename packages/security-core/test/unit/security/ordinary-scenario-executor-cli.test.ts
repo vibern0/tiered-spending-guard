@@ -9,8 +9,7 @@ import { runOrdinaryScenarioExecutorCli } from "../../../scripts/live/ordinary-s
 import { createOrdinaryScenarioJournal, createOrdinaryScenarioProposal, loadOrdinaryScenarioApproval, type CanonicalOrdinaryScenarioState, type OrdinaryScenarioExecutionContext } from "../../../scripts/live/ordinary-scenario-executor";
 import { liveIntentHash, type LiveIntent } from "../../../scripts/live/submission";
 
-const repository = join(__dirname, "../../../../..");
-const reportPath = join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/scenario-review-2m-2026-10-27/ordinary-scenario-review.json");
+const reportPath = join(__dirname, "../../fixtures/ordinary-scenario-review.public.json");
 const serialized = readFileSync(reportPath, "utf8");
 const expectedPackageHash = sha256(JSON.parse(serialized)) as Hex;
 const expectedArtifactBytesHash = `0x${createHash("sha256").update(serialized).digest("hex")}` as Hex;
@@ -45,8 +44,8 @@ describe("ordinary scenario one-action CLI", () => {
   });
 
   it("cannot bind the previous 500k package hash to the regenerated 2m report", async () => {
-    const oldManifest = JSON.parse(readFileSync(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/scenario-review-v4-2026-10-27/public-manifest.json"), "utf8")) as { packageHash: Hex };
-    await expect(runOrdinaryScenarioExecutorCli({ mode: "review", reportPath, expectedPackageHash: oldManifest.packageHash, expectedArtifactBytesHash, expectedProposalHash: proposal.proposalHash }, { environment: {}, publicPreflight: async () => ({ ready: true, detail: "public-only" }), createContext: async () => { throw new Error("must not construct"); } })).to.be.rejectedWith("package hash mismatch");
+    const oldPackageHash = "0x13669b09ef3baa72d7cce3a093e5f2d91750fa142b636003b520dc953ee921bd" as Hex;
+    await expect(runOrdinaryScenarioExecutorCli({ mode: "review", reportPath, expectedPackageHash: oldPackageHash, expectedArtifactBytesHash, expectedProposalHash: proposal.proposalHash }, { environment: {}, publicPreflight: async () => ({ ready: true, detail: "public-only" }), createContext: async () => { throw new Error("must not construct"); } })).to.be.rejectedWith("package hash mismatch");
   });
 
   it("resume-one requires one pending record and cannot sign or broadcast", async () => {

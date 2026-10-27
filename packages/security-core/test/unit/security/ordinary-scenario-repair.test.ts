@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { createOrdinaryScenarioProposal, createOrdinaryScenarioStore, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
+import { createOrdinaryScenarioProposal, createOrdinaryScenarioStore, PRODUCTION_ORDINARY_SCENARIO_DOMAIN, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
 import {
   REPAIR_ACTION_IDS,
   REPAIR_BINDING_HASH,
   REPAIR_PROOF_HASH,
   REPAIR_MAINTENANCE,
   REPAIR_RECIPIENT,
+  PRODUCTION_REPAIR_EXECUTION_DOMAIN,
   assertRepairActionState,
   assertRepairBaselineUnchanged,
   assertRepairQueueTiming,
@@ -28,7 +29,7 @@ import {
   validateTransientRepairQueue,
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
-import { repairObserverExpectedEffect, runPublicRepairCreationReview, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
+import { createRepairCommandRuntime, repairObserverExpectedEffect, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
 import { validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
@@ -80,6 +81,11 @@ const approveCreation = (journal: OrdinaryScenarioJournal, creation: ReturnType<
 };
 
 describe("closed ordinary repair-to-freeze continuation", () => {
+  it("preserves the frozen production proposal and rejects foreign unbranded domains", () => {
+    const reportPath = join(process.cwd(), "test/fixtures/ordinary-scenario-review.public.json"); const raw = readFileSync(reportPath, "utf8"); const expected = { expectedPackageHash: "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571" as Hex, expectedArtifactBytesHash: "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831" as Hex };
+    expect(createOrdinaryScenarioProposal(raw, expected).proposalHash).to.equal("0x22770c7944ee289543c10090b3483bdcd87f0d2c193887df4f32916c5782e45f");
+    expect(() => createOrdinaryScenarioProposal(raw.replace('"11155111"', '"31337"'), { ...expected, expectedArtifactBytesHash: rawHash(raw.replace('"11155111"', '"31337"')) }, { chainId: 31337 })).to.throw("domain is not canonically verified");
+  });
   it("dispatches each of the five runnable main branches exactly once", async () => {
     const seen: string[] = [];
     const runtime = {
@@ -133,7 +139,7 @@ describe("closed ordinary repair-to-freeze continuation", () => {
 
   it("rejects caller-supplied state, evidence, and quote authority before public creation review", async () => {
     const directory = mkdtempSync(join(tmpdir(), "repair-public-review-"));
-    const reportPath = join(process.cwd(), "../../.superpowers/sdd/2026-10-19-native-safe-4337/scenario-review-2m-2026-10-27/ordinary-scenario-review.json");
+    const reportPath = join(process.cwd(), "test/fixtures/ordinary-scenario-review.public.json");
     const raw = readFileSync(reportPath, "utf8");
     const original = createOrdinaryScenarioProposal(raw, { expectedPackageHash: "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571", expectedArtifactBytesHash: "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831" });
     const approvalHash = hash("abc"); const journalPath = join(directory, "journal.json"); const evidencePath = join(directory, "evidence.json"); const statePath = join(directory, "state.json"); const quotePath = join(directory, "quote.json");
@@ -145,7 +151,8 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     try {
       for (const [flag, path] of [["--evidence", evidencePath], ["--state", statePath], ["--quote", quotePath]] as const) {
         let error: unknown;
-        try { await runPublicRepairCreationReview(["--report", reportPath, "--artifact-hash", "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831", "--package-hash", "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571", "--proposal-hash", original.proposalHash, "--original-approval-hash", approvalHash, "--journal", journalPath, flag, path], {}); } catch (caught) { error = caught; }
+        const runtime = createRepairCommandRuntime({ environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN, repository: () => { throw new Error("unexpected repository access"); }, createHarness: () => { throw new Error("unexpected harness access"); }, createAdapter: () => { throw new Error("unexpected adapter access"); }, loadCreationQuote: () => { throw new Error("unexpected quote access"); }, submit: async () => { throw new Error("unexpected submit"); }, now: () => new Date(0), awaitApprovalHandoff: async () => { throw new Error("unexpected approval"); } });
+        try { await runtime.creationReview(["--report", reportPath, "--artifact-hash", "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831", "--package-hash", "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571", "--proposal-hash", original.proposalHash, "--original-approval-hash", approvalHash, "--journal", journalPath, flag, path]); } catch (caught) { error = caught; }
         expect(String(error)).to.include(`rejects unknown flag ${flag}`);
       }
     } finally { rmSync(directory, { recursive: true, force: true }); }

@@ -16,6 +16,14 @@ import {
 } from "./submission";
 
 const CHAIN_ID = 11155111;
+export type OrdinaryScenarioProposalDomain = Readonly<{ chainId: number }>;
+const ordinaryScenarioDomainBrands = new WeakSet<object>();
+export function validateOrdinaryScenarioProposalDomain(domain: OrdinaryScenarioProposalDomain, verifyCanonicalProfile: (domain: OrdinaryScenarioProposalDomain) => true): OrdinaryScenarioProposalDomain {
+  if (!Number.isSafeInteger(domain.chainId) || domain.chainId <= 0 || verifyCanonicalProfile(domain) !== true) throw new Error("ordinary scenario proposal domain is not canonically verified");
+  const branded = Object.freeze({ chainId: domain.chainId }); ordinaryScenarioDomainBrands.add(branded); return branded;
+}
+export const PRODUCTION_ORDINARY_SCENARIO_DOMAIN = validateOrdinaryScenarioProposalDomain({ chainId: CHAIN_ID }, () => true);
+const assertOrdinaryDomain = (domain: OrdinaryScenarioProposalDomain): void => { if (!ordinaryScenarioDomainBrands.has(domain)) throw new Error("ordinary scenario proposal domain is not canonically verified"); };
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const HEX = /^0x(?:[0-9a-fA-F]{2})*$/;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
@@ -189,7 +197,7 @@ export type OrdinaryScenarioActionScope = Readonly<{
 export type OrdinaryScenarioProposal = Readonly<{
   schemaVersion: 1;
   authorization: "NONE";
-  chainId: 11155111;
+  chainId: number;
   proposalHash: Hex;
   reviewPackageHash: Hex;
   reviewArtifactBytesHash: Hex;
@@ -256,7 +264,7 @@ export type OrdinaryScenarioActionRecord = {
 
 export type OrdinaryScenarioJournal = {
   schemaVersion: 1;
-  chainId: 11155111;
+  chainId: number;
   reviewPackageHash: Hex;
   proposalHash: Hex;
   approvalHash: Hex;
@@ -420,11 +428,11 @@ function decodeCall(abi: readonly object[], data: Hex, label: string): ReturnTyp
 function assertQueueTuple(args: readonly unknown[], queue: NonNullable<OrdinaryScenarioActionScope["queue"]>, label: string): void {
   if (!same(args[0] as string, queue.to) || args[1] !== queue.value || !same(args[2] as string, queue.data) || args[3] !== queue.operation) throw new Error(`${label} queue tuple mismatch`);
 }
-function validateActionSemantics(scope: OrdinaryScenarioActionScope, identity: SemanticIdentity, descriptor: ActionDescriptor, queueBefore: bigint): void {
+function validateActionSemantics(scope: OrdinaryScenarioActionScope, identity: SemanticIdentity, descriptor: ActionDescriptor, queueBefore: bigint, chainId: number): void {
   if (scope.safeTransaction) {
     const tx = scope.safeTransaction;
     if (descriptor.safeNonce === undefined || tx.safeNonce !== descriptor.safeNonce) throw new Error(`${scope.id} fixed Safe nonce mismatch`);
-    const recomputed = hashTypedData({ domain: { chainId: CHAIN_ID, verifyingContract: identity.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } });
+    const recomputed = hashTypedData({ domain: { chainId, verifyingContract: identity.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } });
     if (!same(recomputed, tx.safeTxHash)) throw new Error(`${scope.id} reviewed Safe hash mismatch`);
     if (scope.kind === "base-transfer" || scope.kind === "step-up-transfer" || scope.kind === "expected-direct-rejection" || scope.kind === "expected-replay-rejection") {
       const amount = scope.kind === "expected-direct-rejection" ? 1n : scope.asset === "native" ? NATIVE_X : USDC_X;
@@ -449,7 +457,7 @@ function validateActionSemantics(scope: OrdinaryScenarioActionScope, identity: S
   }
 }
 
-function snapshotAction(action: Record<string, unknown>, index: number, queueBefore: bigint, txBefore: bigint, identity: SemanticIdentity): { scope: OrdinaryScenarioActionScope; queueAfter: bigint; txAfter: bigint } {
+function snapshotAction(action: Record<string, unknown>, index: number, queueBefore: bigint, txBefore: bigint, identity: SemanticIdentity, chainId: number): { scope: OrdinaryScenarioActionScope; queueAfter: bigint; txAfter: bigint } {
   const id = text(action.id, `action ${index} id`); const kind = text(action.kind, `${id} kind`);
   if (!ALLOWED_IDS.has(id) || !SUPPORTED_KINDS.has(kind)) throw new Error(`ordinary scenario contains unknown action ${id}`);
   if (action.status !== "CONDITIONAL_NOT_RUN") throw new Error(`supported action ${id} is not reviewable`);
@@ -500,11 +508,12 @@ function snapshotAction(action: Record<string, unknown>, index: number, queueBef
   if (safeTxHash && BigInt(after.safeNonce) !== BigInt(before.safeNonce) + (expectedOutcome === "success" ? 1n : 0n)) throw new Error(`${id} fixed Safe nonce progression mismatch`);
   if (!safeTxHash && BigInt(after.safeNonce) !== BigInt(before.safeNonce)) throw new Error(`${id} unexpectedly changes Safe nonce`);
   const scope: OrdinaryScenarioActionScope = deepFreeze({ id, kind, asset: asset as OrdinaryScenarioActionScope["asset"], expectedOutcome: expectedOutcome as "success" | "rejection", signerRoles, dependsOn, commitment: sha256(action) as Hex, gasLimitCap, maxFeePerGasCap, maxPriorityFeePerGasCap, before, after, safeTxHash, safeTransaction, publicTransaction, queue });
-  validateActionSemantics(scope, identity, descriptor, queueBefore);
+  validateActionSemantics(scope, identity, descriptor, queueBefore, chainId);
   return { scope, queueAfter, txAfter };
 }
 
-export function createOrdinaryScenarioProposal(serializedReview: string, expected: Readonly<{ expectedPackageHash: Hex; expectedArtifactBytesHash: Hex }>): OrdinaryScenarioProposal {
+export function createOrdinaryScenarioProposal(serializedReview: string, expected: Readonly<{ expectedPackageHash: Hex; expectedArtifactBytesHash: Hex }>, domain: OrdinaryScenarioProposalDomain = PRODUCTION_ORDINARY_SCENARIO_DOMAIN): OrdinaryScenarioProposal {
+  assertOrdinaryDomain(domain);
   if (!HASH.test(expected.expectedPackageHash) || !HASH.test(expected.expectedArtifactBytesHash)) throw new Error("ordinary scenario expected review hashes are invalid");
   if (Buffer.byteLength(serializedReview, "utf8") > 4_000_000) throw new Error("ordinary scenario review artifact is too large");
   if (!same(rawSha256(serializedReview), expected.expectedArtifactBytesHash)) throw new Error("ordinary scenario review artifact bytes hash mismatch");
@@ -513,7 +522,7 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
   const report = record(parsed, "ordinary scenario review");
   exactKeys(report, ["schemaVersion", "status", "authorization", "chainId", "planHash", "topologyEvidenceHash", "baselineEvidenceHash", "snapshot", "publicIdentities", "requiredInventory", "blockers", "actions", "phaseAccounting", "finalRevalidation", "signed", "broadcast", "liveEstimated"], "ordinary scenario review");
   if (!same(sha256(report), expected.expectedPackageHash)) throw new Error("ordinary scenario review package hash mismatch");
-  if (report.schemaVersion !== 1 || report.authorization !== "NONE" || report.chainId !== "11155111" || (report.status !== "BLOCKED" && report.status !== "READY_FOR_HUMAN_REVIEW") || report.signed !== false || report.broadcast !== false || report.liveEstimated !== false) throw new Error("ordinary scenario review boundary mismatch");
+  if (report.schemaVersion !== 1 || report.authorization !== "NONE" || report.chainId !== domain.chainId.toString() || (report.status !== "BLOCKED" && report.status !== "READY_FOR_HUMAN_REVIEW") || report.signed !== false || report.broadcast !== false || report.liveEstimated !== false) throw new Error("ordinary scenario review boundary mismatch");
   const reportPlanHash = hash(report.planHash, "ordinary scenario plan hash"); const topologyEvidenceHash = hash(report.topologyEvidenceHash, "ordinary scenario topology hash"); const baselineEvidenceHash = hash(report.baselineEvidenceHash, "ordinary scenario baseline hash");
   const identities = record(report.publicIdentities, "ordinary scenario public identities");
   exactKeys(identities, ["safe", "guard", "delay", "maintenance", "signers", "runtimeCodeHashes", "observer", "repair"], "ordinary scenario public identities");
@@ -565,13 +574,13 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
       continue;
     }
     if (excluded) throw new Error(`ordinary scenario supported action appears after excluded repair boundary: ${id}`);
-    const snap = snapshotAction(current, index, queueNonce, txNonce, { safe: safeAddress, delay: delayAddress, usdc: usdcAddress, recipient: recipientAddress });
+    const snap = snapshotAction(current, index, queueNonce, txNonce, { safe: safeAddress, delay: delayAddress, usdc: usdcAddress, recipient: recipientAddress }, domain.chainId);
     if (snap.scope.dependsOn.some((dependency) => !seen.has(dependency))) throw new Error(`${id} dependency is missing or out of order`);
     seen.add(id); actions.push(snap.scope); queueNonce = snap.queueAfter; txNonce = snap.txAfter;
   }
   if (actions.length === 0 || !excluded) throw new Error("ordinary scenario exact pre-repair predecessor prefix is incomplete");
   const base = {
-    schemaVersion: 1 as const, authorization: "NONE" as const, chainId: CHAIN_ID as 11155111,
+    schemaVersion: 1 as const, authorization: "NONE" as const, chainId: domain.chainId,
     reviewPackageHash: expected.expectedPackageHash, reviewArtifactBytesHash: expected.expectedArtifactBytesHash, planHash: reportPlanHash,
     topologyEvidenceHash, baselineEvidenceHash, publicIdentitiesHash, observerEvidenceHash, safe: safeAddress, guard: guardAddress, delay: delayAddress, funder: funderAddress, usdc: usdcAddress, recipient: recipientAddress, primarySigner, safeContractSecondary, ecdsaSecondary,
     periodSeconds: PERIOD_SECONDS.toString() as "86400", periodAnchor: "0" as const, cooldownSeconds: COOLDOWN_SECONDS.toString() as "120", expirationSeconds: EXPIRATION_SECONDS.toString() as "600",
@@ -590,7 +599,7 @@ export function loadOrdinaryScenarioApproval(proposal: OrdinaryScenarioProposal,
   exactKeys(document, ["schemaVersion", "scope", "authorization", "chainId", "proposalHash", "reviewPackageHash", "reviewArtifactBytesHash", "planHash", "approvedActions", "derivations", "phaseLimitWei", "maxBroadcastAttempts"], "ordinary scenario approval");
   const approvalHash = sha256(document) as Hex;
   if (!same(approvalHash, expected.expectedApprovalHash)) throw new Error("ordinary scenario approval hash mismatch");
-  if (document.schemaVersion !== 1 || document.scope !== "bounded-ordinary-matrix-v1" || document.authorization !== "EXPLICIT_GROUP_APPROVAL" || document.chainId !== CHAIN_ID || document.maxBroadcastAttempts !== 1 || !same(text(document.proposalHash, "approval proposal hash"), proposal.proposalHash) || !same(text(document.reviewPackageHash, "approval package hash"), proposal.reviewPackageHash) || !same(text(document.reviewArtifactBytesHash, "approval bytes hash"), proposal.reviewArtifactBytesHash) || !same(text(document.planHash, "approval plan hash"), proposal.planHash) || decimal(document.phaseLimitWei, "approval phase ceiling") !== PHASE_OUTLAY_LIMIT) throw new Error("ordinary scenario approval binding mismatch");
+  if (document.schemaVersion !== 1 || document.scope !== "bounded-ordinary-matrix-v1" || document.authorization !== "EXPLICIT_GROUP_APPROVAL" || document.chainId !== proposal.chainId || document.maxBroadcastAttempts !== 1 || !same(text(document.proposalHash, "approval proposal hash"), proposal.proposalHash) || !same(text(document.reviewPackageHash, "approval package hash"), proposal.reviewPackageHash) || !same(text(document.reviewArtifactBytesHash, "approval bytes hash"), proposal.reviewArtifactBytesHash) || !same(text(document.planHash, "approval plan hash"), proposal.planHash) || decimal(document.phaseLimitWei, "approval phase ceiling") !== PHASE_OUTLAY_LIMIT) throw new Error("ordinary scenario approval binding mismatch");
   const derivations = record(document.derivations, "ordinary scenario derivations");
   exactKeys(derivations, ["outerEoaNonce", "fees", "gas", "queueTiming", "safeNonce", "delayQueueNonce", "delayTxNonce"], "ordinary scenario derivations");
   if (derivations.outerEoaNonce !== "CURRENT_ONLY" || derivations.fees !== "AT_OR_BELOW_ACTION_CAPS" || derivations.gas !== "SIGNED_SIMULATION_AT_OR_BELOW_ACTION_CAP" || derivations.queueTiming !== "CANONICAL_RECEIPT_CREATED_AT_ONLY" || derivations.safeNonce !== "FIXED" || derivations.delayQueueNonce !== "FIXED" || derivations.delayTxNonce !== "FIXED") throw new Error("ordinary scenario derivation scope mismatch");
@@ -621,11 +630,11 @@ export function createOrdinaryScenarioJournal(proposal: OrdinaryScenarioProposal
   const binding = approvalBindings.get(approval);
   if (!binding || binding.proposal !== proposal) throw new Error("ordinary scenario journal requires exact validated approval");
   if (!same(funder, proposal.funder)) throw new Error("ordinary scenario journal funder mismatch");
-  return { schemaVersion: 1, chainId: CHAIN_ID, reviewPackageHash: proposal.reviewPackageHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, funder, liveJournal: { chainId: CHAIN_ID, funder, entries: [] }, actions: [] };
+  return { schemaVersion: 1, chainId: proposal.chainId, reviewPackageHash: proposal.reviewPackageHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, funder, liveJournal: { chainId: proposal.chainId, funder, entries: [] }, actions: [] };
 }
 
 function journalMatches(journal: OrdinaryScenarioJournal, proposal: OrdinaryScenarioProposal, approval: OrdinaryScenarioApproval): void {
-  if (journal.schemaVersion !== 1 || journal.chainId !== CHAIN_ID || !same(journal.reviewPackageHash, proposal.reviewPackageHash) || !same(journal.proposalHash, proposal.proposalHash) || !same(journal.approvalHash, approval.approvalHash) || !same(journal.funder, proposal.funder) || journal.liveJournal.chainId !== CHAIN_ID || !same(journal.liveJournal.funder, proposal.funder)) throw new Error("ordinary scenario atomic journal identity mismatch");
+  if (journal.schemaVersion !== 1 || journal.chainId !== proposal.chainId || !same(journal.reviewPackageHash, proposal.reviewPackageHash) || !same(journal.proposalHash, proposal.proposalHash) || !same(journal.approvalHash, approval.approvalHash) || !same(journal.funder, proposal.funder) || journal.liveJournal.chainId !== proposal.chainId || !same(journal.liveJournal.funder, proposal.funder)) throw new Error("ordinary scenario atomic journal identity mismatch");
 }
 
 function controlledState(state: CanonicalOrdinaryScenarioState): ControlledState {
@@ -936,12 +945,14 @@ function decodeReceipt(value: unknown): LiveReceipt | undefined {
   return { transactionHash: hash(receipt.transactionHash, "receipt transaction hash"), status: receipt.status === "success" || receipt.status === "reverted" ? receipt.status : (() => { throw new Error("scenario receipt status mismatch"); })(), gasUsed: decimal(receipt.gasUsed, "receipt gas used"), effectiveGasPrice: decimal(receipt.effectiveGasPrice, "receipt effective gas price"), blockNumber: decimal(receipt.blockNumber, "receipt block number"), blockHash: hash(receipt.blockHash, "receipt block hash") };
 }
 
-function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: Hex; approvalHash: Hex; funder: Address }>): OrdinaryScenarioJournal {
+function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: Hex; approvalHash: Hex; funder: Address }>, domain: OrdinaryScenarioProposalDomain): OrdinaryScenarioJournal {
+  assertOrdinaryDomain(domain);
   let parsed: unknown; try { parsed = JSON.parse(serialized); } catch { throw new Error("ordinary scenario journal must be JSON"); }
   const value = record(parsed, "ordinary scenario journal");
   exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...(value.repairContinuation === undefined ? [] : ["repairContinuation"])], "ordinary scenario journal");
   const live = record(value.liveJournal, "embedded live journal");
   exactKeys(live, ["chainId", "funder", "entries"], "embedded live journal");
+  if (value.schemaVersion !== 1 || value.chainId !== domain.chainId || live.chainId !== domain.chainId) throw new Error("ordinary scenario persisted journal chain mismatch");
   const entries = array(live.entries, "embedded live entries").map((raw, index) => {
     const entry = record(raw, `embedded live entry ${index}`); const receipt = decodeReceipt(entry.receipt);
     exactKeys(entry, receipt ? ["id", "intentHash", "transactionHash", "nonce", "reserved", "status", "receipt"] : ["id", "intentHash", "transactionHash", "nonce", "reserved", "status"], `embedded live entry ${index}`);
@@ -972,19 +983,21 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (repair.schemaVersion !== 1 || decimal(String(repair.originalActionCount), "repair continuation prefix count") !== 38n || repairActions.length > 7 || repairActions.some((entry, index) => entry.id !== repairIds[index])) throw new Error("repair continuation header mismatch");
     repairContinuation = { schemaVersion: 1, prefixHash: hash(repair.prefixHash, "repair continuation prefix hash"), originalActionCount: 38, cumulativeActualCostWei: decimal(repair.cumulativeActualCostWei, "repair continuation cumulative cost").toString(), creationProposalHash: hash(repair.creationProposalHash, "repair creation proposal hash"), creationApprovalHash: repair.creationApprovalHash === undefined ? undefined : hash(repair.creationApprovalHash, "repair creation approval hash"), groupProposalHash: repair.groupProposalHash === undefined ? undefined : hash(repair.groupProposalHash, "repair group proposal hash"), groupApprovalHash: repair.groupApprovalHash === undefined ? undefined : hash(repair.groupApprovalHash, "repair group approval hash"), actions: repairActions };
   }
-  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: CHAIN_ID, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: CHAIN_ID, funder: address(live.funder, "embedded funder"), entries }, actions, repairContinuation };
+  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, repairContinuation };
   if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario persisted journal identity mismatch");
   return journal;
 }
 
 /** One lock and one fsynced replacement own both coordinator state and the embedded LiveJournal. */
-export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ proposalHash: Hex; approvalHash: Hex; funder: Address }>, initial: () => OrdinaryScenarioJournal): OrdinaryScenarioStore {
+export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ proposalHash: Hex; approvalHash: Hex; funder: Address }>, initial: () => OrdinaryScenarioJournal, domain: OrdinaryScenarioProposalDomain = PRODUCTION_ORDINARY_SCENARIO_DOMAIN): OrdinaryScenarioStore {
+  assertOrdinaryDomain(domain);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); const lockPath = `${path}.lock`; let lock: number | undefined;
   try { lock = openSync(lockPath, "wx", 0o600); writeFileSync(lock, `${process.pid}\n`, "utf8"); fsyncSync(lock); } catch { throw new Error("ordinary scenario writer lock unavailable"); }
-  let current = existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), identity) : initial();
+  let current = existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), identity, domain) : initial();
+  if (current.chainId !== domain.chainId || current.liveJournal.chainId !== domain.chainId) { closeSync(lock); lock = undefined; unlinkSync(lockPath); throw new Error("ordinary scenario initial journal chain mismatch"); }
   const save = (journal: OrdinaryScenarioJournal): void => {
     if (lock === undefined) throw new Error("ordinary scenario writer lock is closed");
-    if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario store identity mismatch");
+    if (journal.chainId !== domain.chainId || journal.liveJournal.chainId !== domain.chainId || !same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario store identity mismatch");
     const temporary = `${path}.${process.pid}.tmp`; const fd = openSync(temporary, "wx", 0o600);
     try { writeFileSync(fd, encodeJournal(journal), "utf8"); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temporary, path); const directory = openSync(dirname(path), "r"); try { fsyncSync(directory); } finally { closeSync(directory); }
