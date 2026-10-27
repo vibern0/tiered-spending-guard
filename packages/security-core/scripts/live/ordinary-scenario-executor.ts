@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { decodeFunctionData, hashTypedData, isAddress, keccak256, recoverAddress, type Address, type Hex } from "viem";
+import { decodeFunctionData, hashTypedData, isAddress, keccak256, parseTransaction, recoverAddress, recoverTransactionAddress, type Address, type Hex } from "viem";
 import { sha256 } from "../plan-deployment";
 import { SAFE_TX_TYPES } from "../../src/signers/types";
 import {
@@ -38,7 +38,7 @@ const ERC20_ABI = [{ type: "function", name: "transfer", stateMutability: "nonpa
 const DELAY_MODULE_ABI = [{ type: "function", name: "execTransactionFromModule", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }], outputs: [{ type: "bool" }] }] as const;
 const DELAY_ABI = [{ type: "function", name: "executeNextTx", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }] }, { type: "function", name: "skipExpired", stateMutability: "nonpayable", inputs: [] }, { type: "function", name: "setTxNonce", stateMutability: "nonpayable", inputs: [{ type: "uint256" }] }] as const;
 
-type ActionDescriptor = Readonly<{ kind: string; asset: "native" | "USDC"; safeNonce?: bigint; signerRoles: readonly string[]; dependsOn: readonly string[] }>;
+type ActionDescriptor = Readonly<{ id: string; kind: string; asset: "native" | "USDC"; safeNonce?: bigint; signerRoles: readonly string[]; dependsOn: readonly string[]; transaction: "safe" | "public"; queue: boolean }>;
 const ACTION_DESCRIPTOR_ROWS = `
 native-funding|funding|native|-|funder|-
 usdc-funding|funding|USDC|-|funder|native-funding
@@ -78,7 +78,9 @@ usdc-queue-expired-execution-rejection|expected-expired-rejection|USDC|-|-|usdc-
 usdc-queue-execute|queue-proposal|USDC|13|primary-passkey,safe-contract-secondary|usdc-queue-expiry-skip
 usdc-queue-execute-early-rejection|expected-early-rejection|USDC|-|-|usdc-queue-execute
 usdc-queue-ready-execute|ready-delay-execution|USDC|-|-|usdc-queue-execute-early-rejection`;
-const ACTION_DESCRIPTORS = new Map<string, ActionDescriptor>(ACTION_DESCRIPTOR_ROWS.trim().split("\n").map((row) => { const [id, kind, asset, nonce, roles, dependencies] = row.split("|"); return [id!, Object.freeze({ kind: kind!, asset: asset as "native" | "USDC", safeNonce: nonce === "-" ? undefined : BigInt(nonce!), signerRoles: roles === "-" ? [] : roles!.split(","), dependsOn: dependencies === "-" ? [] : dependencies!.split(",") })]; }));
+const QUEUE_KINDS = new Set(["queue-proposal", "expected-early-rejection", "expected-cancelled-rejection", "queue-expiry", "expected-expired-rejection", "ready-delay-execution"]);
+const ACTION_DESCRIPTOR_LIST: readonly ActionDescriptor[] = ACTION_DESCRIPTOR_ROWS.trim().split("\n").map((row) => { const [id, kind, asset, nonce, roles, dependencies] = row.split("|"); return Object.freeze({ id: id!, kind: kind!, asset: asset as "native" | "USDC", safeNonce: nonce === "-" ? undefined : BigInt(nonce!), signerRoles: roles === "-" ? [] : roles!.split(","), dependsOn: dependencies === "-" ? [] : dependencies!.split(","), transaction: nonce === "-" ? "public" : "safe", queue: QUEUE_KINDS.has(kind!) }); });
+const ACTION_DESCRIPTORS = new Map<string, ActionDescriptor>(ACTION_DESCRIPTOR_LIST.map((descriptor) => [descriptor.id, descriptor]));
 
 const SUPPORTED_KINDS = new Set([
   "funding", "controlled-recipient-recycled-funding", "base-transfer", "step-up-transfer", "queue-proposal", "queue-cancellation",
@@ -271,7 +273,8 @@ export type PreparedOrdinaryAction = Readonly<{
   signedCalldataHash: Hex;
   signatureBundleHash: Hex | null;
   transientSignedCalldata: Hex;
-  replaySource?: Readonly<{ actionId: string; transactionHash: Hex; safeTxHash: Hex; safeNonce: bigint }>;
+  replaySource?: Readonly<{ actionId: string; safeTxHash: Hex; safeNonce: bigint }>;
+  transientSignedOuterTransaction?: Hex;
 }>;
 export type SignedSimulationEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: boolean; gasEstimate: bigint; resultHash: Hex }>;
 export type RejectionEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: false; revertDataHash: Hex; postState: CanonicalOrdinaryScenarioState }>;
@@ -442,6 +445,8 @@ function snapshotAction(action: Record<string, unknown>, index: number, queueBef
   const signerRoles = array(action.signerRoles, `${id} signer roles`).map((entry, role) => text(entry, `${id} signer role ${role}`));
   const descriptor = ACTION_DESCRIPTORS.get(id);
   if (!descriptor || descriptor.kind !== kind || descriptor.asset !== asset || JSON.stringify(descriptor.dependsOn) !== JSON.stringify(dependsOn) || JSON.stringify(descriptor.signerRoles) !== JSON.stringify(signerRoles)) throw new Error(`${id} closed action descriptor mismatch`);
+  const hasSafe = action.safeTransaction !== undefined; const hasPublic = action.publicTransaction !== undefined; const hasQueue = action.queue !== undefined; const hasTiming = action.timing !== undefined;
+  if ((descriptor.transaction === "safe") !== hasSafe || (descriptor.transaction === "public") !== hasPublic || hasSafe === hasPublic || descriptor.queue !== hasQueue || descriptor.queue !== hasTiming) throw new Error(`${id} exact transaction shape mismatch`);
   const caps = record(action.proposedGasAndFee, `${id} caps`);
   exactKeys(caps, ["gasLimit", "maxFeePerGas", "maxPriorityFeePerGas", "liveEstimated", "preSendEstimateRequired"], `${id} caps`);
   const gasLimitCap = decimal(caps.gasLimit, `${id} gas cap`); const maxFeePerGasCap = decimal(caps.maxFeePerGas, `${id} max fee cap`); const maxPriorityFeePerGasCap = decimal(caps.maxPriorityFeePerGas, `${id} priority fee cap`);
@@ -529,6 +534,11 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
   if (Object.values(finalRevalidation).some((value) => value !== true)) throw new Error("ordinary scenario final revalidation is incomplete");
   const publicIdentitiesHash = sha256(runtimeIdentities) as Hex;
   const actionValues = array(report.actions, "ordinary scenario actions"); const actions: OrdinaryScenarioActionScope[] = [];
+  if (actionValues.length <= ACTION_DESCRIPTOR_LIST.length) throw new Error("ordinary scenario exact ordered 38-action predecessor list is incomplete");
+  const sourceIds = actionValues.slice(0, ACTION_DESCRIPTOR_LIST.length).map((value, index) => text(record(value, `action ${index}`).id, `action ${index} id`));
+  if (new Set(sourceIds).size !== ACTION_DESCRIPTOR_LIST.length || sourceIds.some((id, index) => id !== ACTION_DESCRIPTOR_LIST[index]!.id)) throw new Error("ordinary scenario exact ordered 38-action predecessor list mismatch");
+  const boundary = record(actionValues[ACTION_DESCRIPTOR_LIST.length], "ordinary scenario repair boundary");
+  if (!EXCLUDED_IDS.has(text(boundary.id, "ordinary scenario repair boundary id"))) throw new Error("ordinary scenario repair boundary must follow the exact predecessor list");
   const seen = new Set<string>(); let excluded = false; let queueNonce = 0n; let txNonce = 0n;
   for (let index = 0; index < actionValues.length; index++) {
     const current = validateActionShape(actionValues[index], index); const id = text(current.id, `action ${index} id`); const kind = text(current.kind, `${id} kind`);
@@ -725,6 +735,7 @@ async function validatePrepared(action: OrdinaryScenarioActionScope, proposal: O
   const intent = prepared.liveIntent;
   const replay = prepared.replaySource !== undefined;
   if (intent.id !== action.id || (!replay && intent.nonce !== state.outerNonce) || intent.gas <= 0n || intent.gas > action.gasLimitCap || (!replay && intent.maxFeePerGas !== state.fees.maxFeePerGas) || (!replay && intent.maxPriorityFeePerGas !== state.fees.maxPriorityFeePerGas) || intent.maxFeePerGas > action.maxFeePerGasCap || intent.maxPriorityFeePerGas > action.maxPriorityFeePerGasCap || intent.value < 0n || !HASH.test(prepared.requestHash) || !same(prepared.signerRolesHash, publicHash(action.signerRoles)) || !HASH.test(prepared.signedCalldataHash) || (prepared.signatureBundleHash !== null && !HASH.test(prepared.signatureBundleHash)) || !HEX.test(prepared.transientSignedCalldata) || !same(keccak256(prepared.transientSignedCalldata), prepared.signedCalldataHash)) throw new Error("ordinary scenario materialized action exceeds approval");
+  if (!same(intent.data, prepared.transientSignedCalldata) || !same(keccak256(intent.data), prepared.signedCalldataHash)) throw new Error("ordinary scenario live intent calldata differs from validated transient calldata");
   if (action.kind === "funding" || action.kind === "controlled-recipient-recycled-funding" || DELAY_SUCCESS_KINDS.has(action.kind)) {
     const expected = action.publicTransaction;
     if (!expected || !intent.to || !same(intent.to, expected.to) || intent.value !== expected.value || !same(intent.data, expected.data)) throw new Error("ordinary scenario materialized public transaction changed");
@@ -837,13 +848,19 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
       const sourceId = action.dependsOn[0]; const source = sourceId && journal.actions.find((entry) => entry.id === sourceId && entry.status === "confirmed");
       if (!source?.transactionHash) throw new Error("ordinary scenario replay source receipt is unavailable");
       prepared = await context.recoverReplay(action, source, state);
-      if (!prepared.replaySource || prepared.replaySource.actionId !== source.id || !same(prepared.replaySource.transactionHash, source.transactionHash)) throw new Error("ordinary scenario replay did not recover the canonical source envelope");
-      if (source.outerNonce === undefined || !source.gas || !source.maxFeePerGas || !source.maxPriorityFeePerGas || !source.outerTo || !source.outerValue || !source.outerDataHash || prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
+      if (!prepared.replaySource || prepared.replaySource.actionId !== source.id) throw new Error("ordinary scenario replay did not recover the canonical source envelope");
+      const rawOuter = prepared.transientSignedOuterTransaction;
+      if (!rawOuter || !/^0x02[0-9a-f]+$/i.test(rawOuter)) throw new Error("ordinary scenario replay signed outer transaction is missing");
+      let outer: ReturnType<typeof parseTransaction>; let sender: Address;
+      try { outer = parseTransaction(rawOuter); sender = await recoverTransactionAddress({ serializedTransaction: rawOuter as `0x02${string}` }); } catch { throw new Error("ordinary scenario replay signed outer transaction is malformed"); }
+      if (!same(keccak256(rawOuter), source.transactionHash) || !same(sender, proposal.funder) || outer.type !== "eip1559" || outer.chainId !== CHAIN_ID || source.outerNonce === undefined || !source.gas || !source.maxFeePerGas || !source.maxPriorityFeePerGas || !source.outerTo || !source.outerValue || !source.outerDataHash || outer.nonce !== source.outerNonce || outer.gas?.toString() !== source.gas || outer.maxFeePerGas?.toString() !== source.maxFeePerGas || outer.maxPriorityFeePerGas?.toString() !== source.maxPriorityFeePerGas || !outer.to || !same(outer.to, source.outerTo) || (outer.value ?? 0n).toString() !== source.outerValue || !same(keccak256(outer.data ?? "0x"), source.outerDataHash)) throw new Error("ordinary scenario replay signed outer transaction does not match the confirmed source");
+      if (prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
+      recordEntry.transactionHash = source.transactionHash;
     } else if (!PUBLIC_REJECTION_KINDS.has(action.kind)) prepared = await context.materialize(action, state);
     if (prepared) {
       await validatePrepared(action, proposal, prepared, state, context);
       recordEntry.requestHash = prepared.requestHash; recordEntry.signatureBundleHash = prepared.signatureBundleHash; recordEntry.signedCalldataHash = prepared.signedCalldataHash; recordEntry.outerDataHash = keccak256(prepared.liveIntent.data);
-      if (prepared.replaySource) { recordEntry.transactionHash = prepared.replaySource.transactionHash; recordEntry.outerNonce = prepared.liveIntent.nonce; }
+      if (prepared.replaySource) recordEntry.outerNonce = prepared.liveIntent.nonce;
       store.save(journal);
     }
     const evidence = await context.proveRejection(action, state, prepared);
