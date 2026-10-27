@@ -12,6 +12,7 @@ import { createPasskeySignerCore } from "../../src/signers/passkey-core";
 import { createEip1193SecondarySigner } from "../../src/signers/eip1193";
 import type { LiveContext, LiveIntent } from "./submission";
 import type { VaultSigner } from "../../src/signers/types";
+import { runOperationalCliEntryPoint, type OperationalCliOutput } from "./operational-cli-entrypoint";
 
 export type OrdinaryScenarioCliOptions = Readonly<{ mode: "review" | "submit-one" | "resume-one"; reportPath: string; expectedPackageHash: Hex; expectedArtifactBytesHash: Hex; expectedProposalHash: Hex; approvalPath?: string; expectedApprovalHash?: Hex; journalPath?: string; observerLedgerPath?: string; receiverAcknowledgementPath?: string }>;
 export type OrdinaryScenarioCliDependencies = Readonly<{
@@ -177,4 +178,6 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   process.stdout.write(`${JSON.stringify(result, (_, value) => typeof value === "bigint" ? value.toString() : value)}\n`);
 }
 
-if (require.main === module) void main().catch(error => { process.stderr.write(`ordinary scenario executor failed: ${error instanceof Error ? error.message : "unknown error"}\n`); process.exitCode = 1; });
+export const runOrdinaryScenarioExecutorEntryPoint = (task: Promise<void>, output?: OperationalCliOutput): Promise<void> => runOperationalCliEntryPoint(task, "ordinary-scenario-executor", output);
+
+if (require.main === module) void runOrdinaryScenarioExecutorEntryPoint(main());

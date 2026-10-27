@@ -29,7 +29,7 @@ import {
   validateTransientRepairQueue,
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
-import { createRepairCommandRuntime, repairObserverExpectedEffect, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
+import { createRepairCommandRuntime, repairObserverExpectedEffect, runOrdinaryScenarioRepairEntryPoint, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
 import { createRepairMechanicalAdapter, validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 import { encodeSafeContractSignature } from "../../../src/signers/passkey-helpers";
 
@@ -82,6 +82,24 @@ const approveCreation = (journal: OrdinaryScenarioJournal, creation: ReturnType<
 };
 
 describe("closed ordinary repair-to-freeze continuation", () => {
+  it("does not inspect thrown strings or hostile objects at the repair entrypoint", async () => {
+    const stringMarker = "SIGNED_SAFE_CALLDATA_MARKER_repair";
+    let messageRead = false; let stringified = false;
+    const hostile = Object.create(null, {
+      message: { get: () => { messageRead = true; throw new Error("message getter evaluated"); } },
+      toString: { value: () => { stringified = true; throw new Error("toString evaluated"); } },
+    });
+    for (const failure of [stringMarker, hostile]) {
+      let stderr = ""; let exitCode = 0;
+      await runOrdinaryScenarioRepairEntryPoint(Promise.reject(failure), { writeStderr: value => { stderr += value; }, setExitCode: value => { exitCode = value; } });
+      expect(exitCode).to.equal(1);
+      expect(stderr).to.equal("[ORDINARY_SCENARIO_REPAIR_FAILED] ordinary scenario repair failed\n");
+      expect(stderr).not.to.include(stringMarker);
+    }
+    expect(messageRead).to.equal(false);
+    expect(stringified).to.equal(false);
+  });
+
   it("preserves the frozen production proposal and rejects foreign unbranded domains", () => {
     const reportPath = join(process.cwd(), "test/fixtures/ordinary-scenario-review.public.json"); const raw = readFileSync(reportPath, "utf8"); const expected = { expectedPackageHash: "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571" as Hex, expectedArtifactBytesHash: "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831" as Hex };
     expect(createOrdinaryScenarioProposal(raw, expected).proposalHash).to.equal("0x22770c7944ee289543c10090b3483bdcd87f0d2c193887df4f32916c5782e45f");

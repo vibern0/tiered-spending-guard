@@ -34,6 +34,7 @@ import {
 } from "./ordinary-scenario-repair";
 import { createOrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
 import type { OrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
+import { runOperationalCliEntryPoint, type OperationalCliOutput } from "./operational-cli-entrypoint";
 import { createRepairAdapterDescriptor, createRepairProductionAdapter, hasExactRepairRevert, type RepairProductionAdapter } from "./ordinary-scenario-repair-adapter";
 import { loadObserverConfirmationEvidence } from "./ordinary-scenario-adapter";
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -371,6 +372,6 @@ export function createRepairCommandRuntime(dependencies: RepairCommandDependenci
   });
 }
 
-if (require.main === module) {
-  main().catch(error => { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
-}
+export const runOrdinaryScenarioRepairEntryPoint = (task: Promise<void>, output?: OperationalCliOutput): Promise<void> => runOperationalCliEntryPoint(task, "ordinary-scenario-repair", output);
+
+if (require.main === module) void runOrdinaryScenarioRepairEntryPoint(main());

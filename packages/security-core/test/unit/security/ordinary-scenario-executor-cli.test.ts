@@ -3,9 +3,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "chai";
-import { keccak256, type Hex } from "viem";
+import { BaseError, CallExecutionError, keccak256, type Hex } from "viem";
 import { sha256 } from "../../../scripts/plan-deployment";
-import { runOrdinaryScenarioExecutorCli } from "../../../scripts/live/ordinary-scenario-executor-cli";
+import { runOrdinaryScenarioExecutorCli, runOrdinaryScenarioExecutorEntryPoint } from "../../../scripts/live/ordinary-scenario-executor-cli";
 import { createOrdinaryScenarioJournal, createOrdinaryScenarioProposal, loadOrdinaryScenarioApproval, type CanonicalOrdinaryScenarioState, type OrdinaryScenarioExecutionContext } from "../../../scripts/live/ordinary-scenario-executor";
 import { liveIntentHash, type LiveIntent } from "../../../scripts/live/submission";
 
@@ -24,6 +24,25 @@ const intent: LiveIntent = { id: "native-funding", to: proposal.safe, data: "0x"
 const resumeContext = (counts: { sign: number; broadcast: number }): OrdinaryScenarioExecutionContext => ({ readState: async () => state, materialize: async () => { throw new Error("no materialize"); }, simulate: async () => { throw new Error("no simulate"); }, proveRejection: async () => { throw new Error("no reject"); }, recoverPending: async () => intent, recoverReplay: async () => { throw new Error("no replay"); }, verifyContractSignature: async () => "0x1626ba7e", confirm: async () => { throw new Error("no confirmation without receipt"); }, live: { funder: proposal.funder, chainId: async () => 11155111, nonce: async () => 743, balance: async () => state.funderNativeBalance, sign: async () => { counts.sign++; throw new Error("resume sign disabled"); }, broadcast: async () => { counts.broadcast++; throw new Error("resume broadcast disabled"); }, receipt: async () => undefined } });
 
 describe("ordinary scenario one-action CLI", () => {
+  it("prints only the fixed executor diagnostic when a Viem call failure contains private markers", async () => {
+    const calldataMarker = `0x${"ab".repeat(32)}` as Hex;
+    const credentialMarker = "PRIVATE_CREDENTIAL_MARKER_ordinary";
+    const providerMarker = "https://provider.invalid/RPC_PROVIDER_TOKEN_ordinary";
+    const failure = new CallExecutionError(new BaseError(`${credentialMarker} ${providerMarker}`), { data: calldataMarker, to: proposal.safe });
+    const directory = mkdtempSync(join(tmpdir(), "ordinary-cli-failure-")); const artifactPath = join(directory, "public-artifact.json"); const artifact = "{\"status\":\"unchanged\"}\n"; writeFileSync(artifactPath, artifact);
+    const stdout = ""; let stderr = ""; let exitCode = 0;
+
+    try {
+      await runOrdinaryScenarioExecutorEntryPoint(Promise.reject(failure), { writeStderr: value => { stderr += value; }, setExitCode: value => { exitCode = value; } });
+
+      expect(exitCode).to.equal(1);
+      expect(stdout).to.equal("");
+      expect(stderr).to.equal("[ORDINARY_SCENARIO_EXECUTOR_FAILED] ordinary scenario executor failed\n");
+      expect(readFileSync(artifactPath, "utf8")).to.equal(artifact);
+      for (const marker of [calldataMarker, credentialMarker, providerMarker]) expect(`${stdout}${stderr}${readFileSync(artifactPath, "utf8")}`).not.to.include(marker);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("reviews the exact 2m proposal without constructing private or broadcast capabilities", async () => {
     let contexts = 0;
     const result = await runOrdinaryScenarioExecutorCli({ mode: "review", reportPath, expectedPackageHash, expectedArtifactBytesHash, expectedProposalHash: proposal.proposalHash }, { environment: {}, publicPreflight: async () => ({ ready: true, detail: "public-only" }), createContext: async () => { contexts++; throw new Error("must not construct"); } });
