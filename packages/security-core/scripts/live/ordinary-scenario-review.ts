@@ -73,6 +73,8 @@ export type IndependentObserverDescriptor = Readonly<{
   kind: "https-webhook" | "email" | "second-device";
   publicId: string;
   independentFromProposer: true;
+  probeEvidenceHash?: Hex;
+  actualActivityAlerts?: "NOT_RUN";
 }>;
 
 export type ScenarioTopologyEvidence = Readonly<{ planHash: Hex; ok: boolean; checked: readonly string[]; failures: readonly string[] }>;
@@ -422,7 +424,7 @@ export async function collectOrdinaryScenarioReview(input: OrdinaryScenarioRevie
   const recycledDelayedFunding = grossUsdcFunding - initialUsdcFunding - recycledStepUpFunding;
   if (initial.usdcBalances[0] < initialUsdcFunding) blockers.push({ code: "MISSING_USDC_INVENTORY", detail: `configured funder needs ${initialUsdcFunding} initial USDC units at the pinned block; controlled-recipient returns may fund only later exact top-ups and cannot be presumed before their canonical receipts` });
   if (!input.observer) blockers.push({ code: "MISSING_INDEPENDENT_OBSERVER", detail: "an exact independently operated public alert-channel descriptor and later delivery evidence are required" });
-  else if (input.observer.independentFromProposer !== true || !/^[ -~]{1,160}$/.test(input.observer.publicId)) throw new Error("ordinary scenario independent observer descriptor is invalid");
+  else if (input.observer.independentFromProposer !== true || !/^[ -~]{1,160}$/.test(input.observer.publicId) || (input.observer.probeEvidenceHash !== undefined && !HASH.test(input.observer.probeEvidenceHash)) || (input.observer.actualActivityAlerts !== undefined && input.observer.actualActivityAlerts !== "NOT_RUN")) throw new Error("ordinary scenario independent observer descriptor is invalid");
   if (!input.repair) blockers.push({ code: "MISSING_REPAIR_DESCRIPTOR", detail: "an exact fixed replacement signer/maintenance identity is required before the repair Safe transaction can be encoded" });
   else {
     blockers.push({ code: "MISSING_REPAIR_SIGNER_DEPLOYMENT", detail: `replacement ${input.repair.address} has no runtime at the pinned block; factory creation and canonical runtime/binding verification require separate review` });

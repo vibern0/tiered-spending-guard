@@ -8,6 +8,7 @@ import { deriveComponentAddresses } from "../../src/topology/addressing";
 import { buildVaultPlan, deriveVaultSafeProxyAddress, verifyVaultPrerequisites } from "../../src/topology/build";
 import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../../src/topology/evidence";
 import { resolveReviewedVaultArtifacts } from "../../src/topology/reviewed-artifacts";
+import { sha256 } from "../plan-deployment";
 import { buildOrdinaryReviewPolicyDraft, ORDINARY_REVIEW_SIGNER_SOURCE, readOrdinaryReviewConfig } from "./ordinary-review-profile";
 import { bindSafeCreationPrerequisitePackage, createPinnedSafeReviewClient } from "./safe-creation-adapter";
 import {
@@ -145,7 +146,10 @@ export async function main(): Promise<void> {
   const topology = await verifyOrdinaryScenarioTopology(reconstructed.plan, { chainId: sepolia.id, policy: reconstructed.policy, safe: reconstructed.plan.safeProxyDeployment.expectedCreatedAddress, guard: reconstructed.components.guard, delay: reconstructed.components.delay, deployments: currentDeployments, prerequisites, client: topologyClient });
   if (!topology.ok) throw new Error(`ordinary scenario topology failed: ${topology.failures.join(", ")}`);
   const observerPath = process.env.ORDINARY_SCENARIO_OBSERVER ?? join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-public.json");
-  const observer = json<IndependentObserverDescriptor>(observerPath);
+  const observerDescriptor = json<IndependentObserverDescriptor>(observerPath);
+  const observerProof = json<{ schemaVersion: number; scope: string; result: string; endpointHash: Hex; payloadSha256: Hex; receiverRequestId: string; receiverRecordedAt: string; httpStatus: number; expiresAt: string; actualActivityAlerts: string; hasSigningAuthority: boolean }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-channel-proof.json"));
+  if (observerProof.schemaVersion !== 1 || observerProof.scope !== "test-channel-probe-not-activity-evidence" || observerProof.result !== "PASS" || !observerDescriptor.publicId.endsWith(observerProof.endpointHash) || observerProof.httpStatus !== 200 || observerProof.actualActivityAlerts !== "NOT_RUN" || observerProof.hasSigningAuthority !== false) throw new Error("independent observer public probe evidence mismatch");
+  const observer: IndependentObserverDescriptor = Object.freeze({ ...observerDescriptor, probeEvidenceHash: sha256(observerProof) as Hex, actualActivityAlerts: "NOT_RUN" });
   const repair = json<OrdinaryRepairDescriptor>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-public.json"));
   const repairQuote = json<{ scope: string; chainId: number; blockNumber: string; blockHash: Hex; factory: Address; predictedSigner: Address; calldata: Hex; dataHash: Hex; value: string; estimatedGas: string; proposedGasCap: string; maxFeePerGasCap: string; maximumGasReservationWei: string; exactCapCallPassed: boolean; signed: boolean; broadcast: boolean }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-creation-quote.json"));
   const quoteGas = decimal(repairQuote.proposedGasCap, "replacement signer proposed gas cap");
@@ -169,7 +173,7 @@ export async function main(): Promise<void> {
   }, createScenarioClient(client, historicalClient, block));
   const repairCreate = result.report.actions.find((action) => action.id === "repair-signer-create");
   if (repairCreate?.publicTransaction?.data !== repairQuote.calldata || repairCreate.proposedGasAndFee.gasLimit !== repairQuote.proposedGasCap || repairCreate.proposedGasAndFee.maxFeePerGas !== repairQuote.maxFeePerGasCap) throw new Error("replacement signer action does not match the public creation quote");
-  const output = process.env.ORDINARY_SCENARIO_OUTPUT ?? "/tmp/native-safe-2026-10-27-ordinary-scenario-review-v2";
+  const output = process.env.ORDINARY_SCENARIO_OUTPUT ?? "/tmp/native-safe-2026-10-27-ordinary-scenario-review-v3";
   const written = writeOrdinaryScenarioReviewPackage(result, output);
   process.stdout.write(`${JSON.stringify({ status: result.report.status, packageHash: written.packageHash, blockNumber: block.number.toString(), blockHash: block.hash, blockers: result.report.blockers, output: written.directory })}\n`);
 }
