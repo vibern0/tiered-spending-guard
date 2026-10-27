@@ -149,10 +149,35 @@ describe("ordinary scenario review collector", () => {
     const result = await collectOrdinaryScenarioReview(input(), client());
     expect(result.report.status).to.equal("BLOCKED");
     expect(result.report.blockers.map((blocker) => blocker.code)).to.deep.equal(["MISSING_USDC_INVENTORY", "MISSING_INDEPENDENT_OBSERVER", "MISSING_REPAIR_DESCRIPTOR"]);
-    expect(result.report.requiredInventory).to.deep.include({ nativeWei: "30000000000001", usdcUnits: "30000001" });
+    expect(result.report.requiredInventory).to.deep.include({ nativeWei: "30000000000001", usdcUnits: "31000000" });
     expect(result.report.signed).to.equal(false);
     expect(result.report.broadcast).to.equal(false);
     expect(result.report.liveEstimated).to.equal(false);
+  });
+
+  it("recycles the controlled recipient's 20 USDC into 31 cumulative funding units without resetting state", async () => {
+    const funded = client({ tokenBalance: async (_token, who) => who.toLowerCase() === FUNDER.toLowerCase() ? 20_000_000n : 0n });
+    const result = await collectOrdinaryScenarioReview(input(), funded);
+    expect(result.report.blockers.map((blocker) => blocker.code)).to.not.include("MISSING_USDC_INVENTORY");
+    expect(result.report.requiredInventory).to.deep.include({ initialExternalUsdcUnits: "20000000", grossUsdcFundingUnits: "31000000" });
+    const first = result.report.actions.find((action) => action.id === "usdc-funding")!;
+    const recycleTen = result.report.actions.find((action) => action.id === "usdc-recycle-topup-step-up")!;
+    const recycleOne = result.report.actions.find((action) => action.id === "usdc-recycle-topup-delayed")!;
+    const contract = result.report.actions.find((action) => action.id === "usdc-step-up-contract")!;
+    const ecdsa = result.report.actions.find((action) => action.id === "usdc-step-up-ecdsa")!;
+    const queue = result.report.actions.find((action) => action.id === "usdc-queue-cancel")!;
+    expect(first.publicTransaction?.value).to.equal("0");
+    expect(first.expectedTransition).to.include("20000000");
+    expect(recycleTen.dependsOn).to.deep.equal(["usdc-step-up-contract"]);
+    expect(recycleTen.expectedTransition).to.include("10000000");
+    expect(ecdsa.dependsOn).to.deep.equal(["usdc-recycle-topup-step-up"]);
+    expect(recycleOne.dependsOn).to.deep.equal(["usdc-step-up-ecdsa"]);
+    expect(recycleOne.expectedTransition).to.include("1000000");
+    expect(queue.dependsOn).to.deep.equal(["usdc-recycle-topup-delayed"]);
+    expect(contract.safeTransaction?.safeNonce).to.equal("8");
+    expect(ecdsa.safeTransaction?.safeNonce).to.equal("9");
+    expect(queue.safeTransaction?.safeNonce).to.equal("10");
+    expect(result.report.phaseAccounting.grossUsdcFundingUnits).to.equal("31000000");
   });
 
   it("fails closed when the pinned block or mutable state drifts during collection", async () => {
@@ -217,7 +242,7 @@ describe("ordinary scenario review collector", () => {
     };
     const observer = { kind: "https-webhook" as const, publicId: "independent-operator-channel", independentFromProposer: true as const };
     const funded = client({
-      tokenBalance: async (_token, who) => who.toLowerCase() === FUNDER.toLowerCase() ? 31_000_000n : 0n,
+      tokenBalance: async (_token, who) => who.toLowerCase() === FUNDER.toLowerCase() ? 20_000_000n : 0n,
       runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() || who.toLowerCase() === repair.address.toLowerCase() ? "0x" : CODE,
     });
     const result = await collectOrdinaryScenarioReview({ ...value, repair, observer }, funded);

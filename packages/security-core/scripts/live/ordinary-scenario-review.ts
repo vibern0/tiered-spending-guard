@@ -156,7 +156,7 @@ export type OrdinaryScenarioReviewReport = Readonly<{
   baselineEvidenceHash: Hex;
   snapshot: Readonly<Record<string, unknown>>;
   publicIdentities: Readonly<Record<string, unknown>>;
-  requiredInventory: Readonly<{ nativeWei: string; usdcUnits: string; explanation: string }>;
+  requiredInventory: Readonly<{ nativeWei: string; usdcUnits: string; initialExternalUsdcUnits: string; grossUsdcFundingUnits: string; explanation: string }>;
   blockers: readonly Readonly<{ code: string; detail: string }>[];
   actions: readonly ReviewAction[];
   phaseAccounting: Readonly<Record<string, string | boolean>>;
@@ -298,7 +298,7 @@ function queueTiming(): Readonly<Record<string, unknown>> {
   return Object.freeze({ source: "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK", createdAt: null, readyAt: null, expiresAt: null, cooldownSeconds: "120", expirationSeconds: "600", status: "CONDITIONAL_NOT_RUN", revalidateFromCanonicalReceipt: true });
 }
 
-function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState, nativeFunding: bigint, usdcFunding: bigint): readonly ReviewAction[] {
+function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState, nativeFunding: bigint, initialUsdcFunding: bigint, recycledStepUpFunding: bigint, recycledDelayedFunding: bigint): readonly ReviewAction[] {
   const actions: ReviewAction[] = []; const plan = input.plan; const safe = plan.safeProxyDeployment.expectedCreatedAddress; const guard = plan.review.transactionGuard; const delay = plan.review.modules[0]; const recipient = plan.review.assets[0]!.recipients[0]!; const usdc = plan.review.assets[1]!.token;
   let safeNonce = state.safeNonce; let delayNonce = state.delayNonce; let funderNonce = state.funderNonce;
   const add = (action: ReviewAction) => actions.push(Object.freeze(action));
@@ -307,32 +307,44 @@ function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState,
 
   add({ id: "native-funding", kind: "funding", asset: "native", dependsOn: [], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: safe, value: nativeFunding.toString(), data: "0x", operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe native inventory increases by ${nativeFunding}`, observerAlert: "none" });
   funderNonce += 1n;
-  add({ id: "usdc-funding", kind: "funding", asset: "USDC", dependsOn: [], status: state.usdcBalances[0] < usdcFunding ? "BLOCKED_INPUT" : "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: usdc, value: "0", data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [safe, usdcFunding] }), operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe USDC inventory increases by ${usdcFunding}`, observerAlert: "none" });
+  add({ id: "usdc-funding", kind: "funding", asset: "USDC", dependsOn: [], status: state.usdcBalances[0] < initialUsdcFunding ? "BLOCKED_INPUT" : "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: usdc, value: "0", data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [safe, initialUsdcFunding] }), operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe USDC inventory increases by ${initialUsdcFunding}; spend counters and Safe/Delay nonces remain unchanged`, observerAlert: "none" });
   funderNonce += 1n;
 
-  const buildAsset = (prefix: "native" | "usdc", token: Address, x: bigint, y: bigint, transfer: (amount: bigint) => Readonly<{ to: Address; value: bigint; data: Hex }>, unitLabel: string) => {
+  const buildAsset = (prefix: "native" | "usdc", token: Address, x: bigint, y: bigint, delayedAmount: bigint, transfer: (amount: bigint) => Readonly<{ to: Address; value: bigint; data: Hex }>, unitLabel: string) => {
     const asset = prefix === "native" ? "native" as const : "USDC" as const; const step = (y - x) / 2n; const fundingId = `${prefix}-funding`;
     const base = safeTransaction(safe, plan.chainId, transfer(x).to, transfer(x).value, transfer(x).data, 0, safeNonce);
     addSafe(`${prefix}-base-x`, "base-transfer", asset, [fundingId], "success", ["primary-passkey"], base, `baseSpent=${x}; instantSpent=${x}`); safeNonce += 1n;
     const contract = safeTransaction(safe, plan.chainId, transfer(step).to, transfer(step).value, transfer(step).data, 0, safeNonce);
     addSafe(`${prefix}-step-up-contract`, "step-up-transfer", asset, [`${prefix}-base-x`], "success", ["primary-passkey", "safe-contract-secondary"], contract, `baseSpent=${x}; instantSpent=${x + step}`, "step-up-executed"); safeNonce += 1n;
+    let ecdsaDependency = `${prefix}-step-up-contract`;
+    if (prefix === "usdc") {
+      add({ id: "usdc-recycle-topup-step-up", kind: "controlled-recipient-recycled-funding", asset: "USDC", dependsOn: [ecdsaDependency], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: usdc, value: "0", data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [safe, recycledStepUpFunding] }), operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Controlled recipient returns ${recycledStepUpFunding} USDC units to Safe; baseSpent=${x}, instantSpent=${x + step}, and both Safe/Delay nonces remain unchanged`, observerAlert: "none" });
+      funderNonce += 1n;
+      ecdsaDependency = "usdc-recycle-topup-step-up";
+    }
     const ecdsa = safeTransaction(safe, plan.chainId, transfer(step).to, transfer(step).value, transfer(step).data, 0, safeNonce);
-    addSafe(`${prefix}-step-up-ecdsa`, "step-up-transfer", asset, [`${prefix}-step-up-contract`], "success", ["primary-passkey", "legacy-ecdsa-secondary"], ecdsa, `baseSpent=${x}; instantSpent=${y}`, "step-up-executed"); safeNonce += 1n;
+    addSafe(`${prefix}-step-up-ecdsa`, "step-up-transfer", asset, [ecdsaDependency], "success", ["primary-passkey", "legacy-ecdsa-secondary"], ecdsa, `baseSpent=${x}; instantSpent=${y}`, "step-up-executed"); safeNonce += 1n;
     const overspend = safeTransaction(safe, plan.chainId, transfer(1n).to, transfer(1n).value, transfer(1n).data, 0, safeNonce);
     addSafe(`${prefix}-direct-overspend-rejection`, "expected-direct-rejection", asset, [`${prefix}-step-up-ecdsa`], "rejection", ["primary-passkey", "safe-contract-secondary"], overspend, `No balance/counter change; shared Y remains ${y}`);
     addSafe(`${prefix}-replay-rejection`, "expected-replay-rejection", asset, [`${prefix}-base-x`], "rejection", ["replay previously reviewed signed envelope only in later executor"], base, "No balance/counter/Safe nonce change");
     const unsupported = safeTransaction(safe, plan.chainId, usdc, 0n, encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [recipient, 1n] }), 0, safeNonce);
     addSafe(`${prefix}-unsupported-path-rejection`, "expected-unsupported-rejection", asset, [`${prefix}-step-up-ecdsa`], "rejection", ["primary-passkey", "safe-contract-secondary"], unsupported, "No approval, balance, counter, or Safe nonce change");
 
-    const cancelItem: DelayQueueItem = { safe, delay, ...transfer(1n), operation: 0, queueNonce: delayNonce };
+    let queueDependency = `${prefix}-step-up-ecdsa`;
+    if (prefix === "usdc") {
+      add({ id: "usdc-recycle-topup-delayed", kind: "controlled-recipient-recycled-funding", asset: "USDC", dependsOn: [queueDependency], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: usdc, value: "0", data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [safe, recycledDelayedFunding] }), operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Controlled recipient returns ${recycledDelayedFunding} USDC units to Safe after cumulative immediate spend reaches Y; counters and both Safe/Delay nonces remain unchanged`, observerAlert: "none" });
+      funderNonce += 1n;
+      queueDependency = "usdc-recycle-topup-delayed";
+    }
+    const cancelItem: DelayQueueItem = { safe, delay, ...transfer(delayedAmount), operation: 0, queueNonce: delayNonce };
     const cancelQueueTx = buildQueueTransaction(cancelItem); const cancelQueue = safeTransaction(safe, plan.chainId, cancelQueueTx.to, cancelQueueTx.value, cancelQueueTx.data, cancelQueueTx.operation, safeNonce);
-    add({ id: `${prefix}-queue-cancel`, kind: "queue-proposal", asset, dependsOn: [`${prefix}-step-up-ecdsa`], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["primary-passkey", "safe-contract-secondary"], safeTransaction: cancelQueue.public, queue: queueFields(cancelItem), timing: queueTiming(), proposedGasAndFee: proposedFee(input.proposedCaps, "safe"), expectedTransition: `Delay item ${delayNonce} queued; counters and balances unchanged`, observerAlert: "delayed-queued" }); safeNonce += 1n;
+    add({ id: `${prefix}-queue-cancel`, kind: "queue-proposal", asset, dependsOn: [queueDependency], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["primary-passkey", "safe-contract-secondary"], safeTransaction: cancelQueue.public, queue: queueFields(cancelItem), timing: queueTiming(), proposedGasAndFee: proposedFee(input.proposedCaps, "safe"), expectedTransition: `Delay item ${delayNonce} queued; counters and balances unchanged`, observerAlert: "delayed-queued" }); safeNonce += 1n;
     addPublic(`${prefix}-queue-cancel-early-rejection`, "expected-early-rejection", asset, [`${prefix}-queue-cancel`], "rejection", buildExecutionTransaction(cancelItem), cancelItem, "No Delay nonce or balance change before Z", "none");
     const cancelTx = buildCancellationTransaction(delay, delayNonce + 1n); const cancelSafe = safeTransaction(safe, plan.chainId, cancelTx.to, cancelTx.value, cancelTx.data, cancelTx.operation, safeNonce);
     addSafe(`${prefix}-queue-cancel-action`, "queue-cancellation", asset, [`${prefix}-queue-cancel`], "success", ["primary-passkey", "safe-contract-secondary"], cancelSafe, `Delay nonce advances from ${delayNonce} to ${delayNonce + 1n}; balance unchanged`, "delayed-cancelled"); safeNonce += 1n;
     addPublic(`${prefix}-queue-cancelled-execution-rejection`, "expected-cancelled-rejection", asset, [`${prefix}-queue-cancel-action`], "rejection", buildExecutionTransaction(cancelItem), cancelItem, "No balance/counter/Delay nonce change", "none"); delayNonce += 1n;
 
-    const expiryItem: DelayQueueItem = { safe, delay, ...transfer(1n), operation: 0, queueNonce: delayNonce };
+    const expiryItem: DelayQueueItem = { safe, delay, ...transfer(delayedAmount), operation: 0, queueNonce: delayNonce };
     const expiryQueueTx = buildQueueTransaction(expiryItem); const expiryQueue = safeTransaction(safe, plan.chainId, expiryQueueTx.to, expiryQueueTx.value, expiryQueueTx.data, expiryQueueTx.operation, safeNonce);
     add({ id: `${prefix}-queue-expiry`, kind: "queue-proposal", asset, dependsOn: [`${prefix}-queue-cancel-action`], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["primary-passkey", "safe-contract-secondary"], safeTransaction: expiryQueue.public, queue: queueFields(expiryItem), timing: queueTiming(), proposedGasAndFee: proposedFee(input.proposedCaps, "safe"), expectedTransition: `Delay item ${delayNonce} queued; counters and balances unchanged`, observerAlert: "delayed-queued" }); safeNonce += 1n;
     addPublic(`${prefix}-queue-expiry-early-rejection`, "expected-early-rejection", asset, [`${prefix}-queue-expiry`], "rejection", buildExecutionTransaction(expiryItem), expiryItem, "No Delay nonce or balance change before Z", "none");
@@ -340,15 +352,15 @@ function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState,
     addPublic(`${prefix}-queue-expiry-skip`, "queue-expiry", asset, [`${prefix}-queue-expiry`], "success", skip, expiryItem, `After canonical createdAt+120+600, Delay nonce advances from ${delayNonce} to ${delayNonce + 1n}; balance unchanged`, "delayed-expired");
     addPublic(`${prefix}-queue-expired-execution-rejection`, "expected-expired-rejection", asset, [`${prefix}-queue-expiry-skip`], "rejection", buildExecutionTransaction(expiryItem), expiryItem, "No balance/counter/Delay nonce change", "none"); delayNonce += 1n;
 
-    const readyItem: DelayQueueItem = { safe, delay, ...transfer(1n), operation: 0, queueNonce: delayNonce };
+    const readyItem: DelayQueueItem = { safe, delay, ...transfer(delayedAmount), operation: 0, queueNonce: delayNonce };
     const readyQueueTx = buildQueueTransaction(readyItem); const readyQueue = safeTransaction(safe, plan.chainId, readyQueueTx.to, readyQueueTx.value, readyQueueTx.data, readyQueueTx.operation, safeNonce);
     add({ id: `${prefix}-queue-execute`, kind: "queue-proposal", asset, dependsOn: [`${prefix}-queue-expiry-skip`], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["primary-passkey", "safe-contract-secondary"], safeTransaction: readyQueue.public, queue: queueFields(readyItem), timing: queueTiming(), proposedGasAndFee: proposedFee(input.proposedCaps, "safe"), expectedTransition: `Delay item ${delayNonce} queued; counters and balances unchanged`, observerAlert: "delayed-queued" }); safeNonce += 1n;
     addPublic(`${prefix}-queue-execute-early-rejection`, "expected-early-rejection", asset, [`${prefix}-queue-execute`], "rejection", buildExecutionTransaction(readyItem), readyItem, "No Delay nonce or balance change before Z", "none");
     addPublic(`${prefix}-queue-ready-execute`, "ready-delay-execution", asset, [`${prefix}-queue-execute-early-rejection`], "success", buildExecutionTransaction(readyItem), readyItem, `After the canonical queue block +120 seconds, recipient outflow reaches 31 ${unitLabel}; Delay nonce advances to ${delayNonce + 1n}`, "delayed-executed"); delayNonce += 1n;
   };
 
-  buildAsset("native", ZERO, 10_000_000_000_000n, 30_000_000_000_000n, (amount) => ({ to: recipient, value: amount, data: "0x" }), "native matrix units");
-  buildAsset("usdc", usdc, 10_000_000n, 30_000_000n, (amount) => ({ to: usdc, value: 0n, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [recipient, amount] }) }), "USDC");
+  buildAsset("native", ZERO, 10_000_000_000_000n, 30_000_000_000_000n, 1n, (amount) => ({ to: recipient, value: amount, data: "0x" }), "native matrix units");
+  buildAsset("usdc", usdc, 10_000_000n, 30_000_000n, 1_000_000n, (amount) => ({ to: usdc, value: 0n, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [recipient, amount] }) }), "USDC");
 
   if (input.repair) {
     const proofHash = repairProofHash(input.plan, input.repair);
@@ -398,10 +410,13 @@ export async function collectOrdinaryScenarioReview(input: OrdinaryScenarioRevie
   validateFreshState(initial, input);
   const blockers: { code: string; detail: string }[] = [];
   validateCapabilities(input.plan, input, blockers);
-  const requiredNative = 30_000_000_000_001n; const requiredUsdc = 30_000_001n;
+  const requiredNative = 30_000_000_000_001n; const requiredUsdc = 31_000_000n; const initialExternalUsdc = 20_000_000n;
   const nativeFunding = initial.nativeBalances[1] >= requiredNative ? 0n : requiredNative - initial.nativeBalances[1];
-  const usdcFunding = initial.usdcBalances[1] >= requiredUsdc ? 0n : requiredUsdc - initial.usdcBalances[1];
-  if (initial.usdcBalances[0] < usdcFunding) blockers.push({ code: "MISSING_USDC_INVENTORY", detail: `configured funder needs ${usdcFunding} additional USDC units at the pinned block; no token substitution, mint, or faucet is authorized` });
+  const grossUsdcFunding = initial.usdcBalances[1] >= requiredUsdc ? 0n : requiredUsdc - initial.usdcBalances[1];
+  const initialUsdcFunding = grossUsdcFunding < initialExternalUsdc ? grossUsdcFunding : initialExternalUsdc;
+  const recycledStepUpFunding = grossUsdcFunding > initialUsdcFunding ? (grossUsdcFunding - initialUsdcFunding < 10_000_000n ? grossUsdcFunding - initialUsdcFunding : 10_000_000n) : 0n;
+  const recycledDelayedFunding = grossUsdcFunding - initialUsdcFunding - recycledStepUpFunding;
+  if (initial.usdcBalances[0] < initialUsdcFunding) blockers.push({ code: "MISSING_USDC_INVENTORY", detail: `configured funder needs ${initialUsdcFunding} initial USDC units at the pinned block; controlled-recipient returns may fund only later exact top-ups and cannot be presumed before their canonical receipts` });
   if (!input.observer) blockers.push({ code: "MISSING_INDEPENDENT_OBSERVER", detail: "an exact independently operated public alert-channel descriptor and later delivery evidence are required" });
   else if (input.observer.independentFromProposer !== true || !/^[ -~]{1,160}$/.test(input.observer.publicId)) throw new Error("ordinary scenario independent observer descriptor is invalid");
   if (!input.repair) blockers.push({ code: "MISSING_REPAIR_DESCRIPTOR", detail: "an exact fixed replacement signer/maintenance identity is required before the repair Safe transaction can be encoded" });
@@ -409,7 +424,7 @@ export async function collectOrdinaryScenarioReview(input: OrdinaryScenarioRevie
     blockers.push({ code: "MISSING_REPAIR_SIGNER_DEPLOYMENT", detail: `replacement ${input.repair.address} has no runtime at the pinned block; factory creation and canonical runtime/binding verification require separate review` });
     blockers.push({ code: "MISSING_REPAIR_WEBAUTHN_PROOF", detail: "the exact non-public WebAuthn assertion over repairProofHash must be produced only at later signing time and separately reviewed before repair calldata can be fixed" });
   }
-  const actions = buildActions(input, initial, nativeFunding, usdcFunding);
+  const actions = buildActions(input, initial, nativeFunding, initialUsdcFunding, recycledStepUpFunding, recycledDelayedFunding);
   const safeActionCount = BigInt(actions.filter((action) => action.proposedGasAndFee.gasLimit === input.proposedCaps.safeExecutionGasLimit.toString()).length);
   const delayActionCount = BigInt(actions.filter((action) => action.proposedGasAndFee.gasLimit === input.proposedCaps.publicDelayGasLimit.toString()).length);
   const fundingActionCount = BigInt(actions.filter((action) => action.proposedGasAndFee.gasLimit === input.proposedCaps.fundingGasLimit.toString()).length);
@@ -433,10 +448,10 @@ export async function collectOrdinaryScenarioReview(input: OrdinaryScenarioRevie
     baselineEvidenceHash: sha256(input.baseline),
     snapshot: blockSnapshot(initial, block, input.plan),
     publicIdentities: Object.freeze({ safe: input.plan.safeProxyDeployment.expectedCreatedAddress, guard: input.plan.review.transactionGuard, delay: input.plan.review.modules[0], maintenance: input.plan.prerequisites.maintenance.expectedCreatedAddress, signers: input.signers, runtimeCodeHashes: Object.freeze(Object.fromEntries(initial.runtime.map((code, index) => [runtimeNames[index]!, code && code !== "0x" ? keccak256(code) : "0x"]))), observer: input.observer ?? null, repair: input.repair ?? null }),
-    requiredInventory: Object.freeze({ nativeWei: requiredNative.toString(), usdcUnits: requiredUsdc.toString(), explanation: "30 units cover base X plus both step-up forms to shared Y; one additional unit is reserved only for the one delayed action that executes. Cancelled and expired items consume no principal." }),
+    requiredInventory: Object.freeze({ nativeWei: requiredNative.toString(), usdcUnits: requiredUsdc.toString(), initialExternalUsdcUnits: initialExternalUsdc.toString(), grossUsdcFundingUnits: requiredUsdc.toString(), explanation: "20 initial external USDC units fund base X plus the contract-secondary row. Because the controlled recipient is the funder, canonical returns support an exact 10-unit top-up before the ECDSA row and an exact 1-unit top-up before delayed execution. Gross funding is 31, immediate cumulative spend is 30 at shared Y, and the delayed transaction is 1 unit. Funding does not reset counters or consume Safe/Delay nonces." }),
     blockers: Object.freeze(blockers.map((blocker) => Object.freeze(blocker))),
     actions,
-    phaseAccounting: Object.freeze({ phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), prerequisiteAndSafeActualCostWei: baselineActual.toString(), nativeFundingValueWei: nativeFunding.toString(), nativeSafeTransferPrincipalWei: nativePrincipal.toString(), proposedGasReservationWei: gasReservation.toString(), maximumGrossPhaseOutlayWei: gross.toString(), proposedCapsOnly: true, signedSimulationOrEstimateStatus: "NOT_RUN_REQUIRES_LATER_AUTHORIZED_PRE_SEND_GATE" }),
+    phaseAccounting: Object.freeze({ phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), prerequisiteAndSafeActualCostWei: baselineActual.toString(), nativeFundingValueWei: nativeFunding.toString(), nativeSafeTransferPrincipalWei: nativePrincipal.toString(), grossUsdcFundingUnits: grossUsdcFunding.toString(), proposedGasReservationWei: gasReservation.toString(), maximumGrossPhaseOutlayWei: gross.toString(), proposedCapsOnly: true, signedSimulationOrEstimateStatus: "NOT_RUN_REQUIRES_LATER_AUTHORIZED_PRE_SEND_GATE" }),
     finalRevalidation: Object.freeze({ blockHashRechecked: true, safeNonceRechecked: true, delayNonceRechecked: true, countersRechecked: true, balancesRechecked: true, runtimeIdentitiesRechecked: true }),
     signed: false,
     broadcast: false,
