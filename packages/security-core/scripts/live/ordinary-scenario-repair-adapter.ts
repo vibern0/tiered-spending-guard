@@ -9,7 +9,8 @@ import { queueFingerprint } from "../../src/queue/delay";
 import { createPinnedSafeReviewClient } from "./safe-creation-adapter";
 import { verifyReconstructedPlanAtBlock, type reconstructReviewedPlan } from "./ordinary-scenario-review-cli";
 import type { OrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
-import { REPAIR_BINDING_HASH, recoverCanonicalRepairCalldata, type RepairActionReview, type RepairCanonicalState, type RepairCreationProposal, type RepairGroupProposal, type TransientRepairGroup } from "./ordinary-scenario-repair";
+import { REPAIR_BINDING_HASH, recoverCanonicalRepairCalldata, type RepairActionReview, type RepairCanonicalState, type RepairCreationProposal, type RepairCreationQuote, type RepairGroupProposal, type RepairQueueTimingEvidence, type TransientRepairGroup } from "./ordinary-scenario-repair";
+import type { OrdinaryScenarioJournal, OrdinaryScenarioProposal } from "./ordinary-scenario-executor";
 import type { LiveIntent } from "./submission";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -55,19 +56,65 @@ export function validateRepairReceiptEffect(proposal: RepairGroupProposal, actio
 }
 
 type Reconstructed = Awaited<ReturnType<typeof reconstructReviewedPlan>>;
+export type RepairAdapterDescriptor = Pick<RepairCreationProposal, "safe" | "guard" | "delay" | "funder" | "candidate" | "factory" | "x" | "y" | "verifiers" | "preRotationBlockNumber" | "preRotationBlockHash">;
+
+export function createRepairAdapterDescriptor(proposal: OrdinaryScenarioProposal, quote: RepairCreationQuote, anchor: Readonly<{ blockNumber: bigint; blockHash: Hex }>): RepairAdapterDescriptor {
+  return Object.freeze({ safe: proposal.safe, guard: proposal.guard, delay: proposal.delay, funder: proposal.funder, candidate: quote.candidate, factory: quote.factory, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), preRotationBlockNumber: anchor.blockNumber.toString(), preRotationBlockHash: anchor.blockHash });
+}
+
+export type RepairMechanicalStateDependencies = Readonly<{
+  chainId: number;
+  current: Pick<OrdinaryScenarioProductionHarness["current"], "getBlock" | "readContract" | "getBalance" | "getCode">;
+  creation: Pick<RepairAdapterDescriptor, "safe" | "guard" | "delay" | "candidate">;
+  usdc: Address;
+  candidateBindingHash: Hex;
+  observerReadiness(observerEvidenceHash: Hex): Promise<Readonly<{ ready: boolean }>>;
+  verifyCanonicalProfile(blockNumber: bigint, phase: "pre-rotation" | "post-rotation"): Promise<Hex>;
+}>;
+
+/** Chain-explicit RPC mechanics. Production supplies only the fixed Sepolia verifier; local tests supply a real 31337 topology verifier. */
+export function createRepairMechanicalStateReader(input: RepairMechanicalStateDependencies) {
+  return async (phase: "pre-rotation" | "post-rotation", observerEvidenceHash: Hex, requestedBlock?: bigint, expectedBlockHash?: Hex): Promise<RepairCanonicalState> => {
+    const block = requestedBlock === undefined ? await input.current.getBlock() : await input.current.getBlock({ blockNumber: requestedBlock });
+    if (!block.hash) throw new Error("repair canonical block hash unavailable");
+    if (expectedBlockHash && block.hash.toLowerCase() !== expectedBlockHash.toLowerCase()) throw new Error("repair canonical block changed");
+    const read = <T>(address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []) => input.current.readContract({ address, abi, functionName, args, blockNumber: block.number }) as Promise<T>;
+    const [safeNonce, queueNonce, txNonce, secondary, policyHash, frozen, spend, usdcSpend, nativeBalance, usdcBalance, runtime, observer, topologyEvidenceHash] = await Promise.all([
+      read<bigint>(input.creation.safe, SAFE_READ, "nonce"), read<bigint>(input.creation.delay, DELAY_READ, "queueNonce"), read<bigint>(input.creation.delay, DELAY_READ, "txNonce"), read<readonly [Address, number, boolean]>(input.creation.guard, GUARD_READ, "safeContractSecondary"), read<Hex>(input.creation.guard, GUARD_READ, "policyHash"), read<boolean>(input.creation.guard, GUARD_READ, "frozen"), read<readonly [bigint, bigint, bigint]>(input.creation.guard, GUARD_READ, "spendState", [ZERO]), read<readonly [bigint, bigint, bigint]>(input.creation.guard, GUARD_READ, "spendState", [input.usdc]), input.current.getBalance({ address: input.creation.safe, blockNumber: block.number }), read<bigint>(input.usdc, ERC20, "balanceOf", [input.creation.safe]), input.current.getCode({ address: input.creation.candidate, blockNumber: block.number }), input.observerReadiness(observerEvidenceHash), input.verifyCanonicalProfile(block.number, phase),
+    ]);
+    return Object.freeze({ chainId: input.chainId, blockNumber: block.number, blockHash: block.hash, blockTimestamp: block.timestamp, safeNonce, delayQueueNonce: queueNonce, delayTxNonce: txNonce, safeContractSecondary: secondary[0], candidateRuntimeCodeHash: runtime && runtime !== "0x" ? keccak256(runtime) : `0x${"00".repeat(32)}` as Hex, candidateBindingHash: runtime && runtime !== "0x" ? input.candidateBindingHash : `0x${"00".repeat(32)}` as Hex, policyHash, frozen, nativeWindow: spend[0], nativeBaseSpent: spend[1], nativeInstantSpent: spend[2], usdcWindow: usdcSpend[0], usdcBaseSpent: usdcSpend[1], usdcInstantSpent: usdcSpend[2], nativeBalance, usdcBalance, topologyEvidenceHash, observerReady: observer.ready });
+  };
+}
+
+export async function recoverRepairPendingIntent(input: Readonly<{ chainId: number; current: Pick<OrdinaryScenarioProductionHarness["current"], "getTransaction">; creation: Pick<RepairAdapterDescriptor, "factory">; proposal?: RepairGroupProposal; action: RepairActionReview; transactionHash: Hex }>): Promise<LiveIntent> {
+  const transaction = await input.current.getTransaction({ hash: input.transactionHash });
+  if (!transaction.to || transaction.chainId !== input.chainId || transaction.type !== "eip1559" || transaction.maxFeePerGas === undefined || transaction.maxPriorityFeePerGas === undefined) throw new Error("repair pending outer envelope is unavailable or malformed");
+  if (input.action.kind === "factory-create") { if (transaction.to.toLowerCase() !== input.creation.factory.toLowerCase() || transaction.value !== 0n || keccak256(transaction.input).toLowerCase() !== input.action.requestDataHash.toLowerCase()) throw new Error("repair pending factory envelope mismatch"); }
+  else if (input.action.kind === "delay-execute") { if (!input.proposal || transaction.to.toLowerCase() !== input.proposal.delay.toLowerCase() || transaction.value !== 0n || keccak256(transaction.input).toLowerCase() !== input.action.requestDataHash.toLowerCase()) throw new Error("repair pending Delay envelope mismatch"); }
+  else {
+    if (!input.proposal || transaction.to.toLowerCase() !== input.proposal.safe.toLowerCase() || transaction.value !== 0n) throw new Error("repair pending Safe envelope mismatch");
+    let decoded: { functionName: string; args?: readonly unknown[] }; try { decoded = (await import("viem")).decodeFunctionData({ abi: SAFE_ABI, data: transaction.input }); } catch { throw new Error("repair pending Safe calldata is malformed"); }
+    if (decoded.functionName !== "execTransaction") throw new Error("repair pending Safe selector mismatch"); const args = decoded.args as readonly [Address, bigint, Hex, number, bigint, bigint, bigint, Address, Address, Hex];
+    const reviewedHash = hashTypedData({ domain: { chainId: input.chainId, verifyingContract: input.proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: args[0], value: args[1], data: args[2], operation: args[3], safeTxGas: args[4], baseGas: args[5], gasPrice: args[6], gasToken: args[7], refundReceiver: args[8], nonce: BigInt(input.action.safeNonceBefore) } });
+    if (!input.action.safeTxHash || reviewedHash.toLowerCase() !== input.action.safeTxHash.toLowerCase() || args[1] !== 0n || args[3] !== 0 || args[4] !== 0n || args[5] !== 0n || args[6] !== 0n || args[7].toLowerCase() !== ZERO || args[8].toLowerCase() !== ZERO || args[9] === "0x" || keccak256(args[2]).toLowerCase() !== input.action.requestDataHash.toLowerCase()) throw new Error("repair pending reviewed Safe request mismatch");
+  }
+  return Object.freeze({ id: input.action.id, to: transaction.to, data: transaction.input, value: transaction.value, nonce: transaction.nonce, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas });
+}
 
 export type RepairProductionAdapter = Readonly<{
   readState(phase: "pre-rotation" | "post-rotation", observerEvidenceHash: Hex): Promise<RepairCanonicalState>;
+  readStateAt(phase: "pre-rotation" | "post-rotation", observerEvidenceHash: Hex, blockNumber: bigint, expectedBlockHash: Hex): Promise<RepairCanonicalState>;
+  validateTerminalPrefix(journal: OrdinaryScenarioJournal): Promise<readonly { actionId: string; evidenceHash: Hex; transactionHash?: Hex }[]>;
   materializeRepairQueue(proposal: RepairGroupProposal, transient: TransientRepairGroup): Promise<Readonly<{ signedSafeCalldata: Hex; liveIntent: LiveIntent }>>;
-  recoverCanonicalRepairQueue(proposal: RepairGroupProposal, transactionHash: Hex): Promise<Readonly<{ maintenanceCalldata: Hex }>>;
-  recoverPendingIntent(action: RepairActionReview, transactionHash: Hex): Promise<LiveIntent>;
+  recoverCanonicalRepairQueue(proposal: RepairGroupProposal, transactionHash: Hex): Promise<RepairQueueTimingEvidence>;
+  recoverPendingIntent(proposal: RepairGroupProposal | undefined, action: RepairActionReview, transactionHash: Hex): Promise<LiveIntent>;
   validateReceiptEffect(proposal: RepairGroupProposal, action: RepairActionReview, logs: readonly Readonly<{ address: Address; data: Hex; topics: readonly Hex[] }>[], maintenanceCalldata?: Hex): true;
   materializeTailAction(proposal: RepairGroupProposal, action: RepairActionReview, maintenanceCalldata?: Hex): Promise<Readonly<{ signedSafeCalldata?: Hex; liveIntent?: LiveIntent; rejectionCalldata?: Hex }>>;
   proveFrozenRejections(proposal: RepairGroupProposal): Promise<true>;
 }>;
 
 /** Fixed-Sepolia repair mechanics. Proposal/approval/order ownership stays in the repair modules. */
-export function createRepairProductionAdapter(input: Readonly<{ repository: string; harness: OrdinaryScenarioProductionHarness; reconstructed: Reconstructed; creation: RepairCreationProposal }>): RepairProductionAdapter {
+export function createRepairProductionAdapter(input: Readonly<{ repository: string; harness: OrdinaryScenarioProductionHarness; reconstructed: Reconstructed; creation: RepairAdapterDescriptor }>): RepairProductionAdapter {
   const { harness, reconstructed, creation } = input;
   const immutablePreRotationBlock = BigInt(creation.preRotationBlockNumber);
   let immutable: Awaited<ReturnType<typeof verifyReconstructedPlanAtBlock>> | undefined;
@@ -87,16 +134,23 @@ export function createRepairProductionAdapter(input: Readonly<{ repository: stri
     if (!report.ok) throw new Error(`repair current topology failed: ${report.failures.join(", ")}`);
     return publicHash({ immutableBlock: immutablePreRotationBlock, immutableTopology: base.topology, currentBlock: blockNumber, phase, checked: report.checked });
   };
-  const readState = async (phase: "pre-rotation" | "post-rotation", observerEvidenceHash: Hex): Promise<RepairCanonicalState> => {
-    const block = await harness.current.getBlock(); if (!block.hash) throw new Error("repair canonical block hash unavailable");
-    const read = <T>(address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []) => harness.current.readContract({ address, abi, functionName, args, blockNumber: block.number }) as Promise<T>;
-    const [safeNonce, queueNonce, txNonce, secondary, policyHash, frozen, spend, nativeBalance, usdcBalance, runtime, observer, topologyEvidenceHash] = await Promise.all([
-      read<bigint>(creation.safe, SAFE_READ, "nonce"), read<bigint>(creation.delay, DELAY_READ, "queueNonce"), read<bigint>(creation.delay, DELAY_READ, "txNonce"), read<readonly [Address, number, boolean]>(creation.guard, GUARD_READ, "safeContractSecondary"), read<Hex>(creation.guard, GUARD_READ, "policyHash"), read<boolean>(creation.guard, GUARD_READ, "frozen"), read<readonly [bigint, bigint, bigint]>(creation.guard, GUARD_READ, "spendState", [ZERO]), harness.current.getBalance({ address: creation.safe, blockNumber: block.number }), read<bigint>(reconstructed.config.erc20, ERC20, "balanceOf", [creation.safe]), harness.current.getCode({ address: creation.candidate, blockNumber: block.number }), harness.observerReadiness(observerEvidenceHash), verifyCurrent(block.number, phase),
-    ]);
-    return Object.freeze({ chainId: sepolia.id, blockNumber: block.number, blockHash: block.hash, blockTimestamp: block.timestamp, safeNonce, delayQueueNonce: queueNonce, delayTxNonce: txNonce, safeContractSecondary: secondary[0], candidateRuntimeCodeHash: runtime && runtime !== "0x" ? keccak256(runtime) : `0x${"00".repeat(32)}` as Hex, candidateBindingHash: runtime && runtime !== "0x" ? REPAIR_BINDING_HASH : `0x${"00".repeat(32)}` as Hex, policyHash, frozen, nativeWindow: spend[0], nativeBaseSpent: spend[1], nativeInstantSpent: spend[2], nativeBalance, usdcBalance, topologyEvidenceHash, observerReady: observer.ready });
-  };
+  const readStateAtBlock = createRepairMechanicalStateReader({ chainId: sepolia.id, current: harness.current, creation, usdc: reconstructed.config.erc20, candidateBindingHash: REPAIR_BINDING_HASH, observerReadiness: harness.observerReadiness, verifyCanonicalProfile: verifyCurrent });
   return {
-    readState,
+    readState: (phase, observerEvidenceHash) => readStateAtBlock(phase, observerEvidenceHash),
+    readStateAt: (phase, observerEvidenceHash, blockNumber, expectedBlockHash) => readStateAtBlock(phase, observerEvidenceHash, blockNumber, expectedBlockHash),
+    validateTerminalPrefix: async journal => {
+      const evidence: Array<{ actionId: string; evidenceHash: Hex; transactionHash?: Hex }> = [];
+      for (const record of journal.actions) {
+        if (!record.evidenceHash || (record.status !== "confirmed" && record.status !== "rejection-proved")) throw new Error("repair terminal prefix evidence is incomplete");
+        if (record.status === "confirmed") {
+          if (!record.transactionHash || !record.receipt) throw new Error("repair confirmed prefix receipt is missing");
+          const receipt = await harness.archive.getTransactionReceipt({ hash: record.transactionHash });
+          if (receipt.status !== "success" || receipt.blockNumber !== record.receipt.blockNumber || receipt.blockHash.toLowerCase() !== record.receipt.blockHash.toLowerCase()) throw new Error("repair terminal prefix canonical receipt changed");
+        }
+        evidence.push(Object.freeze({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash }));
+      }
+      return Object.freeze(evidence);
+    },
     materializeRepairQueue: async (proposal, transient) => {
       const block = await harness.current.getBlock(); if (!block.hash) throw new Error("repair materialization block is unavailable");
       const [primary, secondary] = await Promise.all([harness.loadClosedPasskey("primary", reconstructed.config.primaryPasskey), harness.loadClosedPasskey("original-secondary", proposal.oldSecondary)]);
@@ -110,13 +164,12 @@ export function createRepairProductionAdapter(input: Readonly<{ repository: stri
       if (receipt.status !== "success" || transaction.to?.toLowerCase() !== proposal.safe.toLowerCase() || transaction.blockHash?.toLowerCase() !== receipt.blockHash.toLowerCase()) throw new Error("repair queue canonical transaction mismatch");
       const decoded = (await import("viem")).decodeFunctionData({ abi: SAFE_ABI, data: transaction.input }); if (decoded.functionName !== "execTransaction") throw new Error("repair queue outer selector mismatch");
       const args = decoded.args as readonly [Address, bigint, Hex, number, bigint, bigint, bigint, Address, Address, Hex];
-      const recovered = recoverCanonicalRepairCalldata(proposal, { safeTransactionData: args[2], transactionHash, canonical: true }); return Object.freeze({ maintenanceCalldata: recovered.maintenanceCalldata });
+      const recovered = recoverCanonicalRepairCalldata(proposal, { safeTransactionData: args[2], transactionHash, canonical: true });
+      validateRepairReceiptEffect(proposal, proposal.actions[0]!, receipt.logs, recovered.maintenanceCalldata);
+      const block = await harness.current.getBlock({ blockNumber: receipt.blockNumber }); if (!block.hash || block.hash.toLowerCase() !== receipt.blockHash.toLowerCase()) throw new Error("repair queue receipt block changed");
+      const createdAt = block.timestamp; return Object.freeze({ transactionHash, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, queueFingerprint: proposal.repairQueueTiming.queueFingerprint, createdAt, readyAt: createdAt + 120n, expiresAt: createdAt + 720n, maintenanceCalldata: recovered.maintenanceCalldata });
     },
-    recoverPendingIntent: async (action, transactionHash) => {
-      const transaction = await harness.current.getTransaction({ hash: transactionHash });
-      if (!transaction.to || transaction.chainId !== sepolia.id || transaction.type !== "eip1559" || transaction.maxFeePerGas === undefined || transaction.maxPriorityFeePerGas === undefined || keccak256(transaction.input).toLowerCase() !== (action.kind === "factory-create" ? action.requestDataHash : keccak256(transaction.input)).toLowerCase()) throw new Error("repair pending outer envelope is unavailable or malformed");
-      return Object.freeze({ id: action.id, to: transaction.to, data: transaction.input, value: transaction.value, nonce: transaction.nonce, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas });
-    },
+    recoverPendingIntent: (proposal, action, transactionHash) => recoverRepairPendingIntent({ chainId: sepolia.id, current: harness.current, creation, proposal, action, transactionHash }),
     validateReceiptEffect: validateRepairReceiptEffect,
     materializeTailAction: async (proposal, action, maintenanceCalldata) => {
       const outerNonce = Number(await harness.current.getTransactionCount({ address: creation.funder }));

@@ -321,13 +321,15 @@ export function validatePublicReceiverAcknowledgement(value: PublicReceiverAckno
   return keccak256(new TextEncoder().encode(JSON.stringify(value)));
 }
 
-export function loadObserverConfirmationEvidence(input: Readonly<{ ledgerPath: string; acknowledgementPath: string; endpointHash: Hex; transactionHash: Hex; now: Date }>): Hex {
+export function loadObserverConfirmationEvidence(input: Readonly<{ ledgerPath: string; acknowledgementPath: string; endpointHash: Hex; transactionHash: Hex; expected?: Readonly<{ kind: "delayed-queued" | "delayed-executed" | "delayed-cancelled"; safe: Address; delay: Address; blockNumber: bigint; queueNonce?: bigint; queueFingerprint?: Hex; cancelledThrough?: bigint }>; now: Date }>): Hex {
   const store = new FileActivityStore(input.ledgerPath);
   try {
     const state = store.load();
     const matches = Object.entries(state.records).filter(([, alert]) => alert.transactionHash.toLowerCase() === input.transactionHash.toLowerCase());
     if (matches.length !== 1) throw new Error("observer ledger must contain exactly one action transaction record");
     const [recordId, alert] = matches[0]!;
+    const expected = input.expected;
+    if (expected && (alert.kind !== expected.kind || alert.safe.toLowerCase() !== expected.safe.toLowerCase() || alert.blockNumber !== expected.blockNumber || !("delay" in alert) || alert.delay.toLowerCase() !== expected.delay.toLowerCase() || (expected.queueNonce !== undefined && (!("queueNonce" in alert) || alert.queueNonce !== expected.queueNonce)) || (expected.queueFingerprint !== undefined && (!("queueFingerprint" in alert) || alert.queueFingerprint.toLowerCase() !== expected.queueFingerprint.toLowerCase())) || (expected.cancelledThrough !== undefined && (!("cancelledThrough" in alert) || alert.cancelledThrough !== expected.cancelledThrough)))) throw new Error("observer repair action evidence does not match the expected canonical effect");
     if (state.outbox[recordId]) throw new Error("observer delivery remains pending");
     const delivery = state.deliveries[recordId]; const payloadSha256 = publicAlertPayloadHash(alert);
     if (!delivery || delivery.payloadHash.toLowerCase() !== payloadSha256.toLowerCase()) throw new Error("observer sender delivery evidence is missing or mismatched");

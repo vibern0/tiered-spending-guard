@@ -102,6 +102,8 @@ describe("ordinary scenario frozen EIP-1193 facade", () => {
       expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.throw("pending");
       const secondStore = new FileActivityStore(ledgerPath); const second = new ActivityLedger(secondStore); second.markDelivered(key, { channel: "webhook", httpStatus: 200, payloadHash: payloadSha256, deliveredAt: "2026-10-27T12:00:30Z" }); secondStore.close();
       expect(loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.match(/^0x[0-9a-f]{64}$/);
+      expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, expected: { kind: "delayed-queued", safe: SAFE, delay: SAFE, blockNumber: 10n, queueNonce: 1n }, now: new Date("2026-10-27T13:00:00Z") })).to.throw("canonical effect");
+      expect(loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, expected: { kind: "delayed-cancelled", safe: SAFE, delay: SAFE, blockNumber: 10n, cancelledThrough: 1n }, now: new Date("2026-10-27T13:00:00Z") })).to.match(/^0x[0-9a-f]{64}$/);
       const wrong = JSON.parse(readFileSync(acknowledgementPath, "utf8")); wrong.payloadSha256 = keccak256("0xaa"); writeFileSync(acknowledgementPath, JSON.stringify(wrong));
       expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.throw("binding");
     } finally { rmSync(directory, { recursive: true, force: true }); }

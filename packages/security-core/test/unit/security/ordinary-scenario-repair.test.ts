@@ -10,7 +10,11 @@ import {
   REPAIR_ACTION_IDS,
   REPAIR_BINDING_HASH,
   REPAIR_PROOF_HASH,
+  REPAIR_MAINTENANCE,
+  REPAIR_RECIPIENT,
   assertRepairActionState,
+  assertRepairBaselineUnchanged,
+  assertRepairQueueTiming,
   bindRepairCreationApproval,
   createRepairCreationProposal,
   createRepairGroupProposal,
@@ -24,7 +28,7 @@ import {
   validateTransientRepairQueue,
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
-import { runPublicRepairCreationReview, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
+import { runPublicRepairCreationReview, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
 import { validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
@@ -61,6 +65,7 @@ const state = (overrides: Partial<RepairCanonicalState> = {}): RepairCanonicalSt
   candidateRuntimeCodeHash: hash("702"), candidateBindingHash: REPAIR_BINDING_HASH,
   policyHash: "0x5b19fb0f9dcc35db4d45ec227f01348985431d74a2092d887bc7b4f26ade4a82", frozen: false,
   nativeWindow: 1769990400n, nativeBaseSpent: 10000000000000n, nativeInstantSpent: 30000000000000n,
+  usdcWindow: 1769990400n, usdcBaseSpent: 10000000n, usdcInstantSpent: 30000000n,
   nativeBalance: 1n, usdcBalance: 1n, topologyEvidenceHash: hash("305"), observerReady: true,
   ...overrides,
 });
@@ -75,6 +80,18 @@ const approveCreation = (journal: OrdinaryScenarioJournal, creation: ReturnType<
 };
 
 describe("closed ordinary repair-to-freeze continuation", () => {
+  it("dispatches each of the five runnable main branches exactly once", async () => {
+    const seen: string[] = [];
+    const runtime = {
+      creationReview: async (args: readonly string[]) => seen.push(`creation-review:${args.join(",")}`),
+      creationSubmit: async (args: readonly string[]) => seen.push(`creation-submit:${args.join(",")}`),
+      prepareQueue: async (args: readonly string[]) => seen.push(`prepare-queue:${args.join(",")}`),
+      tailSubmitOne: async (args: readonly string[]) => seen.push(`tail-submit-one:${args.join(",")}`),
+      tailResumeOne: async (args: readonly string[]) => seen.push(`tail-resume-one:${args.join(",")}`),
+    };
+    for (const command of ["creation-review", "creation-submit", "prepare-queue", "tail-submit-one", "tail-resume-one"] as const) await runRepairCommand([command, "--marker", command], runtime);
+    expect(seen).to.deep.equal(["creation-review:--marker,creation-review", "creation-submit:--marker,creation-submit", "prepare-queue:--marker,prepare-queue", "tail-submit-one:--marker,tail-submit-one", "tail-resume-one:--marker,tail-resume-one"]);
+  });
   it("accepts exactly one canonical factory Created result and rejects missing, duplicate, or mismatched logs", () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote });
     const log = { address: factory, topics: encodeEventTopics({ abi: [createdEvent], eventName: "Created" }).filter((topic): topic is Hex => typeof topic === "string"), data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }], [candidate, quote.x, quote.y, quote.verifiers]) };
@@ -114,7 +131,7 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
-  it("runs the real public creation-review command path without authority inputs", () => {
+  it("rejects caller-supplied state, evidence, and quote authority before public creation review", async () => {
     const directory = mkdtempSync(join(tmpdir(), "repair-public-review-"));
     const reportPath = join(process.cwd(), "../../.superpowers/sdd/2026-10-19-native-safe-4337/scenario-review-2m-2026-10-27/ordinary-scenario-review.json");
     const raw = readFileSync(reportPath, "utf8");
@@ -123,11 +140,14 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const terminal = original.actions.map((action, index) => ({ id: action.id, commitment: action.commitment, status: action.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed", transactionHash: action.expectedOutcome === "rejection" ? undefined : hash((900 + index).toString(16)), evidenceHash: hash((1000 + index).toString(16)) }));
     writeFileSync(journalPath, JSON.stringify({ schemaVersion: 1, chainId: 11155111, reviewPackageHash: original.reviewPackageHash, proposalHash: original.proposalHash, approvalHash, funder: original.funder, liveJournal: { chainId: 11155111, funder: original.funder, entries: [] }, actions: terminal }));
     writeFileSync(evidencePath, JSON.stringify(terminal.map(action => ({ actionId: action.id, evidenceHash: action.evidenceHash, transactionHash: action.transactionHash }))));
-    writeFileSync(statePath, JSON.stringify({ ...state({ candidateRuntimeCodeHash: hash("0"), candidateBindingHash: hash("0"), topologyEvidenceHash: original.topologyEvidenceHash }), blockNumber: "12010000", blockTimestamp: "1770000000", safeNonce: "14", delayQueueNonce: "6", delayTxNonce: "6", nativeWindow: "1769990400", nativeBaseSpent: "10000000000000", nativeInstantSpent: "30000000000000", nativeBalance: "1", usdcBalance: "1" }));
+    writeFileSync(statePath, JSON.stringify({ ...state({ candidateRuntimeCodeHash: hash("0"), candidateBindingHash: hash("0"), topologyEvidenceHash: original.topologyEvidenceHash }), blockNumber: "12010000", blockTimestamp: "1770000000", safeNonce: "14", delayQueueNonce: "6", delayTxNonce: "6", nativeWindow: "1769990400", nativeBaseSpent: "10000000000000", nativeInstantSpent: "30000000000000", nativeBalance: "1", usdcBalance: "1" }, (_, value) => typeof value === "bigint" ? value.toString() : value));
     writeFileSync(quotePath, JSON.stringify({ ...quote, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), gasLimitCap: quote.gasLimitCap.toString(), maxFeePerGasCap: quote.maxFeePerGasCap.toString(), maxPriorityFeePerGasCap: quote.maxPriorityFeePerGasCap.toString() }));
     try {
-      const result = runPublicRepairCreationReview(["--report", reportPath, "--artifact-hash", "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831", "--package-hash", "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571", "--proposal-hash", original.proposalHash, "--original-approval-hash", approvalHash, "--journal", journalPath, "--evidence", evidencePath, "--state", statePath, "--quote", quotePath], {});
-      expect(result.action.id).to.equal("repair-signer-create"); expect(result.authorization).to.equal("NONE");
+      for (const [flag, path] of [["--evidence", evidencePath], ["--state", statePath], ["--quote", quotePath]] as const) {
+        let error: unknown;
+        try { await runPublicRepairCreationReview(["--report", reportPath, "--artifact-hash", "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831", "--package-hash", "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571", "--proposal-hash", original.proposalHash, "--original-approval-hash", approvalHash, "--journal", journalPath, flag, path], {}); } catch (caught) { error = caught; }
+        expect(String(error)).to.include(`rejects unknown flag ${flag}`);
+      }
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
@@ -135,7 +155,7 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote });
     approveCreation(f.journal, creation);
     const assertion = "0x123456" as Hex;
-    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), maintenance, recipient: funder, assertion }); const group = prepared.proposal;
+    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion }); const group = prepared.proposal;
     expect([creation.action.id, ...group.actions.map(action => action.id)]).to.deep.equal(REPAIR_ACTION_IDS);
     expect(group.actions.map(action => [action.safeNonceBefore, action.safeNonceAfter, action.delayQueueNonceBefore, action.delayQueueNonceAfter, action.delayTxNonceBefore, action.delayTxNonceAfter])).to.deep.equal([
       ["14", "15", "6", "7", "6", "6"], ["15", "15", "7", "7", "6", "7"], ["15", "15", "7", "7", "7", "7"],
@@ -147,11 +167,34 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     expect(serialized).not.to.include(prepared.transient.maintenanceCalldata);
     expect(group.repair.assertionHash).to.equal(keccak256(assertion));
     expect(group.repair.proofHash).to.equal(REPAIR_PROOF_HASH);
+    expect(group.repair.maintenance.toLowerCase()).to.equal(REPAIR_MAINTENANCE);
+    expect(group.recipient.toLowerCase()).to.equal(REPAIR_RECIPIENT);
+    expect(group.repairQueueTiming).to.deep.include({ source: "CANONICAL_RECEIPT_CREATED_AT_ONLY", queueNonce: "6", cooldownSeconds: "120", expirationSeconds: "600" });
+  });
+
+  it("refreshes creation cost and binds native and USDC baseline state into the group", () => {
+    const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
+    f.journal.liveJournal.entries.push({ id: "repair-signer-create", intentHash: hash("d01"), transactionHash: hash("d02"), nonce: 99, reserved: 4321n, status: "success", receipt: { transactionHash: hash("d02"), status: "success", gasUsed: 4321n, effectiveGasPrice: 1n, blockNumber: 20n, blockHash: hash("d03") } });
+    const group = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }).proposal;
+    expect(BigInt(group.cumulativeActualCostWei)).to.equal(BigInt(creation.cumulativeActualCostWei) + 4321n);
+    expect(f.journal.repairContinuation?.cumulativeActualCostWei).to.equal(group.cumulativeActualCostWei);
+    expect(() => assertRepairBaselineUnchanged(group, state({ usdcInstantSpent: state().usdcInstantSpent + 1n }))).to.throw("balance/counter drift");
+    expect(() => assertRepairBaselineUnchanged(group, state({ nativeBalance: 2n }))).to.throw("balance/counter drift");
+  });
+
+  it("derives the execution window only from canonical queue receipt timing", () => {
+    const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
+    const group = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }).proposal;
+    const evidence = { transactionHash: hash("e01"), blockNumber: 10n, blockHash: hash("e02"), queueFingerprint: group.repairQueueTiming.queueFingerprint, createdAt: 1000n, readyAt: 1120n, expiresAt: 1720n, maintenanceCalldata: "0x1234" as Hex };
+    expect(() => assertRepairQueueTiming(group, evidence, state({ blockTimestamp: 1119n }))).to.throw("not ready");
+    assertRepairQueueTiming(group, evidence, state({ blockTimestamp: 1120n }));
+    expect(() => assertRepairQueueTiming(group, evidence, state({ blockTimestamp: 1720n }))).to.throw("expired");
+    expect(() => assertRepairQueueTiming(group, { ...evidence, readyAt: 1119n }, state({ blockTimestamp: 1120n }))).to.throw("timing evidence");
   });
 
   it("independently decodes transient repair bytes and rejects every fixed-field or proof mutation", () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
-    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), maintenance, recipient: funder, assertion: "0x123456" }); const group = prepared.proposal;
+    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }); const group = prepared.proposal;
     expect(validateTransientRepairQueue(group, prepared.transient.safeTransactionData, prepared.transient.maintenanceCalldata)).to.equal(true);
     const wrong = encodeFunctionData({ abi: [{ type: "function", name: "replaceSigner", stateMutability: "nonpayable", inputs: [{ type: "address", name: "guard" }, { type: "uint8", name: "role" }, { type: "address", name: "expectedOld" }, { type: "address", name: "replacement" }, { type: "address", name: "previousOwner" }, { type: "uint256", name: "threshold" }, { type: "bytes", name: "replacementProof" }] }] as const, functionName: "replaceSigner", args: [guard, 0, oldSecondary, candidate, address("0"), 1n, "0x123456"] });
     expect(() => validateTransientRepairQueue(group, prepared.transient.safeTransactionData, wrong)).to.throw("decoded");
@@ -160,7 +203,7 @@ describe("closed ordinary repair-to-freeze continuation", () => {
 
   it("validates the exact Safe and Delay confirmation callbacks and rejects a mutated queue effect", () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
-    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), maintenance, recipient: funder, assertion: "0x123456" }); const action = prepared.proposal.actions[0]!;
+    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }); const action = prepared.proposal.actions[0]!;
     const topics = (value: ReturnType<typeof encodeEventTopics>) => value.filter((topic): topic is Hex => typeof topic === "string");
     const safeLog = { address: safe, topics: topics(encodeEventTopics({ abi: [executionSuccessEvent], eventName: "ExecutionSuccess", args: { txHash: action.safeTxHash! } })), data: encodeAbiParameters([{ type: "uint256" }], [0n]) };
     const delayLog = { address: delay, topics: topics(encodeEventTopics({ abi: [transactionAddedEvent], eventName: "TransactionAdded", args: { queueNonce: 6n, txHash: action.queueFingerprint! } })), data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }], [maintenance, 0n, prepared.transient.maintenanceCalldata, 1]) };
@@ -172,7 +215,7 @@ describe("closed ordinary repair-to-freeze continuation", () => {
 
   it("enforces each policy phase and applies the native lazy-window gate only to the one-wei proof transaction", () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
-    const group = createRepairGroupProposal({ creation, journal: f.journal, state: state(), maintenance, recipient: funder, assertion: "0x123456" }).proposal;
+    const group = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }).proposal;
     assertRepairActionState(group, group.actions[0]!, state(), "before");
     const readyAfter = state({ safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, safeContractSecondary: candidate, policyHash: group.afterPolicyHash });
     assertRepairActionState(group, group.actions[1]!, readyAfter, "after");
@@ -198,7 +241,7 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
     const calls: string[] = []; let persisted = ""; const assertion = "0x123456" as Hex;
     const result = await runRepairQueueSession({
-      creation, journal: f.journal, maintenance, recipient: funder, maxApprovalWaitMs: 20,
+      creation, journal: f.journal, maxApprovalWaitMs: 20,
       publicPreflight: async () => { calls.push("preflight"); return state(); },
       awaitPrepareAuthorization: async () => { calls.push("prepare-approve"); return true; },
       loadReplacementCredential: async () => { calls.push("load-replacement"); return { opaque: true }; },
@@ -212,23 +255,23 @@ describe("closed ordinary repair-to-freeze continuation", () => {
       live: { funder, chainId: async () => 11155111, nonce: async () => 100, balance: async () => 10n ** 18n, verify: async () => { calls.push("live-verify"); }, sign: async intent => { calls.push("outer-sign"); return fundingAccount.signTransaction({ chainId: 11155111, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }); }, broadcast: async raw => { calls.push("broadcast"); return keccak256(raw); }, receipt: async transactionHash => f.journal.liveJournal.entries.find(entry => entry.transactionHash === transactionHash)?.receipt, persist: async () => { throw new Error("session must replace persistence"); } },
     });
     expect(result.status).to.equal("PENDING");
-    expect(calls).to.deep.equal(["preflight", "prepare-approve", "load-replacement", "proof-sign", "erc1271", "publish", "approve", "persist", "preflight", "safe-sign", "simulate", "preflight", "live-verify", "outer-sign", "persist", "broadcast"]);
+    expect(calls).to.deep.equal(["preflight", "prepare-approve", "load-replacement", "proof-sign", "erc1271", "publish", "approve", "persist", "preflight", "safe-sign", "simulate", "preflight", "simulate", "live-verify", "outer-sign", "persist", "broadcast"]);
     expect(persisted).not.to.include(assertion.slice(2));
   });
 
   it("discards the proof on approval timeout and recovers post-inclusion bytes only from canonical public evidence", async () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
     let signed = 0;
-    await expect(runRepairQueueSession({ creation, journal: f.journal, maintenance, recipient: funder, maxApprovalWaitMs: 5, publicPreflight: async () => state(), awaitPrepareAuthorization: async () => true, loadReplacementCredential: async () => ({}), signReplacementProof: async () => { signed++; return "0x123456"; }, verifyReplacementProof: async () => "0x1626ba7e", publishSanitizedProposal: async () => {}, awaitExactApproval: async () => new Promise(() => {}), persistJournal: async () => {}, materializeSafeTransaction: async () => { throw new Error("must not sign"); }, simulate: async () => { throw new Error("must not simulate"); }, live: { funder, chainId: async () => 11155111, nonce: async () => 0, balance: async () => 0n, verify: async () => {}, sign: async () => { throw new Error("must not sign"); }, broadcast: async () => { throw new Error("must not submit"); }, receipt: async () => undefined, persist: async () => {} } })).to.be.rejectedWith("timed out");
+    await expect(runRepairQueueSession({ creation, journal: f.journal, maxApprovalWaitMs: 5, publicPreflight: async () => state(), awaitPrepareAuthorization: async () => true, loadReplacementCredential: async () => ({}), signReplacementProof: async () => { signed++; return "0x123456"; }, verifyReplacementProof: async () => "0x1626ba7e", publishSanitizedProposal: async () => {}, awaitExactApproval: async () => new Promise(() => {}), persistJournal: async () => {}, materializeSafeTransaction: async () => { throw new Error("must not sign"); }, simulate: async () => { throw new Error("must not simulate"); }, live: { funder, chainId: async () => 11155111, nonce: async () => 0, balance: async () => 0n, verify: async () => {}, sign: async () => { throw new Error("must not sign"); }, broadcast: async () => { throw new Error("must not submit"); }, receipt: async () => undefined, persist: async () => {} } })).to.be.rejectedWith("timed out");
     expect(signed).to.equal(1);
-    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), maintenance, recipient: funder, assertion: "0xabcdef" }); const group = prepared.proposal;
+    const prepared = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0xabcdef" }); const group = prepared.proposal;
     expect(recoverCanonicalRepairCalldata(group, { safeTransactionData: prepared.transient.safeTransactionData, transactionHash: hash("999"), canonical: true })).to.deep.include({ maintenanceCalldataHash: group.repair.maintenanceCalldataHash });
     expect(() => recoverCanonicalRepairCalldata(group, { safeTransactionData: prepared.transient.safeTransactionData, transactionHash: hash("999"), canonical: false })).to.throw("canonical");
   });
 
   it("marks an approved proof-bound attempt stopped when state drifts before Safe signing", async () => {
     const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation); let reads = 0;
-    await expect(runRepairQueueSession({ creation, journal: f.journal, maintenance, recipient: funder, maxApprovalWaitMs: 20, publicPreflight: async () => ++reads === 1 ? state() : state({ safeNonce: 15n }), awaitPrepareAuthorization: async () => true, loadReplacementCredential: async () => ({}), signReplacementProof: async () => "0x123456", verifyReplacementProof: async () => "0x1626ba7e", publishSanitizedProposal: async () => {}, awaitExactApproval: async proposal => { const raw = JSON.stringify({ schemaVersion: 1, scope: "repair-tail-group-v1", authorization: "EXACT_ACTION_APPROVAL", proposalHash: proposal.proposalHash, actionCommitments: proposal.actions.map(action => action.commitment), phaseLimitWei: "50000000000000000", maxBroadcastAttempts: 1 }); return { raw, hash: rawHash(raw) }; }, persistJournal: async () => {}, materializeSafeTransaction: async () => { throw new Error("must not sign"); }, simulate: async () => { throw new Error("must not simulate"); }, live: { funder, chainId: async () => 11155111, nonce: async () => 0, balance: async () => 0n, verify: async () => {}, sign: async () => { throw new Error("must not sign"); }, broadcast: async () => { throw new Error("must not submit"); }, receipt: async () => undefined, persist: async () => {} } })).to.be.rejectedWith("state changed");
+    await expect(runRepairQueueSession({ creation, journal: f.journal, maxApprovalWaitMs: 20, publicPreflight: async () => ++reads === 1 ? state() : state({ safeNonce: 15n }), awaitPrepareAuthorization: async () => true, loadReplacementCredential: async () => ({}), signReplacementProof: async () => "0x123456", verifyReplacementProof: async () => "0x1626ba7e", publishSanitizedProposal: async () => {}, awaitExactApproval: async proposal => { const raw = JSON.stringify({ schemaVersion: 1, scope: "repair-tail-group-v1", authorization: "EXACT_ACTION_APPROVAL", proposalHash: proposal.proposalHash, actionCommitments: proposal.actions.map(action => action.commitment), phaseLimitWei: "50000000000000000", maxBroadcastAttempts: 1 }); return { raw, hash: rawHash(raw) }; }, persistJournal: async () => {}, materializeSafeTransaction: async () => { throw new Error("must not sign"); }, simulate: async () => { throw new Error("must not simulate"); }, live: { funder, chainId: async () => 11155111, nonce: async () => 0, balance: async () => 0n, verify: async () => {}, sign: async () => { throw new Error("must not sign"); }, broadcast: async () => { throw new Error("must not submit"); }, receipt: async () => undefined, persist: async () => {} } })).to.be.rejectedWith("state changed");
     expect(f.journal.repairContinuation?.actions[1]?.status).to.equal("stopped");
   });
 });
