@@ -186,7 +186,7 @@ export function createOrdinaryScenarioMechanicalExecutionContext(input: Ordinary
   return Object.freeze({
     readState: stateReader,
     materialize,
-    simulate: (action, prepared, state) => simulatePreparedOrdinaryAction({ blockHash: async number => { const block = await current.getBlock({ blockNumber: number } as never); if (!block.hash) throw new Error("simulation block hash unavailable"); return block.hash; }, call: async value => (await current.call({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never)).data ?? "0x", estimateGas: value => current.estimateGas({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never) }, input.proposal.funder, prepared, state.blockNumber, state.blockHash, action.gasLimitCap, prepared.liveIntent.to?.toLowerCase() === input.proposal.safe.toLowerCase() || prepared.liveIntent.to?.toLowerCase() === input.proposal.usdc.toLowerCase() ? "bool-true" : "empty"),
+    simulate: (action, prepared, state) => simulatePreparedOrdinaryAction({ blockHash: async number => { const block = await current.getBlock({ blockNumber: number } as never); if (!block.hash) throw new Error("simulation block hash unavailable"); return block.hash; }, call: async value => (await current.call({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never)).data ?? "0x", estimateGas: value => current.estimateGas({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never) }, input.proposal.funder, prepared, state.blockNumber, state.blockHash, action.gasLimitCap, ordinarySimulationResultContract(action, input.proposal.usdc)),
     proveRejection: async (action, state, prepared) => {
       const client = state.evidenceBasis.kind === "queue-receipt" ? archive : current;
       const transaction = prepared?.liveIntent ?? (action.publicTransaction ? { to: action.publicTransaction.to, value: action.publicTransaction.value, data: action.publicTransaction.data } : undefined);
@@ -266,6 +266,15 @@ export function createOrdinaryScenarioMechanicalExecutionContext(input: Ordinary
     },
     live: input.live,
   });
+}
+
+function ordinarySimulationResultContract(action: OrdinaryScenarioActionScope, usdc: Address): "bool-true" | "empty" {
+  if (action.safeTransaction) return "bool-true";
+  const transaction = action.publicTransaction;
+  if (!transaction) throw new Error("ordinary scenario simulation transaction is missing");
+  if (transaction.to.toLowerCase() !== usdc.toLowerCase()) return "empty";
+  if (transaction.data.slice(0, 10).toLowerCase() !== "0xa9059cbb") throw new Error("ordinary scenario public token simulation is not transfer");
+  return "bool-true";
 }
 
 export type CanonicalBlockReader = Readonly<{

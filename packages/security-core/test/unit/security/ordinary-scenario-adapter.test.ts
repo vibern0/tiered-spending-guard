@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeAbiParameters, hashTypedData, keccak256, parseTransaction, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { createFrozenSafeSignerProvider, loadObserverConfirmationEvidence, reconstructCanonicalType2Transaction, requireSixConfirmationReceipts, simulatePreparedOrdinaryAction, validatePublicReceiverAcknowledgement } from "../../../scripts/live/ordinary-scenario-adapter";
+import { createFrozenSafeSignerProvider, createOrdinaryScenarioMechanicalExecutionContext, loadObserverConfirmationEvidence, reconstructCanonicalType2Transaction, requireSixConfirmationReceipts, simulatePreparedOrdinaryAction, validatePublicReceiverAcknowledgement } from "../../../scripts/live/ordinary-scenario-adapter";
 import type { SafeSignerRequest } from "../../../src/signers/types";
 import { ActivityLedger, FileActivityStore } from "../../../src/monitoring/ledger";
 
 const account = privateKeyToAccount("0x0123456789012345678901234567890123456789012345678901234567890123");
 const SAFE = "0x2000000000000000000000000000000000000003" as Address;
+const USDC = "0x2000000000000000000000000000000000000004" as Address;
+const DELAY = "0x2000000000000000000000000000000000000005" as Address;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const types = { SafeTx: [
   { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" },
@@ -58,6 +60,27 @@ describe("ordinary scenario frozen EIP-1193 facade", () => {
     await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => encodeAbiParameters([{ type: "bool" }], [false]), estimateGas: async () => 99n }, account.address, prepared, 7n, blockHash, 100n, "bool-true")).to.be.rejectedWith("result");
     await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => "0x01", estimateGas: async () => 99n }, account.address, prepared, 7n, blockHash, 100n, "empty")).to.be.rejectedWith("result");
     expect((await simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => "0x", estimateGas: async () => 99n }, account.address, prepared, 7n, blockHash, 100n, "empty")).success).to.equal(true);
+  });
+
+  it("selects the simulation result contract from the reviewed transaction shape", async () => {
+    const blockHash = keccak256("0x0a");
+    const trueResult = encodeAbiParameters([{ type: "bool" }], [true]);
+    const currentClient = {
+      getBlock: async () => ({ hash: blockHash }),
+      estimateGas: async () => 99n,
+      call: async ({ to, data }: { to: Address; data: Hex }) => to.toLowerCase() === USDC.toLowerCase() || (to.toLowerCase() === SAFE.toLowerCase() && data !== "0x") ? { data: trueResult } : { data: "0x" },
+    };
+    const context = createOrdinaryScenarioMechanicalExecutionContext({ expectedChainId: 31337, proposal: { safe: SAFE, usdc: USDC, funder: account.address }, currentClient, archiveClient: {}, loadSigners: async () => { throw new Error("unused"); } } as never, (async () => { throw new Error("unused"); }) as never);
+    const state = { blockNumber: 7n, blockHash } as never;
+    const prepared = (id: string, to: Address, data: Hex) => ({ liveIntent: { id, to, data, value: 0n, nonce: 1, gas: 100n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, requestHash: keccak256("0x04"), signerRolesHash: keccak256("0x05"), signedCalldataHash: keccak256(data), signatureBundleHash: null, transientSignedCalldata: data });
+    const cases = [
+      [{ id: "native-funding", gasLimitCap: 100n, publicTransaction: { to: SAFE, value: 1n, data: "0x" } }, prepared("native-funding", SAFE, "0x")],
+      [{ id: "usdc-funding", gasLimitCap: 100n, publicTransaction: { to: USDC, value: 0n, data: "0xa9059cbb00" } }, prepared("usdc-funding", USDC, "0xa9059cbb00")],
+      [{ id: "safe-execution", gasLimitCap: 100n, safeTransaction: {} }, prepared("safe-execution", SAFE, "0x1234")],
+      [{ id: "delay-execution", gasLimitCap: 100n, publicTransaction: { to: DELAY, value: 0n, data: "0x1234" } }, prepared("delay-execution", DELAY, "0x1234")],
+    ] as const;
+    for (const [action, value] of cases) expect((await context.simulate(action as never, value as never, state)).success).to.equal(true);
+    expect(() => context.simulate({ id: "unknown-token-call", gasLimitCap: 100n, publicTransaction: { to: USDC, value: 0n, data: "0x095ea7b3" } } as never, prepared("unknown-token-call", USDC, "0x095ea7b3") as never, state)).to.throw("not transfer");
   });
 
   it("binds public receiver acknowledgement and enforces temporary receiver expiry", () => {
