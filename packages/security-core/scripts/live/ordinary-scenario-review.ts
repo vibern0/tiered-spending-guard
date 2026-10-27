@@ -139,7 +139,7 @@ export type OrdinaryScenarioReviewInput = Readonly<{
   }>;
 }>;
 
-type ReviewAction = Readonly<{
+export type OrdinaryScenarioReviewAction = Readonly<{
   id: string;
   kind: string;
   asset: "native" | "USDC" | "control";
@@ -169,7 +169,7 @@ export type OrdinaryScenarioReviewReport = Readonly<{
   publicIdentities: Readonly<Record<string, unknown>>;
   requiredInventory: Readonly<{ nativeWei: string; usdcUnits: string; initialExternalUsdcUnits: string; grossUsdcFundingUnits: string; explanation: string }>;
   blockers: readonly Readonly<{ code: string; detail: string }>[];
-  actions: readonly ReviewAction[];
+  actions: readonly OrdinaryScenarioReviewAction[];
   phaseAccounting: Readonly<Record<string, string | boolean>>;
   finalRevalidation: Readonly<Record<string, unknown>>;
   signed: false;
@@ -313,12 +313,12 @@ function queueTiming(): Readonly<Record<string, unknown>> {
   return Object.freeze({ source: "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK", createdAt: null, readyAt: null, expiresAt: null, cooldownSeconds: "120", expirationSeconds: "600", status: "CONDITIONAL_NOT_RUN", revalidateFromCanonicalReceipt: true });
 }
 
-function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState, nativeFunding: bigint, initialUsdcFunding: bigint, recycledStepUpFunding: bigint, recycledDelayedFunding: bigint): readonly ReviewAction[] {
-  const actions: ReviewAction[] = []; const plan = input.plan; const safe = plan.safeProxyDeployment.expectedCreatedAddress; const guard = plan.review.transactionGuard; const delay = plan.review.modules[0]; const recipient = plan.review.assets[0]!.recipients[0]!; const usdc = plan.review.assets[1]!.token;
+function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState, nativeFunding: bigint, initialUsdcFunding: bigint, recycledStepUpFunding: bigint, recycledDelayedFunding: bigint): readonly OrdinaryScenarioReviewAction[] {
+  const actions: OrdinaryScenarioReviewAction[] = []; const plan = input.plan; const safe = plan.safeProxyDeployment.expectedCreatedAddress; const guard = plan.review.transactionGuard; const delay = plan.review.modules[0]; const recipient = plan.review.assets[0]!.recipients[0]!; const usdc = plan.review.assets[1]!.token;
   let safeNonce = state.safeNonce; let delayNonce = state.delayNonce; let funderNonce = state.funderNonce;
-  const add = (action: ReviewAction) => actions.push(Object.freeze(action));
-  const addSafe = (id: string, kind: string, asset: ReviewAction["asset"], dependsOn: readonly string[], expectedOutcome: "success" | "rejection", signerRoles: readonly string[], tx: ReturnType<typeof safeTransaction>, expectedTransition: string, observerAlert = "none") => add({ id, kind, asset, dependsOn, status: "CONDITIONAL_NOT_RUN", expectedOutcome, signerRoles, safeTransaction: tx.public, proposedGasAndFee: proposedFee(input.proposedCaps, "safe"), expectedTransition, observerAlert });
-  const addPublic = (id: string, kind: string, asset: ReviewAction["asset"], dependsOn: readonly string[], expectedOutcome: "success" | "rejection", tx: QueueTransaction, item: DelayQueueItem, expectedTransition: string, observerAlert: string) => add({ id, kind, asset, dependsOn, status: "CONDITIONAL_NOT_RUN", expectedOutcome, signerRoles: [], publicTransaction: rawPublic(tx), queue: queueFields(item), timing: queueTiming(), proposedGasAndFee: proposedFee(input.proposedCaps, "delay"), expectedTransition, observerAlert });
+  const add = (action: OrdinaryScenarioReviewAction) => actions.push(Object.freeze(action));
+  const addSafe = (id: string, kind: string, asset: OrdinaryScenarioReviewAction["asset"], dependsOn: readonly string[], expectedOutcome: "success" | "rejection", signerRoles: readonly string[], tx: ReturnType<typeof safeTransaction>, expectedTransition: string, observerAlert = "none") => add({ id, kind, asset, dependsOn, status: "CONDITIONAL_NOT_RUN", expectedOutcome, signerRoles, safeTransaction: tx.public, proposedGasAndFee: proposedFee(input.proposedCaps, "safe"), expectedTransition, observerAlert });
+  const addPublic = (id: string, kind: string, asset: OrdinaryScenarioReviewAction["asset"], dependsOn: readonly string[], expectedOutcome: "success" | "rejection", tx: QueueTransaction, item: DelayQueueItem, expectedTransition: string, observerAlert: string) => add({ id, kind, asset, dependsOn, status: "CONDITIONAL_NOT_RUN", expectedOutcome, signerRoles: [], publicTransaction: rawPublic(tx), queue: queueFields(item), timing: queueTiming(), proposedGasAndFee: proposedFee(input.proposedCaps, "delay"), expectedTransition, observerAlert });
 
   add({ id: "native-funding", kind: "funding", asset: "native", dependsOn: [], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: safe, value: nativeFunding.toString(), data: "0x", operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe native inventory increases by ${nativeFunding}`, observerAlert: "none" });
   funderNonce += 1n;
@@ -405,8 +405,8 @@ function assertNonNegative(value: bigint, label: string): void {
   if (value < 0n) throw new Error(`ordinary scenario forecast underflow: ${label}`);
 }
 
-function annotateAndValidateActions(actions: readonly ReviewAction[], initial: CollectedState, funding: Readonly<{ initialUsdc: bigint; recycledStepUp: bigint; recycledDelayed: bigint }>): readonly ReviewAction[] {
-  const byId = new Map<string, ReviewAction>();
+function annotateAndValidateActions(actions: readonly OrdinaryScenarioReviewAction[], initial: CollectedState, funding: Readonly<{ initialUsdc: bigint; recycledStepUp: bigint; recycledDelayed: bigint }>): readonly OrdinaryScenarioReviewAction[] {
+  const byId = new Map<string, OrdinaryScenarioReviewAction>();
   const ancestors = new Map<string, Set<string>>();
   for (const action of actions) {
     if (byId.has(action.id)) throw new Error(`ordinary scenario duplicate action id: ${action.id}`);
@@ -436,7 +436,7 @@ function annotateAndValidateActions(actions: readonly ReviewAction[], initial: C
   let cumulativeGasCap = 0n;
   let queueState: Readonly<Record<string, string | null>> = Object.freeze({ status: "EMPTY", queueNonce: null, fingerprint: null });
   let blockedByPriorInput = false;
-  const annotated: ReviewAction[] = [];
+  const annotated: OrdinaryScenarioReviewAction[] = [];
   const snapshot = () => ({
     principalBalances: { nativeFunder: nativeFunder.toString(), nativeSafe: nativeSafe.toString(), usdcFunder: usdcFunder.toString(), usdcSafe: usdcSafe.toString() },
     nonces: { funder: funderNonce.toString(), safe: safeNonce.toString(), delay: delayNonce.toString() },

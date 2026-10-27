@@ -4,6 +4,14 @@ This runbook is for the single-owner security-core prototype on Sepolia only (`c
 
 The active prototype has exactly one Safe owner: the configured primary passkey. Contract and ECDSA secondary signers are guard-only identities. It has no recovery owner, recovery signer adapter, fallback handler, extra module, or auxiliary custody Safe. Base transfers require the primary passkey. Step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one configured secondary signer over the exact Safe transaction. The loss of the primary or all configured secondary factors is an accepted testnet availability risk: funds may become unavailable until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed. Direct Burner NFC/libhalo support remains a future spike and is out of scope for this runbook.
 
+## Ordinary scenario coordinator core
+
+The repository contains a narrow coordinator core for the currently reviewed ordinary-scenario predecessor prefix. The review JSON remains non-authorizing. Execution requires independently supplied exact package, raw artifact, proposal, and approval hashes plus an opaque approval naming the ordered action commitments and only the allowed outer nonce, fee, gas, and canonical-time derivations.
+
+The core revalidates exact public topology/runtime/observer evidence and controlled Safe, Delay, USDC, counter, queue, dependency, fee, reserve, and period state before private callbacks. It persists materialization and signed-simulation hashes before outer signing, then uses one locked atomic journal with the existing `submitLiveIntent` hash-before-broadcast boundary. A restart can reconcile one exact pending hash; an interrupted pre-broadcast attempt or canonical revert is terminal for automatic execution. Raw signed calldata is transient and is never written to the journal.
+
+There is no live Sepolia adapter or CLI for this coordinator yet. Do not treat structural fake-capability tests, proposal creation, or approval parsing as permission to sign or broadcast. The ordinary matrix, repair/rotation descendants, and final freeze remain outstanding; monitoring remains non-authorizing and must be ready before any later live adapter is reviewed.
+
 ## Hard stop rules
 
 Stop immediately and do not sign, broadcast, deposit funds, or continue rehearsal if any read-only check differs from the reviewed plan. A mismatch in any of the following is a hard failure:
