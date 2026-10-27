@@ -28,12 +28,20 @@ const DELAY_ABI = parseAbi(["function txNonce() view returns (uint256)", "functi
 const GUARD_ABI = parseAbi(["function spendState(address) view returns (uint256,uint256,uint256)"]);
 const ERC20_ABI = parseAbi(["function balanceOf(address) view returns (uint256)", "function name() view returns (string)", "function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
 const FACTORY_ABI = parseAbi(["function getSigner(uint256,uint256,uint176) view returns (address)"]);
+const PUBLIC_CURRENT_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
+const PUBLIC_ARCHIVE_RPC = "https://sepolia.gateway.tenderly.co";
 const json = <T>(path: string): T => JSON.parse(readFileSync(path, "utf8")) as T;
 const decimal = (value: string, label: string): bigint => {
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${label} must be a canonical decimal string`);
   return BigInt(value);
 };
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
+
+export function assertOrdinaryScenarioReviewCliEnvironment(environment: Readonly<Record<string, string | undefined>>): void {
+  for (const key of ["LIVE_SUBMIT", "PRIVATE_KEY", "VAULT_FUNDING_KEY_PATH", "SEPOLIA_RPC_URL", "SEPOLIA_ARCHIVE_RPC_URL", "ORDINARY_SCENARIO_OBSERVER"] as const) {
+    if (environment[key] !== undefined) throw new Error(`ordinary scenario review CLI rejects override or authority input: ${key}`);
+  }
+}
 
 export function writeOrdinaryScenarioReviewPackage(result: OrdinaryScenarioReviewResult, directory: string): Readonly<{ directory: string; files: readonly string[]; packageHash: Hex }> {
   if (existsSync(directory)) throw new Error("ordinary scenario review output directory must not already exist");
@@ -127,10 +135,10 @@ async function reconstructReviewedPlan(repository: string, client: ReturnType<ty
 }
 
 export async function main(): Promise<void> {
-  if (process.env.LIVE_SUBMIT !== undefined || process.env.PRIVATE_KEY !== undefined || process.env.VAULT_FUNDING_KEY_PATH !== undefined) throw new Error("ordinary scenario review CLI rejects signing and submission inputs");
+  assertOrdinaryScenarioReviewCliEnvironment(process.env);
   const repository = process.cwd().replace(/\/packages\/security-core$/, "");
-  const client = createPublicClient({ chain: sepolia, transport: http(process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com") });
-  const historicalClient = createPublicClient({ chain: sepolia, transport: http(process.env.SEPOLIA_ARCHIVE_RPC_URL ?? "https://sepolia.gateway.tenderly.co") });
+  const client = createPublicClient({ chain: sepolia, transport: http(PUBLIC_CURRENT_RPC) });
+  const historicalClient = createPublicClient({ chain: sepolia, transport: http(PUBLIC_ARCHIVE_RPC) });
   const reconstructed = await reconstructReviewedPlan(repository, historicalClient);
   const latest = await client.getBlock();
   if (latest.number === null || !latest.hash) throw new Error("latest canonical scenario block is unavailable");
@@ -145,11 +153,11 @@ export async function main(): Promise<void> {
   const prerequisites = await verifyVaultPrerequisites(pinned, reconstructed.plan, "after-setup");
   const topology = await verifyOrdinaryScenarioTopology(reconstructed.plan, { chainId: sepolia.id, policy: reconstructed.policy, safe: reconstructed.plan.safeProxyDeployment.expectedCreatedAddress, guard: reconstructed.components.guard, delay: reconstructed.components.delay, deployments: currentDeployments, prerequisites, client: topologyClient });
   if (!topology.ok) throw new Error(`ordinary scenario topology failed: ${topology.failures.join(", ")}`);
-  const observerPath = process.env.ORDINARY_SCENARIO_OBSERVER ?? join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-public.json");
+  const observerPath = join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-public.json");
   const observerDescriptor = json<IndependentObserverDescriptor>(observerPath);
   const observerProof = json<{ schemaVersion: number; scope: string; result: string; endpointHash: Hex; payloadSha256: Hex; receiverRequestId: string; receiverRecordedAt: string; httpStatus: number; expiresAt: string; actualActivityAlerts: string; hasSigningAuthority: boolean }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-channel-proof.json"));
   if (observerProof.schemaVersion !== 1 || observerProof.scope !== "test-channel-probe-not-activity-evidence" || observerProof.result !== "PASS" || !observerDescriptor.publicId.endsWith(observerProof.endpointHash) || observerProof.httpStatus !== 200 || observerProof.actualActivityAlerts !== "NOT_RUN" || observerProof.hasSigningAuthority !== false) throw new Error("independent observer public probe evidence mismatch");
-  const observer: IndependentObserverDescriptor = Object.freeze({ ...observerDescriptor, probeEvidenceHash: sha256(observerProof) as Hex, actualActivityAlerts: "NOT_RUN" });
+  const observer: IndependentObserverDescriptor = Object.freeze({ ...observerDescriptor, endpointHash: observerProof.endpointHash, probeEvidenceHash: sha256(observerProof) as Hex, actualActivityAlerts: "NOT_RUN" });
   const repair = json<OrdinaryRepairDescriptor>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-public.json"));
   const repairQuote = json<{ scope: string; chainId: number; blockNumber: string; blockHash: Hex; factory: Address; predictedSigner: Address; calldata: Hex; dataHash: Hex; value: string; estimatedGas: string; proposedGasCap: string; maxFeePerGasCap: string; maximumGasReservationWei: string; exactCapCallPassed: boolean; signed: boolean; broadcast: boolean }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-creation-quote.json"));
   const quoteGas = decimal(repairQuote.proposedGasCap, "replacement signer proposed gas cap");

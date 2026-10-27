@@ -3,9 +3,15 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keccak256 } from "viem";
-import { writeOrdinaryScenarioReviewPackage } from "../../../scripts/live/ordinary-scenario-review-cli";
+import { assertOrdinaryScenarioReviewCliEnvironment, writeOrdinaryScenarioReviewPackage } from "../../../scripts/live/ordinary-scenario-review-cli";
 
 describe("ordinary scenario review read-only CLI package", () => {
+  it("rejects RPC credentials and arbitrary observer paths before adapter work", () => {
+    for (const key of ["SEPOLIA_RPC_URL", "SEPOLIA_ARCHIVE_RPC_URL", "ORDINARY_SCENARIO_OBSERVER", "PRIVATE_KEY", "VAULT_FUNDING_KEY_PATH", "LIVE_SUBMIT"]) {
+      expect(() => assertOrdinaryScenarioReviewCliEnvironment({ [key]: "forbidden" })).to.throw("rejects override or authority input");
+    }
+    expect(() => assertOrdinaryScenarioReviewCliEnvironment({ ORDINARY_SCENARIO_OUTPUT: "/tmp/public-output" })).to.not.throw();
+  });
   it("writes only the deterministic public report and manifest and refuses overwrite", () => {
     const directory = mkdtempSync(join(tmpdir(), "ordinary-scenario-review-"));
     rmSync(directory, { recursive: true });

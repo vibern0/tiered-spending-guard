@@ -24,6 +24,7 @@ const GUARD = address("0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA");
 const DELAY = address("0xB8E143098CcCb9935228022173c2c987DF5FD53a");
 const MAINTENANCE = address("0x3D20c6c361bdb1970827c9450beeC0e3cD78E654");
 const USDC = address("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238");
+const REPAIR = address("0xCc3C12cFB2508E5E9E4EB9b21CC44A9dEEFf0908");
 const CODE = "0x6001" as Hex;
 
 function reviewedPlan(): VaultDeploymentPlan {
@@ -106,7 +107,7 @@ function client(overrides: Partial<OrdinaryScenarioReviewClient> = {}): Ordinary
     tokenBalance: async (_token, who) => balances.get(`token:${who.toLowerCase()}`) ?? 0n,
     tokenMetadata: async () => ({ name: "USD Coin", symbol: "USDC", decimals: 6 }),
     runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() ? "0x" : CODE,
-    passkeySignerAddress: async () => address("0x1111111111111111111111111111111111111111"),
+    passkeySignerAddress: async () => REPAIR,
     canonicalReceipt: async (hash) => {
       const entry = baseline(reviewedPlan()).transactions.find((candidate) => candidate.transactionHash === hash);
       if (!entry) return undefined;
@@ -179,6 +180,36 @@ describe("ordinary scenario review collector", () => {
     expect(ecdsa.safeTransaction?.safeNonce).to.equal("9");
     expect(queue.safeTransaction?.safeNonce).to.equal("10");
     expect(result.report.phaseAccounting.grossUsdcFundingUnits).to.equal("31000000");
+    const expected = (id: string) => result.report.actions.find((action) => action.id === id)!.expectedState as any;
+    expect(expected("usdc-funding").principalBalances).to.deep.include({ usdcFunderBefore: "20000000", usdcFunderAfter: "0", usdcSafeBefore: "0", usdcSafeAfter: "20000000" });
+    expect(expected("usdc-base-x").principalBalances).to.deep.include({ usdcFunderBefore: "0", usdcFunderAfter: "10000000", usdcSafeBefore: "20000000", usdcSafeAfter: "10000000" });
+    expect(expected("usdc-step-up-contract").principalBalances).to.deep.include({ usdcFunderBefore: "10000000", usdcFunderAfter: "20000000", usdcSafeBefore: "10000000", usdcSafeAfter: "0" });
+    expect(expected("usdc-recycle-topup-step-up").principalBalances).to.deep.include({ usdcFunderBefore: "20000000", usdcFunderAfter: "10000000", usdcSafeBefore: "0", usdcSafeAfter: "10000000" });
+    expect(expected("usdc-step-up-ecdsa").principalBalances).to.deep.include({ usdcFunderBefore: "10000000", usdcFunderAfter: "20000000", usdcSafeBefore: "10000000", usdcSafeAfter: "0" });
+    expect(expected("usdc-recycle-topup-delayed").principalBalances).to.deep.include({ usdcFunderBefore: "20000000", usdcFunderAfter: "19000000", usdcSafeBefore: "0", usdcSafeAfter: "1000000" });
+    expect(expected("usdc-queue-ready-execute").principalBalances).to.deep.include({ usdcFunderBefore: "19000000", usdcFunderAfter: "20000000", usdcSafeBefore: "1000000", usdcSafeAfter: "0" });
+    expect(expected("usdc-recycle-topup-step-up").counters.before).to.deep.equal(expected("usdc-recycle-topup-step-up").counters.after);
+    expect(expected("usdc-recycle-topup-delayed").counters.before).to.deep.equal(expected("usdc-recycle-topup-delayed").counters.after);
+    for (const action of result.report.actions) for (const [key, amount] of Object.entries((action.expectedState as any).principalBalances)) expect(BigInt(amount as string) < 0n, `${action.id}.${key}`).to.equal(false);
+  });
+
+  it("makes every advertised funder, Safe, and Delay nonce topologically reachable", async () => {
+    const funded = client({ tokenBalance: async (_token, who) => who.toLowerCase() === FUNDER.toLowerCase() ? 20_000_000n : 0n });
+    const actions = (await collectOrdinaryScenarioReview(input(), funded)).report.actions;
+    const byId = new Map(actions.map((action) => [action.id, action]));
+    const ancestors = (id: string, seen = new Set<string>()): Set<string> => {
+      for (const dependency of byId.get(id)?.dependsOn ?? []) if (!seen.has(dependency)) { seen.add(dependency); ancestors(dependency, seen); }
+      return seen;
+    };
+    const successfulSafe = actions.filter((action) => action.expectedOutcome === "success" && action.safeTransaction?.safeNonce !== undefined);
+    for (let index = 1; index < successfulSafe.length; index++) expect(ancestors(successfulSafe[index]!.id).has(successfulSafe[index - 1]!.id), successfulSafe[index]!.id).to.equal(true);
+    const funder = actions.filter((action) => action.publicTransaction?.funderNonce !== undefined);
+    for (let index = 1; index < funder.length; index++) {
+      expect(BigInt(funder[index]!.publicTransaction!.funderNonce as string)).to.equal(BigInt(funder[index - 1]!.publicTransaction!.funderNonce as string) + 1n);
+      expect(ancestors(funder[index]!.id).has(funder[index - 1]!.id), funder[index]!.id).to.equal(true);
+    }
+    expect(ancestors("usdc-base-x").has("native-queue-ready-execute")).to.equal(true);
+    expect((actions.find((action) => action.id === "usdc-base-x")!.expectedState as any).nonces.before.delay).to.equal("3");
   });
 
   it("fails closed when the pinned block or mutable state drifts during collection", async () => {
@@ -225,6 +256,12 @@ describe("ordinary scenario review collector", () => {
     }
   });
 
+  it("rejects raw observer endpoints and requires a probe bound hash-only identifier", async () => {
+    const value = input();
+    await expect(collectOrdinaryScenarioReview({ ...value, observer: { kind: "https-webhook", publicId: "https://private.example/hook", independentFromProposer: true, endpointHash: h(8), probeEvidenceHash: h(9), actualActivityAlerts: "NOT_RUN" } } as never, client())).to.be.rejectedWith("observer descriptor");
+    await expect(collectOrdinaryScenarioReview({ ...value, observer: { kind: "https-webhook", publicId: `temporary-test-receiver:${h(7)}`, endpointHash: h(8), independentFromProposer: true, probeEvidenceHash: h(9), actualActivityAlerts: "NOT_RUN" } } as never, client())).to.be.rejectedWith("observer descriptor");
+  });
+
   it("binds the public contract-secondary repair domain but remains blocked until the ephemeral proof is reviewed", async () => {
     const value = input();
     const repair = {
@@ -232,16 +269,16 @@ describe("ordinary scenario review collector", () => {
       scope: "ordinary-baseline-proposed-contract-secondary-repair" as const,
       chainId: 11155111 as const,
       factory: address("0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf"),
-      address: address("0x1111111111111111111111111111111111111111"),
-      x: "1",
-      y: "2",
+      address: REPAIR,
+      x: "10342510752483659319190807637330965811978365685423845568184481734592673940696",
+      y: "83007955684183101275699917860538633816962061613045139387258186696967867907135",
       verifiers: "1111636484949241205398856388087597953580887526884",
       observedRuntime: "0x" as const,
       deployed: false as const,
       signed: false as const,
       broadcast: false as const,
     };
-    const observer = { kind: "https-webhook" as const, publicId: "independent-operator-channel", independentFromProposer: true as const };
+    const observer = { kind: "https-webhook" as const, publicId: `temporary-test-receiver:${h(8)}`, endpointHash: h(8), independentFromProposer: true as const, probeEvidenceHash: h(9), actualActivityAlerts: "NOT_RUN" as const };
     const funded = client({
       tokenBalance: async (_token, who) => who.toLowerCase() === FUNDER.toLowerCase() ? 20_000_000n : 0n,
       runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() || who.toLowerCase() === repair.address.toLowerCase() ? "0x" : CODE,
@@ -260,6 +297,10 @@ describe("ordinary scenario review collector", () => {
     expect(proofCancelIndex).to.be.greaterThan(repairIndex);
     expect(freezeIndex).to.be.greaterThan(proofCancelIndex);
     expect(result.rendered).to.not.include("replacementProof");
+    await expect(collectOrdinaryScenarioReview({ ...value, repair: { ...repair, address: address("0x1111111111111111111111111111111111111111") }, observer }, client({
+      runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() || who.toLowerCase() === "0x1111111111111111111111111111111111111111" ? "0x" : CODE,
+      passkeySignerAddress: async () => address("0x1111111111111111111111111111111111111111"),
+    }))).to.be.rejectedWith("fixed repair descriptor");
     await expect(collectOrdinaryScenarioReview({ ...value, repair, observer }, client({
       runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() || who.toLowerCase() === repair.address.toLowerCase() ? "0x" : CODE,
       passkeySignerAddress: async () => CONTRACT_SECONDARY,

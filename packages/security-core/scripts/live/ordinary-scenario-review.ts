@@ -26,6 +26,12 @@ const PASSKEY_FACTORY_ABI = parseAbi(["function createSigner(uint256,uint256,uin
 const PASSKEY_FACTORY = "0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf" as Address;
 const PASSKEY_VERIFIER = "0xc2b78104907F722DABAc4C69f826a522B2754De4" as Address;
 const PASSKEY_FACTORY_RUNTIME_CODE_HASH = "0xbe9db61b4ee533cb4b1136ef244141db4ca3b7867b44d154db9faeb22f39d7bb" as Hex;
+const FIXED_REPAIR = "0xCc3C12cFB2508E5E9E4EB9b21CC44A9dEEFf0908" as Address;
+const FIXED_REPAIR_X = "10342510752483659319190807637330965811978365685423845568184481734592673940696";
+const FIXED_REPAIR_Y = "83007955684183101275699917860538633816962061613045139387258186696967867907135";
+const FIXED_REPAIR_VERIFIERS = "1111636484949241205398856388087597953580887526884";
+const FIXED_REPAIR_BINDING_HASH = "0x0b6ee6df2bef06f7b57292fef28157928a7026b668d3e1e2a9a641d7a5bedeef" as Hex;
+const FIXED_REPAIR_CALLDATA_HASH = "0x0ed506887dea4406bb68a77a9d4c54b2454946b80b9205772900008859a92c7b" as Hex;
 
 export type OrdinaryBaselineProof = Readonly<{
   schemaVersion: 1;
@@ -72,9 +78,10 @@ export type OrdinaryRepairDescriptor = Readonly<{
 export type IndependentObserverDescriptor = Readonly<{
   kind: "https-webhook" | "email" | "second-device";
   publicId: string;
+  endpointHash: Hex;
   independentFromProposer: true;
-  probeEvidenceHash?: Hex;
-  actualActivityAlerts?: "NOT_RUN";
+  probeEvidenceHash: Hex;
+  actualActivityAlerts: "NOT_RUN";
 }>;
 
 export type ScenarioTopologyEvidence = Readonly<{ planHash: Hex; ok: boolean; checked: readonly string[]; failures: readonly string[] }>;
@@ -146,6 +153,7 @@ type ReviewAction = Readonly<{
   timing?: Readonly<Record<string, unknown>>;
   proposedGasAndFee: Readonly<Record<string, string | boolean>>;
   expectedTransition: string;
+  expectedState?: Readonly<Record<string, unknown>>;
   observerAlert: string;
 }>;
 
@@ -265,7 +273,8 @@ function validateFreshState(state: CollectedState, input: OrdinaryScenarioReview
     const repair = input.repair;
     const canonicalNumber = (value: string) => DECIMAL.test(value) && BigInt(value) > 0n;
     const bindingHash = canonicalNumber(repair.x) && canonicalNumber(repair.y) && canonicalNumber(repair.verifiers) ? keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }], [repair.factory, BigInt(repair.x), BigInt(repair.y), BigInt(repair.verifiers)])) : undefined;
-    if (repair.formatVersion !== 1 || repair.scope !== "ordinary-baseline-proposed-contract-secondary-repair" || repair.chainId !== 11155111 || same(repair.address, input.plan.review.safeContractSecondary) || !same(repair.factory, PASSKEY_FACTORY) || !bindingHash || repair.observedRuntime !== "0x" || repair.deployed !== false || repair.signed !== false || repair.broadcast !== false || state.runtime[7] !== "0x") throw new Error("ordinary scenario fixed repair descriptor mismatch");
+    const calldata = canonicalNumber(repair.x) && canonicalNumber(repair.y) && canonicalNumber(repair.verifiers) ? encodeFunctionData({ abi: PASSKEY_FACTORY_ABI, functionName: "createSigner", args: [BigInt(repair.x), BigInt(repair.y), BigInt(repair.verifiers)] }) : undefined;
+    if (repair.formatVersion !== 1 || repair.scope !== "ordinary-baseline-proposed-contract-secondary-repair" || repair.chainId !== 11155111 || !same(repair.address, FIXED_REPAIR) || !same(repair.factory, PASSKEY_FACTORY) || repair.x !== FIXED_REPAIR_X || repair.y !== FIXED_REPAIR_Y || repair.verifiers !== FIXED_REPAIR_VERIFIERS || !bindingHash || !same(bindingHash, FIXED_REPAIR_BINDING_HASH) || !calldata || !same(keccak256(calldata), FIXED_REPAIR_CALLDATA_HASH) || repair.observedRuntime !== "0x" || repair.deployed !== false || repair.signed !== false || repair.broadcast !== false || state.runtime[7] !== "0x") throw new Error("ordinary scenario fixed repair descriptor mismatch");
     if (!state.repairDerivedAddress || !same(state.repairDerivedAddress, repair.address)) throw new Error("ordinary scenario factory-derived replacement address mismatch");
   }
 }
@@ -313,13 +322,13 @@ function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState,
 
   add({ id: "native-funding", kind: "funding", asset: "native", dependsOn: [], status: "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: safe, value: nativeFunding.toString(), data: "0x", operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe native inventory increases by ${nativeFunding}`, observerAlert: "none" });
   funderNonce += 1n;
-  add({ id: "usdc-funding", kind: "funding", asset: "USDC", dependsOn: [], status: state.usdcBalances[0] < initialUsdcFunding ? "BLOCKED_INPUT" : "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: usdc, value: "0", data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [safe, initialUsdcFunding] }), operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe USDC inventory increases by ${initialUsdcFunding}; spend counters and Safe/Delay nonces remain unchanged`, observerAlert: "none" });
+  add({ id: "usdc-funding", kind: "funding", asset: "USDC", dependsOn: ["native-funding"], status: state.usdcBalances[0] < initialUsdcFunding ? "BLOCKED_INPUT" : "CONDITIONAL_NOT_RUN", expectedOutcome: "success", signerRoles: ["funder"], publicTransaction: Object.freeze({ to: usdc, value: "0", data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [safe, initialUsdcFunding] }), operation: 0, funderNonce: funderNonce.toString(), safeNonce: null, safeTxHash: null }), proposedGasAndFee: proposedFee(input.proposedCaps, "funding"), expectedTransition: `Safe USDC inventory increases by ${initialUsdcFunding}; spend counters and Safe/Delay nonces remain unchanged`, observerAlert: "none" });
   funderNonce += 1n;
 
   const buildAsset = (prefix: "native" | "usdc", token: Address, x: bigint, y: bigint, delayedAmount: bigint, transfer: (amount: bigint) => Readonly<{ to: Address; value: bigint; data: Hex }>, unitLabel: string) => {
     const asset = prefix === "native" ? "native" as const : "USDC" as const; const step = (y - x) / 2n; const fundingId = `${prefix}-funding`;
     const base = safeTransaction(safe, plan.chainId, transfer(x).to, transfer(x).value, transfer(x).data, 0, safeNonce);
-    addSafe(`${prefix}-base-x`, "base-transfer", asset, [fundingId], "success", ["primary-passkey"], base, `baseSpent=${x}; instantSpent=${x}`); safeNonce += 1n;
+    addSafe(`${prefix}-base-x`, "base-transfer", asset, prefix === "usdc" ? [fundingId, "native-queue-ready-execute"] : [fundingId], "success", ["primary-passkey"], base, `baseSpent=${x}; instantSpent=${x}`); safeNonce += 1n;
     const contract = safeTransaction(safe, plan.chainId, transfer(step).to, transfer(step).value, transfer(step).data, 0, safeNonce);
     addSafe(`${prefix}-step-up-contract`, "step-up-transfer", asset, [`${prefix}-base-x`], "success", ["primary-passkey", "safe-contract-secondary"], contract, `baseSpent=${x}; instantSpent=${x + step}`, "step-up-executed"); safeNonce += 1n;
     let ecdsaDependency = `${prefix}-step-up-contract`;
@@ -392,6 +401,114 @@ function buildActions(input: OrdinaryScenarioReviewInput, state: CollectedState,
   return Object.freeze(actions);
 }
 
+function assertNonNegative(value: bigint, label: string): void {
+  if (value < 0n) throw new Error(`ordinary scenario forecast underflow: ${label}`);
+}
+
+function annotateAndValidateActions(actions: readonly ReviewAction[], initial: CollectedState, funding: Readonly<{ initialUsdc: bigint; recycledStepUp: bigint; recycledDelayed: bigint }>): readonly ReviewAction[] {
+  const byId = new Map<string, ReviewAction>();
+  const ancestors = new Map<string, Set<string>>();
+  for (const action of actions) {
+    if (byId.has(action.id)) throw new Error(`ordinary scenario duplicate action id: ${action.id}`);
+    const inherited = new Set<string>();
+    for (const dependency of action.dependsOn) {
+      if (!byId.has(dependency)) throw new Error(`ordinary scenario action dependency is not topologically prior: ${action.id} -> ${dependency}`);
+      inherited.add(dependency);
+      for (const ancestor of ancestors.get(dependency) ?? []) inherited.add(ancestor);
+    }
+    byId.set(action.id, action);
+    ancestors.set(action.id, inherited);
+  }
+
+  const successfulSafe = actions.filter((action) => action.status === "CONDITIONAL_NOT_RUN" && action.expectedOutcome === "success" && typeof action.safeTransaction?.safeNonce === "string");
+  for (let index = 1; index < successfulSafe.length; index++) if (!ancestors.get(successfulSafe[index]!.id)?.has(successfulSafe[index - 1]!.id)) throw new Error(`ordinary scenario Safe nonce dependency gap: ${successfulSafe[index]!.id}`);
+  const funderActions = actions.filter((action) => typeof action.publicTransaction?.funderNonce === "string");
+  for (let index = 1; index < funderActions.length; index++) {
+    const previous = funderActions[index - 1]!; const current = funderActions[index]!;
+    if (BigInt(current.publicTransaction!.funderNonce as string) !== BigInt(previous.publicTransaction!.funderNonce as string) + 1n || !ancestors.get(current.id)?.has(previous.id)) throw new Error(`ordinary scenario funder nonce dependency gap: ${current.id}`);
+  }
+
+  let safeNonce = initial.safeNonce; let funderNonce = initial.funderNonce; let delayNonce = initial.delayNonce;
+  let nativeFunder = initial.nativeBalances[0]; let nativeSafe = initial.nativeBalances[1];
+  let usdcFunder = initial.usdcBalances[0]; let usdcSafe = initial.usdcBalances[1];
+  let nativeBase = initial.spend[0].baseSpent; let nativeInstant = initial.spend[0].instantSpent;
+  let usdcBase = initial.spend[1].baseSpent; let usdcInstant = initial.spend[1].instantSpent;
+  let cumulativeGasCap = 0n;
+  let queueState: Readonly<Record<string, string | null>> = Object.freeze({ status: "EMPTY", queueNonce: null, fingerprint: null });
+  let blockedByPriorInput = false;
+  const annotated: ReviewAction[] = [];
+  const snapshot = () => ({
+    principalBalances: { nativeFunder: nativeFunder.toString(), nativeSafe: nativeSafe.toString(), usdcFunder: usdcFunder.toString(), usdcSafe: usdcSafe.toString() },
+    nonces: { funder: funderNonce.toString(), safe: safeNonce.toString(), delay: delayNonce.toString() },
+    counters: { native: { baseSpent: nativeBase.toString(), instantSpent: nativeInstant.toString() }, USDC: { baseSpent: usdcBase.toString(), instantSpent: usdcInstant.toString() } },
+    queue: queueState,
+  });
+
+  for (const action of actions) {
+    const before = snapshot();
+    const exactForecast = !blockedByPriorInput && action.status === "CONDITIONAL_NOT_RUN";
+    if (exactForecast) {
+      const cap = BigInt(action.proposedGasAndFee.gasLimit as string) * BigInt(action.proposedGasAndFee.maxFeePerGas as string);
+      cumulativeGasCap += cap;
+      if (action.expectedOutcome === "success") {
+        if (typeof action.publicTransaction?.funderNonce === "string") {
+          if (BigInt(action.publicTransaction.funderNonce as string) !== funderNonce) throw new Error(`ordinary scenario funder nonce forecast mismatch: ${action.id}`);
+          funderNonce += 1n;
+        }
+        if (typeof action.safeTransaction?.safeNonce === "string") {
+          if (BigInt(action.safeTransaction.safeNonce as string) !== safeNonce) throw new Error(`ordinary scenario Safe nonce forecast mismatch: ${action.id}`);
+          safeNonce += 1n;
+        }
+        if (action.id === "native-funding") { const amount = BigInt(action.publicTransaction!.value as string); nativeFunder -= amount; nativeSafe += amount; }
+        if (action.id === "usdc-funding") { usdcFunder -= funding.initialUsdc; usdcSafe += funding.initialUsdc; }
+        if (action.id === "usdc-recycle-topup-step-up") { usdcFunder -= funding.recycledStepUp; usdcSafe += funding.recycledStepUp; }
+        if (action.id === "usdc-recycle-topup-delayed") { usdcFunder -= funding.recycledDelayed; usdcSafe += funding.recycledDelayed; }
+        if (action.id === "native-base-x") { nativeSafe -= 10_000_000_000_000n; nativeFunder += 10_000_000_000_000n; nativeBase = 10_000_000_000_000n; nativeInstant = 10_000_000_000_000n; }
+        if (action.id === "native-step-up-contract" || action.id === "native-step-up-ecdsa") { nativeSafe -= 10_000_000_000_000n; nativeFunder += 10_000_000_000_000n; nativeInstant += 10_000_000_000_000n; }
+        if (action.id === "usdc-base-x") { usdcSafe -= 10_000_000n; usdcFunder += 10_000_000n; usdcBase = 10_000_000n; usdcInstant = 10_000_000n; }
+        if (action.id === "usdc-step-up-contract" || action.id === "usdc-step-up-ecdsa") { usdcSafe -= 10_000_000n; usdcFunder += 10_000_000n; usdcInstant += 10_000_000n; }
+        if (action.kind === "queue-proposal") {
+          if (BigInt(action.queue!.queueNonce as string) !== delayNonce) throw new Error(`ordinary scenario Delay nonce forecast mismatch: ${action.id}`);
+          queueState = Object.freeze({ status: "QUEUED_CONDITIONAL", queueNonce: String(action.queue!.queueNonce), fingerprint: String(action.queue!.queueFingerprint) });
+        }
+        if (action.kind === "queue-cancellation") { delayNonce += 1n; queueState = Object.freeze({ ...queueState, status: "CANCELLED_CONDITIONAL" }); }
+        if (action.kind === "queue-expiry") { delayNonce += 1n; queueState = Object.freeze({ ...queueState, status: "EXPIRED_CONDITIONAL" }); }
+        if (action.kind === "ready-delay-execution") {
+          delayNonce += 1n;
+          queueState = Object.freeze({ ...queueState, status: "EXECUTED_CONDITIONAL" });
+          if (action.asset === "native") { nativeSafe -= 1n; nativeFunder += 1n; }
+          if (action.asset === "USDC") { usdcSafe -= 1_000_000n; usdcFunder += 1_000_000n; }
+        }
+      }
+      assertNonNegative(nativeFunder, `${action.id}.nativeFunder`); assertNonNegative(nativeSafe, `${action.id}.nativeSafe`); assertNonNegative(usdcFunder, `${action.id}.usdcFunder`); assertNonNegative(usdcSafe, `${action.id}.usdcSafe`);
+    }
+    const after = snapshot();
+    const principalBalances = Object.freeze({
+      nativeFunderBefore: before.principalBalances.nativeFunder, nativeFunderAfter: after.principalBalances.nativeFunder,
+      nativeSafeBefore: before.principalBalances.nativeSafe, nativeSafeAfter: after.principalBalances.nativeSafe,
+      usdcFunderBefore: before.principalBalances.usdcFunder, usdcFunderAfter: after.principalBalances.usdcFunder,
+      usdcSafeBefore: before.principalBalances.usdcSafe, usdcSafeAfter: after.principalBalances.usdcSafe,
+    });
+    const expectedState = Object.freeze({
+      stateAvailability: exactForecast ? "EXACT_PRINCIPAL_CONDITIONAL_FORECAST" : "BLOCKED_UNTIL_PRIOR_PUBLIC_PROOF",
+      futureStateStatus: "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
+      principalBalances,
+      nativeFunderGasAccounting: Object.freeze({
+        beforeExpression: `${before.principalBalances.nativeFunder} - cumulativeActualReceiptGasCostBeforeWei`,
+        afterExpression: `${after.principalBalances.nativeFunder} - cumulativeActualReceiptGasCostAfterWei`,
+        cumulativeProposedGasCapAfterWei: cumulativeGasCap.toString(),
+        minimumAfterAtProposedCapsWei: (BigInt(after.principalBalances.nativeFunder) - cumulativeGasCap).toString(),
+      }),
+      nonces: Object.freeze({ before: before.nonces, after: after.nonces }),
+      counters: Object.freeze({ before: before.counters, after: after.counters, fundingNeverResetsCounters: true }),
+      queue: Object.freeze({ before: before.queue, after: after.queue }),
+    });
+    annotated.push(Object.freeze({ ...action, expectedState }));
+    if (action.status === "BLOCKED_INPUT") blockedByPriorInput = true;
+  }
+  return Object.freeze(annotated);
+}
+
 function blockSnapshot(state: CollectedState, block: Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>, plan: VaultDeploymentPlan): Readonly<Record<string, unknown>> {
   return Object.freeze({
     blockNumber: block.number.toString(), blockHash: block.hash, blockTimestamp: block.timestamp.toString(), safeNonce: state.safeNonce.toString(), funderNonce: state.funderNonce.toString(), delayNonce: state.delayNonce.toString(),
@@ -424,13 +541,13 @@ export async function collectOrdinaryScenarioReview(input: OrdinaryScenarioRevie
   const recycledDelayedFunding = grossUsdcFunding - initialUsdcFunding - recycledStepUpFunding;
   if (initial.usdcBalances[0] < initialUsdcFunding) blockers.push({ code: "MISSING_USDC_INVENTORY", detail: `configured funder needs ${initialUsdcFunding} initial USDC units at the pinned block; controlled-recipient returns may fund only later exact top-ups and cannot be presumed before their canonical receipts` });
   if (!input.observer) blockers.push({ code: "MISSING_INDEPENDENT_OBSERVER", detail: "an exact independently operated public alert-channel descriptor and later delivery evidence are required" });
-  else if (input.observer.independentFromProposer !== true || !/^[ -~]{1,160}$/.test(input.observer.publicId) || (input.observer.probeEvidenceHash !== undefined && !HASH.test(input.observer.probeEvidenceHash)) || (input.observer.actualActivityAlerts !== undefined && input.observer.actualActivityAlerts !== "NOT_RUN")) throw new Error("ordinary scenario independent observer descriptor is invalid");
+  else if (input.observer.kind !== "https-webhook" || input.observer.independentFromProposer !== true || !HASH.test(input.observer.endpointHash) || input.observer.publicId !== `temporary-test-receiver:${input.observer.endpointHash}` || !HASH.test(input.observer.probeEvidenceHash) || input.observer.actualActivityAlerts !== "NOT_RUN") throw new Error("ordinary scenario independent observer descriptor is invalid");
   if (!input.repair) blockers.push({ code: "MISSING_REPAIR_DESCRIPTOR", detail: "an exact fixed replacement signer/maintenance identity is required before the repair Safe transaction can be encoded" });
   else {
     blockers.push({ code: "MISSING_REPAIR_SIGNER_DEPLOYMENT", detail: `replacement ${input.repair.address} has no runtime at the pinned block; factory creation and canonical runtime/binding verification require separate review` });
     blockers.push({ code: "MISSING_REPAIR_WEBAUTHN_PROOF", detail: "the exact non-public WebAuthn assertion over repairProofHash must be produced only at later signing time and separately reviewed before repair calldata can be fixed" });
   }
-  const actions = buildActions(input, initial, nativeFunding, initialUsdcFunding, recycledStepUpFunding, recycledDelayedFunding);
+  const actions = annotateAndValidateActions(buildActions(input, initial, nativeFunding, initialUsdcFunding, recycledStepUpFunding, recycledDelayedFunding), initial, { initialUsdc: initialUsdcFunding, recycledStepUp: recycledStepUpFunding, recycledDelayed: recycledDelayedFunding });
   const safeActionCount = BigInt(actions.filter((action) => action.proposedGasAndFee.gasLimit === input.proposedCaps.safeExecutionGasLimit.toString()).length);
   const delayActionCount = BigInt(actions.filter((action) => action.proposedGasAndFee.gasLimit === input.proposedCaps.publicDelayGasLimit.toString()).length);
   const fundingActionCount = BigInt(actions.filter((action) => action.proposedGasAndFee.gasLimit === input.proposedCaps.fundingGasLimit.toString()).length);
