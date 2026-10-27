@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashTypedData, keccak256, parseTransaction, type Address, type Hex } from "viem";
+import { encodeAbiParameters, hashTypedData, keccak256, parseTransaction, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createFrozenSafeSignerProvider, loadObserverConfirmationEvidence, reconstructCanonicalType2Transaction, requireSixConfirmationReceipts, simulatePreparedOrdinaryAction, validatePublicReceiverAcknowledgement } from "../../../scripts/live/ordinary-scenario-adapter";
 import type { SafeSignerRequest } from "../../../src/signers/types";
@@ -51,10 +51,13 @@ describe("ordinary scenario frozen EIP-1193 facade", () => {
     const blockHash = keccak256("0x03");
     const prepared = { liveIntent: { id: "x", to: SAFE, data: "0x1234" as Hex, value: 0n, nonce: 1, gas: 100n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, requestHash: keccak256("0x04"), signerRolesHash: keccak256("0x05"), signedCalldataHash: keccak256("0x1234"), signatureBundleHash: null, transientSignedCalldata: "0x1234" as Hex };
     const seen: unknown[] = [];
-    const evidence = await simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async input => { seen.push(input); return "0x01"; }, estimateGas: async input => { seen.push(input); return 99n; } }, account.address, prepared, 7n, blockHash, 100n);
+    const evidence = await simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async input => { seen.push(input); return encodeAbiParameters([{ type: "bool" }], [true]); }, estimateGas: async input => { seen.push(input); return 99n; } }, account.address, prepared, 7n, blockHash, 100n, "bool-true");
     expect(evidence).to.include({ gasEstimate: 99n, blockNumber: 7n, blockHash });
     expect(seen).to.have.length(2);
-    await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => "0x", estimateGas: async () => 101n }, account.address, prepared, 7n, blockHash, 100n)).to.be.rejectedWith("cap");
+    await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => encodeAbiParameters([{ type: "bool" }], [true]), estimateGas: async () => 101n }, account.address, prepared, 7n, blockHash, 100n, "bool-true")).to.be.rejectedWith("cap");
+    await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => encodeAbiParameters([{ type: "bool" }], [false]), estimateGas: async () => 99n }, account.address, prepared, 7n, blockHash, 100n, "bool-true")).to.be.rejectedWith("result");
+    await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => "0x01", estimateGas: async () => 99n }, account.address, prepared, 7n, blockHash, 100n, "empty")).to.be.rejectedWith("result");
+    expect((await simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => "0x", estimateGas: async () => 99n }, account.address, prepared, 7n, blockHash, 100n, "empty")).success).to.equal(true);
   });
 
   it("binds public receiver acknowledgement and enforces temporary receiver expiry", () => {

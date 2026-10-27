@@ -4,7 +4,7 @@ import { FileActivityStore } from "../../src/monitoring/ledger";
 import { publicAlertPayloadHash } from "../../src/monitoring/notifier";
 import { deriveDelayLifecycle } from "../../src/monitoring/delay-events";
 import { assertSameSignerRequest, snapshotSafeSignerRequest, type Eip1193Provider, type SafeSignerRequest } from "../../src/signers/types";
-import { decodeEventLog, decodeFunctionData, encodeFunctionData, hashTypedData, parseAbi, keccak256, serializeTransaction, type Address, type Hex } from "viem";
+import { decodeEventLog, decodeFunctionData, encodeAbiParameters, encodeFunctionData, hashTypedData, parseAbi, keccak256, serializeTransaction, type Address, type Hex } from "viem";
 import type { LiveContext, LiveReceipt } from "./submission";
 import type { CanonicalOrdinaryScenarioState, ConfirmationEffect, OrdinaryScenarioActionScope, OrdinaryScenarioExecutionContext, OrdinaryScenarioJournal, OrdinaryScenarioProposal, PreparedOrdinaryAction, SignedSimulationEvidence } from "./ordinary-scenario-executor";
 import { reconstructReviewedPlan, verifyReconstructedPlanAtBlock } from "./ordinary-scenario-review-cli";
@@ -67,6 +67,16 @@ export type ReceiptStateBinding = Readonly<{ actionId: string; transactionHash: 
 export function createOrdinaryScenarioStateReader(input: OrdinaryScenarioStateReaderInput) {
   let reconstruction: Awaited<ReturnType<typeof reconstructReviewedPlan>> | undefined;
   const reconstructed = async () => reconstruction ??= await reconstructReviewedPlan(input.repository, input.archiveClient);
+  return createOrdinaryScenarioMechanicalStateReader({ ...input, expectedChainId: 11155111, verifyProfileAtBlock: async (client, blockNumber) => { await verifyReconstructedPlanAtBlock(await reconstructed(), client, blockNumber); } });
+}
+
+export type OrdinaryScenarioMechanicalStateReaderInput = Omit<OrdinaryScenarioStateReaderInput, "repository"> & Readonly<{
+  expectedChainId: number;
+  verifyProfileAtBlock(client: ViemPublicClient, blockNumber: bigint): Promise<void>;
+}>;
+
+/** Non-authorizing mechanical core; the production wrapper above fixes Sepolia and public descriptor verification. */
+export function createOrdinaryScenarioMechanicalStateReader(input: OrdinaryScenarioMechanicalStateReaderInput) {
   return async (action: OrdinaryScenarioActionScope, _phase: "pre-private" | "pre-outer", receiptBinding?: ReceiptStateBinding): Promise<CanonicalOrdinaryScenarioState> => {
     const journal = input.journal();
     let client = input.currentClient;
@@ -92,9 +102,8 @@ export function createOrdinaryScenarioStateReader(input: OrdinaryScenarioStateRe
       if (block.number === null || !block.hash) throw new Error("ordinary scenario latest canonical block is unavailable");
       selected = { number: block.number, hash: block.hash, timestamp: block.timestamp, baseFeePerGas: block.baseFeePerGas };
     }
-    if (await client.getChainId() !== 11155111) throw new Error("ordinary scenario adapter requires Sepolia");
-    const profile = await reconstructed();
-    await verifyReconstructedPlanAtBlock(profile, client, selected.number);
+    if (await client.getChainId() !== input.expectedChainId) throw new Error("ordinary scenario adapter chain mismatch");
+    await input.verifyProfileAtBlock(client, selected.number);
     const read = (address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []) => client.readContract({ address, abi, functionName, args, blockNumber: selected.number } as never) as Promise<unknown>;
     const [outerNonce, funderNativeBalance, safeNativeBalance, funderUsdcBalance, safeUsdcBalance, safeNonce, delayQueueNonce, delayTxNonce, nativeSpendRaw, usdcSpendRaw, observer, suggestedFees] = await Promise.all([
       client.getTransactionCount({ address: input.proposal.funder, blockNumber: selected.number } as never),
@@ -124,7 +133,7 @@ export function createOrdinaryScenarioStateReader(input: OrdinaryScenarioStateRe
     const fees = selectApprovedFees(suggestedFees as never, selected.baseFeePerGas ?? 0n, { maxFeePerGas: action.maxFeePerGasCap, maxPriorityFeePerGas: action.maxPriorityFeePerGasCap });
     const recheck = await client.getBlock({ blockNumber: selected.number } as never);
     if (!recheck.hash || recheck.hash.toLowerCase() !== selected.hash.toLowerCase()) throw new Error("ordinary scenario canonical block changed during state read");
-    return Object.freeze({ chainId: 11155111, blockNumber: selected.number, blockHash: selected.hash, blockTimestamp: selected.timestamp, evidenceBasis, planHash: input.proposal.planHash, topologyEvidenceHash: input.proposal.topologyEvidenceHash, publicIdentitiesHash: input.proposal.publicIdentitiesHash, observerReady: true, observerEvidenceHash: observer.evidenceHash, outerNonce: Number(outerNonce), funderNativeBalance, safeNativeBalance, funderUsdcBalance: BigInt(funderUsdcBalance as bigint), safeUsdcBalance: BigInt(safeUsdcBalance as bigint), safeNonce: BigInt(safeNonce as bigint), delayQueueNonce: BigInt(delayQueueNonce as bigint), delayTxNonce: BigInt(delayTxNonce as bigint), nativeSpend: spend(nativeSpendRaw), usdcSpend: spend(usdcSpendRaw), queue, dependencies, fees });
+    return Object.freeze({ chainId: input.expectedChainId, blockNumber: selected.number, blockHash: selected.hash, blockTimestamp: selected.timestamp, evidenceBasis, planHash: input.proposal.planHash, topologyEvidenceHash: input.proposal.topologyEvidenceHash, publicIdentitiesHash: input.proposal.publicIdentitiesHash, observerReady: true, observerEvidenceHash: observer.evidenceHash, outerNonce: Number(outerNonce), funderNativeBalance, safeNativeBalance, funderUsdcBalance: BigInt(funderUsdcBalance as bigint), safeUsdcBalance: BigInt(safeUsdcBalance as bigint), safeNonce: BigInt(safeNonce as bigint), delayQueueNonce: BigInt(delayQueueNonce as bigint), delayTxNonce: BigInt(delayTxNonce as bigint), nativeSpend: spend(nativeSpendRaw), usdcSpend: spend(usdcSpendRaw), queue, dependencies, fees });
   };
 }
 
@@ -140,19 +149,25 @@ export type OrdinaryScenarioAdapterInput = OrdinaryScenarioStateReaderInput & Re
 const alertKind = (kind: string): boolean => ["step-up-transfer", "queue-proposal", "queue-cancellation", "queue-expiry", "ready-delay-execution"].includes(kind);
 
 export function createOrdinaryScenarioExecutionContext(input: OrdinaryScenarioAdapterInput): OrdinaryScenarioExecutionContext {
-  const stateReader = createOrdinaryScenarioStateReader(input);
+  return createOrdinaryScenarioMechanicalExecutionContext({ ...input, expectedChainId: 11155111 }, createOrdinaryScenarioStateReader(input));
+}
+
+export type OrdinaryScenarioMechanicalAdapterInput = Omit<OrdinaryScenarioAdapterInput, "repository"> & Readonly<{ expectedChainId: number }>;
+
+/** Non-authorizing callback core; production supplies the closed state reader and Sepolia chain above. */
+export function createOrdinaryScenarioMechanicalExecutionContext(input: OrdinaryScenarioMechanicalAdapterInput, stateReader: ReturnType<typeof createOrdinaryScenarioMechanicalStateReader>): OrdinaryScenarioExecutionContext {
   const current = input.currentClient;
   const archive = input.archiveClient;
   const materialize = async (action: OrdinaryScenarioActionScope, state: CanonicalOrdinaryScenarioState): Promise<PreparedOrdinaryAction> => {
     let to: Address; let value: bigint; let data: Hex; let requestHash = action.commitment; let signatureBundleHash: Hex | null = null;
     if (action.safeTransaction) {
       const tx = action.safeTransaction;
-      const typedData = { domain: { chainId: 11155111, verifyingContract: input.proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation as 0 | 1, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } };
-      const request: SafeSignerRequest = { chainId: 11155111, safe: input.proposal.safe, safeTxHash: tx.safeTxHash, typedData };
+      const typedData = { domain: { chainId: input.expectedChainId, verifyingContract: input.proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation as 0 | 1, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } };
+      const request: SafeSignerRequest = { chainId: input.expectedChainId, safe: input.proposal.safe, safeTxHash: tx.safeTxHash, typedData };
       if (hashTypedData(typedData).toLowerCase() !== tx.safeTxHash.toLowerCase()) throw new Error("ordinary scenario reviewed Safe digest mismatch");
       const signers = await input.loadSigners(action);
       const signatures = await encodeGuardSafeSignatures(request, signers.primary, signers.secondary);
-      data = encodeSafeExecutionCalldata({ version: 1, kind: "safe-execution", idempotencyKey: action.commitment, chainId: 11155111, deploymentsHash: input.proposal.topologyEvidenceHash, policyHash: input.proposal.planHash, safe: input.proposal.safe, guard: input.proposal.guard, asset: action.asset === "native" ? ZERO : input.proposal.usdc, transaction: typedData.message, safeTxHash: tx.safeTxHash, signatures, expectedSpend: action.asset === "native" ? state.nativeSpend : state.usdcSpend });
+      data = encodeSafeExecutionCalldata({ version: 1, kind: "safe-execution", idempotencyKey: action.commitment, chainId: input.expectedChainId, deploymentsHash: input.proposal.topologyEvidenceHash, policyHash: input.proposal.planHash, safe: input.proposal.safe, guard: input.proposal.guard, asset: action.asset === "native" ? ZERO : input.proposal.usdc, transaction: typedData.message, safeTxHash: tx.safeTxHash, signatures, expectedSpend: action.asset === "native" ? state.nativeSpend : state.usdcSpend });
       to = input.proposal.safe; value = 0n; requestHash = tx.safeTxHash; signatureBundleHash = keccak256(signatures);
     } else {
       const transaction = action.publicTransaction;
@@ -165,13 +180,13 @@ export function createOrdinaryScenarioExecutionContext(input: OrdinaryScenarioAd
   const recoverIntent = async (action: OrdinaryScenarioActionScope, record: { transactionHash?: Hex }) => {
     if (!record.transactionHash) throw new Error("ordinary scenario recovery transaction hash is missing");
     const transaction = await archive.getTransaction({ hash: record.transactionHash } as never);
-    if (!transaction.to || transaction.type !== "eip1559" || transaction.chainId !== 11155111) throw new Error("ordinary scenario canonical recovery transaction is unavailable");
+    if (!transaction.to || transaction.type !== "eip1559" || transaction.chainId !== input.expectedChainId) throw new Error("ordinary scenario canonical recovery transaction is unavailable");
     return { id: action.id, to: transaction.to, value: transaction.value, data: transaction.input, nonce: transaction.nonce, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas!, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas! };
   };
   return Object.freeze({
     readState: stateReader,
     materialize,
-    simulate: (action, prepared, state) => simulatePreparedOrdinaryAction({ blockHash: async number => { const block = await current.getBlock({ blockNumber: number } as never); if (!block.hash) throw new Error("simulation block hash unavailable"); return block.hash; }, call: async value => (await current.call({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never)).data ?? "0x", estimateGas: value => current.estimateGas({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never) }, input.proposal.funder, prepared, state.blockNumber, state.blockHash, action.gasLimitCap),
+    simulate: (action, prepared, state) => simulatePreparedOrdinaryAction({ blockHash: async number => { const block = await current.getBlock({ blockNumber: number } as never); if (!block.hash) throw new Error("simulation block hash unavailable"); return block.hash; }, call: async value => (await current.call({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never)).data ?? "0x", estimateGas: value => current.estimateGas({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never) }, input.proposal.funder, prepared, state.blockNumber, state.blockHash, action.gasLimitCap, prepared.liveIntent.to?.toLowerCase() === input.proposal.safe.toLowerCase() || prepared.liveIntent.to?.toLowerCase() === input.proposal.usdc.toLowerCase() ? "bool-true" : "empty"),
     proveRejection: async (action, state, prepared) => {
       const client = state.evidenceBasis.kind === "queue-receipt" ? archive : current;
       const transaction = prepared?.liveIntent ?? (action.publicTransaction ? { to: action.publicTransaction.to, value: action.publicTransaction.value, data: action.publicTransaction.data } : undefined);
@@ -189,7 +204,7 @@ export function createOrdinaryScenarioExecutionContext(input: OrdinaryScenarioAd
     recoverPending: recoverIntent,
     recoverReplay: async (action, source) => {
       const transaction = await archive.getTransaction({ hash: source.transactionHash! } as never);
-      if (!transaction.to || transaction.type !== "eip1559" || transaction.chainId !== 11155111 || !transaction.r || !transaction.s || transaction.yParity === undefined) throw new Error("ordinary scenario replay source transaction is incomplete");
+      if (!transaction.to || transaction.type !== "eip1559" || transaction.chainId !== input.expectedChainId || !transaction.r || !transaction.s || transaction.yParity === undefined) throw new Error("ordinary scenario replay source transaction is incomplete");
       const raw = reconstructCanonicalType2Transaction({ chainId: transaction.chainId, nonce: transaction.nonce, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas!, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas!, to: transaction.to, value: transaction.value, data: transaction.input, accessList: [], r: transaction.r, s: transaction.s, yParity: transaction.yParity as 0 | 1, hash: source.transactionHash! });
       const sourceAction = input.proposal.actions.find(candidate => candidate.id === source.id);
       if (!sourceAction?.safeTransaction || !action.safeTransaction) throw new Error("ordinary scenario replay source action is not a Safe action");
@@ -229,8 +244,8 @@ export function createOrdinaryScenarioExecutionContext(input: OrdinaryScenarioAd
         const proposalRecord = proposalAction && input.journal().actions.find(candidate => candidate.id === proposalAction.id && candidate.status === "confirmed");
         if (!proposalRecord?.receipt || !proposalRecord.queueCreatedAt) throw new Error("ordinary scenario Delay proposal archive is unavailable");
         const cooldownSeconds = BigInt(input.proposal.cooldownSeconds); const expirationSeconds = BigInt(input.proposal.expirationSeconds); const createdAt = BigInt(proposalRecord.queueCreatedAt);
-        const queued = { kind: "delayed-queued" as const, chainId: 11155111, safe: input.proposal.safe, delay: input.proposal.delay, transactionHash: proposalRecord.receipt.transactionHash, blockNumber: proposalRecord.receipt.blockNumber, logIndex: 0, queueNonce: action.queue.queueNonce, queueFingerprint: action.queue.fingerprint, createdAt, expiresAt: createdAt + cooldownSeconds + expirationSeconds, to: action.queue.to, value: action.queue.value, data: action.queue.data, operation: action.queue.operation };
-        const lifecycle = await deriveDelayLifecycle(queued, { chainId: 11155111, safe: input.proposal.safe, delay: input.proposal.delay, confirmations: 1, cooldownSeconds, expirationSeconds }, canonicalReceipt.blockNumber, {
+        const queued = { kind: "delayed-queued" as const, chainId: input.expectedChainId, safe: input.proposal.safe, delay: input.proposal.delay, transactionHash: proposalRecord.receipt.transactionHash, blockNumber: proposalRecord.receipt.blockNumber, logIndex: 0, queueNonce: action.queue.queueNonce, queueFingerprint: action.queue.fingerprint, createdAt, expiresAt: createdAt + cooldownSeconds + expirationSeconds, to: action.queue.to, value: action.queue.value, data: action.queue.data, operation: action.queue.operation };
+        const lifecycle = await deriveDelayLifecycle(queued, { chainId: input.expectedChainId, safe: input.proposal.safe, delay: input.proposal.delay, confirmations: 1, cooldownSeconds, expirationSeconds }, canonicalReceipt.blockNumber, {
           readLifecycleReceipts: async () => [{ transactionHash: canonicalTransaction.hash, blockNumber: canonicalReceipt.blockNumber, blockHash: canonicalReceipt.blockHash, status: canonicalReceipt.status, to: canonicalTransaction.to!, input: canonicalTransaction.input }],
           readCanonicalBlock: async blockNumber => { const block = await archive.getBlock({ blockNumber } as never); if (!block.hash) throw new Error("ordinary scenario Delay lifecycle block unavailable"); return { blockNumber, blockHash: block.hash, timestamp: block.timestamp }; },
           decodeLifecycleCall: data => { const decoded = decodeFunctionData({ abi: DELAY_CALL_ABI, data }); return { functionName: decoded.functionName, args: decoded.args ?? [] }; },
@@ -276,11 +291,13 @@ export type ExactSimulationClient = Readonly<{
   blockHash(number: bigint): Promise<Hex>;
 }>;
 
-export async function simulatePreparedOrdinaryAction(client: ExactSimulationClient, funder: Address, prepared: PreparedOrdinaryAction, blockNumber: bigint, blockHash: Hex, actionCap: bigint): Promise<SignedSimulationEvidence> {
+export async function simulatePreparedOrdinaryAction(client: ExactSimulationClient, funder: Address, prepared: PreparedOrdinaryAction, blockNumber: bigint, blockHash: Hex, actionCap: bigint, expectedResult: "bool-true" | "empty"): Promise<SignedSimulationEvidence> {
   if (!prepared.liveIntent.to) throw new Error("ordinary scenario simulation target is missing");
   if ((await client.blockHash(blockNumber)).toLowerCase() !== blockHash.toLowerCase()) throw new Error("ordinary scenario simulation block changed");
   const input = { from: funder, to: prepared.liveIntent.to, value: prepared.liveIntent.value, data: prepared.liveIntent.data, blockNumber };
   const [result, gasEstimate] = await Promise.all([client.call(input), client.estimateGas(input)]);
+  const canonicalResult = expectedResult === "bool-true" ? encodeAbiParameters([{ type: "bool" }], [true]) : "0x";
+  if (result.toLowerCase() !== canonicalResult.toLowerCase()) throw new Error("ordinary scenario signed simulation result mismatch");
   if (gasEstimate <= 0n || gasEstimate > prepared.liveIntent.gas || gasEstimate > actionCap) throw new Error("ordinary scenario signed estimate exceeds approved cap");
   if ((await client.blockHash(blockNumber)).toLowerCase() !== blockHash.toLowerCase()) throw new Error("ordinary scenario simulation block changed");
   return Object.freeze({ blockNumber, blockHash, success: true, gasEstimate, resultHash: keccak256(result) });
