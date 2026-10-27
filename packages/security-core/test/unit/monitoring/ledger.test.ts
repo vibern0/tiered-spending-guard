@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { getAddress } from "viem";
 import { ActivityLedger, FileActivityStore, InMemoryActivityStore, type ActivityLogKey } from "../../../src/monitoring/ledger";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ActivityAlert } from "../../../src/monitoring/notifier";
@@ -25,6 +25,7 @@ const alert: ActivityAlert = {
 const key = (blockHash: string): ActivityLogKey => ({ chainId: 31337, blockHash: blockHash as `0x${string}`, transactionHash: alert.transactionHash, logIndex: 0 });
 
 describe("monitoring ledger", () => {
+  const evidence = { channel: "webhook" as const, httpStatus: 204, payloadHash: "0x0de6e25d93f1f09fdf15d869b88ad878940b0f7b3d2d93878542b2cd47cf3382" as const, deliveredAt: "2026-10-27T12:00:00.000Z" };
   it("persists a cursor and emits each confirmed log once", () => {
     const store = new InMemoryActivityStore();
     const ledger = new ActivityLedger(store);
@@ -57,10 +58,18 @@ describe("monitoring ledger", () => {
       expect(restarted.records()).to.have.length(1);
       expect(restarted.cursor()?.blockHash).to.equal("0x0000000000000000000000000000000000000000000000000000000000000005");
       expect(restarted.pending()).to.have.length(1);
-      restarted.markDelivered(key("0x0000000000000000000000000000000000000000000000000000000000000005"));
+      const pending = restarted.pending()[0].alert;
+      expect(pending.kind).to.equal("delayed-queued");
+      if (pending.kind !== "delayed-queued") throw new Error("unexpected alert kind");
+      expect(pending.blockNumber).to.equal(5n);
+      expect(pending.queueNonce).to.equal(1n);
+      expect(pending.createdAt).to.equal(5n);
+      restarted.markDelivered(key("0x0000000000000000000000000000000000000000000000000000000000000005"), { ...evidence, payloadHash: restarted.payloadHash(pending) });
       restartedStore.close?.();
       const deliveredStore = new FileActivityStore(join(dir, "ledger.json"));
-      expect(new ActivityLedger(deliveredStore).pending()).to.have.length(0);
+      const delivered = new ActivityLedger(deliveredStore);
+      expect(delivered.pending()).to.have.length(0);
+      expect(delivered.delivery(key("0x0000000000000000000000000000000000000000000000000000000000000005"))).to.deep.include({ channel: "webhook", httpStatus: 204 });
       deliveredStore.close?.();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -72,8 +81,47 @@ describe("monitoring ledger", () => {
     expect(ledger.accept(k, alert)).to.equal(true);
     expect(ledger.pending()).to.have.length(1);
     expect(ledger.accept(k, alert)).to.equal(false);
-    ledger.markDelivered(k);
+    ledger.markDelivered(k, { ...evidence, payloadHash: ledger.payloadHash(alert) });
     expect(ledger.pending()).to.have.length(0);
+  });
+
+  it("keeps pending delivery when evidence is absent or bound to another payload", () => {
+    const ledger = new ActivityLedger(new InMemoryActivityStore());
+    const k = key("0x0000000000000000000000000000000000000000000000000000000000000005");
+    ledger.accept(k, alert);
+    expect(() => ledger.markDelivered(k, undefined as never)).to.throw(/evidence/i);
+    expect(() => ledger.markDelivered(k, evidence)).to.throw(/payload/i);
+    expect(ledger.pending()).to.have.length(1);
+  });
+
+  it("rejects malformed persisted alert bigint and safe-integer fields", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vault-monitor-malformed-"));
+    try {
+      const path = join(dir, "ledger.json");
+      const id = `31337:${alert.transactionHash}:0:0x${"05".padStart(64,"0")}`;
+      for (const malformed of [
+        { ...alert, blockNumber: 5 },
+        { ...alert, queueNonce: "not-an-integer" },
+        { ...alert, operation: 1.5 },
+      ]) {
+        writeFileSync(path, JSON.stringify({ records: { [id]: malformed }, outbox: { [id]: malformed } }, (_, value) => typeof value === "bigint" ? value.toString() : value));
+        const store = new FileActivityStore(path);
+        expect(() => new ActivityLedger(store)).to.throw(/malformed|invalid/i);
+        store.close();
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("rejects delivery evidence whose payload hash no longer matches the durable record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vault-monitor-evidence-"));
+    const path = join(dir, "ledger.json");
+    try {
+      const recordId = `31337:${alert.transactionHash}:0:0x${"05".padStart(64,"0")}`;
+      writeFileSync(path, JSON.stringify({ records: { [recordId]: alert }, outbox: {}, deliveries: { [recordId]: evidence } }, (_, value) => typeof value === "bigint" ? value.toString() : value));
+      const store = new FileActivityStore(path);
+      expect(() => new ActivityLedger(store)).to.throw(/payload mismatch/i);
+      store.close();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it("fails closed when a second file ledger writer is opened", () => {

@@ -46,10 +46,16 @@ describe("guard activity decoding", () => {
     expect(await decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 10n, binding)).to.equal(undefined);
   });
 
+  it("ignores an unrelated guard event only when its exact signature is unknown", async () => {
+    const unrelated = parseAbiItem("event PolicyConfigured(address token)");
+    const topics = encodeEventTopics({ abi: [unrelated], eventName: "PolicyConfigured", args: { token } });
+    expect(await decodeGuardLog(monitoringLog(identity.guard, identity.chainId, topics as `0x${string}`[], "0x", { blockHash: keccak256(toHex("block")), transactionHash: keccak256(toHex("other")) }), identity, 12n, binding)).to.equal(undefined);
+  });
+
   it("fails closed on wrong identity, malformed data, and a mismatched transaction binding", async () => {
     await expect(decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n], { address: identity.delay }), identity, 12n, binding)).to.be.rejectedWith(/identity/i);
     await expect(decodeGuardLog({ ...log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), data: "0x12" }, identity, 12n, binding)).to.be.rejectedWith(/malformed/i);
-    await expect(decodeGuardLog(log("AuthorizationUsed", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n, binding)).to.be.rejectedWith(/malformed|unknown/i);
+    expect(await decodeGuardLog(log("AuthorizationUsed", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n, binding)).to.equal(undefined);
   });
 
   it("requires read-only transaction and counter revalidation before notification", async () => {
@@ -62,9 +68,13 @@ describe("guard activity decoding", () => {
 
   it("reads counters at the event block instead of suppressing a valid prior event with latest state", async () => {
     const blocks: bigint[] = [];
-    const eventBinding = { ...binding, readSpendState: async (_token: typeof token, blockNumber: bigint) => { blocks.push(blockNumber); return { baseSpent: 7n, instantSpent: 25n, window: 1n }; } };
+    const blockHashes: `0x${string}`[] = [];
+    const transactionBlocks: bigint[] = [];
+    const eventBinding = { ...binding, readSafeTransaction: async (_hash: `0x${string}`, blockNumber: bigint, blockHash?: `0x${string}`) => { transactionBlocks.push(blockNumber); if(blockHash)blockHashes.push(blockHash); return binding.readSafeTransaction(); }, readSpendState: async (_token: typeof token, blockNumber: bigint) => { blocks.push(blockNumber); return { baseSpent: 7n, instantSpent: 25n, window: 1n }; } };
     await decodeGuardLog(log("TransferAuthorized", [1, token, recipient, 25n, 7n, 25n, 1n]), identity, 20n, eventBinding);
     expect(blocks).to.deep.equal([10n]);
+    expect(transactionBlocks).to.deep.equal([10n]);
+    expect(blockHashes).to.deep.equal([keccak256(toHex("block"))]);
   });
 
   it("requires a Safe transaction binding that includes the configured outer Safe recipient", async () => {

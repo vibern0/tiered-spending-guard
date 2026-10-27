@@ -1,15 +1,14 @@
 import { createPublicClient, decodeEventLog, decodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
 import { decodeDelayLog, delayEventAbi, deriveDelayLifecycle, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
-import { decodeGuardLog, verifyGuardBinding, type MonitoringIdentity, type SafeTransaction } from "../src/monitoring/guard-events";
+import { decodeGuardLog, type MonitoringIdentity } from "../src/monitoring/guard-events";
+import { createRpcGuardBinding, type RpcGuardClient } from "../src/monitoring/guard-rpc-binding";
 import { ActivityLedger, FileActivityStore, type ActivityLogKey } from "../src/monitoring/ledger";
-import { createStdoutNotifier } from "../src/monitoring/notifier";
+import { createLiveWebhookNotifier, deliverPendingAlerts, scanFailClosed } from "../src/monitoring/watcher-runtime";
 
 const env = (name: string): string => { const value = process.env[name]; if (!value) throw new Error(`missing ${name}`); return value; };
 const address = (name: string): Address => env(name) as Address;
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 const safeAbi = parseAbi([
-  "function execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
-  "function spendState(address) view returns (uint256,uint256,uint256)",
   "function getTxHash(uint256) view returns (bytes32)",
   "function getTxCreatedAt(uint256) view returns (uint256)",
   "function txNonce() view returns (uint256)",
@@ -26,6 +25,7 @@ async function main(): Promise<void> {
   const safe = address("MONITOR_SAFE");
   const guard = address("MONITOR_GUARD");
   const delay = address("MONITOR_DELAY");
+  const notifier = createLiveWebhookNotifier(process.env);
   const client = createPublicClient({ transport: http(env("MONITOR_RPC_URL")) });
   const rpcChain = await client.getChainId();
   if (rpcChain !== expectedChain) throw new Error(`RPC chain identity mismatch: expected ${expectedChain}, got ${rpcChain}`);
@@ -57,33 +57,16 @@ async function main(): Promise<void> {
       client.readContract({ address: delay, abi: safeAbi, functionName: "getTxCreatedAt", args: [queueNonce], blockNumber }),
     ]);
     const readDelayNonce = (blockNumber: bigint) => client.readContract({ address: delay, abi: safeAbi, functionName: "txNonce", blockNumber });
-    const readSafeTransaction = async (hash: Hex): Promise<SafeTransaction> => {
-      const tx = await client.getTransaction({ hash });
-      if (!tx.to || !same(tx.to, safe)) throw new Error("outer RPC transaction recipient is not MONITOR_SAFE");
-      if (!tx.input) throw new Error("missing Safe transaction input");
-      const decoded = decodeFunctionData({ abi: safeAbi, data: tx.input });
-      if (decoded.functionName !== "execTransaction") throw new Error("unexpected Safe transaction selector");
-      const args = decoded.args as readonly [Address, bigint, Hex, number, bigint, bigint, bigint, Address, Address, Hex];
-      return { safe: tx.to, to: args[0], value: args[1], data: args[2], operation: args[3], nonce: args[4] };
-    };
-    const guardBinding = {
-      readSafeTransaction,
-      readSpendState: async (token: Address, blockNumber: bigint) => {
-        const state = await client.readContract({ address: guard, abi: safeAbi, functionName: "spendState", args: [token], blockNumber });
-        return { baseSpent: state[0], instantSpent: state[1], window: state[2] };
-      },
-    };
+    const guardBinding = createRpcGuardBinding(client as unknown as RpcGuardClient, identity);
     const ordered = [...guardLogs, ...delayLogs].sort((a, b) => a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : Number(a.blockNumber - b.blockNumber));
-    for (const raw of ordered) {
+    await scanFailClosed(ordered, async raw => {
       const log = asMonitorLog(raw as RawLog);
       const key: ActivityLogKey = { chainId: rpcChain, blockHash: log.blockHash, transactionHash: log.transactionHash, logIndex: log.logIndex };
-      try {
-        if (log.removed) { ledger.remove(key); continue; }
+        if (log.removed) { ledger.remove(key); return; }
         if (same(log.address, guard)) {
           const alert = await decodeGuardLog(log, identity, latest, guardBinding);
-          if (alert) await verifyGuardBinding(alert, guardBinding, identity, log.blockNumber);
           if (alert) ledger.accept(key, alert);
-          continue;
+          return;
         }
         const eventBlock = await client.getBlock({ blockNumber: log.blockNumber });
         if (!eventBlock.hash) throw new Error("missing event block hash");
@@ -100,8 +83,7 @@ async function main(): Promise<void> {
         const alert = await decodeDelayLog(log, delayContext, latest, eventBlock.timestamp, queueBinding);
         await verifyDelayBinding(alert, queueBinding, delayContext);
         ledger.accept(key, alert);
-      } catch (error) { console.error(`ignored malformed or unverified log ${log.transactionHash}:${log.logIndex}`, error); }
-    }
+    }, raw => `${raw.transactionHash}:${raw.logIndex}`);
     const queued = ledger.records().filter((record): record is DelayedQueuedAlert => record.kind === "delayed-queued" && record.queueNonce !== undefined && record.queueFingerprint !== undefined && record.createdAt !== undefined);
     const lifecycleFrom = queued.reduce((minimum, record) => record.blockNumber < minimum ? record.blockNumber + 1n : minimum, fromBlock);
     async function readLifecycleReceipts(from: bigint, to: bigint) {
@@ -119,8 +101,7 @@ async function main(): Promise<void> {
       return receipts;
     }
     const lifecycleReceipts = lifecycleFrom <= latest ? await readLifecycleReceipts(lifecycleFrom, latest) : [];
-    for (const record of queued) {
-      try {
+    await scanFailClosed(queued, async record => {
         if (record.to === undefined || record.value === undefined || record.data === undefined || record.operation === undefined) throw new Error("queued call tuple evidence unavailable");
         const lifecycle = await deriveDelayLifecycle(record, delayContext, latest, {
           readNonce: readDelayNonce,
@@ -133,14 +114,9 @@ async function main(): Promise<void> {
           decodeLifecycleCall: input => { const decoded = decodeFunctionData({ abi: lifecycleAbi, data: input }); return { functionName: decoded.functionName as "executeNextTx"|"skipExpired"|"setTxNonce", args: decoded.args as readonly unknown[] }; },
         });
         if (lifecycle) { const block = await client.getBlock({ blockNumber: lifecycle.blockNumber }); if (!block.hash) throw new Error("missing derived lifecycle block hash"); ledger.accept({ chainId: rpcChain, blockHash: block.hash, transactionHash: lifecycle.transactionHash, logIndex: lifecycle.logIndex }, lifecycle); }
-      } catch (error) { console.error(`ignored unavailable or unverified derived lifecycle for queue ${record.queueNonce}`, error); }
-    }
-    const notifier = createStdoutNotifier();
-    for (const pending of ledger.pending()) {
-      await notifier.notify(pending.alert);
-      ledger.markDelivered(pending.key);
-    }
+    }, record => `queue-${record.queueNonce}`);
+    await deliverPendingAlerts(ledger, notifier);
   } finally { store.close(); }
 }
 
-main().catch(error => { console.error(error); process.exitCode = 1; });
+main().catch(() => { console.error("activity observer failed"); process.exitCode = 1; });

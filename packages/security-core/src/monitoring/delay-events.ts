@@ -33,7 +33,7 @@ export async function deriveDelayLifecycle(queued:DelayedQueuedAlert,c:DelayMoni
     if (receipt.status!=="success"||!same(receipt.to,c.delay)||receipt.blockNumber<=queued.blockNumber||receipt.blockNumber>latestBlock) continue;
     if (latestBlock-receipt.blockNumber+1n<BigInt(c.confirmations)) continue;
     const block=await binding.readCanonicalBlock(receipt.blockNumber);
-    if (block.blockNumber!==receipt.blockNumber||!same(block.blockHash,receipt.blockHash)) continue;
+    if (block.blockNumber!==receipt.blockNumber||!same(block.blockHash,receipt.blockHash)) throw new MonitoringDecodeError("non-canonical Delay lifecycle receipt block");
     let call:LifecycleCall;try{call=binding.decodeLifecycleCall(receipt.input);}catch{continue;}
     const before=receipt.blockNumber===0n?0n:await binding.readNonce(receipt.blockNumber-1n);
     const after=await binding.readNonce(receipt.blockNumber);

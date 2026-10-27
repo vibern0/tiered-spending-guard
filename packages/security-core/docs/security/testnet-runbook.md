@@ -89,6 +89,8 @@ Treat any blocker in the report as unresolved input, without substituting anothe
 
 The temporary test receiver's public hash and successful metadata probe establish configuration only. Keep every action's alert row conditional until that exact live event is independently delivered and reconciled. Never package its private URL.
 
+For the ordinary observer run, configure `MONITOR_WEBHOOK_URL` only in the external live environment. The watcher must reject a missing, non-HTTPS, credential-bearing, private-address, or DNS-ambiguous endpoint before scanning. Retain the canonical outer transaction/receipt and block identity, pre-block Safe nonce, ordered earlier same-block Safe execution events, derived target nonce, decoded `execTransaction` fields, recomputed `getTransactionHash`, matching `ExecutionSuccess.txHash`, guard event, event-block spend tuple, persisted alert, and durable delivery receipt. Reconcile the receiver's independently recorded body hash with the ledger payload hash. Do not retain the URL, headers, or provider credentials. The receiver descriptor/probe remains configuration evidence; actual activity delivery and closed-browser proof are `NOT_RUN` until the separately approved live matrix is performed.
+
 ## Forbidden paths
 
 Direct owner transfers that do not satisfy the guard tier, unlisted modules, fallback handlers, delegatecalls outside the fixed maintenance path, batches, approvals, Permit/Permit2, arbitrary messages, approved-hash authorization, unknown calldata, unknown recipients, broad recovery fields, signer-only shortcuts, relayer discretion, and UI-only authorization are forbidden. Monitoring is mandatory evidence, not an authorizer.

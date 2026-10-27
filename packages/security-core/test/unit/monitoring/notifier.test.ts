@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { createHash } from "node:crypto";
 import { getAddress } from "viem";
 import { createWebhookNotifier, publicAlert, type ActivityAlert, type Notifier } from "../../../src/monitoring/notifier";
 
@@ -82,10 +83,20 @@ describe("non-authorizing notifiers", () => {
       body = String(init?.body);
       return new Response(null, { status: 204 });
     });
-    await notifier.notify(alert);
+    const evidence = await notifier.notify(alert);
     expect(body).to.contain('"kind":"step-up-executed"');
     expect(body).to.not.contain("privateKey");
     expect(body).to.not.contain("sign");
+    expect(evidence).to.deep.include({ channel: "webhook", httpStatus: 204 });
+    expect(evidence && "payloadHash" in evidence ? evidence.payloadHash : undefined).to.equal(`0x${createHash("sha256").update(body).digest("hex")}`);
+    expect(evidence && "deliveredAt" in evidence ? Number.isNaN(Date.parse(evidence.deliveredAt)) : true).to.equal(false);
+  });
+
+  it("sanitizes request failures so endpoint and credentials cannot leak", async () => {
+    const secret = "opaque-receiver-token";
+    const notifier = createWebhookNotifier(`https://example.invalid/${secret}`, async () => { throw new Error(`connect failed at https://example.invalid/${secret}`); });
+    try { await notifier.notify(alert); expect.fail("expected delivery failure"); }
+    catch (error) { expect(String(error)).to.equal("Error: notification webhook request failed"); expect(String(error)).to.not.contain(secret); }
   });
 
   it("rejects non-HTTPS webhook endpoints and embedded credentials", () => {
