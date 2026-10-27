@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { isAddress, keccak256, type Address, type Hex } from "viem";
+import { decodeFunctionData, hashTypedData, isAddress, keccak256, recoverAddress, type Address, type Hex } from "viem";
 import { sha256 } from "../plan-deployment";
+import { SAFE_TX_TYPES } from "../../src/signers/types";
 import {
   PHASE_OUTLAY_LIMIT,
   liveIntentHash,
@@ -30,6 +31,54 @@ const INITIAL_USDC = 20_000_000n;
 const RECYCLED_STEP_UP_USDC = 10_000_000n;
 const RECYCLED_DELAYED_USDC = 1_000_000n;
 const GROSS_USDC = 31_000_000n;
+const ERC1271_MAGIC = "0x1626ba7e";
+const ECDSA_SECONDARY_SIGNATURE_TYPE_HASH = "0xc3d042548a46ef9078620b2d3fe7e21f006a7ecf29ab9b2807d4bdbbc41cecf0" as Hex;
+const SAFE_ABI = [{ type: "function", name: "execTransaction", stateMutability: "payable", inputs: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" }, { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "signatures", type: "bytes" }], outputs: [{ type: "bool" }] }] as const;
+const ERC20_ABI = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }, { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
+const DELAY_MODULE_ABI = [{ type: "function", name: "execTransactionFromModule", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }], outputs: [{ type: "bool" }] }] as const;
+const DELAY_ABI = [{ type: "function", name: "executeNextTx", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }] }, { type: "function", name: "skipExpired", stateMutability: "nonpayable", inputs: [] }, { type: "function", name: "setTxNonce", stateMutability: "nonpayable", inputs: [{ type: "uint256" }] }] as const;
+
+type ActionDescriptor = Readonly<{ kind: string; asset: "native" | "USDC"; safeNonce?: bigint; signerRoles: readonly string[]; dependsOn: readonly string[] }>;
+const ACTION_DESCRIPTOR_ROWS = `
+native-funding|funding|native|-|funder|-
+usdc-funding|funding|USDC|-|funder|native-funding
+native-base-x|base-transfer|native|0|primary-passkey|native-funding
+native-step-up-contract|step-up-transfer|native|1|primary-passkey,safe-contract-secondary|native-base-x
+native-step-up-ecdsa|step-up-transfer|native|2|primary-passkey,legacy-ecdsa-secondary|native-step-up-contract
+native-direct-overspend-rejection|expected-direct-rejection|native|3|primary-passkey,safe-contract-secondary|native-step-up-ecdsa
+native-replay-rejection|expected-replay-rejection|native|0|replay previously reviewed signed envelope only in later executor|native-base-x
+native-unsupported-path-rejection|expected-unsupported-rejection|native|3|primary-passkey,safe-contract-secondary|native-step-up-ecdsa
+native-queue-cancel|queue-proposal|native|3|primary-passkey,safe-contract-secondary|native-step-up-ecdsa
+native-queue-cancel-early-rejection|expected-early-rejection|native|-|-|native-queue-cancel
+native-queue-cancel-action|queue-cancellation|native|4|primary-passkey,safe-contract-secondary|native-queue-cancel
+native-queue-cancelled-execution-rejection|expected-cancelled-rejection|native|-|-|native-queue-cancel-action
+native-queue-expiry|queue-proposal|native|5|primary-passkey,safe-contract-secondary|native-queue-cancel-action
+native-queue-expiry-early-rejection|expected-early-rejection|native|-|-|native-queue-expiry
+native-queue-expiry-skip|queue-expiry|native|-|-|native-queue-expiry
+native-queue-expired-execution-rejection|expected-expired-rejection|native|-|-|native-queue-expiry-skip
+native-queue-execute|queue-proposal|native|6|primary-passkey,safe-contract-secondary|native-queue-expiry-skip
+native-queue-execute-early-rejection|expected-early-rejection|native|-|-|native-queue-execute
+native-queue-ready-execute|ready-delay-execution|native|-|-|native-queue-execute-early-rejection
+usdc-base-x|base-transfer|USDC|7|primary-passkey|usdc-funding,native-queue-ready-execute
+usdc-step-up-contract|step-up-transfer|USDC|8|primary-passkey,safe-contract-secondary|usdc-base-x
+usdc-recycle-topup-step-up|controlled-recipient-recycled-funding|USDC|-|funder|usdc-step-up-contract
+usdc-step-up-ecdsa|step-up-transfer|USDC|9|primary-passkey,legacy-ecdsa-secondary|usdc-recycle-topup-step-up
+usdc-direct-overspend-rejection|expected-direct-rejection|USDC|10|primary-passkey,safe-contract-secondary|usdc-step-up-ecdsa
+usdc-replay-rejection|expected-replay-rejection|USDC|7|replay previously reviewed signed envelope only in later executor|usdc-base-x
+usdc-unsupported-path-rejection|expected-unsupported-rejection|USDC|10|primary-passkey,safe-contract-secondary|usdc-step-up-ecdsa
+usdc-recycle-topup-delayed|controlled-recipient-recycled-funding|USDC|-|funder|usdc-step-up-ecdsa
+usdc-queue-cancel|queue-proposal|USDC|10|primary-passkey,safe-contract-secondary|usdc-recycle-topup-delayed
+usdc-queue-cancel-early-rejection|expected-early-rejection|USDC|-|-|usdc-queue-cancel
+usdc-queue-cancel-action|queue-cancellation|USDC|11|primary-passkey,safe-contract-secondary|usdc-queue-cancel
+usdc-queue-cancelled-execution-rejection|expected-cancelled-rejection|USDC|-|-|usdc-queue-cancel-action
+usdc-queue-expiry|queue-proposal|USDC|12|primary-passkey,safe-contract-secondary|usdc-queue-cancel-action
+usdc-queue-expiry-early-rejection|expected-early-rejection|USDC|-|-|usdc-queue-expiry
+usdc-queue-expiry-skip|queue-expiry|USDC|-|-|usdc-queue-expiry
+usdc-queue-expired-execution-rejection|expected-expired-rejection|USDC|-|-|usdc-queue-expiry-skip
+usdc-queue-execute|queue-proposal|USDC|13|primary-passkey,safe-contract-secondary|usdc-queue-expiry-skip
+usdc-queue-execute-early-rejection|expected-early-rejection|USDC|-|-|usdc-queue-execute
+usdc-queue-ready-execute|ready-delay-execution|USDC|-|-|usdc-queue-execute-early-rejection`;
+const ACTION_DESCRIPTORS = new Map<string, ActionDescriptor>(ACTION_DESCRIPTOR_ROWS.trim().split("\n").map((row) => { const [id, kind, asset, nonce, roles, dependencies] = row.split("|"); return [id!, Object.freeze({ kind: kind!, asset: asset as "native" | "USDC", safeNonce: nonce === "-" ? undefined : BigInt(nonce!), signerRoles: roles === "-" ? [] : roles!.split(","), dependsOn: dependencies === "-" ? [] : dependencies!.split(",") })]; }));
 
 const SUPPORTED_KINDS = new Set([
   "funding", "controlled-recipient-recycled-funding", "base-transfer", "step-up-transfer", "queue-proposal", "queue-cancellation",
@@ -65,7 +114,7 @@ const ALLOWED_IDS = new Set([
 ]);
 
 type SpendState = Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>;
-export type QueueState = Readonly<{ queueNonce: bigint; fingerprint: Hex; createdAt: bigint; status: "queued" | "cancelled" | "expired" | "executed" }>;
+export type QueueState = Readonly<{ queueNonce: bigint; fingerprint: Hex; createdAt: bigint; status: "queued" | "cancelled" | "expired" | "executed"; to: Address; value: bigint; data: Hex; operation: 0 }>;
 export type DependencyEvidence = Readonly<{ actionId: string; transactionHash?: Hex; blockHash?: Hex; evidenceHash: Hex }>;
 
 export type CanonicalOrdinaryScenarioState = Readonly<{
@@ -104,7 +153,12 @@ type ControlledState = Readonly<{
   nativeInstantSpent: string;
   usdcBaseSpent: string;
   usdcInstantSpent: string;
+  queueStatus: "EMPTY" | "QUEUED_CONDITIONAL" | "CANCELLED_CONDITIONAL" | "EXPIRED_CONDITIONAL" | "EXECUTED_CONDITIONAL";
+  queueNonce: string | null;
+  queueFingerprint: Hex | null;
 }>;
+
+type ReviewedSafeTransaction = Readonly<{ to: Address; value: bigint; data: Hex; operation: 0; safeNonce: bigint; safeTxHash: Hex; safeTxGas: 0n; baseGas: 0n; gasPrice: 0n; gasToken: Address; refundReceiver: Address }>;
 
 export type OrdinaryScenarioActionScope = Readonly<{
   id: string;
@@ -120,6 +174,7 @@ export type OrdinaryScenarioActionScope = Readonly<{
   before: ControlledState;
   after: ControlledState;
   safeTxHash?: Hex;
+  safeTransaction?: ReviewedSafeTransaction;
   publicTransaction?: Readonly<{ to: Address; value: bigint; data: Hex }>;
   queue?: Readonly<{ queueNonce: bigint; fingerprint: Hex; monitoringFingerprint: Hex; to: Address; value: bigint; data: Hex; operation: 0 }>;
 }>;
@@ -141,6 +196,10 @@ export type OrdinaryScenarioProposal = Readonly<{
   delay: Address;
   funder: Address;
   usdc: Address;
+  recipient: Address;
+  primarySigner: Address;
+  safeContractSecondary: Address;
+  ecdsaSecondary: Address;
   periodSeconds: "86400";
   periodAnchor: "0";
   cooldownSeconds: "120";
@@ -212,6 +271,7 @@ export type PreparedOrdinaryAction = Readonly<{
   signedCalldataHash: Hex;
   signatureBundleHash: Hex | null;
   transientSignedCalldata: Hex;
+  replaySource?: Readonly<{ actionId: string; transactionHash: Hex; safeTxHash: Hex; safeNonce: bigint }>;
 }>;
 export type SignedSimulationEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: boolean; gasEstimate: bigint; resultHash: Hex }>;
 export type RejectionEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: false; revertDataHash: Hex; postState: CanonicalOrdinaryScenarioState }>;
@@ -228,6 +288,8 @@ export type OrdinaryScenarioExecutionContext = Readonly<{
   simulate(action: OrdinaryScenarioActionScope, prepared: PreparedOrdinaryAction, state: CanonicalOrdinaryScenarioState): Promise<SignedSimulationEvidence>;
   proveRejection(action: OrdinaryScenarioActionScope, state: CanonicalOrdinaryScenarioState, prepared?: PreparedOrdinaryAction): Promise<RejectionEvidence>;
   recoverPending(action: OrdinaryScenarioActionScope, record: OrdinaryScenarioActionRecord): Promise<LiveIntent>;
+  recoverReplay(action: OrdinaryScenarioActionScope, source: OrdinaryScenarioActionRecord, state: CanonicalOrdinaryScenarioState): Promise<PreparedOrdinaryAction>;
+  verifyContractSignature(signer: Address, safeTxHash: Hex, signature: Hex, blockNumber: bigint): Promise<Hex>;
   confirm(action: OrdinaryScenarioActionScope, entry: JournalEntry, record: OrdinaryScenarioActionRecord): Promise<ConfirmationEvidence>;
   live: Omit<LiveContext, "verify" | "persist">;
 }>;
@@ -245,6 +307,10 @@ const publicValue = (value: unknown): unknown => {
 };
 const publicHash = (value: unknown): Hex => sha256(publicValue(value)) as Hex;
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
+const bytes = (value: Hex): Uint8Array => Uint8Array.from(Buffer.from(value.slice(2), "hex"));
+const sliceHex = (value: Uint8Array, start: number, end: number): Hex => `0x${Buffer.from(value.slice(start, end)).toString("hex")}` as Hex;
+const uintWord = (value: Uint8Array, start: number): bigint => BigInt(sliceHex(value, start, start + 32));
+const addressWord = (value: Uint8Array, start: number): Address => `0x${Buffer.from(value.slice(start + 12, start + 32)).toString("hex")}` as Address;
 const record = (value: unknown, label: string): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value as Record<string, unknown>;
@@ -303,6 +369,11 @@ function actionControlledState(value: Record<string, unknown>, side: "before" | 
   exactKeys(record(value.queue, "action expected queue"), ["before", "after"], "action expected queue");
   exactKeys(queue, ["status", "queueNonce", "fingerprint"], `action expected ${side} queue`);
   exactKeys(record(value.nativeFunderGasAccounting, "action expected funder gas accounting"), ["beforeExpression", "afterExpression", "cumulativeProposedGasCapAfterWei", "minimumAfterAtProposedCapsWei"], "action expected funder gas accounting");
+  const queueStatus = queue.status;
+  if (queueStatus !== "EMPTY" && queueStatus !== "QUEUED_CONDITIONAL" && queueStatus !== "CANCELLED_CONDITIONAL" && queueStatus !== "EXPIRED_CONDITIONAL" && queueStatus !== "EXECUTED_CONDITIONAL") throw new Error(`action expected ${side} queue status mismatch`);
+  const queueNonceValue = queue.queueNonce === null ? null : decimal(queue.queueNonce, `action expected ${side} queue nonce`).toString();
+  const queueFingerprint = queue.fingerprint === null ? null : hash(queue.fingerprint, `action expected ${side} queue fingerprint`);
+  if ((queueStatus === "EMPTY") !== (queueNonceValue === null && queueFingerprint === null) || (queueStatus !== "EMPTY" && (queueNonceValue === null || queueFingerprint === null))) throw new Error(`action expected ${side} queue identity mismatch`);
   return deepFreeze({
     safeNativeBalance: decimal(principal[side === "before" ? "nativeSafeBefore" : "nativeSafeAfter"], "safe native balance").toString(),
     funderUsdcBalance: decimal(principal[side === "before" ? "usdcFunderBefore" : "usdcFunderAfter"], "funder USDC balance").toString(),
@@ -311,6 +382,7 @@ function actionControlledState(value: Record<string, unknown>, side: "before" | 
     delayQueueNonce: delayQueueNonce.toString(), delayTxNonce: delayTxNonce.toString(),
     nativeBaseSpent: decimal(native.baseSpent, "native base spent").toString(), nativeInstantSpent: decimal(native.instantSpent, "native instant spent").toString(),
     usdcBaseSpent: decimal(usdcState.baseSpent, "USDC base spent").toString(), usdcInstantSpent: decimal(usdcState.instantSpent, "USDC instant spent").toString(),
+    queueStatus, queueNonce: queueNonceValue, queueFingerprint,
   });
 }
 
@@ -322,7 +394,43 @@ function validateActionShape(value: unknown, index: number): Record<string, unkn
   return action;
 }
 
-function snapshotAction(action: Record<string, unknown>, index: number, queueBefore: bigint, txBefore: bigint): { scope: OrdinaryScenarioActionScope; queueAfter: bigint; txAfter: bigint } {
+type SemanticIdentity = Readonly<{ safe: Address; delay: Address; usdc: Address; recipient: Address }>;
+function decodeCall(abi: readonly object[], data: Hex, label: string): ReturnType<typeof decodeFunctionData> {
+  try { return decodeFunctionData({ abi, data }); } catch { throw new Error(`${label} calldata mismatch`); }
+}
+function assertQueueTuple(args: readonly unknown[], queue: NonNullable<OrdinaryScenarioActionScope["queue"]>, label: string): void {
+  if (!same(args[0] as string, queue.to) || args[1] !== queue.value || !same(args[2] as string, queue.data) || args[3] !== queue.operation) throw new Error(`${label} queue tuple mismatch`);
+}
+function validateActionSemantics(scope: OrdinaryScenarioActionScope, identity: SemanticIdentity, descriptor: ActionDescriptor, queueBefore: bigint): void {
+  if (scope.safeTransaction) {
+    const tx = scope.safeTransaction;
+    if (descriptor.safeNonce === undefined || tx.safeNonce !== descriptor.safeNonce) throw new Error(`${scope.id} fixed Safe nonce mismatch`);
+    const recomputed = hashTypedData({ domain: { chainId: CHAIN_ID, verifyingContract: identity.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } });
+    if (!same(recomputed, tx.safeTxHash)) throw new Error(`${scope.id} reviewed Safe hash mismatch`);
+    if (scope.kind === "base-transfer" || scope.kind === "step-up-transfer" || scope.kind === "expected-direct-rejection" || scope.kind === "expected-replay-rejection") {
+      const amount = scope.kind === "expected-direct-rejection" ? 1n : scope.asset === "native" ? NATIVE_X : USDC_X;
+      if (scope.asset === "native") { if (!same(tx.to, identity.recipient) || tx.value !== amount || tx.data !== "0x") throw new Error(`${scope.id} native transfer semantic mismatch`); }
+      else { const decoded = decodeCall(ERC20_ABI, tx.data, scope.id); if (!same(tx.to, identity.usdc) || tx.value !== 0n || decoded.functionName !== "transfer" || !same(decoded.args[0] as string, identity.recipient) || decoded.args[1] !== amount) throw new Error(`${scope.id} token transfer semantic mismatch`); }
+    } else if (scope.kind === "expected-unsupported-rejection") {
+      const decoded = decodeCall(ERC20_ABI, tx.data, scope.id); if (!same(tx.to, identity.usdc) || tx.value !== 0n || decoded.functionName !== "approve" || !same(decoded.args[0] as string, identity.recipient) || decoded.args[1] !== 1n) throw new Error(`${scope.id} unsupported-path semantic mismatch`);
+    } else if (scope.kind === "queue-proposal") {
+      const decoded = decodeCall(DELAY_MODULE_ABI, tx.data, scope.id); if (!same(tx.to, identity.delay) || tx.value !== 0n || decoded.functionName !== "execTransactionFromModule" || !scope.queue) throw new Error(`${scope.id} queue proposal semantic mismatch`); assertQueueTuple(decoded.args, scope.queue, scope.id);
+    } else if (scope.kind === "queue-cancellation") {
+      const decoded = decodeCall(DELAY_ABI, tx.data, scope.id); if (!same(tx.to, identity.delay) || tx.value !== 0n || decoded.functionName !== "setTxNonce" || decoded.args[0] !== queueBefore) throw new Error(`${scope.id} queue cancellation semantic mismatch`);
+    } else throw new Error(`${scope.id} unsupported Safe action semantic`);
+  } else if (scope.kind === "funding" || scope.kind === "controlled-recipient-recycled-funding") {
+    if (!scope.publicTransaction) throw new Error(`${scope.id} funding transaction is missing`);
+    if (scope.asset === "native") { if (!same(scope.publicTransaction.to, identity.safe) || scope.publicTransaction.value !== 30_000_000_000_001n || scope.publicTransaction.data !== "0x") throw new Error(`${scope.id} native funding semantic mismatch`); }
+    else { const amount = scope.id === "usdc-funding" ? INITIAL_USDC : scope.id === "usdc-recycle-topup-step-up" ? RECYCLED_STEP_UP_USDC : RECYCLED_DELAYED_USDC; const decoded = decodeCall(ERC20_ABI, scope.publicTransaction.data, scope.id); if (!same(scope.publicTransaction.to, identity.usdc) || scope.publicTransaction.value !== 0n || decoded.functionName !== "transfer" || !same(decoded.args[0] as string, identity.safe) || decoded.args[1] !== amount) throw new Error(`${scope.id} USDC funding semantic mismatch`); }
+  } else {
+    if (!scope.publicTransaction || !scope.queue || !same(scope.publicTransaction.to, identity.delay) || scope.publicTransaction.value !== 0n) throw new Error(`${scope.id} Delay public semantic mismatch`);
+    const decoded = decodeCall(DELAY_ABI, scope.publicTransaction.data, scope.id);
+    if (scope.kind === "queue-expiry") { if (decoded.functionName !== "skipExpired") throw new Error(`${scope.id} expiry selector mismatch`); }
+    else { if (decoded.functionName !== "executeNextTx") throw new Error(`${scope.id} execution selector mismatch`); assertQueueTuple(decoded.args, scope.queue, scope.id); }
+  }
+}
+
+function snapshotAction(action: Record<string, unknown>, index: number, queueBefore: bigint, txBefore: bigint, identity: SemanticIdentity): { scope: OrdinaryScenarioActionScope; queueAfter: bigint; txAfter: bigint } {
   const id = text(action.id, `action ${index} id`); const kind = text(action.kind, `${id} kind`);
   if (!ALLOWED_IDS.has(id) || !SUPPORTED_KINDS.has(kind)) throw new Error(`ordinary scenario contains unknown action ${id}`);
   if (action.status !== "CONDITIONAL_NOT_RUN") throw new Error(`supported action ${id} is not reviewable`);
@@ -332,16 +440,18 @@ function snapshotAction(action: Record<string, unknown>, index: number, queueBef
   if (asset !== "native" && asset !== "USDC" && asset !== "control") throw new Error(`${id} asset mismatch`);
   const dependsOn = array(action.dependsOn, `${id} dependencies`).map((entry, dependency) => text(entry, `${id} dependency ${dependency}`));
   const signerRoles = array(action.signerRoles, `${id} signer roles`).map((entry, role) => text(entry, `${id} signer role ${role}`));
+  const descriptor = ACTION_DESCRIPTORS.get(id);
+  if (!descriptor || descriptor.kind !== kind || descriptor.asset !== asset || JSON.stringify(descriptor.dependsOn) !== JSON.stringify(dependsOn) || JSON.stringify(descriptor.signerRoles) !== JSON.stringify(signerRoles)) throw new Error(`${id} closed action descriptor mismatch`);
   const caps = record(action.proposedGasAndFee, `${id} caps`);
   exactKeys(caps, ["gasLimit", "maxFeePerGas", "maxPriorityFeePerGas", "liveEstimated", "preSendEstimateRequired"], `${id} caps`);
   const gasLimitCap = decimal(caps.gasLimit, `${id} gas cap`); const maxFeePerGasCap = decimal(caps.maxFeePerGas, `${id} max fee cap`); const maxPriorityFeePerGasCap = decimal(caps.maxPriorityFeePerGas, `${id} priority fee cap`);
   if (gasLimitCap <= 0n || maxFeePerGasCap <= 0n || maxPriorityFeePerGasCap > maxFeePerGasCap || caps.liveEstimated !== false || caps.preSendEstimateRequired !== true) throw new Error(`${id} gas and fee caps are invalid`);
-  let safeTxHash: Hex | undefined; let publicTransaction: OrdinaryScenarioActionScope["publicTransaction"];
+  let safeTxHash: Hex | undefined; let safeTransaction: ReviewedSafeTransaction | undefined; let publicTransaction: OrdinaryScenarioActionScope["publicTransaction"];
   if (action.safeTransaction !== undefined) {
     const transaction = record(action.safeTransaction, `${id} Safe transaction`);
     exactKeys(transaction, ["to", "value", "data", "operation", "safeNonce", "safeTxHash", "safeTxGas", "baseGas", "gasPrice", "gasToken", "refundReceiver"], `${id} Safe transaction`);
     if (transaction.operation !== 0 || decimal(transaction.safeTxGas, `${id} safeTxGas`) !== 0n || decimal(transaction.baseGas, `${id} baseGas`) !== 0n || decimal(transaction.gasPrice, `${id} gasPrice`) !== 0n || !same(address(transaction.gasToken, `${id} gas token`), ZERO) || !same(address(transaction.refundReceiver, `${id} refund receiver`), ZERO)) throw new Error(`${id} Safe refund or operation fields are not fixed`);
-    address(transaction.to, `${id} Safe target`); decimal(transaction.value, `${id} Safe value`); hex(transaction.data, `${id} Safe calldata`); decimal(transaction.safeNonce, `${id} Safe nonce`); safeTxHash = hash(transaction.safeTxHash, `${id} Safe hash`);
+    safeTransaction = deepFreeze({ to: address(transaction.to, `${id} Safe target`), value: decimal(transaction.value, `${id} Safe value`), data: hex(transaction.data, `${id} Safe calldata`), operation: 0, safeNonce: decimal(transaction.safeNonce, `${id} Safe nonce`), safeTxHash: hash(transaction.safeTxHash, `${id} Safe hash`), safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO }); safeTxHash = safeTransaction.safeTxHash;
   }
   if (action.publicTransaction !== undefined) {
     const transaction = record(action.publicTransaction, `${id} public transaction`);
@@ -368,7 +478,9 @@ function snapshotAction(action: Record<string, unknown>, index: number, queueBef
   const after = actionControlledState(expectedState, "after", queueAfter, txAfter);
   if (safeTxHash && BigInt(after.safeNonce) !== BigInt(before.safeNonce) + (expectedOutcome === "success" ? 1n : 0n)) throw new Error(`${id} fixed Safe nonce progression mismatch`);
   if (!safeTxHash && BigInt(after.safeNonce) !== BigInt(before.safeNonce)) throw new Error(`${id} unexpectedly changes Safe nonce`);
-  return { scope: deepFreeze({ id, kind, asset, expectedOutcome: expectedOutcome as "success" | "rejection", signerRoles, dependsOn, commitment: sha256(action) as Hex, gasLimitCap, maxFeePerGasCap, maxPriorityFeePerGasCap, before, after, safeTxHash, publicTransaction, queue }), queueAfter, txAfter };
+  const scope = deepFreeze({ id, kind, asset, expectedOutcome: expectedOutcome as "success" | "rejection", signerRoles, dependsOn, commitment: sha256(action) as Hex, gasLimitCap, maxFeePerGasCap, maxPriorityFeePerGasCap, before, after, safeTxHash, safeTransaction, publicTransaction, queue });
+  validateActionSemantics(scope, identity, descriptor, queueBefore);
+  return { scope, queueAfter, txAfter };
 }
 
 export function createOrdinaryScenarioProposal(serializedReview: string, expected: Readonly<{ expectedPackageHash: Hex; expectedArtifactBytesHash: Hex }>): OrdinaryScenarioProposal {
@@ -389,6 +501,8 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
   exactKeys(balances, ["funder", "safe", "recipient"], "ordinary scenario balances");
   for (const name of ["funder", "safe", "recipient"] as const) exactKeys(record(balances[name], `ordinary scenario ${name} balance`), ["address", "nativeWei", "usdcUnits"], `ordinary scenario ${name} balance`);
   const safeAddress = address(identities.safe, "ordinary scenario Safe"); const guardAddress = address(identities.guard, "ordinary scenario guard"); const delayAddress = address(identities.delay, "ordinary scenario Delay"); const funderAddress = address(identities.funder ?? funderBalance.address, "ordinary scenario funder");
+  const recipientAddress = address(record(balances.recipient, "ordinary scenario recipient balance").address, "ordinary scenario recipient");
+  if (!same(recipientAddress, funderAddress)) throw new Error("ordinary scenario controlled recipient must equal funder");
   const token = record(snapshot.token, "ordinary scenario token"); const usdcAddress = address(token.address, "ordinary scenario USDC");
   exactKeys(token, ["address", "name", "symbol", "decimals"], "ordinary scenario token");
   if (token.symbol !== "USDC" || token.decimals !== 6) throw new Error("ordinary scenario USDC metadata mismatch");
@@ -402,6 +516,9 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
   exactKeys(observer, ["kind", "publicId", "independentFromProposer", "endpointHash", "probeEvidenceHash", "actualActivityAlerts"], "ordinary scenario observer");
   const signers = record(identities.signers, "ordinary scenario signers"); exactKeys(signers, ["primary", "safeContractSecondary", "ecdsaSecondary"], "ordinary scenario signers");
   for (const name of ["primary", "safeContractSecondary", "ecdsaSecondary"] as const) exactKeys(record(signers[name], `ordinary scenario ${name}`), ["address", "kind", "available", "source"], `ordinary scenario ${name}`);
+  const primarySigner = address(record(signers.primary, "ordinary scenario primary signer").address, "ordinary scenario primary signer address");
+  const safeContractSecondary = address(record(signers.safeContractSecondary, "ordinary scenario safe-contract secondary").address, "ordinary scenario safe-contract secondary address");
+  const ecdsaSecondary = address(record(signers.ecdsaSecondary, "ordinary scenario ECDSA secondary").address, "ordinary scenario ECDSA secondary address");
   const runtimeIdentities = record(identities.runtimeCodeHashes, "ordinary scenario runtime identities");
   exactKeys(runtimeIdentities, ["safe", "guard", "delay", "maintenance", "primary", "safeContractSecondary", "ecdsaSecondary", "replacementContractSecondary"], "ordinary scenario runtime identities");
   exactKeys(record(identities.repair, "ordinary scenario repair proposal"), ["formatVersion", "scope", "chainId", "factory", "verifiers", "address", "x", "y", "observedRuntime", "deployed", "signed", "broadcast"], "ordinary scenario repair proposal");
@@ -422,7 +539,7 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
       continue;
     }
     if (excluded) throw new Error(`ordinary scenario supported action appears after excluded repair boundary: ${id}`);
-    const snap = snapshotAction(current, index, queueNonce, txNonce);
+    const snap = snapshotAction(current, index, queueNonce, txNonce, { safe: safeAddress, delay: delayAddress, usdc: usdcAddress, recipient: recipientAddress });
     if (snap.scope.dependsOn.some((dependency) => !seen.has(dependency))) throw new Error(`${id} dependency is missing or out of order`);
     seen.add(id); actions.push(snap.scope); queueNonce = snap.queueAfter; txNonce = snap.txAfter;
   }
@@ -430,7 +547,7 @@ export function createOrdinaryScenarioProposal(serializedReview: string, expecte
   const base = {
     schemaVersion: 1 as const, authorization: "NONE" as const, chainId: CHAIN_ID as 11155111,
     reviewPackageHash: expected.expectedPackageHash, reviewArtifactBytesHash: expected.expectedArtifactBytesHash, planHash: reportPlanHash,
-    topologyEvidenceHash, baselineEvidenceHash, publicIdentitiesHash, observerEvidenceHash, safe: safeAddress, guard: guardAddress, delay: delayAddress, funder: funderAddress, usdc: usdcAddress,
+    topologyEvidenceHash, baselineEvidenceHash, publicIdentitiesHash, observerEvidenceHash, safe: safeAddress, guard: guardAddress, delay: delayAddress, funder: funderAddress, usdc: usdcAddress, recipient: recipientAddress, primarySigner, safeContractSecondary, ecdsaSecondary,
     periodSeconds: PERIOD_SECONDS.toString() as "86400", periodAnchor: "0" as const, cooldownSeconds: COOLDOWN_SECONDS.toString() as "120", expirationSeconds: EXPIRATION_SECONDS.toString() as "600",
     limits: deepFreeze({ nativeX: NATIVE_X.toString(), nativeY: NATIVE_Y.toString(), usdcX: USDC_X.toString(), usdcY: USDC_Y.toString() }),
     inventory: deepFreeze({ initialUsdcUnits: INITIAL_USDC.toString(), recycledStepUpUsdcUnits: RECYCLED_STEP_UP_USDC.toString(), recycledDelayedUsdcUnits: RECYCLED_DELAYED_USDC.toString(), grossUsdcUnits: GROSS_USDC.toString() }),
@@ -486,11 +603,25 @@ function journalMatches(journal: OrdinaryScenarioJournal, proposal: OrdinaryScen
 }
 
 function controlledState(state: CanonicalOrdinaryScenarioState): ControlledState {
-  return { safeNativeBalance: state.safeNativeBalance.toString(), funderUsdcBalance: state.funderUsdcBalance.toString(), safeUsdcBalance: state.safeUsdcBalance.toString(), safeNonce: state.safeNonce.toString(), delayQueueNonce: state.delayQueueNonce.toString(), delayTxNonce: state.delayTxNonce.toString(), nativeBaseSpent: state.nativeSpend.baseSpent.toString(), nativeInstantSpent: state.nativeSpend.instantSpent.toString(), usdcBaseSpent: state.usdcSpend.baseSpent.toString(), usdcInstantSpent: state.usdcSpend.instantSpent.toString() };
+  const queueStatus = state.queue ? ({ queued: "QUEUED_CONDITIONAL", cancelled: "CANCELLED_CONDITIONAL", expired: "EXPIRED_CONDITIONAL", executed: "EXECUTED_CONDITIONAL" } as const)[state.queue.status] : "EMPTY";
+  return { safeNativeBalance: state.safeNativeBalance.toString(), funderUsdcBalance: state.funderUsdcBalance.toString(), safeUsdcBalance: state.safeUsdcBalance.toString(), safeNonce: state.safeNonce.toString(), delayQueueNonce: state.delayQueueNonce.toString(), delayTxNonce: state.delayTxNonce.toString(), nativeBaseSpent: state.nativeSpend.baseSpent.toString(), nativeInstantSpent: state.nativeSpend.instantSpent.toString(), usdcBaseSpent: state.usdcSpend.baseSpent.toString(), usdcInstantSpent: state.usdcSpend.instantSpent.toString(), queueStatus, queueNonce: state.queue?.queueNonce.toString() ?? null, queueFingerprint: state.queue?.fingerprint ?? null };
 }
 
 function assertControlledState(actual: CanonicalOrdinaryScenarioState, expected: ControlledState, label: string): void {
   if (JSON.stringify(controlledState(actual)) !== JSON.stringify(expected)) throw new Error(`ordinary scenario ${label} controlled state drift`);
+}
+
+function assertQueueBinding(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, state: CanonicalOrdinaryScenarioState): void {
+  if (action.before.queueStatus === "EMPTY") {
+    if (state.queue !== undefined) throw new Error("ordinary scenario unexpected queue head");
+    return;
+  }
+  const queue = state.queue;
+  if (!queue || action.before.queueNonce === null || action.before.queueFingerprint === null) throw new Error("ordinary scenario required queue head is missing");
+  const reviewed = proposal.actions.find((candidate) => candidate.kind === "queue-proposal" && candidate.queue?.queueNonce.toString() === action.before.queueNonce && same(candidate.queue.fingerprint, action.before.queueFingerprint!));
+  if (!reviewed?.queue || !same(queue.to, reviewed.queue.to) || queue.value !== reviewed.queue.value || !same(queue.data, reviewed.queue.data) || queue.operation !== reviewed.queue.operation) throw new Error("ordinary scenario queue tuple drift");
+  const receiptRecord = [...journal.actions].reverse().find((entry) => entry.id === reviewed.id && entry.status === "confirmed");
+  if (!receiptRecord?.queueCreatedAt || queue.createdAt.toString() !== receiptRecord.queueCreatedAt) throw new Error("ordinary scenario queue createdAt is not bound to proposal receipt");
 }
 
 function assertFreshState(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, state: CanonicalOrdinaryScenarioState, phase: "pre-private" | "pre-outer"): void {
@@ -498,6 +629,7 @@ function assertFreshState(action: OrdinaryScenarioActionScope, proposal: Ordinar
   if (!same(state.planHash, proposal.planHash) || !same(state.topologyEvidenceHash, proposal.topologyEvidenceHash) || !same(state.publicIdentitiesHash, proposal.publicIdentitiesHash)) throw new Error("ordinary scenario topology/runtime/policy drift");
   if (!state.observerReady || !same(state.observerEvidenceHash, proposal.observerEvidenceHash)) throw new Error("ordinary scenario observer is not ready");
   assertControlledState(state, action.before, phase);
+  assertQueueBinding(action, proposal, journal, state);
   if (!Number.isSafeInteger(state.outerNonce) || state.outerNonce < 0) throw new Error("ordinary scenario current outer nonce is invalid");
   if (state.fees.maxFeePerGas <= 0n || state.fees.maxFeePerGas > action.maxFeePerGasCap || state.fees.maxPriorityFeePerGas < 0n || state.fees.maxPriorityFeePerGas > action.maxPriorityFeePerGasCap || state.fees.maxPriorityFeePerGas > state.fees.maxFeePerGas) throw new Error("ordinary scenario current fees exceed approval");
   for (const dependency of action.dependsOn) {
@@ -525,15 +657,19 @@ function approvedRemainingReservation(proposal: OrdinaryScenarioProposal, bindin
   return total;
 }
 
-function queueTimes(action: OrdinaryScenarioActionScope, state: CanonicalOrdinaryScenarioState): { createdAt: bigint; readyAt: bigint; expiresAt: bigint } | undefined {
+function queueTimes(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, state: CanonicalOrdinaryScenarioState): { createdAt: bigint; readyAt: bigint; expiresAt: bigint } | undefined {
   if (!action.queue) return undefined;
   const queue = state.queue;
-  if (!queue || queue.queueNonce !== action.queue.queueNonce || !same(queue.fingerprint, action.queue.fingerprint)) throw new Error("ordinary scenario exact queue state drift");
+  const requiredStatus = action.kind === "expected-cancelled-rejection" ? "cancelled" : action.kind === "expected-expired-rejection" ? "expired" : "queued";
+  if (!queue || queue.status !== requiredStatus || queue.queueNonce !== action.queue.queueNonce || !same(queue.fingerprint, action.queue.fingerprint) || !same(queue.to, action.queue.to) || queue.value !== action.queue.value || !same(queue.data, action.queue.data) || queue.operation !== action.queue.operation) throw new Error("ordinary scenario exact queue head drift");
+  const proposalAction = proposal.actions.find((candidate) => candidate.kind === "queue-proposal" && candidate.queue?.queueNonce === queue.queueNonce && same(candidate.queue.fingerprint, queue.fingerprint));
+  const proposalRecord = proposalAction && journal.actions.find((entry) => entry.id === proposalAction.id && entry.status === "confirmed");
+  if (!proposalRecord?.queueCreatedAt || proposalRecord.queueCreatedAt !== queue.createdAt.toString()) throw new Error("ordinary scenario queue time is not canonical proposal receipt time");
   const createdAt = queue.createdAt; return { createdAt, readyAt: createdAt + COOLDOWN_SECONDS, expiresAt: createdAt + COOLDOWN_SECONDS + EXPIRATION_SECONDS };
 }
 
-function timingGate(action: OrdinaryScenarioActionScope, state: CanonicalOrdinaryScenarioState): OrdinaryScenarioExecutionResult | undefined {
-  const timing = queueTimes(action, state); if (!timing) return undefined;
+function timingGate(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, state: CanonicalOrdinaryScenarioState): OrdinaryScenarioExecutionResult | undefined {
+  const timing = queueTimes(action, proposal, journal, state); if (!timing) return undefined;
   if (action.kind === "ready-delay-execution") {
     if (state.blockTimestamp < timing.readyAt) return { status: "WAITING", actionId: action.id, nextCanonicalTime: timing.readyAt };
     if (state.blockTimestamp > timing.expiresAt) throw new Error("ordinary scenario ready execution is canonically expired");
@@ -545,14 +681,66 @@ function timingGate(action: OrdinaryScenarioActionScope, state: CanonicalOrdinar
   return undefined;
 }
 
-function validatePrepared(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, prepared: PreparedOrdinaryAction, state: CanonicalOrdinaryScenarioState): void {
+async function contractSignatureAt(signatures: Uint8Array, slot: number, slots: number): Promise<{ signer: Address; payload: Hex; offset: number; end: number }> {
+  const start = slot * 65;
+  if (signatures.length < slots * 65 || signatures[start + 64] !== 0) throw new Error("ordinary scenario malformed Safe contract signature");
+  const signer = addressWord(signatures, start); const offsetValue = uintWord(signatures, start + 32);
+  if (offsetValue > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("ordinary scenario Safe signature offset overflow");
+  const offset = Number(offsetValue);
+  if (offset < slots * 65 || offset + 32 > signatures.length) throw new Error("ordinary scenario malformed Safe contract signature offset");
+  const lengthValue = uintWord(signatures, offset); if (lengthValue === 0n || lengthValue > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("ordinary scenario empty or oversized Safe contract signature");
+  const end = offset + 32 + Number(lengthValue); if (end > signatures.length) throw new Error("ordinary scenario truncated Safe contract signature");
+  return { signer, payload: sliceHex(signatures, offset + 32, end), offset, end };
+}
+
+async function validateActualSafeSignatures(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, prepared: PreparedOrdinaryAction, signaturesHex: Hex, state: CanonicalOrdinaryScenarioState, context: OrdinaryScenarioExecutionContext): Promise<void> {
+  const signatures = bytes(signaturesHex);
+  const source = prepared.replaySource ? proposal.actions.find((candidate) => candidate.id === prepared.replaySource!.actionId) : action;
+  if (!source) throw new Error("ordinary scenario replay source action is unknown");
+  const roles = source.signerRoles;
+  const primary = await contractSignatureAt(signatures, 0, roles.includes("safe-contract-secondary") ? 2 : 1);
+  if (!same(primary.signer, proposal.primarySigner) || !same(await context.verifyContractSignature(primary.signer, action.safeTxHash!, primary.payload, state.blockNumber), ERC1271_MAGIC)) throw new Error("ordinary scenario primary Safe signature is invalid");
+  if (roles.length === 1 && roles[0] === "primary-passkey") {
+    if (primary.offset !== 65 || primary.end !== signatures.length) throw new Error("ordinary scenario primary signature layout mismatch");
+    return;
+  }
+  if (roles.includes("safe-contract-secondary")) {
+    const secondary = await contractSignatureAt(signatures, 1, 2);
+    if (primary.offset !== 130 || secondary.offset !== primary.end || secondary.end !== signatures.length || !same(secondary.signer, proposal.safeContractSecondary) || !same(await context.verifyContractSignature(secondary.signer, action.safeTxHash!, secondary.payload, state.blockNumber), ERC1271_MAGIC)) throw new Error("ordinary scenario safe-contract secondary signature is invalid");
+    return;
+  }
+  if (roles.includes("legacy-ecdsa-secondary")) {
+    if (primary.offset !== 65 || signatures.length < primary.end + 64) throw new Error("ordinary scenario ECDSA secondary signature layout mismatch");
+    const lengthOffset = signatures.length - 64; const typeOffset = signatures.length - 32; const payloadLength = uintWord(signatures, lengthOffset);
+    if (payloadLength === 0n || payloadLength > BigInt(Number.MAX_SAFE_INTEGER) || primary.end + Number(payloadLength) + 64 !== signatures.length || !same(sliceHex(signatures, typeOffset, signatures.length), ECDSA_SECONDARY_SIGNATURE_TYPE_HASH)) throw new Error("ordinary scenario ECDSA secondary envelope mismatch");
+    const ecdsaSignature = sliceHex(signatures, primary.end, primary.end + Number(payloadLength));
+    const recovered = await recoverAddress({ hash: action.safeTxHash!, signature: ecdsaSignature });
+    if (!same(recovered, proposal.ecdsaSecondary)) throw new Error("ordinary scenario ECDSA secondary signer mismatch");
+    return;
+  }
+  throw new Error("ordinary scenario reviewed Safe signer roles are unsupported");
+}
+
+async function validatePrepared(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, prepared: PreparedOrdinaryAction, state: CanonicalOrdinaryScenarioState, context: OrdinaryScenarioExecutionContext): Promise<void> {
   const intent = prepared.liveIntent;
-  if (intent.id !== action.id || intent.nonce !== state.outerNonce || intent.gas <= 0n || intent.gas > action.gasLimitCap || intent.maxFeePerGas !== state.fees.maxFeePerGas || intent.maxPriorityFeePerGas !== state.fees.maxPriorityFeePerGas || intent.value < 0n || !HASH.test(prepared.requestHash) || !same(prepared.signerRolesHash, publicHash(action.signerRoles)) || !HASH.test(prepared.signedCalldataHash) || (prepared.signatureBundleHash !== null && !HASH.test(prepared.signatureBundleHash)) || !HEX.test(prepared.transientSignedCalldata) || !same(keccak256(prepared.transientSignedCalldata), prepared.signedCalldataHash)) throw new Error("ordinary scenario materialized action exceeds approval");
+  const replay = prepared.replaySource !== undefined;
+  if (intent.id !== action.id || (!replay && intent.nonce !== state.outerNonce) || intent.gas <= 0n || intent.gas > action.gasLimitCap || (!replay && intent.maxFeePerGas !== state.fees.maxFeePerGas) || (!replay && intent.maxPriorityFeePerGas !== state.fees.maxPriorityFeePerGas) || intent.maxFeePerGas > action.maxFeePerGasCap || intent.maxPriorityFeePerGas > action.maxPriorityFeePerGasCap || intent.value < 0n || !HASH.test(prepared.requestHash) || !same(prepared.signerRolesHash, publicHash(action.signerRoles)) || !HASH.test(prepared.signedCalldataHash) || (prepared.signatureBundleHash !== null && !HASH.test(prepared.signatureBundleHash)) || !HEX.test(prepared.transientSignedCalldata) || !same(keccak256(prepared.transientSignedCalldata), prepared.signedCalldataHash)) throw new Error("ordinary scenario materialized action exceeds approval");
   if (action.kind === "funding" || action.kind === "controlled-recipient-recycled-funding" || DELAY_SUCCESS_KINDS.has(action.kind)) {
     const expected = action.publicTransaction;
     if (!expected || !intent.to || !same(intent.to, expected.to) || intent.value !== expected.value || !same(intent.data, expected.data)) throw new Error("ordinary scenario materialized public transaction changed");
   }
-  if (action.safeTxHash && (!intent.to || !same(intent.to, proposal.safe) || intent.value !== 0n || !same(prepared.requestHash, action.safeTxHash))) throw new Error("ordinary scenario Safe outer transaction changed");
+  if (action.safeTransaction) {
+    if (!intent.to || !same(intent.to, proposal.safe) || intent.value !== 0n || !same(prepared.requestHash, action.safeTxHash!)) throw new Error("ordinary scenario Safe outer transaction changed");
+    let decoded: ReturnType<typeof decodeFunctionData>;
+    try { decoded = decodeFunctionData({ abi: SAFE_ABI, data: prepared.transientSignedCalldata }); } catch { throw new Error("ordinary scenario outer calldata is not Safe execTransaction"); }
+    if (decoded.functionName !== "execTransaction") throw new Error("ordinary scenario outer calldata selector mismatch");
+    const args = decoded.args as readonly [Address, bigint, Hex, number, bigint, bigint, bigint, Address, Address, Hex]; const reviewed = action.safeTransaction;
+    if (!same(args[0], reviewed.to) || args[1] !== reviewed.value || !same(args[2], reviewed.data) || args[3] !== reviewed.operation || args[4] !== reviewed.safeTxGas || args[5] !== reviewed.baseGas || args[6] !== reviewed.gasPrice || !same(args[7], reviewed.gasToken) || !same(args[8], reviewed.refundReceiver)) throw new Error("ordinary scenario decoded Safe tuple drift");
+    const recomputed = hashTypedData({ domain: { chainId: CHAIN_ID, verifyingContract: proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: args[0], value: args[1], data: args[2], operation: args[3] as 0, safeTxGas: args[4], baseGas: args[5], gasPrice: args[6], gasToken: args[7], refundReceiver: args[8], nonce: reviewed.safeNonce } });
+    if (!same(recomputed, reviewed.safeTxHash) || prepared.signatureBundleHash === null || !same(prepared.signatureBundleHash, keccak256(args[9]))) throw new Error("ordinary scenario decoded Safe hash or signature bundle mismatch");
+    if (prepared.replaySource && (!same(prepared.replaySource.safeTxHash, reviewed.safeTxHash) || prepared.replaySource.safeNonce !== reviewed.safeNonce)) throw new Error("ordinary scenario replay source digest or nonce mismatch");
+    await validateActualSafeSignatures(action, proposal, prepared, args[9], state, context);
+  }
 }
 
 function expectedEffect(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, effect: ConfirmationEffect): void {
@@ -606,6 +794,11 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   const confirmation = await context.confirm(action, entry, recordEntry);
   assertControlledState(confirmation.postState, action.after, "post-receipt"); expectedEffect(action, proposal, confirmation.effect);
   if (confirmation.postState.blockNumber !== entry.receipt.blockNumber || !same(confirmation.postState.blockHash, entry.receipt.blockHash)) throw new Error("ordinary scenario poststate is not pinned to canonical receipt");
+  if (action.kind === "queue-proposal") {
+    if (confirmation.effect.kind !== "safe-execution" || confirmation.effect.queueCreatedAt === undefined || !action.queue || !confirmation.postState.queue || confirmation.postState.queue.status !== "queued" || !same(confirmation.postState.queue.to, action.queue.to) || confirmation.postState.queue.value !== action.queue.value || !same(confirmation.postState.queue.data, action.queue.data) || confirmation.postState.queue.operation !== action.queue.operation || confirmation.effect.queueCreatedAt !== confirmation.postState.blockTimestamp || confirmation.postState.queue.createdAt !== confirmation.postState.blockTimestamp) throw new Error("ordinary scenario queue tuple/createdAt must equal canonical proposal receipt block");
+  } else if (DELAY_SUCCESS_KINDS.has(action.kind)) {
+    if (confirmation.effect.kind !== "delay-lifecycle" || !confirmation.postState.queue || confirmation.effect.createdAt !== confirmation.postState.queue.createdAt) throw new Error("ordinary scenario Delay lifecycle createdAt mismatch");
+  }
   recordEntry.status = "confirmed"; recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState) });
   if (confirmation.effect.kind === "safe-execution" && confirmation.effect.queueCreatedAt !== undefined) recordEntry.queueCreatedAt = confirmation.effect.queueCreatedAt.toString();
   if (action.kind === "base-transfer") {
@@ -632,15 +825,27 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
   if (existing?.status === "outer-pending") return resumePending(action, proposal, journal, store, context, existing);
   if (journal.liveJournal.entries.some((entry) => entry.status === "pending")) throw new Error("ordinary scenario must reconcile pending hash before materializing another action");
   const state = await context.readState(action, "pre-private"); assertFreshState(action, proposal, journal, state, "pre-private");
-  const wait = timingGate(action, state); if (wait) return wait;
+  const wait = timingGate(action, proposal, journal, state); if (wait) return wait;
   const remaining = approvedRemainingReservation(proposal, binding, journal);
   if (BigInt(proposal.baselineActualCostWei) + remaining > PHASE_OUTLAY_LIMIT) throw new Error("ordinary scenario package phase accounting exceeds approval");
   if (state.funderNativeBalance < remaining) throw new Error("ordinary scenario shared funder cannot cover current and outstanding approved reservations");
   const recordEntry: OrdinaryScenarioActionRecord = { id: action.id, commitment: action.commitment, status: "materialized", materializationHash: publicHash({ action: action.commitment, outerNonce: state.outerNonce, fees: state.fees, blockNumber: state.blockNumber.toString(), blockHash: state.blockHash }), prestateHash: publicHash({ controlled: controlledState(state), dependencies: state.dependencies, queue: state.queue }), outerNonce: state.outerNonce, maxFeePerGas: state.fees.maxFeePerGas.toString(), maxPriorityFeePerGas: state.fees.maxPriorityFeePerGas.toString(), funderNativeBefore: state.funderNativeBalance.toString() };
   journal.actions.push(recordEntry); store.save(journal);
   if (action.expectedOutcome === "rejection") {
-    const prepared = PUBLIC_REJECTION_KINDS.has(action.kind) || action.kind === "expected-replay-rejection" ? undefined : await context.materialize(action, state);
-    if (prepared) validatePrepared(action, proposal, prepared, state);
+    let prepared: PreparedOrdinaryAction | undefined;
+    if (action.kind === "expected-replay-rejection") {
+      const sourceId = action.dependsOn[0]; const source = sourceId && journal.actions.find((entry) => entry.id === sourceId && entry.status === "confirmed");
+      if (!source?.transactionHash) throw new Error("ordinary scenario replay source receipt is unavailable");
+      prepared = await context.recoverReplay(action, source, state);
+      if (!prepared.replaySource || prepared.replaySource.actionId !== source.id || !same(prepared.replaySource.transactionHash, source.transactionHash)) throw new Error("ordinary scenario replay did not recover the canonical source envelope");
+      if (source.outerNonce === undefined || !source.gas || !source.maxFeePerGas || !source.maxPriorityFeePerGas || !source.outerTo || !source.outerValue || !source.outerDataHash || prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
+    } else if (!PUBLIC_REJECTION_KINDS.has(action.kind)) prepared = await context.materialize(action, state);
+    if (prepared) {
+      await validatePrepared(action, proposal, prepared, state, context);
+      recordEntry.requestHash = prepared.requestHash; recordEntry.signatureBundleHash = prepared.signatureBundleHash; recordEntry.signedCalldataHash = prepared.signedCalldataHash; recordEntry.outerDataHash = keccak256(prepared.liveIntent.data);
+      if (prepared.replaySource) { recordEntry.transactionHash = prepared.replaySource.transactionHash; recordEntry.outerNonce = prepared.liveIntent.nonce; }
+      store.save(journal);
+    }
     const evidence = await context.proveRejection(action, state, prepared);
     if (evidence.success !== false || evidence.blockNumber !== state.blockNumber || !same(evidence.blockHash, state.blockHash) || !HASH.test(evidence.revertDataHash)) throw new Error("ordinary scenario expected rejection evidence is missing");
     assertControlledState(evidence.postState, action.before, "rejection unchanged");
@@ -648,7 +853,7 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
     recordEntry.status = "rejection-proved"; recordEntry.evidenceHash = sha256({ blockNumber: evidence.blockNumber.toString(), blockHash: evidence.blockHash, revertDataHash: evidence.revertDataHash, state: controlledState(evidence.postState) }) as Hex; store.save(journal);
     return { status: "REJECTION_PROVED", actionId: action.id };
   }
-  const prepared = await context.materialize(action, state); validatePrepared(action, proposal, prepared, state);
+  const prepared = await context.materialize(action, state); await validatePrepared(action, proposal, prepared, state, context);
   const simulation = await context.simulate(action, prepared, state);
   if (!simulation.success || simulation.blockNumber !== state.blockNumber || !same(simulation.blockHash, state.blockHash) || simulation.gasEstimate <= 0n || simulation.gasEstimate > prepared.liveIntent.gas || simulation.gasEstimate > action.gasLimitCap || !HASH.test(simulation.resultHash)) throw new Error("ordinary scenario exact signed simulation failed or exceeded cap");
   recordEntry.status = "signed-simulated"; recordEntry.requestHash = prepared.requestHash; recordEntry.signatureBundleHash = prepared.signatureBundleHash; recordEntry.signedCalldataHash = prepared.signedCalldataHash; recordEntry.simulationEvidenceHash = sha256({ ...simulation, blockNumber: simulation.blockNumber.toString(), gasEstimate: simulation.gasEstimate.toString() }) as Hex; recordEntry.gas = prepared.liveIntent.gas.toString(); recordEntry.outerTo = prepared.liveIntent.to; recordEntry.outerValue = prepared.liveIntent.value.toString(); recordEntry.outerDataHash = keccak256(prepared.liveIntent.data); store.save(journal);

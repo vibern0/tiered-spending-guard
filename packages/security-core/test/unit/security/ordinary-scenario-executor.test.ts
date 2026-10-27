@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "chai";
-import { encodeFunctionData, keccak256, type Address, type Hex } from "viem";
+import { encodeFunctionData, hashTypedData, keccak256, toHex, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { sha256 } from "../../../scripts/plan-deployment";
 import {
@@ -19,8 +19,12 @@ import {
   type OrdinaryScenarioStore,
 } from "../../../scripts/live/ordinary-scenario-executor";
 import type { LiveIntent, LiveReceipt } from "../../../scripts/live/submission";
+import { encodeSafeContractSignature } from "../../../src/signers/passkey-helpers";
+import { SAFE_TX_TYPES } from "../../../src/signers/types";
+import { ECDSA_SECONDARY_SIGNATURE_TYPE_HASH, safeContractSignatures } from "../../helpers/safe";
 
 const account = privateKeyToAccount(generatePrivateKey());
+const ecdsaAccount = privateKeyToAccount(generatePrivateKey());
 const funder = account.address;
 const safe = "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6" as Address;
 const guard = "0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA" as Address;
@@ -28,7 +32,7 @@ const delay = "0xB8E143098CcCb9935228022173c2c987DF5FD53a" as Address;
 const usdc = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
 const primary = "0x6F9c2f4f8526A17f38c9409a8cBF605b34Fa146c" as Address;
 const secondary = "0xF94b0fbDCa0eF0Bf7Bd142aF832Bab17108C0D42" as Address;
-const ecdsa = "0xe789E36f46E2445d807D726E4a064c8048e19980" as Address;
+const ecdsa = ecdsaAccount.address;
 const zero = "0x0000000000000000000000000000000000000000" as Address;
 const planHash = keccak256("0x01");
 const topologyHash = keccak256("0x02");
@@ -39,6 +43,10 @@ const observerHash = keccak256("0x05");
 const queueFingerprint = keccak256("0x06");
 const monitoringFingerprint = keccak256("0x07");
 const erc20 = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
+const safeExecAbi = [{ type: "function", name: "execTransaction", stateMutability: "payable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "bytes" }], outputs: [{ type: "bool" }] }] as const;
+const delayModuleAbi = [{ type: "function", name: "execTransactionFromModule", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }], outputs: [{ type: "bool" }] }] as const;
+const delayExecuteAbi = [{ type: "function", name: "executeNextTx", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }] }] as const;
+const delaySetNonceAbi = [{ type: "function", name: "setTxNonce", stateMutability: "nonpayable", inputs: [{ type: "uint256" }] }] as const;
 
 type MutableState = {
   funderNative: bigint;
@@ -48,6 +56,7 @@ type MutableState = {
   safeNonce: bigint;
   queueNonce: bigint;
   txNonce: bigint;
+  queueStatus: "EMPTY" | "QUEUED_CONDITIONAL" | "CANCELLED_CONDITIONAL" | "EXPIRED_CONDITIONAL" | "EXECUTED_CONDITIONAL";
   nativeBase: bigint;
   nativeInstant: bigint;
   usdcBase: bigint;
@@ -67,7 +76,7 @@ const decimalState = (state: MutableState) => ({
     after: { native: { baseSpent: state.nativeBase.toString(), instantSpent: state.nativeInstant.toString() }, USDC: { baseSpent: state.usdcBase.toString(), instantSpent: state.usdcInstant.toString() } },
     fundingNeverResetsCounters: true,
   },
-  queue: { before: { status: state.queueNonce === state.txNonce ? "EMPTY" : "QUEUED_CONDITIONAL", queueNonce: state.queueNonce === 0n ? null : (state.queueNonce - 1n).toString(), fingerprint: state.queueNonce === state.txNonce ? null : queueFingerprint }, after: { status: state.queueNonce === state.txNonce ? "EMPTY" : "QUEUED_CONDITIONAL", queueNonce: state.queueNonce === 0n ? null : (state.queueNonce - 1n).toString(), fingerprint: state.queueNonce === state.txNonce ? null : queueFingerprint } },
+  queue: { before: { status: state.queueStatus, queueNonce: state.queueStatus === "EMPTY" ? null : (state.queueNonce - 1n).toString(), fingerprint: state.queueStatus === "EMPTY" ? null : queueFingerprint }, after: { status: state.queueStatus, queueNonce: state.queueStatus === "EMPTY" ? null : (state.queueNonce - 1n).toString(), fingerprint: state.queueStatus === "EMPTY" ? null : queueFingerprint } },
   stateAvailability: "EXACT_PRINCIPAL_CONDITIONAL_FORECAST",
   futureStateStatus: "CONDITIONAL_NOT_RUN_REVALIDATE_FROM_CANONICAL_RECEIPTS",
   nativeFunderGasAccounting: { beforeExpression: "shared", afterExpression: "shared", cumulativeProposedGasCapAfterWei: "0", minimumAfterAtProposedCapsWei: "0" },
@@ -94,15 +103,37 @@ function action(input: Record<string, unknown>, state: MutableState, mutate: (ne
 }
 
 function reportFixture() {
-  const state: MutableState = { funderNative: 20_000_000_000_000_000n, safeNative: 0n, funderUsdc: 20_000_000n, safeUsdc: 0n, safeNonce: 0n, queueNonce: 0n, txNonce: 0n, nativeBase: 0n, nativeInstant: 0n, usdcBase: 0n, usdcInstant: 0n };
-  const safeTx = (nonce: bigint, to: Address, value: bigint, data: Hex = "0x") => ({ to, value: value.toString(), data, operation: 0, safeNonce: nonce.toString(), safeTxHash: keccak256(`0x${(100n + nonce).toString(16).padStart(2, "0")}` as Hex), safeTxGas: "0", baseGas: "0", gasPrice: "0", gasToken: zero, refundReceiver: zero });
+  const state: MutableState = { funderNative: 20_000_000_000_000_000n, safeNative: 0n, funderUsdc: 20_000_000n, safeUsdc: 0n, safeNonce: 0n, queueNonce: 0n, txNonce: 0n, queueStatus: "EMPTY", nativeBase: 0n, nativeInstant: 0n, usdcBase: 0n, usdcInstant: 0n };
+  const safeTx = (nonce: bigint, to: Address, value: bigint, data: Hex = "0x") => {
+    const safeTxHash = hashTypedData({ domain: { chainId: 11155111, verifyingContract: safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to, value, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: zero, refundReceiver: zero, nonce } });
+    return { to, value: value.toString(), data, operation: 0, safeNonce: nonce.toString(), safeTxHash, safeTxGas: "0", baseGas: "0", gasPrice: "0", gasToken: zero, refundReceiver: zero };
+  };
+  const queueCall = (to: Address, value: bigint, data: Hex) => encodeFunctionData({ abi: delayModuleAbi, functionName: "execTransactionFromModule", args: [to, value, data, 0] });
+  const executeCall = (to: Address, value: bigint, data: Hex) => encodeFunctionData({ abi: delayExecuteAbi, functionName: "executeNextTx", args: [to, value, data, 0] });
+  const timing = { source: "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK", createdAt: null, readyAt: null, expiresAt: null, cooldownSeconds: "120", expirationSeconds: "600", status: "CONDITIONAL_NOT_RUN", revalidateFromCanonicalReceipt: true };
+  const queue = { queueNonce: "0", queueFingerprint, monitoringFingerprint, to: funder, value: "1", data: "0x", operation: 0 };
   const actions: Record<string, unknown>[] = [];
   actions.push(action({ id: "native-funding", kind: "funding", signerRoles: ["funder"], publicTransaction: { to: safe, value: "30000000000001", data: "0x", operation: 0, funderNonce: "743", safeNonce: null, safeTxHash: null } }, state, next => { next.funderNative -= 30_000_000_000_001n; next.safeNative += 30_000_000_000_001n; }));
+  actions.push(action({ id: "usdc-funding", kind: "funding", asset: "USDC", signerRoles: ["funder"], dependsOn: ["native-funding"], publicTransaction: { to: usdc, value: "0", data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [safe, 20_000_000n] }), operation: 0, funderNonce: "744", safeNonce: null, safeTxHash: null } }, state, next => { next.funderUsdc -= 20_000_000n; next.safeUsdc += 20_000_000n; }));
   actions.push(action({ id: "native-base-x", kind: "base-transfer", signerRoles: ["primary-passkey"], dependsOn: ["native-funding"], safeTransaction: safeTx(state.safeNonce, funder, 10_000_000_000_000n) }, state, next => { next.safeNonce++; next.safeNative -= 10_000_000_000_000n; next.funderNative += 10_000_000_000_000n; next.nativeBase = 10_000_000_000_000n; next.nativeInstant = 10_000_000_000_000n; }));
-  actions.push(action({ id: "native-direct-overspend-rejection", kind: "expected-direct-rejection", expectedOutcome: "rejection", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-base-x"], safeTransaction: safeTx(state.safeNonce, funder, 20_000_000_000_001n) }, state, () => undefined));
-  actions.push(action({ id: "native-queue-cancel", kind: "queue-proposal", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-direct-overspend-rejection"], safeTransaction: safeTx(state.safeNonce, delay, 0n, "0x1234"), queue: { queueNonce: state.queueNonce.toString(), queueFingerprint, monitoringFingerprint, to: funder, value: "1", data: "0x", operation: 0 }, timing: { source: "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK", createdAt: null, readyAt: null, expiresAt: null, cooldownSeconds: "120", expirationSeconds: "600", status: "CONDITIONAL_NOT_RUN", revalidateFromCanonicalReceipt: true } }, state, next => { next.safeNonce++; next.queueNonce++; }));
-  actions.push(action({ id: "native-queue-cancel-early-rejection", kind: "expected-early-rejection", expectedOutcome: "rejection", dependsOn: ["native-queue-cancel"], publicTransaction: { to: delay, value: "0", data: "0xee072baf", operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: { queueNonce: "0", queueFingerprint, monitoringFingerprint, to: funder, value: "1", data: "0x", operation: 0 }, timing: { source: "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK", createdAt: null, readyAt: null, expiresAt: null, cooldownSeconds: "120", expirationSeconds: "600", status: "CONDITIONAL_NOT_RUN", revalidateFromCanonicalReceipt: true }, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, () => undefined));
-  actions.push(action({ id: "native-queue-ready-execute", kind: "ready-delay-execution", dependsOn: ["native-queue-cancel-early-rejection"], publicTransaction: { to: delay, value: "0", data: "0xee072baf", operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: { queueNonce: "0", queueFingerprint, monitoringFingerprint, to: funder, value: "1", data: "0x", operation: 0 }, timing: { source: "FUTURE_CANONICAL_QUEUE_RECEIPT_BLOCK", createdAt: null, readyAt: null, expiresAt: null, cooldownSeconds: "120", expirationSeconds: "600", status: "CONDITIONAL_NOT_RUN", revalidateFromCanonicalReceipt: true }, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, next => { next.txNonce++; next.safeNative -= 1n; next.funderNative += 1n; }));
+  actions.push(action({ id: "native-step-up-contract", kind: "step-up-transfer", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-base-x"], safeTransaction: safeTx(state.safeNonce, funder, 10_000_000_000_000n) }, state, next => { next.safeNonce++; next.safeNative -= 10_000_000_000_000n; next.funderNative += 10_000_000_000_000n; next.nativeInstant += 10_000_000_000_000n; }));
+  actions.push(action({ id: "native-step-up-ecdsa", kind: "step-up-transfer", signerRoles: ["primary-passkey", "legacy-ecdsa-secondary"], dependsOn: ["native-step-up-contract"], safeTransaction: safeTx(state.safeNonce, funder, 10_000_000_000_000n) }, state, next => { next.safeNonce++; next.safeNative -= 10_000_000_000_000n; next.funderNative += 10_000_000_000_000n; next.nativeInstant += 10_000_000_000_000n; }));
+  actions.push(action({ id: "native-direct-overspend-rejection", kind: "expected-direct-rejection", expectedOutcome: "rejection", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-step-up-ecdsa"], safeTransaction: safeTx(state.safeNonce, funder, 1n) }, state, () => undefined));
+  actions.push(action({ id: "native-replay-rejection", kind: "expected-replay-rejection", expectedOutcome: "rejection", signerRoles: ["replay previously reviewed signed envelope only in later executor"], dependsOn: ["native-base-x"], safeTransaction: safeTx(0n, funder, 10_000_000_000_000n) }, state, () => undefined));
+  actions.push(action({ id: "native-unsupported-path-rejection", kind: "expected-unsupported-rejection", expectedOutcome: "rejection", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-step-up-ecdsa"], safeTransaction: safeTx(state.safeNonce, usdc, 0n, "0x095ea7b3000000000000000000000000" + funder.slice(2).toLowerCase() + "0000000000000000000000000000000000000000000000000000000000000001" as Hex) }, state, () => undefined));
+  actions.push(action({ id: "native-queue-cancel", kind: "queue-proposal", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-step-up-ecdsa"], safeTransaction: safeTx(state.safeNonce, delay, 0n, queueCall(funder, 1n, "0x")), queue, timing }, state, next => { next.safeNonce++; next.queueNonce++; next.queueStatus = "QUEUED_CONDITIONAL"; }));
+  actions.push(action({ id: "native-queue-cancel-early-rejection", kind: "expected-early-rejection", expectedOutcome: "rejection", dependsOn: ["native-queue-cancel"], publicTransaction: { to: delay, value: "0", data: executeCall(funder, 1n, "0x"), operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, () => undefined));
+  actions.push(action({ id: "native-queue-cancel-action", kind: "queue-cancellation", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-queue-cancel"], safeTransaction: safeTx(state.safeNonce, delay, 0n, encodeFunctionData({ abi: delaySetNonceAbi, functionName: "setTxNonce", args: [1n] })) }, state, next => { next.safeNonce++; next.txNonce++; next.queueStatus = "CANCELLED_CONDITIONAL"; }));
+  actions.push(action({ id: "native-queue-cancelled-execution-rejection", kind: "expected-cancelled-rejection", expectedOutcome: "rejection", dependsOn: ["native-queue-cancel-action"], publicTransaction: { to: delay, value: "0", data: executeCall(funder, 1n, "0x"), operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, () => undefined));
+  const expiryQueue = { ...queue, queueNonce: "1" };
+  actions.push(action({ id: "native-queue-expiry", kind: "queue-proposal", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-queue-cancel-action"], safeTransaction: safeTx(state.safeNonce, delay, 0n, queueCall(funder, 1n, "0x")), queue: expiryQueue, timing }, state, next => { next.safeNonce++; next.queueNonce++; next.queueStatus = "QUEUED_CONDITIONAL"; }));
+  actions.push(action({ id: "native-queue-expiry-early-rejection", kind: "expected-early-rejection", expectedOutcome: "rejection", dependsOn: ["native-queue-expiry"], publicTransaction: { to: delay, value: "0", data: executeCall(funder, 1n, "0x"), operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: expiryQueue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, () => undefined));
+  actions.push(action({ id: "native-queue-expiry-skip", kind: "queue-expiry", dependsOn: ["native-queue-expiry"], publicTransaction: { to: delay, value: "0", data: "0xb19d4758", operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: expiryQueue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, next => { next.txNonce++; next.queueStatus = "EXPIRED_CONDITIONAL"; }));
+  actions.push(action({ id: "native-queue-expired-execution-rejection", kind: "expected-expired-rejection", expectedOutcome: "rejection", dependsOn: ["native-queue-expiry-skip"], publicTransaction: { to: delay, value: "0", data: executeCall(funder, 1n, "0x"), operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: expiryQueue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, () => undefined));
+  const executeQueue = { ...queue, queueNonce: "2" };
+  actions.push(action({ id: "native-queue-execute", kind: "queue-proposal", signerRoles: ["primary-passkey", "safe-contract-secondary"], dependsOn: ["native-queue-expiry-skip"], safeTransaction: safeTx(state.safeNonce, delay, 0n, queueCall(funder, 1n, "0x")), queue: executeQueue, timing }, state, next => { next.safeNonce++; next.queueNonce++; next.queueStatus = "QUEUED_CONDITIONAL"; }));
+  actions.push(action({ id: "native-queue-execute-early-rejection", kind: "expected-early-rejection", expectedOutcome: "rejection", dependsOn: ["native-queue-execute"], publicTransaction: { to: delay, value: "0", data: executeCall(funder, 1n, "0x"), operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: executeQueue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, () => undefined));
+  actions.push(action({ id: "native-queue-ready-execute", kind: "ready-delay-execution", dependsOn: ["native-queue-execute-early-rejection"], publicTransaction: { to: delay, value: "0", data: executeCall(funder, 1n, "0x"), operation: 0, safeNonce: null, safeTxHash: null, outerTransactionNonce: "REVALIDATE_BEFORE_EXECUTION" }, queue: executeQueue, timing, proposedGasAndFee: { gasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true } }, state, next => { next.txNonce++; next.safeNative -= 1n; next.funderNative += 1n; next.queueStatus = "EXECUTED_CONDITIONAL"; }));
   actions.push({ id: "repair-signer-create", kind: "conditional-factory-signer-creation", asset: "control", dependsOn: ["native-queue-ready-execute"], status: "BLOCKED_INPUT", expectedOutcome: "success", signerRoles: ["funder"], proposedGasAndFee: { gasLimit: "500000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000", liveEstimated: false, preSendEstimateRequired: true }, expectedTransition: "blocked", expectedState: decimalState(state), observerAlert: "none" });
   return {
     schemaVersion: 1, status: "BLOCKED", authorization: "NONE", chainId: "11155111", planHash, topologyEvidenceHash: topologyHash, baselineEvidenceHash: baselineHash,
@@ -159,12 +190,26 @@ function executionFixture(actionCount = 1, state = canonicalState()) {
   let liveReceipt: LiveReceipt | undefined;
   const signIntent = (value: LiveIntent) => account.signTransaction({ chainId: 11155111, type: "eip1559", to: value.to, data: value.data, value: value.value, nonce: value.nonce, gas: value.gas, maxFeePerGas: value.maxFeePerGas, maxPriorityFeePerGas: value.maxPriorityFeePerGas });
   const intent = (actionId: string): LiveIntent => ({ id: actionId, to: safe, data: "0x", value: 30_000_000_000_001n, nonce: state.outerNonce, gas: 21_000n, maxFeePerGas: state.fees.maxFeePerGas, maxPriorityFeePerGas: state.fees.maxPriorityFeePerGas });
+  const prepare = async (actionScope: (typeof f.proposal.actions)[number], replaySource?: { actionId: string; transactionHash: Hex; safeTxHash: Hex; safeNonce: bigint }) => {
+    const base = intent(actionScope.id);
+    if (!actionScope.safeTransaction) return { liveIntent: base, requestHash: actionScope.commitment, signerRolesHash: sha256(actionScope.signerRoles) as Hex, signedCalldataHash: keccak256(base.data), signatureBundleHash: null, transientSignedCalldata: base.data };
+    const source = replaySource ? f.proposal.actions.find(value => value.id === replaySource.actionId)! : actionScope;
+    const primarySignature = encodeSafeContractSignature(primary, "0x1234");
+    const ecdsaSignature = source.signerRoles.includes("legacy-ecdsa-secondary") ? await ecdsaAccount.sign({ hash: source.safeTxHash! }) : undefined;
+    const signatures = source.signerRoles.includes("safe-contract-secondary") ? safeContractSignatures(primary, secondary, "0x1234", "0x5678") : ecdsaSignature ? `${primarySignature}${ecdsaSignature.slice(2)}${toHex(65n, { size: 32 }).slice(2)}${ECDSA_SECONDARY_SIGNATURE_TYPE_HASH.slice(2)}` as Hex : primarySignature;
+    const tx = actionScope.safeTransaction;
+    const data = encodeFunctionData({ abi: safeExecAbi, functionName: "execTransaction", args: [tx.to, tx.value, tx.data, tx.operation, tx.safeTxGas, tx.baseGas, tx.gasPrice, tx.gasToken, tx.refundReceiver, signatures] });
+    const liveIntent = { ...base, to: safe, value: 0n, data };
+    return { liveIntent, requestHash: actionScope.safeTxHash!, signerRolesHash: sha256(actionScope.signerRoles) as Hex, signedCalldataHash: keccak256(data), signatureBundleHash: keccak256(signatures), transientSignedCalldata: data, replaySource };
+  };
   const context: OrdinaryScenarioExecutionContext = {
     readState: async (_action, phase) => { calls.push(`state:${phase}`); return state; },
-    materialize: async actionScope => { calls.push("materialize"); const base = intent(actionScope.id); const liveIntent = actionScope.safeTxHash ? { ...base, value: 0n } : base; return { liveIntent, requestHash: actionScope.safeTxHash ?? actionScope.commitment, signerRolesHash: sha256(actionScope.signerRoles) as Hex, signedCalldataHash: keccak256(liveIntent.data), signatureBundleHash: null, transientSignedCalldata: liveIntent.data }; },
+    materialize: async actionScope => { calls.push("materialize"); return await prepare(actionScope); },
     simulate: async (_scope, prepared) => { calls.push("simulate"); return { blockNumber: state.blockNumber, blockHash: state.blockHash, success: true, gasEstimate: prepared.liveIntent.gas, resultHash: keccak256("0x33") }; },
     proveRejection: async () => { calls.push("reject"); return { blockNumber: state.blockNumber, blockHash: state.blockHash, success: false, revertDataHash: keccak256("0x44"), postState: state }; },
     recoverPending: async () => { calls.push("recover"); return intent("native-funding"); },
+    recoverReplay: async (actionScope, source) => { calls.push("recover-replay"); return await prepare(actionScope, { actionId: source.id, transactionHash: source.transactionHash!, safeTxHash: actionScope.safeTxHash!, safeNonce: actionScope.safeTransaction!.safeNonce }); },
+    verifyContractSignature: async () => "0x1626ba7e",
     confirm: async (_scope, entry) => { calls.push("confirm"); return { postState: { ...state, blockNumber: entry.receipt!.blockNumber, blockHash: entry.receipt!.blockHash, outerNonce: state.outerNonce + 1, safeNativeBalance: 30_000_000_000_001n }, effect: { kind: "native-funding", to: safe, amount: 30_000_000_000_001n } }; },
     live: {
       funder: account.address, chainId: async () => 11155111, nonce: async () => state.outerNonce, balance: async () => state.funderNativeBalance,
@@ -190,11 +235,12 @@ describe("bounded ordinary scenario coordinator", () => {
 
   it("rejects repair/freeze descendants and unknown actions from the approved prefix", () => {
     const value = reportFixture();
-    (value.actions[6] as Record<string, unknown>).status = "CONDITIONAL_NOT_RUN";
+    (value.actions[19] as Record<string, unknown>).status = "CONDITIONAL_NOT_RUN";
     const serialized = JSON.stringify(value);
     expect(() => createOrdinaryScenarioProposal(serialized, { expectedPackageHash: sha256(value) as Hex, expectedArtifactBytesHash: rawHash(serialized) })).to.throw("excluded action");
-    (value.actions[6] as Record<string, unknown>).id = "unknown-action";
-    expect(() => createOrdinaryScenarioProposal(serialized, { expectedPackageHash: sha256(value) as Hex, expectedArtifactBytesHash: rawHash(serialized) })).to.throw;
+    (value.actions[19] as Record<string, unknown>).id = "unknown-action";
+    const unknown = JSON.stringify(value);
+    expect(() => createOrdinaryScenarioProposal(unknown, { expectedPackageHash: sha256(value) as Hex, expectedArtifactBytesHash: rawHash(unknown) })).to.throw;
   });
 
   it("fails closed on topology, controlled-state, observer, fee, and three protocol nonce drift before private work", async () => {
@@ -211,6 +257,26 @@ describe("bounded ordinary scenario coordinator", () => {
     }
   });
 
+  it("rejects claimed Safe hashes with empty calldata or no actual signature bundle before outer signing", async () => {
+    const state = canonicalState({ safeNativeBalance: 30_000_000_000_001n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n });
+    const f = executionFixture(3, state);
+    for (let index = 0; index < 2; index++) f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: "confirmed", transactionHash: keccak256(`0x${(208 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(224 + index).toString(16)}` as Hex) });
+    const dependency = f.store.journal.actions[0]!; f.state.dependencies.push({ actionId: dependency.id, transactionHash: dependency.transactionHash, evidenceHash: dependency.evidenceHash! });
+    const malformed: OrdinaryScenarioExecutionContext = { ...f.context, materialize: async actionScope => ({ liveIntent: { id: actionScope.id, to: safe, data: "0x", value: 0n, nonce: state.outerNonce, gas: 21_000n, maxFeePerGas: state.fees.maxFeePerGas, maxPriorityFeePerGas: state.fees.maxPriorityFeePerGas }, requestHash: actionScope.safeTxHash!, signerRolesHash: sha256(actionScope.signerRoles) as Hex, signedCalldataHash: keccak256("0x"), signatureBundleHash: null, transientSignedCalldata: "0x" }) };
+    await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, malformed)).to.be.rejectedWith("not Safe execTransaction");
+    expect(f.calls).not.to.include("outer-sign"); expect(f.calls).not.to.include("broadcast");
+  });
+
+  it("rejects per-ID kind, recipient, and Safe nonce semantic mutations even with recomputed package hashes", () => {
+    const mutations = [
+      (value: ReturnType<typeof reportFixture>) => { value.snapshot.balances.recipient.address = primary; },
+      (value: ReturnType<typeof reportFixture>) => { value.actions[2]!.kind = "step-up-transfer"; },
+      (value: ReturnType<typeof reportFixture>) => { (value.actions[2]!.safeTransaction as Record<string, unknown>).to = safe; },
+      (value: ReturnType<typeof reportFixture>) => { (value.actions[2]!.safeTransaction as Record<string, unknown>).safeNonce = "1"; },
+    ];
+    for (const mutate of mutations) { const value = reportFixture(); mutate(value); const serialized = JSON.stringify(value); expect(() => createOrdinaryScenarioProposal(serialized, { expectedPackageHash: sha256(value) as Hex, expectedArtifactBytesHash: rawHash(serialized) })).to.throw; }
+  });
+
   it("allows only the refreshed outer nonce and bounded fees/gas, then persists materialization and simulation before outer signing", async () => {
     const f = executionFixture(1, canonicalState({ outerNonce: 999 }));
     const result = await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);
@@ -220,6 +286,14 @@ describe("bounded ordinary scenario coordinator", () => {
     expect(f.store.journal.liveJournal.entries[0]).to.include({ nonce: 999, status: "pending" });
     expect(f.store.journal.actions[0]).to.include({ status: "outer-pending", signedCalldataHash: keccak256("0x") });
     expect(f.store.saves.some(value => value.includes("transientSignedCalldata"))).to.equal(false);
+  });
+
+  it("verifies the configured terminal ECDSA secondary before outer signing", async () => {
+    const f = executionFixture(5, canonicalState({ safeNativeBalance: 10_000_000_000_001n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n, safeNonce: 2n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 20_000_000_000_000n } }));
+    for (let index = 0; index < 4; index++) f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: "confirmed", transactionHash: keccak256(`0x${(64 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(72 + index).toString(16)}` as Hex), establishedWindow: index === 2 ? "0" : undefined } as OrdinaryScenarioActionRecord);
+    const dependency = f.store.journal.actions[3]!; f.state.dependencies.push({ actionId: dependency.id, transactionHash: dependency.transactionHash, evidenceHash: dependency.evidenceHash! });
+    expect((await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context)).status).to.equal("PENDING");
+    expect(f.calls).to.include("outer-sign");
   });
 
   it("requires a successful signed simulation under the reviewed gas cap before outer signing", async () => {
@@ -297,12 +371,9 @@ describe("bounded ordinary scenario coordinator", () => {
   });
 
   it("records rejection proof with unchanged controlled state and never touches the broadcaster", async () => {
-    const f = executionFixture(3, canonicalState({ safeNativeBalance: 20_000_000_000_001n, safeNonce: 1n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 10_000_000_000_000n } }));
-    f.store.journal.actions.push(...[
-      { id: "native-funding", commitment: f.proposal.actions[0]!.commitment, status: "confirmed", transactionHash: keccak256("0x70"), evidenceHash: keccak256("0x71") },
-      { id: "native-base-x", commitment: f.proposal.actions[1]!.commitment, status: "confirmed", transactionHash: keccak256("0x72"), evidenceHash: keccak256("0x73"), establishedWindow: "0" },
-    ] as OrdinaryScenarioActionRecord[]);
-    f.state.dependencies.push({ actionId: "native-base-x", transactionHash: keccak256("0x72"), blockHash: keccak256("0x74"), evidenceHash: keccak256("0x73") });
+    const f = executionFixture(6, canonicalState({ safeNativeBalance: 1n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n, safeNonce: 3n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n } }));
+    for (let index = 0; index < 5; index++) f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: "confirmed", transactionHash: keccak256(`0x${(112 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(128 + index).toString(16)}` as Hex), establishedWindow: index === 2 ? "0" : undefined } as OrdinaryScenarioActionRecord);
+    const dependency = f.store.journal.actions[4]!; f.state.dependencies.push({ actionId: dependency.id, transactionHash: dependency.transactionHash, blockHash: keccak256("0x74"), evidenceHash: dependency.evidenceHash! });
     const result = await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);
     expect(result.status).to.equal("REJECTION_PROVED");
     expect(f.calls).to.include("reject");
@@ -310,15 +381,36 @@ describe("bounded ordinary scenario coordinator", () => {
     expect(f.calls).not.to.include("broadcast");
   });
 
+  it("recovers the original replay envelope and persists only its public hashes before rejection simulation", async () => {
+    const state = canonicalState({ safeNativeBalance: 1n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n, safeNonce: 3n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n } });
+    const f = executionFixture(7, state); const sourceScope = f.proposal.actions[2]!; const sourcePrepared = await f.context.materialize(sourceScope, state); f.calls.length = 0;
+    for (let index = 0; index < 6; index++) { const rejected = index === 5; f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: rejected ? "rejection-proved" : "confirmed", transactionHash: rejected ? undefined : keccak256(`0x${(232 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(240 + index).toString(16)}` as Hex), establishedWindow: index === 2 ? "0" : undefined } as OrdinaryScenarioActionRecord); }
+    const source = f.store.journal.actions[2]!; Object.assign(source, { outerNonce: sourcePrepared.liveIntent.nonce, gas: sourcePrepared.liveIntent.gas.toString(), maxFeePerGas: sourcePrepared.liveIntent.maxFeePerGas.toString(), maxPriorityFeePerGas: sourcePrepared.liveIntent.maxPriorityFeePerGas.toString(), outerTo: sourcePrepared.liveIntent.to, outerValue: sourcePrepared.liveIntent.value.toString(), outerDataHash: keccak256(sourcePrepared.liveIntent.data) });
+    f.state.dependencies.push({ actionId: source.id, transactionHash: source.transactionHash, evidenceHash: source.evidenceHash! });
+    const result = await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);
+    expect(result.status).to.equal("REJECTION_PROVED"); expect(f.calls.indexOf("recover-replay")).to.be.lessThan(f.calls.indexOf("reject"));
+    const replay = f.store.journal.actions[6]!; expect(replay).to.include({ requestHash: f.proposal.actions[6]!.safeTxHash, signedCalldataHash: sourcePrepared.signedCalldataHash, signatureBundleHash: sourcePrepared.signatureBundleHash, transactionHash: source.transactionHash });
+    expect(f.store.saves.some(value => { const saved = JSON.parse(value) as OrdinaryScenarioJournal; const record = saved.actions.find(entry => entry.id === "native-replay-rejection"); return record?.status === "materialized" && record.requestHash === f.proposal.actions[6]!.safeTxHash; })).to.equal(true);
+    expect(f.store.saves.some(value => value.includes("transientSignedCalldata") || value.includes("0x1234") || value.includes("0x5678"))).to.equal(false);
+  });
+
   it("returns canonical-time WAITING without materializing or consuming approval", async () => {
-    const f = executionFixture(6, canonicalState({ safeNativeBalance: 20_000_000_000_001n, safeNonce: 2n, delayQueueNonce: 1n, delayTxNonce: 0n, blockTimestamp: 1_050n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 10_000_000_000_000n }, queue: { queueNonce: 0n, fingerprint: queueFingerprint, createdAt: 1_000n, status: "queued" } }));
-    for (let index = 0; index < 4; index++) f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: index === 2 ? "rejection-proved" : "confirmed", transactionHash: index === 2 ? undefined : keccak256(`0x${80 + index}` as Hex), evidenceHash: keccak256(`0x${90 + index}` as Hex), queueCreatedAt: index === 3 ? "1000" : undefined } as OrdinaryScenarioActionRecord);
-    f.store.journal.actions.push({ id: "native-queue-cancel-early-rejection", commitment: f.proposal.actions[4]!.commitment, status: "rejection-proved", evidenceHash: keccak256("0x98") });
-    f.state.dependencies.push({ actionId: "native-queue-cancel-early-rejection", evidenceHash: keccak256("0x98") });
+    const f = executionFixture(19, canonicalState({ safeNativeBalance: 1n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n, safeNonce: 7n, delayQueueNonce: 3n, delayTxNonce: 2n, blockTimestamp: 1_050n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, queue: { queueNonce: 2n, fingerprint: queueFingerprint, createdAt: 1_000n, status: "queued", to: funder, value: 1n, data: "0x", operation: 0 } }));
+    for (let index = 0; index < 18; index++) { const rejected = [5, 6, 7, 9, 11, 13, 15, 17].includes(index); f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: rejected ? "rejection-proved" : "confirmed", transactionHash: rejected ? undefined : keccak256(`0x${(144 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(176 + index).toString(16)}` as Hex), establishedWindow: index === 2 ? "0" : undefined, queueCreatedAt: index === 8 ? "800" : index === 12 ? "900" : index === 16 ? "1000" : undefined } as OrdinaryScenarioActionRecord); }
+    const dependency = f.store.journal.actions[17]!; f.state.dependencies.push({ actionId: dependency.id, evidenceHash: dependency.evidenceHash! });
     const result = await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);
     expect(result).to.deep.include({ status: "WAITING", nextCanonicalTime: 1120n });
     expect(f.calls).not.to.include("materialize");
-    expect(f.store.journal.actions).to.have.length(5);
+    expect(f.store.journal.actions).to.have.length(18);
+  });
+
+  it("rejects queue status, tuple, and createdAt drift against the canonical proposal receipt", async () => {
+    const build = (queueOverrides: Partial<NonNullable<CanonicalOrdinaryScenarioState["queue"]>>) => {
+      const f = executionFixture(19, canonicalState({ safeNativeBalance: 1n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n, safeNonce: 7n, delayQueueNonce: 3n, delayTxNonce: 2n, blockTimestamp: 1_050n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, queue: { queueNonce: 2n, fingerprint: queueFingerprint, createdAt: 1_000n, status: "queued", to: funder, value: 1n, data: "0x", operation: 0, ...queueOverrides } }));
+      for (let index = 0; index < 18; index++) { const rejected = [5, 6, 7, 9, 11, 13, 15, 17].includes(index); f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: rejected ? "rejection-proved" : "confirmed", transactionHash: rejected ? undefined : keccak256(`0x${(264 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(296 + index).toString(16)}` as Hex), establishedWindow: index === 2 ? "0" : undefined, queueCreatedAt: index === 16 ? "1000" : undefined } as OrdinaryScenarioActionRecord); }
+      const dependency = f.store.journal.actions[17]!; f.state.dependencies.push({ actionId: dependency.id, evidenceHash: dependency.evidenceHash! }); return f;
+    };
+    for (const drift of [{ status: "cancelled" as const }, { createdAt: 999n }, { to: safe }]) { const f = build(drift); await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context)).to.be.rejected; expect(f.calls).not.to.include("materialize"); }
   });
 
   it("fails phase accounting and shared-funder reserve checks before any private callback", async () => {
