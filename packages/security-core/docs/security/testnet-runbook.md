@@ -10,7 +10,9 @@ The repository contains a narrow coordinator core for the currently reviewed ord
 
 The core revalidates exact public topology/runtime/observer evidence and controlled Safe, Delay, USDC, counter, queue, dependency, fee, reserve, and period state before private callbacks. It persists materialization and signed-simulation hashes before outer signing, then uses one locked atomic journal with the existing `submitLiveIntent` hash-before-broadcast boundary. A restart can reconcile one exact pending hash; an interrupted pre-broadcast attempt or canonical revert is terminal for automatic execution. Raw signed calldata is transient and is never written to the journal.
 
-There is no live Sepolia adapter or CLI for this coordinator yet. Do not treat structural fake-capability tests, proposal creation, or approval parsing as permission to sign or broadcast. The ordinary matrix, repair/rotation descendants, and final freeze remain outstanding; monitoring remains non-authorizing and must be ready before any later live adapter is reviewed.
+The repository now contains the pre-repair adapter primitives and a three-mode one-action CLI boundary. The regenerated unsigned package proposes a 2,000,000 gas ceiling and is explicitly not gas-proven. No scenario approval exists. Do not treat local tests, proposal creation, or approval parsing as permission to sign, simulate with private assertions, or broadcast. Repair/rotation descendants and final freeze remain outside this slice.
+
+For an authorized action, `submit-one` may exit with the action still `outer-pending` after canonical inclusion when independent delivery evidence is absent. Run the watcher separately with the proposer closed, retrieve a sanitized public receiver acknowledgement through the official receiver API, then use `resume-one`. Resume mode reconciles only the original journaled hash with signing and broadcast disabled. The temporary receiver expires at 2026-10-28 18:51:57 UTC; expiry, absent activity evidence, mismatched payloads, or pending outbox state stop confirmation.
 
 ## Hard stop rules
 

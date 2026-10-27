@@ -28,8 +28,8 @@ const DELAY_ABI = parseAbi(["function txNonce() view returns (uint256)", "functi
 const GUARD_ABI = parseAbi(["function spendState(address) view returns (uint256,uint256,uint256)"]);
 const ERC20_ABI = parseAbi(["function balanceOf(address) view returns (uint256)", "function name() view returns (string)", "function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
 const FACTORY_ABI = parseAbi(["function getSigner(uint256,uint256,uint176) view returns (address)"]);
-const PUBLIC_CURRENT_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
-const PUBLIC_ARCHIVE_RPC = "https://sepolia.gateway.tenderly.co";
+export const PUBLIC_CURRENT_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
+export const PUBLIC_ARCHIVE_RPC = "https://sepolia.gateway.tenderly.co";
 const json = <T>(path: string): T => JSON.parse(readFileSync(path, "utf8")) as T;
 const decimal = (value: string, label: string): bigint => {
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${label} must be a canonical decimal string`);
@@ -65,7 +65,7 @@ export function writeOrdinaryScenarioReviewPackage(result: OrdinaryScenarioRevie
   return Object.freeze({ directory, files: Object.freeze([...files]), packageHash: result.packageHash });
 }
 
-function createScenarioClient(client: ReturnType<typeof createPublicClient>, receiptClient: ReturnType<typeof createPublicClient>, block: Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>): OrdinaryScenarioReviewClient {
+export function createScenarioClient(client: ReturnType<typeof createPublicClient>, receiptClient: ReturnType<typeof createPublicClient>, block: Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>): OrdinaryScenarioReviewClient {
   const read = (address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []) => client.readContract({ address, abi, functionName, args, blockNumber: block.number } as never) as Promise<unknown>;
   return Object.freeze({
     chainId: () => client.getChainId(),
@@ -103,7 +103,7 @@ function createScenarioClient(client: ReturnType<typeof createPublicClient>, rec
   });
 }
 
-async function reconstructReviewedPlan(repository: string, client: ReturnType<typeof createPublicClient>) {
+export async function reconstructReviewedPlan(repository: string, client: ReturnType<typeof createPublicClient>) {
   const packageDirectory = join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/task-0-package-2026-10-24-nonce-673");
   const config = readOrdinaryReviewConfig(join(repository, "packages/security-core/config/sepolia.ordinary-review.json"));
   const bindings = json<{ formatVersion: 1; factory: Address; verifiers: string; primary: { address: Address; x: string; y: string }; secondary: { address: Address; x: string; y: string } }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/safe-creation-2026-10-27/public-passkey-bindings.json"));
@@ -134,6 +134,20 @@ async function reconstructReviewedPlan(repository: string, client: ReturnType<ty
   return { config, bindings, primaryBinding, secondaryBinding, plan, policy, components };
 }
 
+export async function verifyReconstructedPlanAtBlock(reconstructed: Awaited<ReturnType<typeof reconstructReviewedPlan>>, client: ReturnType<typeof createPublicClient>, blockNumber: bigint) {
+  const pinned = createPinnedSafeReviewClient(client as never, blockNumber);
+  const topologyClient = Object.freeze({ ...pinned, getStorageAt: ({ address, slot }: { address: Address; slot: Hex }) => client.getStorageAt({ address, slot, blockNumber }) });
+  const currentFunderNonce = BigInt(await pinned.getTransactionCount({ address: reconstructed.config.funder }));
+  const [primaryRuntime, secondaryRuntime] = await Promise.all([pinned.getBytecode({ address: reconstructed.config.primaryPasskey }), pinned.getBytecode({ address: reconstructed.config.safeContractSecondary })]);
+  if (!primaryRuntime || !secondaryRuntime) throw new Error("current signer runtime is unavailable");
+  const deployments = await resolveVerifiedDeploymentInfrastructure(pinned, { chainId: sepolia.id, deployer: reconstructed.config.funder, expectedDeployerNonce: currentFunderNonce, passkeySigner: { address: reconstructed.config.primaryPasskey, runtimeCodeHash: keccak256(primaryRuntime), bindingHash: passkeySignerBindingHash({ factory: reconstructed.bindings.factory, ...reconstructed.primaryBinding }), source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: reconstructed.primaryBinding } });
+  await verifyPasskeySignerComponent(pinned, { address: reconstructed.config.safeContractSecondary, runtimeCodeHash: keccak256(secondaryRuntime), bindingHash: passkeySignerBindingHash({ factory: reconstructed.bindings.factory, ...reconstructed.secondaryBinding }), factory: reconstructed.bindings.factory, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: reconstructed.secondaryBinding });
+  const prerequisites = await verifyVaultPrerequisites(pinned, reconstructed.plan, "after-setup");
+  const topology = await verifyOrdinaryScenarioTopology(reconstructed.plan, { chainId: sepolia.id, policy: reconstructed.policy, safe: reconstructed.plan.safeProxyDeployment.expectedCreatedAddress, guard: reconstructed.components.guard, delay: reconstructed.components.delay, deployments, prerequisites, client: topologyClient });
+  if (!topology.ok) throw new Error(`ordinary scenario topology failed: ${topology.failures.join(", ")}`);
+  return Object.freeze({ pinned, deployments, prerequisites, topology });
+}
+
 export async function main(): Promise<void> {
   assertOrdinaryScenarioReviewCliEnvironment(process.env);
   const repository = process.cwd().replace(/\/packages\/security-core$/, "");
@@ -143,16 +157,7 @@ export async function main(): Promise<void> {
   const latest = await client.getBlock();
   if (latest.number === null || !latest.hash) throw new Error("latest canonical scenario block is unavailable");
   const block = Object.freeze({ number: latest.number, hash: latest.hash, timestamp: latest.timestamp });
-  const pinned = createPinnedSafeReviewClient(client as never, block.number);
-  const topologyClient = Object.freeze({ ...pinned, getStorageAt: ({ address, slot }: { address: Address; slot: Hex }) => client.getStorageAt({ address, slot, blockNumber: block.number }) });
-  const currentFunderNonce = BigInt(await pinned.getTransactionCount({ address: reconstructed.config.funder }));
-  const [primaryRuntime, secondaryRuntime] = await Promise.all([pinned.getBytecode({ address: reconstructed.config.primaryPasskey }), pinned.getBytecode({ address: reconstructed.config.safeContractSecondary })]);
-  if (!primaryRuntime || !secondaryRuntime) throw new Error("current signer runtime is unavailable");
-  const currentDeployments = await resolveVerifiedDeploymentInfrastructure(pinned, { chainId: sepolia.id, deployer: reconstructed.config.funder, expectedDeployerNonce: currentFunderNonce, passkeySigner: { address: reconstructed.config.primaryPasskey, runtimeCodeHash: keccak256(primaryRuntime), bindingHash: passkeySignerBindingHash({ factory: reconstructed.bindings.factory, ...reconstructed.primaryBinding }), source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: reconstructed.primaryBinding } });
-  await verifyPasskeySignerComponent(pinned, { address: reconstructed.config.safeContractSecondary, runtimeCodeHash: keccak256(secondaryRuntime), bindingHash: passkeySignerBindingHash({ factory: reconstructed.bindings.factory, ...reconstructed.secondaryBinding }), factory: reconstructed.bindings.factory, source: ORDINARY_REVIEW_SIGNER_SOURCE, binding: reconstructed.secondaryBinding });
-  const prerequisites = await verifyVaultPrerequisites(pinned, reconstructed.plan, "after-setup");
-  const topology = await verifyOrdinaryScenarioTopology(reconstructed.plan, { chainId: sepolia.id, policy: reconstructed.policy, safe: reconstructed.plan.safeProxyDeployment.expectedCreatedAddress, guard: reconstructed.components.guard, delay: reconstructed.components.delay, deployments: currentDeployments, prerequisites, client: topologyClient });
-  if (!topology.ok) throw new Error(`ordinary scenario topology failed: ${topology.failures.join(", ")}`);
+  const { topology } = await verifyReconstructedPlanAtBlock(reconstructed, client, block.number);
   const observerPath = join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-public.json");
   const observerDescriptor = json<IndependentObserverDescriptor>(observerPath);
   const observerProof = json<{ schemaVersion: number; scope: string; result: string; endpointHash: Hex; payloadSha256: Hex; receiverRequestId: string; receiverRecordedAt: string; httpStatus: number; expiresAt: string; actualActivityAlerts: string; hasSigningAuthority: boolean }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-channel-proof.json"));
@@ -177,7 +182,7 @@ export async function main(): Promise<void> {
     },
     observer,
     repair,
-    proposedCaps: { maxFeePerGas: reconstructed.config.maxFeePerGas, maxPriorityFeePerGas: reconstructed.config.maxPriorityFeePerGas, fundingGasLimit: quoteGas, safeExecutionGasLimit: 500_000n, publicDelayGasLimit: 300_000n },
+    proposedCaps: { maxFeePerGas: reconstructed.config.maxFeePerGas, maxPriorityFeePerGas: reconstructed.config.maxPriorityFeePerGas, fundingGasLimit: quoteGas, safeExecutionGasLimit: 2_000_000n, publicDelayGasLimit: 300_000n },
   }, createScenarioClient(client, historicalClient, block));
   const repairCreate = result.report.actions.find((action) => action.id === "repair-signer-create");
   if (repairCreate?.publicTransaction?.data !== repairQuote.calldata || repairCreate.proposedGasAndFee.gasLimit !== repairQuote.proposedGasCap || repairCreate.proposedGasAndFee.maxFeePerGas !== repairQuote.maxFeePerGasCap) throw new Error("replacement signer action does not match the public creation quote");

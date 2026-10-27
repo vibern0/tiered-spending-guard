@@ -118,12 +118,17 @@ const ALLOWED_IDS = new Set([
 type SpendState = Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>;
 export type QueueState = Readonly<{ queueNonce: bigint; fingerprint: Hex; createdAt: bigint; status: "queued" | "cancelled" | "expired" | "executed"; to: Address; value: bigint; data: Hex; operation: 0 }>;
 export type DependencyEvidence = Readonly<{ actionId: string; transactionHash?: Hex; blockHash?: Hex; evidenceHash: Hex }>;
+export type OrdinaryEvidenceBasis =
+  | Readonly<{ kind: "current-head" }>
+  | Readonly<{ kind: "queue-receipt"; proposalActionId: string; transactionHash: Hex }>
+  | Readonly<{ kind: "receipt-poststate"; actionId: string; transactionHash: Hex; blockNumber: bigint; blockHash: Hex }>;
 
 export type CanonicalOrdinaryScenarioState = Readonly<{
   chainId: number;
   blockNumber: bigint;
   blockHash: Hex;
   blockTimestamp: bigint;
+  evidenceBasis: OrdinaryEvidenceBasis;
   planHash: Hex;
   topologyEvidenceHash: Hex;
   publicIdentitiesHash: Hex;
@@ -283,7 +288,7 @@ export type ConfirmationEffect =
   | Readonly<{ kind: "erc20-funding"; token: Address; from: Address; to: Address; amount: bigint }>
   | Readonly<{ kind: "safe-execution"; safeTxHash: Hex; queueCreatedAt?: bigint; queueFingerprint?: Hex }>
   | Readonly<{ kind: "delay-lifecycle"; lifecycle: "expired" | "executed"; fingerprint: Hex; createdAt: bigint }>;
-export type ConfirmationEvidence = Readonly<{ postState: CanonicalOrdinaryScenarioState; effect: ConfirmationEffect }>;
+export type ConfirmationEvidence = Readonly<{ postState: CanonicalOrdinaryScenarioState; effect: ConfirmationEffect; observerEvidenceHash: Hex | null }>;
 
 export type OrdinaryScenarioExecutionContext = Readonly<{
   readState(action: OrdinaryScenarioActionScope, phase: "pre-private" | "pre-outer"): Promise<CanonicalOrdinaryScenarioState>;
@@ -636,6 +641,15 @@ function assertQueueBinding(action: OrdinaryScenarioActionScope, proposal: Ordin
 
 function assertFreshState(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, state: CanonicalOrdinaryScenarioState, phase: "pre-private" | "pre-outer"): void {
   if (state.chainId !== CHAIN_ID || !HASH.test(state.blockHash) || state.blockNumber < 0n || state.blockTimestamp <= 0n) throw new Error("ordinary scenario canonical block is invalid");
+  if (action.kind !== "expected-early-rejection") {
+    if (state.evidenceBasis.kind !== "current-head") throw new Error("ordinary scenario signing and success actions require current-head evidence");
+  } else {
+    const basis = state.evidenceBasis;
+    if (basis.kind !== "queue-receipt") throw new Error("ordinary scenario early rejection requires queue-receipt evidence");
+    const proposalRecord = journal.actions.find((entry) => entry.id === basis.proposalActionId && entry.status === "confirmed");
+    const reviewed = proposal.actions.find((entry) => entry.id === basis.proposalActionId && entry.kind === "queue-proposal");
+    if (!reviewed?.queue || !action.queue || reviewed.queue.queueNonce !== action.queue.queueNonce || !same(reviewed.queue.fingerprint, action.queue.fingerprint) || !proposalRecord?.receipt || !proposalRecord.transactionHash || !same(proposalRecord.transactionHash, basis.transactionHash) || !same(proposalRecord.receipt.transactionHash, basis.transactionHash) || proposalRecord.receipt.blockNumber !== state.blockNumber || !same(proposalRecord.receipt.blockHash, state.blockHash) || proposalRecord.queueCreatedAt !== state.blockTimestamp.toString()) throw new Error("ordinary scenario queue-receipt evidence does not bind the confirmed proposal archive");
+  }
   if (!same(state.planHash, proposal.planHash) || !same(state.topologyEvidenceHash, proposal.topologyEvidenceHash) || !same(state.publicIdentitiesHash, proposal.publicIdentitiesHash)) throw new Error("ordinary scenario topology/runtime/policy drift");
   if (!state.observerReady || !same(state.observerEvidenceHash, proposal.observerEvidenceHash)) throw new Error("ordinary scenario observer is not ready");
   assertControlledState(state, action.before, phase);
@@ -805,12 +819,16 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   const confirmation = await context.confirm(action, entry, recordEntry);
   assertControlledState(confirmation.postState, action.after, "post-receipt"); expectedEffect(action, proposal, confirmation.effect);
   if (confirmation.postState.blockNumber !== entry.receipt.blockNumber || !same(confirmation.postState.blockHash, entry.receipt.blockHash)) throw new Error("ordinary scenario poststate is not pinned to canonical receipt");
+  const poststateBasis = confirmation.postState.evidenceBasis;
+  if (poststateBasis.kind !== "receipt-poststate" || poststateBasis.actionId !== action.id || !same(poststateBasis.transactionHash, entry.receipt.transactionHash) || poststateBasis.blockNumber !== entry.receipt.blockNumber || !same(poststateBasis.blockHash, entry.receipt.blockHash)) throw new Error("ordinary scenario confirmation requires exact receipt-poststate evidence basis");
+  const alertProducing = action.kind === "step-up-transfer" || action.kind === "queue-proposal" || action.kind === "queue-cancellation" || action.kind === "queue-expiry" || action.kind === "ready-delay-execution";
+  if (alertProducing ? confirmation.observerEvidenceHash === null || !HASH.test(confirmation.observerEvidenceHash) : confirmation.observerEvidenceHash !== null) throw new Error("ordinary scenario confirmation observer evidence mismatch");
   if (action.kind === "queue-proposal") {
     if (confirmation.effect.kind !== "safe-execution" || confirmation.effect.queueCreatedAt === undefined || !action.queue || !confirmation.postState.queue || confirmation.postState.queue.status !== "queued" || !same(confirmation.postState.queue.to, action.queue.to) || confirmation.postState.queue.value !== action.queue.value || !same(confirmation.postState.queue.data, action.queue.data) || confirmation.postState.queue.operation !== action.queue.operation || confirmation.effect.queueCreatedAt !== confirmation.postState.blockTimestamp || confirmation.postState.queue.createdAt !== confirmation.postState.blockTimestamp) throw new Error("ordinary scenario queue tuple/createdAt must equal canonical proposal receipt block");
   } else if (DELAY_SUCCESS_KINDS.has(action.kind)) {
     if (confirmation.effect.kind !== "delay-lifecycle" || !confirmation.postState.queue || confirmation.effect.createdAt !== confirmation.postState.queue.createdAt) throw new Error("ordinary scenario Delay lifecycle createdAt mismatch");
   }
-  recordEntry.status = "confirmed"; recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState) });
+  recordEntry.status = "confirmed"; recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState), basis: poststateBasis, observerEvidenceHash: confirmation.observerEvidenceHash });
   if (confirmation.effect.kind === "safe-execution" && confirmation.effect.queueCreatedAt !== undefined) recordEntry.queueCreatedAt = confirmation.effect.queueCreatedAt.toString();
   if (action.kind === "base-transfer") {
     const anchor = BigInt(proposal.periodAnchor);
@@ -868,8 +886,9 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
     const evidence = await context.proveRejection(action, state, prepared);
     if (evidence.success !== false || evidence.blockNumber !== state.blockNumber || !same(evidence.blockHash, state.blockHash) || !HASH.test(evidence.revertDataHash)) throw new Error("ordinary scenario expected rejection evidence is missing");
     assertControlledState(evidence.postState, action.before, "rejection unchanged");
-    if (evidence.postState.blockNumber !== state.blockNumber || !same(evidence.postState.blockHash, state.blockHash)) throw new Error("ordinary scenario rejection evidence is not canonical");
-    recordEntry.status = "rejection-proved"; recordEntry.evidenceHash = sha256({ blockNumber: evidence.blockNumber.toString(), blockHash: evidence.blockHash, revertDataHash: evidence.revertDataHash, state: controlledState(evidence.postState) }) as Hex; store.save(journal);
+    if (evidence.postState.blockNumber !== state.blockNumber || !same(evidence.postState.blockHash, state.blockHash) || JSON.stringify(evidence.postState.evidenceBasis) !== JSON.stringify(state.evidenceBasis)) throw new Error("ordinary scenario rejection evidence is not canonical");
+    const basis = state.evidenceBasis.kind === "queue-receipt" ? "queue-receipt-block" : "current-head";
+    recordEntry.status = "rejection-proved"; recordEntry.evidenceHash = sha256({ basis, blockNumber: evidence.blockNumber.toString(), blockHash: evidence.blockHash, revertDataHash: evidence.revertDataHash, state: controlledState(evidence.postState) }) as Hex; store.save(journal);
     return { status: "REJECTION_PROVED", actionId: action.id };
   }
   const prepared = await context.materialize(action, state); await validatePrepared(action, proposal, prepared, state, context);

@@ -198,6 +198,7 @@ class MemoryStore implements OrdinaryScenarioStore {
 function canonicalState(overrides: Partial<CanonicalOrdinaryScenarioState> = {}): CanonicalOrdinaryScenarioState {
   return {
     chainId: 11155111, blockNumber: 10n, blockHash: keccak256("0x22"), blockTimestamp: 1000n,
+    evidenceBasis: { kind: "current-head" },
     planHash, topologyEvidenceHash: topologyHash, publicIdentitiesHash: identitiesHash, observerReady: true, observerEvidenceHash: observerHash,
     outerNonce: 900, funderNativeBalance: 20_000_000_000_000_000n, safeNativeBalance: 0n, funderUsdcBalance: 20_000_000n, safeUsdcBalance: 0n,
     safeNonce: 0n, delayQueueNonce: 0n, delayTxNonce: 0n,
@@ -234,7 +235,7 @@ function executionFixture(actionCount = 1, state = canonicalState()) {
     recoverPending: async () => { calls.push("recover"); return intent("native-funding"); },
     recoverReplay: async (actionScope, source) => { calls.push("recover-replay"); const prepared = await prepare(actionScope, { actionId: source.id, safeTxHash: actionScope.safeTxHash!, safeNonce: actionScope.safeTransaction!.safeNonce }); return { ...prepared, transientSignedOuterTransaction: await signIntent(prepared.liveIntent) }; },
     verifyContractSignature: async () => "0x1626ba7e",
-    confirm: async (_scope, entry) => { calls.push("confirm"); return { postState: { ...state, blockNumber: entry.receipt!.blockNumber, blockHash: entry.receipt!.blockHash, outerNonce: state.outerNonce + 1, safeNativeBalance: 30_000_000_000_001n }, effect: { kind: "native-funding", to: safe, amount: 30_000_000_000_001n } }; },
+    confirm: async (_scope, entry) => { calls.push("confirm"); return { postState: { ...state, blockNumber: entry.receipt!.blockNumber, blockHash: entry.receipt!.blockHash, evidenceBasis: { kind: "receipt-poststate", actionId: _scope.id, transactionHash: entry.receipt!.transactionHash, blockNumber: entry.receipt!.blockNumber, blockHash: entry.receipt!.blockHash }, outerNonce: state.outerNonce + 1, safeNativeBalance: 30_000_000_000_001n }, effect: { kind: "native-funding", to: safe, amount: 30_000_000_000_001n }, observerEvidenceHash: null }; },
     live: {
       funder: account.address, chainId: async () => 11155111, nonce: async () => state.outerNonce, balance: async () => state.funderNativeBalance,
       sign: async value => { calls.push("outer-sign"); return signIntent(value); }, broadcast: async raw => { calls.push("broadcast"); return keccak256(raw); }, receipt: async () => liveReceipt,
@@ -279,6 +280,13 @@ describe("bounded ordinary scenario coordinator", () => {
       expect(f.calls).not.to.include("materialize");
       expect(f.calls).not.to.include("outer-sign");
     }
+  });
+
+  it("requires current-head evidence for every signing or success action", async () => {
+    const state = canonicalState({ evidenceBasis: { kind: "queue-receipt", proposalActionId: "native-queue-cancel", transactionHash: keccak256("0x55") } });
+    const f = executionFixture(1, state);
+    await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context)).to.be.rejectedWith("current-head");
+    expect(f.calls).not.to.include("materialize");
   });
 
   it("rejects claimed Safe hashes with empty calldata or no actual signature bundle before outer signing", async () => {
@@ -388,8 +396,8 @@ describe("bounded ordinary scenario coordinator", () => {
     await executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,f.context);
     const entry=f.store.journal.liveJournal.entries[0]!;
     f.setReceipt({transactionHash:entry.transactionHash,status:"success",gasUsed:20_000n,effectiveGasPrice:800_000n,blockNumber:11n,blockHash:keccak256("0x76")});
-    const confirmedState={...state,blockNumber:11n,blockHash:keccak256("0x76"),outerNonce:state.outerNonce+1,safeNativeBalance:20_000_000_000_001n,safeNonce:1n,nativeSpend:{window:windowStart,baseSpent:10_000_000_000_000n,instantSpent:10_000_000_000_000n}};
-    const context:OrdinaryScenarioExecutionContext={...f.context,recoverPending:async()=>prepared.liveIntent,confirm:async()=>({postState:confirmedState,effect:{kind:"safe-execution",safeTxHash:scope.safeTxHash!}})};
+    const confirmedState={...state,blockNumber:11n,blockHash:keccak256("0x76"),evidenceBasis:{kind:"receipt-poststate" as const,actionId:scope.id,transactionHash:entry.transactionHash,blockNumber:11n,blockHash:keccak256("0x76")},outerNonce:state.outerNonce+1,safeNativeBalance:20_000_000_000_001n,safeNonce:1n,nativeSpend:{window:windowStart,baseSpent:10_000_000_000_000n,instantSpent:10_000_000_000_000n}};
+    const context:OrdinaryScenarioExecutionContext={...f.context,recoverPending:async()=>prepared.liveIntent,confirm:async()=>({postState:confirmedState,effect:{kind:"safe-execution",safeTxHash:scope.safeTxHash!},observerEvidenceHash:null})};
 
     expect((await executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,context)).status).to.equal("CONFIRMED");
     expect(f.store.journal.actions[2]!.establishedWindow).to.equal(windowStart.toString());
@@ -424,6 +432,16 @@ describe("bounded ordinary scenario coordinator", () => {
     f.setReceipt({ transactionHash: entry.transactionHash, status: "success", gasUsed: 20_000n, effectiveGasPrice: 800_000n, blockNumber: 11n, blockHash: keccak256("0x68") });
     const wrong: OrdinaryScenarioExecutionContext = { ...f.context, confirm: async (_scope, confirmed) => ({ postState: { ...f.state, blockNumber: confirmed.receipt!.blockNumber, blockHash: confirmed.receipt!.blockHash, outerNonce: f.state.outerNonce + 1, safeNativeBalance: 30_000_000_000_001n }, effect: { kind: "native-funding", to: funder, amount: 30_000_000_000_001n } }) };
     await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, wrong)).to.be.rejectedWith("funding receipt effect mismatch");
+    expect(f.store.journal.actions[0]?.status).to.equal("outer-pending");
+  });
+
+  it("requires confirmation poststate to carry the exact receipt basis", async () => {
+    const f = executionFixture();
+    await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);
+    const entry = f.store.journal.liveJournal.entries[0]!;
+    f.setReceipt({ transactionHash: entry.transactionHash, status: "success", gasUsed: 20_000n, effectiveGasPrice: 800_000n, blockNumber: 11n, blockHash: keccak256("0x69") });
+    const wrong: OrdinaryScenarioExecutionContext = { ...f.context, confirm: async (_scope, confirmed) => ({ postState: { ...f.state, blockNumber: confirmed.receipt!.blockNumber, blockHash: confirmed.receipt!.blockHash, outerNonce: f.state.outerNonce + 1, safeNativeBalance: 30_000_000_000_001n }, effect: { kind: "native-funding", to: safe, amount: 30_000_000_000_001n }, observerEvidenceHash: null }) };
+    await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, wrong)).to.be.rejectedWith("receipt-poststate");
     expect(f.store.journal.actions[0]?.status).to.equal("outer-pending");
   });
 
@@ -486,6 +504,20 @@ describe("bounded ordinary scenario coordinator", () => {
     expect(result).to.deep.include({ status: "WAITING", nextCanonicalTime: 1120n });
     expect(f.calls).not.to.include("materialize");
     expect(f.store.journal.actions).to.have.length(18);
+  });
+
+  it("binds an early rejection to the exact confirmed queue receipt archive block", async () => {
+    const proposalTx = keccak256("0x91");
+    const state = canonicalState({ blockTimestamp: 1_000n, safeNativeBalance: 1n, funderUsdcBalance: 0n, safeUsdcBalance: 20_000_000n, safeNonce: 4n, delayQueueNonce: 1n, delayTxNonce: 0n, nativeSpend: { window: 0n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, queue: { queueNonce: 0n, fingerprint: queueFingerprint, createdAt: 1_000n, status: "queued", to: funder, value: 1n, data: "0x", operation: 0 }, evidenceBasis: { kind: "queue-receipt", proposalActionId: "native-queue-cancel", transactionHash: proposalTx } });
+    const f = executionFixture(10, state);
+    for (let index = 0; index < 9; index++) {
+      const rejected = [5, 6, 7].includes(index);
+      f.store.journal.actions.push({ id: f.proposal.actions[index]!.id, commitment: f.proposal.actions[index]!.commitment, status: rejected ? "rejection-proved" : "confirmed", transactionHash: rejected ? undefined : index === 8 ? proposalTx : keccak256(`0x${(400 + index).toString(16)}` as Hex), evidenceHash: keccak256(`0x${(432 + index).toString(16)}` as Hex), queueCreatedAt: index === 8 ? "1000" : undefined, receipt: index === 8 ? { transactionHash: proposalTx, status: "success", gasUsed: 1n, effectiveGasPrice: 1n, blockNumber: state.blockNumber, blockHash: state.blockHash } : undefined } as OrdinaryScenarioActionRecord);
+    }
+    const dependency = f.store.journal.actions[8]!;
+    f.state.dependencies.push({ actionId: dependency.id, transactionHash: dependency.transactionHash, blockHash: state.blockHash, evidenceHash: dependency.evidenceHash! });
+    expect((await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context)).status).to.equal("REJECTION_PROVED");
+    expect(f.calls).not.to.include("materialize");
   });
 
   it("rejects queue status, tuple, and createdAt drift against the canonical proposal receipt", async () => {

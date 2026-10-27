@@ -1,5 +1,11 @@
 # Security-core call graph
 
+## Ordinary scenario one-action executor
+
+The pre-repair ordinary-Safe matrix uses one coordinator invocation per process. `review` reconstructs the public proposal and exposes no signing or broadcast capability. `submit-one` validates the exact proposal and opaque approval, completes a current-head public preflight, then lazily supplies only the signer capabilities required by the next closed action. `resume-one` accepts only an existing `outer-pending` record and disables signing and broadcast while it reconciles the journaled hash.
+
+Safe signature construction is guard-specific and primary-first. The primary contract slot always precedes the contract secondary even when address sorting would reverse them. The ECDSA secondary remains a terminal typed extension produced through the frozen EIP-1193 typed-data facade. Signing and success use current-head evidence; historical early rejection uses the confirmed queue receipt block; confirmation uses receipt-poststate evidence. Alert-producing confirmation remains pending until independent sender delivery and receiver acknowledgement bind the same transaction and payload hashes.
+
 This document records the primary-owner/guard-secondary topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
 
 ## Topology authority

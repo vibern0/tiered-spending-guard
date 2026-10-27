@@ -1,0 +1,92 @@
+import { expect } from "chai";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { hashTypedData, keccak256, parseTransaction, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { createFrozenSafeSignerProvider, loadObserverConfirmationEvidence, reconstructCanonicalType2Transaction, requireSixConfirmationReceipts, simulatePreparedOrdinaryAction, validatePublicReceiverAcknowledgement } from "../../../scripts/live/ordinary-scenario-adapter";
+import type { SafeSignerRequest } from "../../../src/signers/types";
+import { ActivityLedger, FileActivityStore } from "../../../src/monitoring/ledger";
+
+const account = privateKeyToAccount("0x0123456789012345678901234567890123456789012345678901234567890123");
+const SAFE = "0x2000000000000000000000000000000000000003" as Address;
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const types = { SafeTx: [
+  { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" },
+  { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" }, { name: "gasPrice", type: "uint256" },
+  { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "nonce", type: "uint256" },
+] as const };
+const message = { to: SAFE, value: 1n, data: "0x" as Hex, operation: 0 as const, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: 0n };
+const request: SafeSignerRequest = { chainId: 31337, safe: SAFE, safeTxHash: hashTypedData({ domain: { chainId: 31337, verifyingContract: SAFE }, types, primaryType: "SafeTx", message }), typedData: { domain: { chainId: 31337, verifyingContract: SAFE }, types, primaryType: "SafeTx", message } };
+
+describe("ordinary scenario frozen EIP-1193 facade", () => {
+  it("exposes only the frozen chain, account, and exact typed-data request", async () => {
+    let calls = 0;
+    const provider = createFrozenSafeSignerProvider({ account: account.address, request, signTypedData: async value => { calls++; return account.signTypedData(value.typedData as never); } });
+    expect(await provider.request({ method: "eth_chainId" })).to.equal("0x7a69");
+    expect(await provider.request({ method: "eth_accounts" })).to.deep.equal([account.address]);
+    const payload = JSON.stringify(request.typedData, (_, value) => typeof value === "bigint" ? value.toString() : value);
+    expect(await provider.request({ method: "eth_signTypedData_v4", params: [account.address, payload] })).to.match(/^0x[0-9a-f]{130}$/);
+    expect(calls).to.equal(1);
+    await expect(provider.request({ method: "eth_signTypedData_v4", params: [SAFE, payload] })).to.be.rejectedWith("frozen");
+    await expect(provider.request({ method: "eth_signTypedData_v4", params: [account.address, payload.replace('"nonce":"0"', '"nonce":"1"')] })).to.be.rejectedWith("frozen");
+    await expect(provider.request({ method: "personal_sign", params: ["0x12", account.address] })).to.be.rejectedWith("unsupported");
+    await expect(provider.request({ method: "eth_sendTransaction", params: [] })).to.be.rejectedWith("unsupported");
+    expect(calls).to.equal(1);
+  });
+
+  it("withholds receipts until six confirmations and detects a changed canonical block", async () => {
+    const receipt = { transactionHash: keccak256("0x01"), status: "success" as const, gasUsed: 1n, effectiveGasPrice: 1n, blockNumber: 10n, blockHash: keccak256("0x02") };
+    let head = 14n;
+    const live = requireSixConfirmationReceipts({ funder: account.address, chainId: async () => 11155111, nonce: async () => 0, balance: async () => 1n, sign: async () => "0x" as Hex, broadcast: async () => receipt.transactionHash, receipt: async () => receipt }, { blockNumber: async () => head, blockHash: async () => receipt.blockHash });
+    expect(await live.receipt(receipt.transactionHash)).to.equal(undefined);
+    head = 15n;
+    expect(await live.receipt(receipt.transactionHash)).to.deep.equal(receipt);
+    let reads = 0;
+    const changed = requireSixConfirmationReceipts({ ...live, receipt: async () => receipt }, { blockNumber: async () => 15n, blockHash: async () => ++reads === 1 ? receipt.blockHash : keccak256("0xff") });
+    await expect(changed.receipt(receipt.transactionHash)).to.be.rejectedWith("changed");
+  });
+
+  it("simulates the exact signed outer tuple at one rechecked block", async () => {
+    const blockHash = keccak256("0x03");
+    const prepared = { liveIntent: { id: "x", to: SAFE, data: "0x1234" as Hex, value: 0n, nonce: 1, gas: 100n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, requestHash: keccak256("0x04"), signerRolesHash: keccak256("0x05"), signedCalldataHash: keccak256("0x1234"), signatureBundleHash: null, transientSignedCalldata: "0x1234" as Hex };
+    const seen: unknown[] = [];
+    const evidence = await simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async input => { seen.push(input); return "0x01"; }, estimateGas: async input => { seen.push(input); return 99n; } }, account.address, prepared, 7n, blockHash, 100n);
+    expect(evidence).to.include({ gasEstimate: 99n, blockNumber: 7n, blockHash });
+    expect(seen).to.have.length(2);
+    await expect(simulatePreparedOrdinaryAction({ blockHash: async () => blockHash, call: async () => "0x", estimateGas: async () => 101n }, account.address, prepared, 7n, blockHash, 100n)).to.be.rejectedWith("cap");
+  });
+
+  it("binds public receiver acknowledgement and enforces temporary receiver expiry", () => {
+    const endpointHash = "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0" as Hex;
+    const transactionHash = keccak256("0x06"); const payloadSha256 = keccak256("0x07");
+    const receipt = { schemaVersion: 1 as const, endpointHash, transactionHash, payloadSha256, receiverRequestId: "request-1", receiverRecordedAt: "2026-10-27T12:00:00Z", retrievedAt: "2026-10-27T12:01:00Z", retrievalProvenance: "official-receiver-api" as const, expiresAt: "2026-10-28T18:51:57Z" };
+    expect(validatePublicReceiverAcknowledgement(receipt, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-27T13:00:00Z") })).to.match(/^0x[0-9a-f]{64}$/);
+    expect(() => validatePublicReceiverAcknowledgement(receipt, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-28T18:51:58Z") })).to.throw("expired");
+  });
+
+  it("requires delivered ledger evidence after a real restart and a matching receiver acknowledgement", () => {
+    const directory = mkdtempSync(join(tmpdir(), "ordinary-observer-")); const ledgerPath = join(directory, "ledger.json"); const acknowledgementPath = join(directory, "ack.json");
+    const endpointHash = "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0" as Hex; const transactionHash = keccak256("0x08"); const blockHash = keccak256("0x09");
+    const alert = { kind: "delayed-cancelled" as const, chainId: 11155111, safe: SAFE, transactionHash, blockNumber: 10n, logIndex: 0, delay: SAFE, cancelledThrough: 1n };
+    const key = { chainId: 11155111, transactionHash, blockHash, logIndex: 0 };
+    try {
+      const firstStore = new FileActivityStore(ledgerPath); const first = new ActivityLedger(firstStore); first.accept(key, alert); const payloadSha256 = first.payloadHash(alert); firstStore.close();
+      writeFileSync(acknowledgementPath, JSON.stringify({ schemaVersion: 1, endpointHash, transactionHash, payloadSha256, receiverRequestId: "request-2", receiverRecordedAt: "2026-10-27T12:00:00Z", retrievedAt: "2026-10-27T12:01:00Z", retrievalProvenance: "official-receiver-api", expiresAt: "2026-10-28T18:51:57Z" }));
+      expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.throw("pending");
+      const secondStore = new FileActivityStore(ledgerPath); const second = new ActivityLedger(secondStore); second.markDelivered(key, { channel: "webhook", httpStatus: 200, payloadHash: payloadSha256, deliveredAt: "2026-10-27T12:00:30Z" }); secondStore.close();
+      expect(loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.match(/^0x[0-9a-f]{64}$/);
+      const wrong = JSON.parse(readFileSync(acknowledgementPath, "utf8")); wrong.payloadSha256 = keccak256("0xaa"); writeFileSync(acknowledgementPath, JSON.stringify(wrong));
+      expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.throw("binding");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("reconstructs the exact original type-2 replay envelope without invoking a signer", async () => {
+    let signerCalls = 0;
+    const raw = await account.signTransaction({ type: "eip1559", chainId: 11155111, nonce: 7, gas: 21_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1n, to: SAFE, value: 2n, data: "0x", accessList: [] });
+    const parsed = parseTransaction(raw);
+    const reconstructed = reconstructCanonicalType2Transaction({ chainId: 11155111, nonce: 7, gas: 21_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1n, to: SAFE, value: 2n, data: "0x", accessList: [], r: parsed.r!, s: parsed.s!, yParity: parsed.yParity! as 0 | 1, hash: keccak256(raw) });
+    expect(reconstructed).to.equal(raw);
+    expect(signerCalls).to.equal(0);
+  });
+});

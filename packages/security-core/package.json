@@ -21,7 +21,8 @@
     "prepare:sepolia-vault-review": "tsx scripts/prepare-sepolia-vault-review.ts",
     "live": "tsx scripts/live/runner.ts",
     "safe:create": "tsx scripts/live/safe-creation.ts",
-    "scenario:review": "tsx scripts/live/ordinary-scenario-review-cli.ts"
+    "scenario:review": "tsx scripts/live/ordinary-scenario-review-cli.ts",
+    "scenario:execute": "tsx scripts/live/ordinary-scenario-executor-cli.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "0.15.5",
