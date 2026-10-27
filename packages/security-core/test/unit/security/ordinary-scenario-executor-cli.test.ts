@@ -29,18 +29,27 @@ describe("ordinary scenario one-action CLI", () => {
     const credentialMarker = "PRIVATE_CREDENTIAL_MARKER_ordinary";
     const providerMarker = "https://provider.invalid/RPC_PROVIDER_TOKEN_ordinary";
     const failure = new CallExecutionError(new BaseError(`${credentialMarker} ${providerMarker}`), { data: calldataMarker, to: proposal.safe });
-    const directory = mkdtempSync(join(tmpdir(), "ordinary-cli-failure-")); const artifactPath = join(directory, "public-artifact.json"); const artifact = "{\"status\":\"unchanged\"}\n"; writeFileSync(artifactPath, artifact);
-    const stdout = ""; let stderr = ""; let exitCode = 0;
+    const directory = mkdtempSync(join(tmpdir(), "ordinary-cli-failure-")); const approvalPath = join(directory, "approval.json"); const journalPath = join(directory, "journal.json"); writeFileSync(approvalPath, approvalSerialized);
+    const context: OrdinaryScenarioExecutionContext = {
+      ...resumeContext({ sign: 0, broadcast: 0 }),
+      readState: async () => state,
+      materialize: async action => ({ liveIntent: intent, requestHash: action.commitment, signerRolesHash: sha256(action.signerRoles) as Hex, signedCalldataHash: keccak256(intent.data), signatureBundleHash: null, transientSignedCalldata: intent.data }),
+      simulate: async () => { throw failure; },
+    };
+    const originalStdoutWrite = process.stdout.write; let stdout = ""; let stderr = ""; let exitCode = 0;
+    process.stdout.write = ((value: string | Uint8Array) => { stdout += typeof value === "string" ? value : Buffer.from(value).toString("utf8"); return true; }) as typeof process.stdout.write;
 
     try {
-      await runOrdinaryScenarioExecutorEntryPoint(Promise.reject(failure), { writeStderr: value => { stderr += value; }, setExitCode: value => { exitCode = value; } });
+      const task = runOrdinaryScenarioExecutorCli({ mode: "submit-one", reportPath, expectedPackageHash, expectedArtifactBytesHash, expectedProposalHash: proposal.proposalHash, approvalPath, expectedApprovalHash: approvalHash, journalPath }, { environment: { LIVE_SUBMIT: "YES" }, publicPreflight: async () => ({ ready: true, detail: "ok" }), createContext: async () => context }).then(() => undefined);
+      await runOrdinaryScenarioExecutorEntryPoint(task, { writeStderr: value => { stderr += value; }, setExitCode: value => { exitCode = value; } });
 
       expect(exitCode).to.equal(1);
       expect(stdout).to.equal("");
       expect(stderr).to.equal("[ORDINARY_SCENARIO_EXECUTOR_FAILED] ordinary scenario executor failed\n");
-      expect(readFileSync(artifactPath, "utf8")).to.equal(artifact);
-      for (const marker of [calldataMarker, credentialMarker, providerMarker]) expect(`${stdout}${stderr}${readFileSync(artifactPath, "utf8")}`).not.to.include(marker);
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+      const journal = readFileSync(journalPath, "utf8");
+      expect(JSON.parse(journal).actions[0]).to.include({ id: "native-funding", status: "materialized" });
+      for (const marker of [calldataMarker, credentialMarker, providerMarker]) expect(`${stdout}${stderr}${journal}`).not.to.include(marker);
+    } finally { process.stdout.write = originalStdoutWrite; rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("reviews the exact 2m proposal without constructing private or broadcast capabilities", async () => {
