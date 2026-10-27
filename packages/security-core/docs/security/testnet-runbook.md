@@ -77,6 +77,14 @@ Delay execution happens only after the queued fingerprint has cooled down and be
 
 Cancellation/freeze is available to the primary passkey plus exactly one configured secondary signer through the exact Delay nonce-advance cancellation or guard `freeze()` calls. Operators must enumerate the ordered queue items invalidated by a nonce advance before review. Signer repair is delayed through `GuardReplacementMaintenance.replaceSigner`: primary repair swaps the sole Safe owner and guard identity atomically; secondary repair changes guard configuration only. Use sentinel previousOwner for primary and zero for secondary. Direct guard signer repair and role-2 repair are forbidden.
 
+## Read-only ordinary scenario review
+
+Use `collectOrdinaryScenarioReview` only as a library with the exact reviewed plan and a separately verified post-setup topology result. Supply the durable five-receipt proof, public signer capability descriptors, proposed caps, and an RPC adapter whose supported reads are pinned to one block. The collector rechecks that block hash and every mutable value before returning. It never signs, broadcasts, estimates a signed envelope, reads a credential or provider secret, or authorizes the output.
+
+The native and USDC inventory requirement is cumulative: base X plus the two secondary-form step-up rows consume exactly shared Y=30, then the one ready delayed transfer consumes 1, for 31 total matrix units. The delayed row is a 1-unit transaction after remaining immediate allowance is zero. Funding value, all native Safe transfer principal, prerequisite/Safe actual cost, and proposed gas reservations all count against the 0.05 Sepolia ETH phase ceiling. The outer Safe execution value of zero never removes the inner native transfer value from this accounting.
+
+Treat any blocker in the report as unresolved input, without substituting another token, signer, observer, or repair target. The repair descriptor may expose only the canonical factory-derived replacement's public coordinates, verifier bitmap, address, and undeployed status. Factory creation is a separate capped funder intent. The WebAuthn proof remains private until later authorized signing; until it exists, repair calldata, its queue tuple, Safe hash, and Delay execution remain `BLOCKED_INPUT`. After rotation, prove the old secondary rejects the unchanged post-Y queue Safe transaction, the new secondary queues it, cancel that item, and only then review final freeze.
+
 ## Forbidden paths
 
 Direct owner transfers that do not satisfy the guard tier, unlisted modules, fallback handlers, delegatecalls outside the fixed maintenance path, batches, approvals, Permit/Permit2, arbitrary messages, approved-hash authorization, unknown calldata, unknown recipients, broad recovery fields, signer-only shortcuts, relayer discretion, and UI-only authorization are forbidden. Monitoring is mandatory evidence, not an authorizer.
@@ -93,7 +101,7 @@ Use deliberately low-value test assets and clean test accounts. Refuse chain ID 
 6. Attempt a transfer above Y directly. Confirm it cannot execute; queue the exact fingerprint through Delay with the primary passkey plus one configured secondary approval.
 7. Confirm the delayed lifecycle alert, cancel the queue item, and prove the cancelled fingerprint cannot execute. Repeat with expiry and prove stale execution fails.
 8. Queue a fresh low-value delayed transfer, advance Z, execute it, and reconcile the exact fingerprint and alert.
-9. Freeze instant tiers, rehearse the lost-factor availability failure, queue delayed signer repair, and run teardown. No future recovery boundary is active in this prototype; signer repair must use the delayed maintenance path and must not immediately transfer or weaken policy.
+9. Rehearse the lost-factor availability failure, deploy and bind the separately reviewed replacement signer, queue and execute delayed contract-secondary repair, prove the old secondary rejects and the new secondary can queue/cancel the same post-Y proof item, then freeze as the final action. No future recovery boundary is active in this prototype; signer repair must use the delayed maintenance path and must not immediately transfer or weaken policy.
 10. Re-run the complete read-only verifier after every state transition and retain failures. Do not accept “the UI showed the right tier” as proof.
 
 ## Evidence and architecture gate

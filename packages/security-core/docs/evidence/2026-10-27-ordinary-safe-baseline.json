@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "result": "PASS_TWO_RPC",
+  "network": "sepolia",
+  "chainId": "11155111",
+  "planHash": "0x95ef22995ba9c1527d4c12463663aca0b07d092676df12cea4064476a89855cb",
+  "safe": "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6",
+  "approvedSafeReviewHash": "0x95d2e9524a6247dd73aa9b452244a826409c9044f0fdc59d6f3812971b674f80",
+  "sourceSafeVerificationSha256": "3532caebf541553727aca2fce42f9218e8b826a8978028f84ea6983f82b3ab9e",
+  "transactions": [
+    {
+      "id": "vault-setup-helper",
+      "transactionHash": "0xef8c11a8ebd5aa80be3c3447140a8eafd3f79130108d910ac25487456bb1a545",
+      "blockNumber": "11986683",
+      "blockHash": "0x9f06bde72b24fa67b2b435c16752b34649f532f8426223df1a8bd9d2f9a82181",
+      "gasUsed": "6206548",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "6206548000000"
+    },
+    {
+      "id": "vault-guard",
+      "transactionHash": "0xfb55c9d71af54b90e0ed413c901e86fcd40f5405618e4b1823d0a707380600c4",
+      "blockNumber": "11986684",
+      "blockHash": "0xa2ffad2ac3463fbd52dbf1f000254ce70eda3e7a08221672c1eaacaa8d342568",
+      "gasUsed": "24370686",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "24370686000000"
+    },
+    {
+      "id": "vault-delay",
+      "transactionHash": "0xc6bf893c8782a5a85b848acde2c69d59aaa2dd8dddd721a3b707aba509c058d8",
+      "blockNumber": "11986685",
+      "blockHash": "0x97cf80d2e8a7aedc51670444d58af4af2754a29a3aafd07c59d97ecf6bc7d7e9",
+      "gasUsed": "27824209",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "27824209000000"
+    },
+    {
+      "id": "vault-maintenance",
+      "transactionHash": "0x7f243eaedc93f3ee028231561fa36f6f4fedbcca6bb7db601cef7df85a35a397",
+      "blockNumber": "11986686",
+      "blockHash": "0xb9869cbf8b3dad19afde52dc8900eceeda618a805037e43b444e3d896c4ca0cb",
+      "gasUsed": "8818708",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "8818708000000"
+    },
+    {
+      "id": "vault-safe",
+      "transactionHash": "0xd93ab546afa11efdae949c4f21a31987cc161b62a3251d1f4107a228a3a95862",
+      "blockNumber": "12006943",
+      "blockHash": "0x5dc79d6d89f0451d4e8c4fc84d563d4d72e2547b954563ada58e4c6c69f1fe6d",
+      "gasUsed": "3815825",
+      "effectiveGasPrice": "1000000",
+      "actualCostWei": "3815825000000"
+    }
+  ],
+  "prerequisiteActualCostWei": "67220151000000",
+  "safeCreationActualCostWei": "3815825000000",
+  "combinedActualCostWei": "71035976000000",
+  "safeCreationProviders": ["PublicNode", "Tenderly Gateway"],
+  "safeCreationTopology": {
+    "safeNonce": "0",
+    "delayTransactionNonce": "0",
+    "delayQueueNonce": "0",
+    "nativeBaseSpent": "0",
+    "nativeInstantSpent": "0",
+    "usdcBaseSpent": "0",
+    "usdcInstantSpent": "0"
+  },
+  "omissions": ["raw EIP-1559 transaction signature r/s/v/yParity fields"]
+}
