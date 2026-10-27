@@ -73,6 +73,8 @@ If any provider requires a different onchain topology to work, stop and write a 
 
 The ordinary testnet baseline now has a narrow Node EIP-1193 facade over an injected local account capability. It freezes one canonical `SafeSignerRequest` and the configured legacy test identity, exposes only `eth_chainId`, `eth_accounts`, and exact `eth_signTypedData_v4`, and rejects altered typed data, arbitrary messages, and transaction submission. It stays in the ordinary live harness and is not a browser or native-profile signer.
 
+The repair continuation keeps the approved primary-first Safe contract-signature encoding. Its replacement credential is loaded only after a prepare-only authorization, signs the fixed replacement proof once, and stays in one bounded memory session through exact group review and queue publication. The prepare grant has no Safe, outer-signature, or broadcast authority. The assertion is never persisted, and a pre-publication restart requires a new assertion, proposal, and approval. No WalletConnect, EOA replacement signer, or provider override is introduced.
+
 Start with:
 
 1. Safe-native passkey adapter.

@@ -263,6 +263,17 @@ export type OrdinaryScenarioJournal = {
   funder: Address;
   liveJournal: LiveJournal;
   actions: OrdinaryScenarioActionRecord[];
+  repairContinuation?: {
+    schemaVersion: 1;
+    prefixHash: Hex;
+    originalActionCount: 38;
+    cumulativeActualCostWei: string;
+    creationProposalHash: Hex;
+    creationApprovalHash?: Hex;
+    groupProposalHash?: Hex;
+    groupApprovalHash?: Hex;
+    actions: Array<{ id: string; commitment: Hex; status: "proposed" | "approved" | "pending" | "confirmed" | "rejection-proved" | "stopped"; transactionHash?: Hex; evidenceHash?: Hex }>;
+  };
 };
 
 export type OrdinaryScenarioStore = Readonly<{
@@ -488,7 +499,7 @@ function snapshotAction(action: Record<string, unknown>, index: number, queueBef
   const after = actionControlledState(expectedState, "after", queueAfter, txAfter);
   if (safeTxHash && BigInt(after.safeNonce) !== BigInt(before.safeNonce) + (expectedOutcome === "success" ? 1n : 0n)) throw new Error(`${id} fixed Safe nonce progression mismatch`);
   if (!safeTxHash && BigInt(after.safeNonce) !== BigInt(before.safeNonce)) throw new Error(`${id} unexpectedly changes Safe nonce`);
-  const scope = deepFreeze({ id, kind, asset, expectedOutcome: expectedOutcome as "success" | "rejection", signerRoles, dependsOn, commitment: sha256(action) as Hex, gasLimitCap, maxFeePerGasCap, maxPriorityFeePerGasCap, before, after, safeTxHash, safeTransaction, publicTransaction, queue });
+  const scope: OrdinaryScenarioActionScope = deepFreeze({ id, kind, asset: asset as OrdinaryScenarioActionScope["asset"], expectedOutcome: expectedOutcome as "success" | "rejection", signerRoles, dependsOn, commitment: sha256(action) as Hex, gasLimitCap, maxFeePerGasCap, maxPriorityFeePerGasCap, before, after, safeTxHash, safeTransaction, publicTransaction, queue });
   validateActionSemantics(scope, identity, descriptor, queueBefore);
   return { scope, queueAfter, txAfter };
 }
@@ -663,8 +674,11 @@ function assertFreshState(action: OrdinaryScenarioActionScope, proposal: Ordinar
   }
   const established = [...journal.actions].reverse().find((entry) => entry.establishedWindow !== undefined && entry.id.startsWith(action.asset === "native" ? "native-" : "usdc-"));
   if (established) {
-    const currentWindow = action.asset === "native" ? state.nativeSpend.window : state.usdcSpend.window;
-    if (currentWindow.toString() !== established.establishedWindow) throw new Error(`ordinary scenario ${action.asset} period rollover requires new review`);
+    const storedWindow = action.asset === "native" ? state.nativeSpend.window : state.usdcSpend.window;
+    const periodAnchor = BigInt(proposal.periodAnchor);
+    if (state.blockTimestamp < periodAnchor) throw new Error(`ordinary scenario ${action.asset} canonical timestamp precedes period anchor`);
+    const effectiveWindow = periodAnchor + ((state.blockTimestamp - periodAnchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
+    if (storedWindow.toString() !== established.establishedWindow || effectiveWindow.toString() !== established.establishedWindow) throw new Error(`ordinary scenario ${action.asset} period rollover requires new review`);
   }
 }
 
@@ -865,7 +879,7 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
   if (action.expectedOutcome === "rejection") {
     let prepared: PreparedOrdinaryAction | undefined;
     if (action.kind === "expected-replay-rejection") {
-      const sourceId = action.dependsOn[0]; const source = sourceId && journal.actions.find((entry) => entry.id === sourceId && entry.status === "confirmed");
+      const sourceId = action.dependsOn[0]; const source = sourceId === undefined ? undefined : journal.actions.find((entry) => entry.id === sourceId && entry.status === "confirmed");
       if (!source?.transactionHash) throw new Error("ordinary scenario replay source receipt is unavailable");
       prepared = await context.recoverReplay(action, source, state);
       if (!prepared.replaySource || prepared.replaySource.actionId !== source.id) throw new Error("ordinary scenario replay did not recover the canonical source envelope");
@@ -874,7 +888,7 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
       let outer: ReturnType<typeof parseTransaction>; let sender: Address;
       try { outer = parseTransaction(rawOuter); sender = await recoverTransactionAddress({ serializedTransaction: rawOuter as `0x02${string}` }); } catch { throw new Error("ordinary scenario replay signed outer transaction is malformed"); }
       if (!same(keccak256(rawOuter), source.transactionHash) || !same(sender, proposal.funder) || outer.type !== "eip1559" || outer.chainId !== CHAIN_ID || source.outerNonce === undefined || !source.gas || !source.maxFeePerGas || !source.maxPriorityFeePerGas || !source.outerTo || !source.outerValue || !source.outerDataHash || outer.nonce !== source.outerNonce || outer.gas?.toString() !== source.gas || outer.maxFeePerGas?.toString() !== source.maxFeePerGas || outer.maxPriorityFeePerGas?.toString() !== source.maxPriorityFeePerGas || !outer.to || !same(outer.to, source.outerTo) || (outer.value ?? 0n).toString() !== source.outerValue || !same(keccak256(outer.data ?? "0x"), source.outerDataHash)) throw new Error("ordinary scenario replay signed outer transaction does not match the confirmed source");
-      if (prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
+      if (prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !prepared.liveIntent.to || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
       recordEntry.transactionHash = source.transactionHash;
     } else if (!PUBLIC_REJECTION_KINDS.has(action.kind)) prepared = await context.materialize(action, state);
     if (prepared) {
@@ -925,7 +939,7 @@ function decodeReceipt(value: unknown): LiveReceipt | undefined {
 function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: Hex; approvalHash: Hex; funder: Address }>): OrdinaryScenarioJournal {
   let parsed: unknown; try { parsed = JSON.parse(serialized); } catch { throw new Error("ordinary scenario journal must be JSON"); }
   const value = record(parsed, "ordinary scenario journal");
-  exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions"], "ordinary scenario journal");
+  exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...(value.repairContinuation === undefined ? [] : ["repairContinuation"])], "ordinary scenario journal");
   const live = record(value.liveJournal, "embedded live journal");
   exactKeys(live, ["chainId", "funder", "entries"], "embedded live journal");
   const entries = array(live.entries, "embedded live entries").map((raw, index) => {
@@ -943,7 +957,22 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (entry.receipt) entry.receipt = decodeReceipt(entry.receipt);
     return entry;
   });
-  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: CHAIN_ID, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: CHAIN_ID, funder: address(live.funder, "embedded funder"), entries }, actions };
+  let repairContinuation: OrdinaryScenarioJournal["repairContinuation"];
+  if (value.repairContinuation !== undefined) {
+    const repair = record(value.repairContinuation, "repair continuation");
+    const optional = ["creationApprovalHash", "groupProposalHash", "groupApprovalHash"].filter(key => repair[key] !== undefined);
+    exactKeys(repair, ["schemaVersion", "prefixHash", "originalActionCount", "cumulativeActualCostWei", "creationProposalHash", "actions", ...optional], "repair continuation");
+    const repairActions: NonNullable<OrdinaryScenarioJournal["repairContinuation"]>["actions"] = array(repair.actions, "repair continuation actions").map((raw, index) => {
+      const action = record(raw, `repair continuation action ${index}`); const optionalAction = ["transactionHash", "evidenceHash"].filter(key => action[key] !== undefined);
+      exactKeys(action, ["id", "commitment", "status", ...optionalAction], `repair continuation action ${index}`);
+      const status = action.status; if (status !== "proposed" && status !== "approved" && status !== "pending" && status !== "confirmed" && status !== "rejection-proved" && status !== "stopped") throw new Error("repair continuation action status mismatch");
+      return { id: text(action.id, "repair continuation action id"), commitment: hash(action.commitment, "repair continuation commitment"), status: status as "proposed" | "approved" | "pending" | "confirmed" | "rejection-proved" | "stopped", transactionHash: action.transactionHash === undefined ? undefined : hash(action.transactionHash, "repair continuation transaction hash"), evidenceHash: action.evidenceHash === undefined ? undefined : hash(action.evidenceHash, "repair continuation evidence hash") };
+    });
+    const repairIds = [...EXCLUDED_IDS];
+    if (repair.schemaVersion !== 1 || decimal(String(repair.originalActionCount), "repair continuation prefix count") !== 38n || repairActions.length > 7 || repairActions.some((entry, index) => entry.id !== repairIds[index])) throw new Error("repair continuation header mismatch");
+    repairContinuation = { schemaVersion: 1, prefixHash: hash(repair.prefixHash, "repair continuation prefix hash"), originalActionCount: 38, cumulativeActualCostWei: decimal(repair.cumulativeActualCostWei, "repair continuation cumulative cost").toString(), creationProposalHash: hash(repair.creationProposalHash, "repair creation proposal hash"), creationApprovalHash: repair.creationApprovalHash === undefined ? undefined : hash(repair.creationApprovalHash, "repair creation approval hash"), groupProposalHash: repair.groupProposalHash === undefined ? undefined : hash(repair.groupProposalHash, "repair group proposal hash"), groupApprovalHash: repair.groupApprovalHash === undefined ? undefined : hash(repair.groupApprovalHash, "repair group approval hash"), actions: repairActions };
+  }
+  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: CHAIN_ID, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: CHAIN_ID, funder: address(live.funder, "embedded funder"), entries }, actions, repairContinuation };
   if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario persisted journal identity mismatch");
   return journal;
 }

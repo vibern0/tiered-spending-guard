@@ -414,6 +414,31 @@ describe("bounded ordinary scenario coordinator", () => {
     expect(f.calls).not.to.include("materialize");
   });
 
+  it("rejects a timestamp-derived rollover before private materialization while guard storage is still lazy",async()=>{
+    const established=1_763_942_400n;
+    const state=canonicalState({blockTimestamp:established+86_401n,safeNativeBalance:20_000_000_000_001n,funderUsdcBalance:0n,safeUsdcBalance:20_000_000n,safeNonce:1n,nativeSpend:{window:established,baseSpent:10_000_000_000_000n,instantSpent:10_000_000_000_000n}});
+    const f=executionFixture(4,state);
+    for(let index=0;index<3;index++)f.store.journal.actions.push({id:f.proposal.actions[index]!.id,commitment:f.proposal.actions[index]!.commitment,status:"confirmed",transactionHash:keccak256(`0x${(520+index).toString(16)}` as Hex),evidenceHash:keccak256(`0x${(524+index).toString(16)}` as Hex),establishedWindow:index===2?established.toString():undefined});
+    const base=f.store.journal.actions[2]!;f.state.dependencies.push({actionId:base.id,transactionHash:base.transactionHash,evidenceHash:base.evidenceHash!});
+
+    await expect(executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,f.context)).to.be.rejectedWith("period rollover requires new review");
+    expect(f.calls).not.to.include("materialize");
+  });
+
+  it("rejects a timestamp-derived rollover between private materialization and outer signing",async()=>{
+    const established=1_763_942_400n;
+    const before=canonicalState({blockTimestamp:established+1n,safeNativeBalance:20_000_000_000_001n,funderUsdcBalance:0n,safeUsdcBalance:20_000_000n,safeNonce:1n,nativeSpend:{window:established,baseSpent:10_000_000_000_000n,instantSpent:10_000_000_000_000n}});
+    const afterBoundary={...before,blockTimestamp:established+86_400n,blockNumber:before.blockNumber+1n,blockHash:keccak256("0x0201")};
+    const f=executionFixture(4,before);
+    for(let index=0;index<3;index++)f.store.journal.actions.push({id:f.proposal.actions[index]!.id,commitment:f.proposal.actions[index]!.commitment,status:"confirmed",transactionHash:keccak256(`0x${(528+index).toString(16)}` as Hex),evidenceHash:keccak256(`0x${(532+index).toString(16)}` as Hex),establishedWindow:index===2?established.toString():undefined});
+    const base=f.store.journal.actions[2]!;f.state.dependencies.push({actionId:base.id,transactionHash:base.transactionHash,evidenceHash:base.evidenceHash!});
+    const context:OrdinaryScenarioExecutionContext={...f.context,readState:async(_action,phase)=>phase==="pre-private"?before:afterBoundary};
+
+    await expect(executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,context)).to.be.rejectedWith("period rollover requires new review");
+    expect(f.calls).to.include("materialize");
+    expect(f.calls).not.to.include("outer-sign");
+  });
+
   it("makes a canonical revert terminal and never automatically retries it", async () => {
     const f = executionFixture();
     await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);

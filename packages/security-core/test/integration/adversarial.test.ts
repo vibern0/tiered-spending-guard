@@ -74,6 +74,7 @@ describe("Task 10 adversarial threat-model matrix", () => {
     await f.exec(f.token.address, f.transfer(f.recipient.account.address, 100n), f.passkeySig);
     const before = await f.guard.read.spendState([f.token.address]);
     await time.increaseTo(Number(before[0] + 86400n));
+    expect(await f.guard.read.spendState([f.token.address])).to.deep.equal(before);
     await f.exec(f.token.address, f.transfer(f.recipient.account.address, 100n), f.passkeySig);
     const after = await f.guard.read.spendState([f.token.address]);
     expect(after[0]).to.equal(before[0] + 86400n); expect(after[1]).to.equal(100n); expect(after[2]).to.equal(100n);
