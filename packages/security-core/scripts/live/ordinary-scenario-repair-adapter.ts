@@ -177,7 +177,7 @@ export function createRepairProductionAdapter(input: Readonly<{ repository: stri
         if (!maintenanceCalldata) throw new Error("repair execution requires canonical maintenance calldata");
         const data = encodeFunctionData({ abi: DELAY_ABI, functionName: "executeNextTx", args: [proposal.repair.maintenance, 0n, maintenanceCalldata, 1] });
         if (keccak256(data).toLowerCase() !== action.requestDataHash.toLowerCase()) throw new Error("repair execution canonical calldata hash mismatch");
-        return Object.freeze({ liveIntent: { id: action.id, to: proposal.delay, data, value: 0n, nonce: outerNonce, gas: 300_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n } });
+        return Object.freeze({ liveIntent: { id: action.id, to: proposal.delay, data, value: 0n, nonce: outerNonce, gas: 1_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n } });
       }
       let to: Address; let data: Hex; let safeNonce: bigint; let signerRole: "original-secondary" | "repair-secondary";
       if (action.id === "post-rotation-old-secondary-rejection" || action.id === "post-rotation-new-secondary-queue") { to = proposal.delay; data = encodeFunctionData({ abi: DELAY_ABI, functionName: "execTransactionFromModule", args: [proposal.recipient, 1n, "0x", 0] }); safeNonce = 15n; signerRole = action.id === "post-rotation-old-secondary-rejection" ? "original-secondary" : "repair-secondary"; }

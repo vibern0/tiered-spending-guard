@@ -21,19 +21,28 @@ export type LiveContext = Readonly<{
 }>;
 
 export function liveIntentHash(intent: LiveIntent, funder: Address): Hex {
+  return liveIntentHashForChain(intent, funder, SEPOLIA);
+}
+
+export function liveIntentHashForChain(intent: LiveIntent, funder: Address, chainId: number): Hex {
   return keccak256(stringToHex(JSON.stringify([
-    SEPOLIA, funder.toLowerCase(), intent.id, intent.to?.toLowerCase() ?? null, intent.data.toLowerCase(),
+    chainId, funder.toLowerCase(), intent.id, intent.to?.toLowerCase() ?? null, intent.data.toLowerCase(),
     intent.value.toString(), intent.nonce, intent.gas.toString(), intent.maxFeePerGas.toString(), intent.maxPriorityFeePerGas.toString(),
   ])));
 }
 
 export async function submitLiveIntent(input: LiveIntent, journal: LiveJournal, context: LiveContext): Promise<JournalEntry> {
+  return submitLiveIntentForChain(input, journal, context, SEPOLIA);
+}
+
+/** Chain-explicit mechanical seam for real local callback proof. Production callers use submitLiveIntent. */
+export async function submitLiveIntentForChain(input: LiveIntent, journal: LiveJournal, context: LiveContext, expectedChainId: number): Promise<JournalEntry> {
   const intent = Object.freeze({ ...input });
-  if (await context.chainId() !== SEPOLIA) throw new Error("live runner requires Ethereum Sepolia");
-  if (journal.chainId !== SEPOLIA || journal.funder.toLowerCase() !== context.funder.toLowerCase()) throw new Error("journal identity mismatch");
+  if (!Number.isSafeInteger(expectedChainId) || expectedChainId <= 0 || await context.chainId() !== expectedChainId) throw new Error("live runner chain mismatch");
+  if (journal.chainId !== expectedChainId || journal.funder.toLowerCase() !== context.funder.toLowerCase()) throw new Error("journal identity mismatch");
   if (!/^[a-z0-9-]{1,80}$/.test(intent.id) || !/^0x(?:[0-9a-f]{2})*$/i.test(intent.data) || (intent.to !== undefined && !/^0x[0-9a-f]{40}$/i.test(intent.to))) throw new Error("invalid live intent");
   if (!Number.isSafeInteger(intent.nonce) || intent.nonce < 0 || intent.value < 0n || intent.gas <= 0n || intent.maxFeePerGas <= 0n || intent.maxPriorityFeePerGas < 0n || intent.maxPriorityFeePerGas > intent.maxFeePerGas) throw new Error("invalid transaction bounds");
-  const intentHash = liveIntentHash(intent, context.funder);
+  const intentHash = liveIntentHashForChain(intent, context.funder, expectedChainId);
   const existing = journal.entries.find(entry => entry.id === intent.id);
   if (existing) {
     if (existing.intentHash !== intentHash) throw new Error("resume intent changed");
@@ -69,14 +78,14 @@ export async function submitLiveIntent(input: LiveIntent, journal: LiveJournal, 
   if (await context.nonce() !== intent.nonce) throw new Error("funder nonce drift");
   if (await context.balance() < reserved) throw new Error("insufficient funder balance");
   // Recheck identity after RPC-backed verification, before signing or reserving funds.
-  if (await context.chainId() !== SEPOLIA) throw new Error("chain changed during preflight");
+  if (await context.chainId() !== expectedChainId) throw new Error("chain changed during preflight");
   let raw: Hex;
   try { raw = await context.sign(intent); } catch { throw new Error("local transaction signing failed"); }
   try {
     const signed = parseTransaction(raw);
     if (!raw.startsWith("0x02")) throw new Error("mismatch");
     const sender = await recoverTransactionAddress({ serializedTransaction: raw as `0x02${string}` });
-    if (signed.type !== "eip1559" || signed.chainId !== SEPOLIA || sender.toLowerCase() !== context.funder.toLowerCase() || signed.to?.toLowerCase() !== intent.to?.toLowerCase() || (signed.data ?? "0x").toLowerCase() !== intent.data.toLowerCase() || (signed.value ?? 0n) !== intent.value || signed.nonce !== intent.nonce || signed.gas !== intent.gas || signed.maxFeePerGas !== intent.maxFeePerGas || signed.maxPriorityFeePerGas !== intent.maxPriorityFeePerGas || (signed.accessList?.length ?? 0) !== 0) throw new Error("mismatch");
+    if (signed.type !== "eip1559" || signed.chainId !== expectedChainId || sender.toLowerCase() !== context.funder.toLowerCase() || signed.to?.toLowerCase() !== intent.to?.toLowerCase() || (signed.data ?? "0x").toLowerCase() !== intent.data.toLowerCase() || (signed.value ?? 0n) !== intent.value || signed.nonce !== intent.nonce || signed.gas !== intent.gas || signed.maxFeePerGas !== intent.maxFeePerGas || signed.maxPriorityFeePerGas !== intent.maxPriorityFeePerGas || (signed.accessList?.length ?? 0) !== 0) throw new Error("mismatch");
   } catch { throw new Error("signed transaction mismatch"); }
   const entry: JournalEntry = { id: intent.id, intentHash, transactionHash: keccak256(raw), nonce: intent.nonce, reserved, status: "pending" };
   journal.entries.push(entry);

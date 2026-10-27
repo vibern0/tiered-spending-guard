@@ -28,7 +28,7 @@ import {
   validateTransientRepairQueue,
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
-import { runPublicRepairCreationReview, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
+import { repairObserverExpectedEffect, runPublicRepairCreationReview, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
 import { validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
@@ -162,6 +162,8 @@ describe("closed ordinary repair-to-freeze continuation", () => {
       ["15", "16", "7", "8", "7", "7"], ["16", "17", "8", "8", "7", "8"], ["17", "18", "8", "8", "8", "8"],
     ]);
     expect(group.actions[2]!.safeTxHash).to.equal(group.actions[3]!.safeTxHash);
+    expect(group.actions[1]!.gasLimitCap).to.equal("1000000");
+    expect(BigInt(group.maximumCumulativeOutlayWei) - BigInt(group.cumulativeActualCostWei)).to.equal(9_000_000_000_000n);
     const serialized = JSON.stringify(group);
     expect(serialized).not.to.include(assertion.slice(2));
     expect(serialized).not.to.include(prepared.transient.maintenanceCalldata);
@@ -211,6 +213,14 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const wrongDelay = { ...delayLog, data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }], [maintenance, 1n, prepared.transient.maintenanceCalldata, 1]) };
     expect(() => validateRepairReceiptEffect(prepared.proposal, action, [safeLog, wrongDelay], prepared.transient.maintenanceCalldata)).to.throw("TransactionAdded");
     expect(() => validateRepairReceiptEffect(prepared.proposal, action, [delayLog], prepared.transient.maintenanceCalldata)).to.throw("Safe execution");
+  });
+
+  it("binds cancellation observer evidence to cancelledThrough without an inapplicable queue fingerprint", () => {
+    const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
+    const group = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }).proposal;
+    const cancel = group.actions[4]!; const expected = repairObserverExpectedEffect(group, cancel, 123n);
+    expect(expected).to.deep.equal({ kind: "delayed-cancelled", safe: group.safe, delay: group.delay, blockNumber: 123n, cancelledThrough: 8n });
+    expect(expected).not.to.have.property("queueFingerprint");
   });
 
   it("enforces each policy phase and applies the native lazy-window gate only to the one-wei proof transaction", () => {

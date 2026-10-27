@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { createOrdinaryScenarioProposal, createOrdinaryScenarioStore, type OrdinaryScenarioJournal } from "./ordinary-scenario-executor";
-import { submitLiveIntent, type LiveContext, type LiveIntent } from "./submission";
+import { submitLiveIntent, type JournalEntry, type LiveContext, type LiveIntent, type LiveJournal } from "./submission";
 import { SAFE_TX_TYPES } from "../../src/signers/types";
 import {
   REPAIR_MAX_APPROVAL_WAIT_MS,
@@ -41,6 +41,7 @@ const INVALID_SECONDARY_SIGNATURE = toFunctionSelector("InvalidSecondarySignatur
 export type RepairQueueSessionInput<Credential> = Readonly<{
   creation: RepairCreationProposal;
   journal: OrdinaryScenarioJournal;
+  domain?: import("./ordinary-scenario-repair").RepairExecutionDomain;
   maxApprovalWaitMs: number;
   publicPreflight(): Promise<RepairCanonicalState>;
   awaitPrepareAuthorization(authorization: ReturnType<typeof createRepairPrepareAuthorization>): Promise<boolean>;
@@ -52,6 +53,7 @@ export type RepairQueueSessionInput<Credential> = Readonly<{
   persistJournal(journal: OrdinaryScenarioJournal): Promise<void>;
   materializeSafeTransaction(proposal: RepairGroupProposal, transient: TransientRepairGroup): Promise<Readonly<{ signedSafeCalldata: Hex; liveIntent: LiveIntent }>>;
   simulate(signedSafeCalldata: Hex, proposal: RepairGroupProposal): Promise<Readonly<{ gasEstimate: bigint; success: boolean }>>;
+  submit?(intent: LiveIntent, journal: LiveJournal, live: LiveContext): Promise<JournalEntry>;
   live: LiveContext;
 }>;
 
@@ -75,7 +77,7 @@ function validateSignedRepairQueue(proposal: RepairGroupProposal, transient: Tra
   const args = decoded.args as readonly [Address, bigint, Hex, number, bigint, bigint, bigint, Address, Address, Hex];
   const expected = proposal.actions[0]!;
   if (args[0].toLowerCase() !== proposal.delay.toLowerCase() || args[1] !== 0n || args[2].toLowerCase() !== transient.safeTransactionData.toLowerCase() || args[3] !== 0 || args[4] !== 0n || args[5] !== 0n || args[6] !== 0n || args[7].toLowerCase() !== ZERO || args[8].toLowerCase() !== ZERO || args[9] === "0x") throw new Error("repair decoded Safe tuple/signatures drift");
-  const safeTxHash = hashTypedData({ domain: { chainId: 11155111, verifyingContract: proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: args[0], value: args[1], data: args[2], operation: 0, safeTxGas: args[4], baseGas: args[5], gasPrice: args[6], gasToken: args[7], refundReceiver: args[8], nonce: 14n } });
+  const safeTxHash = hashTypedData({ domain: { chainId: proposal.chainId, verifyingContract: proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to: args[0], value: args[1], data: args[2], operation: 0, safeTxGas: args[4], baseGas: args[5], gasPrice: args[6], gasToken: args[7], refundReceiver: args[8], nonce: 14n } });
   if (!expected.safeTxHash || safeTxHash.toLowerCase() !== expected.safeTxHash.toLowerCase() || intent.id !== "repair-queue" || !intent.to || intent.to.toLowerCase() !== proposal.safe.toLowerCase() || intent.value !== 0n || intent.data.toLowerCase() !== signedSafeCalldata.toLowerCase() || intent.gas <= 0n || intent.gas > 2_000_000n || intent.maxFeePerGas > 1_000_000n || intent.maxPriorityFeePerGas > 1_000_000n || keccak256(args[2]).toLowerCase() !== expected.requestDataHash.toLowerCase()) throw new Error("repair signed Safe request exceeds exact approval");
 }
 
@@ -86,7 +88,7 @@ function validateSignedRepairQueue(proposal: RepairGroupProposal, transient: Tra
 export async function runRepairQueueSession<Credential>(input: RepairQueueSessionInput<Credential>): Promise<RepairQueueSessionResult> {
   if (!Number.isSafeInteger(input.maxApprovalWaitMs) || input.maxApprovalWaitMs <= 0 || input.maxApprovalWaitMs > REPAIR_MAX_APPROVAL_WAIT_MS) throw new Error("repair approval wait exceeds the 600000ms bound");
   const before = await input.publicPreflight();
-  const prepare = createRepairPrepareAuthorization({ creation: input.creation, state: before, purpose: "materialize-one-repair-proof" });
+  const prepare = createRepairPrepareAuthorization({ creation: input.creation, state: before, purpose: "materialize-one-repair-proof", domain: input.domain });
   if (!await timeout(input.awaitPrepareAuthorization(prepare), input.maxApprovalWaitMs)) throw new Error("repair proof preparation was not authorized");
   let assertion: Hex | undefined;
   let transient: TransientRepairGroup | undefined;
@@ -95,7 +97,7 @@ export async function runRepairQueueSession<Credential>(input: RepairQueueSessio
     const credential = await input.loadReplacementCredential();
     assertion = await input.signReplacementProof(credential, prepare.proofHash);
     if (await input.verifyReplacementProof(prepare.proofHash, assertion, before.blockNumber) !== "0x1626ba7e") throw new Error("repair replacement ERC1271 proof is invalid");
-    const prepared = createRepairGroupProposal({ creation: input.creation, journal: input.journal, state: before, assertion });
+    const prepared = createRepairGroupProposal({ creation: input.creation, journal: input.journal, state: before, assertion, domain: input.domain });
     transient = prepared.transient;
     await input.publishSanitizedProposal(prepared.proposal);
     const exact = await timeout(input.awaitExactApproval(prepared.proposal), input.maxApprovalWaitMs);
@@ -125,7 +127,7 @@ export async function runRepairQueueSession<Credential>(input: RepairQueueSessio
       if (pending && action) { action.status = "pending"; action.transactionHash = pending.transactionHash; }
       await input.persistJournal(input.journal);
     } };
-    const entry = await submitLiveIntent(materialized.liveIntent, input.journal.liveJournal, live);
+    const entry = await (input.submit ?? submitLiveIntent)(materialized.liveIntent, input.journal.liveJournal, live);
     if (entry.status !== "pending") throw new Error("repair queue new submission returned unexpected terminal state");
     const transactionHash = entry.transactionHash;
     return Object.freeze({ status: "PENDING", transactionHash, proposalHash: prepared.proposal.proposalHash, approvalHash: approval.approvalHash });
@@ -168,6 +170,26 @@ export async function runRepairCommand(argv: readonly string[], runtime: RepairC
 const PRIVATE_INPUTS = ["LIVE_FUNDING_KEY_FILE", "LIVE_PRIMARY_CREDENTIAL_FILE", "LIVE_SECONDARY_CREDENTIAL_FILE", "LIVE_REPAIR_SECONDARY_CREDENTIAL_FILE", "LIVE_ECDSA_KEY_FILE", "LIVE_SUBMIT", "PRIVATE_KEY"] as const;
 const readJson = <T>(path: string, bigintKeys: ReadonlySet<string> = new Set()): T => JSON.parse(readFileSync(path, "utf8"), (key, value) => bigintKeys.has(key) && typeof value === "string" && /^[0-9]+$/.test(value) ? BigInt(value) : value) as T;
 
+export type RepairCommandDependencies = Readonly<{
+  environment: Readonly<Record<string, string | undefined>>;
+  repository(): string;
+  createHarness(repository: string): OrdinaryScenarioProductionHarness;
+  createAdapter(input: Parameters<typeof createRepairProductionAdapter>[0]): ReturnType<typeof createRepairProductionAdapter>;
+  loadCreationQuote(repository: string): RepairCreationQuote;
+  now(): Date;
+  awaitApprovalHandoff(maxWaitMs: number): Promise<Readonly<{ raw: string; hash: Hex }>>;
+}>;
+
+const productionRepairCommandDependencies = (): RepairCommandDependencies => Object.freeze({
+  environment: process.env,
+  repository: () => process.cwd().replace(/\/packages\/security-core$/, ""),
+  createHarness: createOrdinaryScenarioProductionHarness,
+  createAdapter: createRepairProductionAdapter,
+  loadCreationQuote: loadFixedRepairCreationQuote,
+  now: () => new Date(),
+  awaitApprovalHandoff: readApprovalHandoff,
+});
+
 function loadFixedRepairCreationQuote(repository: string): RepairCreationQuote {
   const descriptor = readJson<{ formatVersion: number; scope: string; chainId: number; factory: Address; verifiers: string; address: Address; x: string; y: string }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-public.json"));
   const quote = readJson<{ scope: string; chainId: number; factory: Address; predictedSigner: Address; calldata: Hex; dataHash: Hex; value: string; proposedGasCap: string; maxFeePerGasCap: string; exactCapCallPassed: boolean; signed: boolean; broadcast: boolean }>(join(repository, ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-creation-quote.json"));
@@ -175,7 +197,7 @@ function loadFixedRepairCreationQuote(repository: string): RepairCreationQuote {
   return Object.freeze({ chainId: quote.chainId, factory: quote.factory, candidate: descriptor.address, x: BigInt(descriptor.x), y: BigInt(descriptor.y), verifiers: BigInt(descriptor.verifiers), calldata: quote.calldata, calldataHash: quote.dataHash, gasLimitCap: BigInt(quote.proposedGasCap), maxFeePerGasCap: BigInt(quote.maxFeePerGasCap), maxPriorityFeePerGasCap: 1_000_000n });
 }
 
-export async function runPublicRepairCreationReview(arguments_: readonly string[], environment: Readonly<Record<string, string | undefined>> = process.env): Promise<RepairCreationProposal> {
+export async function runPublicRepairCreationReview(arguments_: readonly string[], environment: Readonly<Record<string, string | undefined>> = process.env, dependencies: RepairCommandDependencies = productionRepairCommandDependencies()): Promise<RepairCreationProposal> {
   for (const key of PRIVATE_INPUTS) if (environment[key] !== undefined) throw new Error(`repair creation-review rejects authority input: ${key}`);
   const args = [...arguments_]; const values = new Map<string, string>();
   while (args.length) { const key = args.shift()!; const value = args.shift(); if (!key.startsWith("--") || !value || values.has(key)) throw new Error("repair creation-review arguments are malformed"); values.set(key, value); }
@@ -185,9 +207,9 @@ export async function runPublicRepairCreationReview(arguments_: readonly string[
   if (proposal.proposalHash.toLowerCase() !== required("--proposal-hash").toLowerCase()) throw new Error("repair creation-review original proposal hash mismatch");
   const store = createOrdinaryScenarioStore(required("--journal"), { proposalHash: proposal.proposalHash, approvalHash: required("--original-approval-hash") as Hex, funder: proposal.funder }, () => { throw new Error("repair creation-review requires the terminal journal"); });
   try {
-    const journal = store.load(); const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const harness = createOrdinaryScenarioProductionHarness(repository); const reconstructed = await harness.reconstructedProfile(); const quote = loadFixedRepairCreationQuote(repository);
+    const journal = store.load(); const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const quote = dependencies.loadCreationQuote(repository);
     const anchor = await harness.current.getBlock(); if (!anchor.hash) throw new Error("repair creation review canonical block hash unavailable");
-    const descriptor = createRepairAdapterDescriptor(proposal, quote, { blockNumber: anchor.number, blockHash: anchor.hash }); const adapter = createRepairProductionAdapter({ repository, harness, reconstructed, creation: descriptor });
+    const descriptor = createRepairAdapterDescriptor(proposal, quote, { blockNumber: anchor.number, blockHash: anchor.hash }); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation: descriptor });
     const evidence = await adapter.validateTerminalPrefix(journal); const state = await adapter.readStateAt("pre-rotation", proposal.observerEvidenceHash, anchor.number, anchor.hash);
     const creation = createRepairCreationProposal({ proposal, journal, evidence, state, quote }); extendJournalForRepair(journal, creation); store.save(journal);
     const output = values.get("--output"); if (output) writeFileSync(output, `${JSON.stringify(creation)}\n`, { flag: "wx", mode: 0o600 });
@@ -195,9 +217,9 @@ export async function runPublicRepairCreationReview(arguments_: readonly string[
   } finally { store.close?.(); }
 }
 
-export async function runRepairCreationSubmit(arguments_: readonly string[]): Promise<Readonly<{ status: "PENDING" | "CONFIRMED_NO_NEW_CREATION"; actionId: "repair-signer-create"; transactionHash?: Hex }>> {
-  if (process.env.LIVE_SUBMIT !== "YES") throw new Error("repair creation-submit requires LIVE_SUBMIT=YES");
-  for (const key of PRIVATE_INPUTS) if (key !== "LIVE_SUBMIT" && key !== "LIVE_FUNDING_KEY_FILE" && process.env[key] !== undefined) throw new Error(`repair creation-submit rejects unsupported authority input: ${key}`);
+export async function runRepairCreationSubmit(arguments_: readonly string[], dependencies: RepairCommandDependencies = productionRepairCommandDependencies()): Promise<Readonly<{ status: "PENDING" | "CONFIRMED_NO_NEW_CREATION"; actionId: "repair-signer-create"; transactionHash?: Hex }>> {
+  if (dependencies.environment.LIVE_SUBMIT !== "YES") throw new Error("repair creation-submit requires LIVE_SUBMIT=YES");
+  for (const key of PRIVATE_INPUTS) if (key !== "LIVE_SUBMIT" && key !== "LIVE_FUNDING_KEY_FILE" && dependencies.environment[key] !== undefined) throw new Error(`repair creation-submit rejects unsupported authority input: ${key}`);
   const pairs: Array<[string, string]> = []; const args = [...arguments_]; const seen = new Set<string>(); while (args.length) { const key = args.shift()!; const value = args.shift(); if (!key.startsWith("--") || !value || seen.has(key)) throw new Error("repair creation-submit arguments are malformed"); seen.add(key); pairs.push([key, value]); }
   const known = new Set(["--creation", "--creation-hash", "--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--approval", "--approval-hash"]); for (const [key] of pairs) if (!known.has(key)) throw new Error(`repair creation-submit rejects unknown flag ${key}`);
   const value = (key: string) => { const found = pairs.find(([name]) => name === key)?.[1]; if (!found) throw new Error(`repair creation-submit requires ${key}`); return found; };
@@ -208,7 +230,7 @@ export async function runRepairCreationSubmit(arguments_: readonly string[]): Pr
   const store = createOrdinaryScenarioStore(value("--journal"), { proposalHash: original.proposalHash, approvalHash: value("--original-approval-hash") as Hex, funder: original.funder }, () => { throw new Error("repair creation-submit requires the terminal journal"); });
   try {
     const journal = store.load(); bindRepairCreationApproval(journal, creation, approval); store.save(journal);
-    const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const harness = createOrdinaryScenarioProductionHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = createRepairProductionAdapter({ repository, harness, reconstructed, creation });
+    const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation });
     await adapter.validateTerminalPrefix(journal);
     if (creation.alreadyDeployed) { const state = await adapter.readState("pre-rotation", original.observerEvidenceHash); assertRepairCreationState(creation, state, true); recordRepairCreationConfirmation(journal, creation, evidenceHash({ noNewCreation: true, blockNumber: state.blockNumber, blockHash: state.blockHash, runtimeCodeHash: state.candidateRuntimeCodeHash, bindingHash: state.candidateBindingHash })); store.save(journal); return Object.freeze({ status: "CONFIRMED_NO_NEW_CREATION", actionId: "repair-signer-create" }); }
     const nonce = Number(await harness.current.getTransactionCount({ address: creation.funder }));
@@ -239,16 +261,16 @@ async function readApprovalHandoff(maxWaitMs: number): Promise<Readonly<{ raw: s
   return Object.freeze({ raw: readFileSync(value.path, "utf8"), hash: value.hash as Hex });
 }
 
-export async function runRepairPrepareQueue(arguments_: readonly string[]): Promise<RepairQueueSessionResult> {
-  if (process.env.LIVE_SUBMIT !== "YES") throw new Error("repair prepare-queue requires LIVE_SUBMIT=YES");
-  for (const key of ["LIVE_ECDSA_KEY_FILE", "PRIVATE_KEY"] as const) if (process.env[key] !== undefined) throw new Error(`repair prepare-queue rejects unsupported authority input: ${key}`);
+export async function runRepairPrepareQueue(arguments_: readonly string[], dependencies: RepairCommandDependencies = productionRepairCommandDependencies()): Promise<RepairQueueSessionResult> {
+  if (dependencies.environment.LIVE_SUBMIT !== "YES") throw new Error("repair prepare-queue requires LIVE_SUBMIT=YES");
+  for (const key of ["LIVE_ECDSA_KEY_FILE", "PRIVATE_KEY"] as const) if (dependencies.environment[key] !== undefined) throw new Error(`repair prepare-queue rejects unsupported authority input: ${key}`);
   const values = argumentMap(arguments_, "repair prepare-queue"); const known = new Set(["--creation", "--creation-hash", "--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--prepare-authorization", "--group-output", "--observer-ledger", "--receiver-ack", "--approval-wait-ms"]); for (const key of values.keys()) if (!known.has(key)) throw new Error(`repair prepare-queue rejects unknown flag ${key}`);
   const get = (key: string) => requireArgument(values, key, "repair prepare-queue"); const maxWait = Number(values.get("--approval-wait-ms") ?? REPAIR_MAX_APPROVAL_WAIT_MS); if (!Number.isSafeInteger(maxWait) || maxWait <= 0 || maxWait > REPAIR_MAX_APPROVAL_WAIT_MS) throw new Error("repair prepare-queue approval wait is invalid");
   const creation = loadRepairCreationProposal(readFileSync(get("--creation"), "utf8"), get("--creation-hash") as Hex);
   const original = createOrdinaryScenarioProposal(readFileSync(get("--report"), "utf8"), { expectedArtifactBytesHash: get("--artifact-hash") as Hex, expectedPackageHash: get("--package-hash") as Hex }); if (original.proposalHash.toLowerCase() !== get("--proposal-hash").toLowerCase()) throw new Error("repair prepare-queue original proposal mismatch"); assertCreationOriginalBinding(creation, original, get("--original-approval-hash") as Hex);
   const store = createOrdinaryScenarioStore(get("--journal"), { proposalHash: original.proposalHash, approvalHash: get("--original-approval-hash") as Hex, funder: original.funder }, () => { throw new Error("repair prepare-queue requires terminal journal"); });
   try {
-    const journal = store.load(); const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const harness = createOrdinaryScenarioProductionHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = createRepairProductionAdapter({ repository, harness, reconstructed, creation });
+    const journal = store.load(); const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation });
     const observerHash = original.observerEvidenceHash; const live = await harness.createLiveContext("submit-one", creation.funder, async () => {});
     await adapter.validateTerminalPrefix(journal);
     return await runRepairQueueSession({ creation, journal, maxApprovalWaitMs: maxWait,
@@ -258,7 +280,7 @@ export async function runRepairPrepareQueue(arguments_: readonly string[]): Prom
       signReplacementProof: (signer, proofHash) => signer.signDigest(proofHash),
       verifyReplacementProof: async (proofHash, assertion, blockNumber) => harness.current.readContract({ address: creation.candidate, abi: ERC1271_ABI, functionName: "isValidSignature", args: [proofHash, assertion], blockNumber }),
       publishSanitizedProposal: async proposal => { writeFileSync(get("--group-output"), `${JSON.stringify(proposal)}\n`, { flag: "wx", mode: 0o600 }); process.stdout.write(`${JSON.stringify({ proposalHash: proposal.proposalHash, approvalHandoff: "stdin-json-path-and-hash", maxWaitMs: maxWait })}\n`); },
-      awaitExactApproval: () => readApprovalHandoff(maxWait), persistJournal: async updated => store.save(updated),
+      awaitExactApproval: () => dependencies.awaitApprovalHandoff(maxWait), persistJournal: async updated => store.save(updated),
       materializeSafeTransaction: (proposal, transient) => adapter.materializeRepairQueue(proposal, transient),
       simulate: async signedSafeCalldata => { const state = await adapter.readState("pre-rotation", observerHash); const result = await harness.current.call({ account: creation.funder, to: creation.safe, data: signedSafeCalldata, gas: 2_000_000n, blockNumber: state.blockNumber }); const [success] = decodeAbiParameters([{ type: "bool" }], result.data ?? "0x"); const gasEstimate = await harness.current.estimateGas({ account: creation.funder, to: creation.safe, data: signedSafeCalldata, value: 0n }); return { gasEstimate, success }; },
       live: { ...live, verify: async () => {}, persist: async () => { throw new Error("repair session owns atomic persistence"); } },
@@ -285,10 +307,18 @@ export function hasExactRepairRevert(error: unknown, selector: Hex): boolean {
   return false;
 }
 
-export async function runRepairTail(arguments_: readonly string[], mode: "submit-one" | "resume-one"): Promise<Readonly<Record<string, unknown>>> {
-  if (mode === "submit-one" && process.env.LIVE_SUBMIT !== "YES") throw new Error("repair tail-submit-one requires LIVE_SUBMIT=YES");
-  if (mode === "submit-one") for (const key of ["LIVE_ECDSA_KEY_FILE", "PRIVATE_KEY"] as const) if (process.env[key] !== undefined) throw new Error(`repair tail-submit-one rejects unsupported authority input: ${key}`);
-  if (mode === "resume-one" && PRIVATE_INPUTS.some(key => process.env[key] !== undefined)) throw new Error("repair tail-resume-one rejects private authority input");
+export function repairObserverExpectedEffect(group: RepairGroupProposal, action: RepairGroupProposal["actions"][number], blockNumber: bigint): Readonly<{ kind: "delayed-queued" | "delayed-executed" | "delayed-cancelled"; safe: Address; delay: Address; blockNumber: bigint; queueNonce?: bigint; queueFingerprint?: Hex; cancelledThrough?: bigint }> {
+  const common = { kind: action.alert as "delayed-queued" | "delayed-executed" | "delayed-cancelled", safe: group.safe, delay: group.delay, blockNumber };
+  if (action.id === "repair-queue" || action.id === "repair-ready-execute") return Object.freeze({ ...common, queueNonce: 6n, queueFingerprint: action.queueFingerprint! });
+  if (action.id === "post-rotation-new-secondary-queue") return Object.freeze({ ...common, queueNonce: 7n, queueFingerprint: action.queueFingerprint! });
+  if (action.id === "post-rotation-proof-cancel") return Object.freeze({ ...common, cancelledThrough: 8n });
+  throw new Error("repair action has no observer effect");
+}
+
+export async function runRepairTail(arguments_: readonly string[], mode: "submit-one" | "resume-one", dependencies: RepairCommandDependencies = productionRepairCommandDependencies()): Promise<Readonly<Record<string, unknown>>> {
+  if (mode === "submit-one" && dependencies.environment.LIVE_SUBMIT !== "YES") throw new Error("repair tail-submit-one requires LIVE_SUBMIT=YES");
+  if (mode === "submit-one") for (const key of ["LIVE_ECDSA_KEY_FILE", "PRIVATE_KEY"] as const) if (dependencies.environment[key] !== undefined) throw new Error(`repair tail-submit-one rejects unsupported authority input: ${key}`);
+  if (mode === "resume-one" && PRIVATE_INPUTS.some(key => dependencies.environment[key] !== undefined)) throw new Error("repair tail-resume-one rejects private authority input");
   const values = argumentMap(arguments_, `repair tail-${mode}`); const get = (key: string) => requireArgument(values, key, `repair tail-${mode}`);
   const known = new Set(["--creation", "--creation-hash", "--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--group", "--group-hash", "--observer-ledger", "--receiver-ack"]); for (const key of values.keys()) if (!known.has(key)) throw new Error(`repair tail-${mode} rejects unknown flag ${key}`);
   const creation = loadRepairCreationProposal(readFileSync(get("--creation"), "utf8"), get("--creation-hash") as Hex); const original = createOrdinaryScenarioProposal(readFileSync(get("--report"), "utf8"), { expectedArtifactBytesHash: get("--artifact-hash") as Hex, expectedPackageHash: get("--package-hash") as Hex });
@@ -296,7 +326,7 @@ export async function runRepairTail(arguments_: readonly string[], mode: "submit
   const store = createOrdinaryScenarioStore(get("--journal"), { proposalHash: original.proposalHash, approvalHash: get("--original-approval-hash") as Hex, funder: original.funder }, () => { throw new Error("repair tail requires journal"); });
   try {
     const journal = store.load(); const continuation = journal.repairContinuation; if (!continuation) throw new Error("repair tail continuation is missing");
-    const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const harness = createOrdinaryScenarioProductionHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = createRepairProductionAdapter({ repository, harness, reconstructed, creation });
+    const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation });
     const persist = async (updated: OrdinaryScenarioJournal["liveJournal"]) => { journal.liveJournal = updated; for (const entry of updated.entries) { const actionRecord = continuation.actions.find(item => item.id === entry.id && item.status === "approved"); if (actionRecord && entry.status === "pending") { actionRecord.status = "pending"; actionRecord.transactionHash = entry.transactionHash; } } store.save(journal); };
     const liveBase = await harness.createLiveContext(mode, creation.funder, persist); const live: LiveContext = { ...liveBase, verify: async () => {}, persist };
     const creationRecord = continuation.actions[0];
@@ -311,7 +341,7 @@ export async function runRepairTail(arguments_: readonly string[], mode: "submit
     const action = group.actions.find(item => item.id === record.id); if (!action || record.commitment.toLowerCase() !== action.commitment.toLowerCase()) throw new Error("repair tail action commitment mismatch");
     if (record.status === "pending") {
       if (mode !== "resume-one" || !record.transactionHash) throw new Error("repair pending action requires resume-one"); const intent = await adapter.recoverPendingIntent(group, action, record.transactionHash); const entry = await submitLiveIntent(intent, journal.liveJournal, live); if (entry.status === "pending") return { status: "PENDING", actionId: action.id }; if (entry.status !== "success" || !entry.receipt) throw new Error("repair tail transaction reverted"); const receipt = await harness.current.getTransactionReceipt({ hash: entry.transactionHash }); const queueEvidence = action.id === "repair-queue" ? await adapter.recoverCanonicalRepairQueue(group, entry.transactionHash) : undefined; adapter.validateReceiptEffect(group, action, receipt.logs, queueEvidence?.maintenanceCalldata); const afterPhase = action.id === "repair-ready-execute" ? "post-rotation" : action.policyPhase; const after = await adapter.readStateAt(afterPhase, original.observerEvidenceHash, entry.receipt.blockNumber, entry.receipt.blockHash); assertRepairActionState(group, action, after, "after"); assertRepairBaselineUnchanged(group, after); if (action.id === "final-freeze") await adapter.proveFrozenRejections(group);
-      let observerEvidenceHash: Hex | null = null; if (action.alert !== "none") observerEvidenceHash = loadObserverConfirmationEvidence({ ledgerPath: get("--observer-ledger"), acknowledgementPath: get("--receiver-ack"), endpointHash: "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0", transactionHash: entry.transactionHash, expected: { kind: action.alert, safe: group.safe, delay: group.delay, blockNumber: entry.receipt.blockNumber, queueNonce: action.id === "repair-queue" || action.id === "repair-ready-execute" ? 6n : action.id === "post-rotation-new-secondary-queue" ? 7n : undefined, queueFingerprint: action.queueFingerprint ?? undefined, cancelledThrough: action.id === "post-rotation-proof-cancel" ? 8n : undefined }, now: new Date() }); record.status = "confirmed"; record.evidenceHash = evidenceHash({ receipt: entry.receipt, after, observerEvidenceHash }); store.save(journal); return { status: "CONFIRMED", actionId: action.id };
+      let observerEvidenceHash: Hex | null = null; if (action.alert !== "none") observerEvidenceHash = loadObserverConfirmationEvidence({ ledgerPath: get("--observer-ledger"), acknowledgementPath: get("--receiver-ack"), endpointHash: "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0", transactionHash: entry.transactionHash, expected: repairObserverExpectedEffect(group, action, entry.receipt.blockNumber), now: dependencies.now() }); record.status = "confirmed"; record.evidenceHash = evidenceHash({ receipt: entry.receipt, after, observerEvidenceHash }); store.save(journal); return { status: "CONFIRMED", actionId: action.id };
     }
     if (mode !== "submit-one" || record.status !== "approved") throw new Error("repair tail action is not submit-ready");
     const phase = action.policyPhase; const before = await adapter.readState(phase, original.observerEvidenceHash); assertRepairActionState(group, action, before, "before"); assertRepairBaselineUnchanged(group, before);
@@ -324,14 +354,18 @@ export async function runRepairTail(arguments_: readonly string[], mode: "submit
 
 /** The review command is public-only; every submitting command retains exact approval and capability gates. */
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
-  const result = await runRepairCommand(argv, {
-    creationReview: async arguments_ => runPublicRepairCreationReview(arguments_),
-    creationSubmit: async arguments_ => runRepairCreationSubmit(arguments_),
-    prepareQueue: async arguments_ => runRepairPrepareQueue(arguments_),
-    tailSubmitOne: async arguments_ => runRepairTail(arguments_, "submit-one"),
-    tailResumeOne: async arguments_ => runRepairTail(arguments_, "resume-one"),
-  });
+  const result = await runRepairCommand(argv, createRepairCommandRuntime());
   process.stdout.write(`${JSON.stringify(result, (_, value) => typeof value === "bigint" ? value.toString() : value)}\n`);
+}
+
+export function createRepairCommandRuntime(dependencies: RepairCommandDependencies = productionRepairCommandDependencies()): RepairCommandRuntime {
+  return Object.freeze({
+    creationReview: arguments_ => runPublicRepairCreationReview(arguments_, dependencies.environment, dependencies),
+    creationSubmit: arguments_ => runRepairCreationSubmit(arguments_, dependencies),
+    prepareQueue: arguments_ => runRepairPrepareQueue(arguments_, dependencies),
+    tailSubmitOne: arguments_ => runRepairTail(arguments_, "submit-one", dependencies),
+    tailResumeOne: arguments_ => runRepairTail(arguments_, "resume-one", dependencies),
+  });
 }
 
 if (require.main === module) {

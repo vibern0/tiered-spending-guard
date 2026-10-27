@@ -54,7 +54,7 @@ const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCas
 const publicValue = (value: unknown): unknown => typeof value === "bigint" ? value.toString() : Array.isArray(value) ? value.map(publicValue) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, publicValue(child)])) : value;
 const publicHash = (value: unknown): Hex => `0x${createHash("sha256").update(JSON.stringify(publicValue(value))).digest("hex")}` as Hex;
 const rawHash = (value: string): Hex => `0x${createHash("sha256").update(value).digest("hex")}` as Hex;
-const safeHash = (safe: Address, nonce: bigint, to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0): Hex => hashTypedData({ domain: { chainId: CHAIN_ID, verifyingContract: safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to, value, data, operation, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+const safeHash = (chainId: number, safe: Address, nonce: bigint, to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0): Hex => hashTypedData({ domain: { chainId, verifyingContract: safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: { to, value, data, operation, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
 const canonicalHex = (value: Hex, label: string): void => { if (!/^0x(?:[0-9a-fA-F]{2})*$/.test(value)) throw new Error(`${label} must be canonical bytes`); };
 
 export type RepairCanonicalState = Readonly<{
@@ -72,6 +72,15 @@ export type RepairCreationQuote = Readonly<{
   calldata: Hex; calldataHash: Hex; gasLimitCap: bigint; maxFeePerGasCap: bigint; maxPriorityFeePerGasCap: bigint;
 }>;
 
+export type RepairExecutionDomain = Readonly<{ chainId: number; candidate: Address; oldSecondary: Address; maintenance: Address; recipient: Address; bindingHash: Hex; proofHash: Hex; beforePolicyHash: Hex; afterPolicyHash: Hex }>;
+const domainBrands = new WeakSet<object>();
+export function validateRepairExecutionDomain(domain: RepairExecutionDomain, verifyCanonicalProfile: (domain: RepairExecutionDomain) => true): RepairExecutionDomain {
+  if (!Number.isSafeInteger(domain.chainId) || domain.chainId <= 0 || !HASH.test(domain.bindingHash) || !HASH.test(domain.proofHash) || !HASH.test(domain.beforePolicyHash) || !HASH.test(domain.afterPolicyHash) || verifyCanonicalProfile(domain) !== true) throw new Error("repair execution domain canonical profile verification failed");
+  const value = Object.freeze({ ...domain }); domainBrands.add(value); return value;
+}
+export const PRODUCTION_REPAIR_EXECUTION_DOMAIN = validateRepairExecutionDomain({ chainId: CHAIN_ID, candidate: CANDIDATE, oldSecondary: OLD_SECONDARY, maintenance: REPAIR_MAINTENANCE, recipient: REPAIR_RECIPIENT, bindingHash: REPAIR_BINDING_HASH, proofHash: REPAIR_PROOF_HASH, beforePolicyHash: PRE_ROTATION_POLICY_HASH, afterPolicyHash: POST_ROTATION_POLICY_HASH }, () => true);
+const assertDomain = (domain: RepairExecutionDomain): void => { if (!domainBrands.has(domain)) throw new Error("repair execution domain is not canonically verified"); };
+
 export type RepairActionReview = Readonly<{
   id: typeof REPAIR_ACTION_IDS[number]; kind: "factory-create" | "safe-queue" | "delay-execute" | "signed-rejection" | "safe-cancel" | "safe-freeze";
   dependsOn: readonly string[]; signerRoles: readonly string[]; policyPhase: "pre-rotation" | "post-rotation";
@@ -82,7 +91,7 @@ export type RepairActionReview = Readonly<{
 }>;
 
 export type RepairCreationProposal = Readonly<{
-  schemaVersion: 1; scope: "repair-signer-create-v1"; authorization: "NONE"; chainId: 11155111;
+  schemaVersion: 1; scope: "repair-signer-create-v1"; authorization: "NONE"; chainId: number;
   proposalHash: Hex; prefixHash: Hex; originalProposalHash: Hex; originalApprovalHash: Hex; originalActionCount: 38;
   cumulativeActualCostWei: string; maximumCumulativeOutlayWei: string; phaseLimitWei: string;
   safe: Address; guard: Address; delay: Address; funder: Address; periodAnchor: string;
@@ -94,7 +103,7 @@ export type RepairCreationProposal = Readonly<{
 
 export type RepairFixedFields = Readonly<{ guard: Address; role: 1; expectedOld: Address; replacement: Address; previousOwner: Address; threshold: "1"; proofHash: Hex; assertionHash: Hex; maintenance: Address; maintenanceCalldataHash: Hex }>;
 export type RepairGroupProposal = Readonly<{
-  schemaVersion: 1; scope: "repair-tail-group-v1"; authorization: "NONE"; chainId: 11155111; proposalHash: Hex;
+  schemaVersion: 1; scope: "repair-tail-group-v1"; authorization: "NONE"; chainId: number; proposalHash: Hex;
   prefixHash: Hex; creationProposalHash: Hex; originalProposalHash: Hex; originalApprovalHash: Hex;
   cumulativeActualCostWei: string; maximumCumulativeOutlayWei: string; phaseLimitWei: string;
   safe: Address; delay: Address; guard: Address; candidate: Address; oldSecondary: Address; recipient: Address;
@@ -173,28 +182,29 @@ function continuation(journal: OrdinaryScenarioJournal, creation: RepairCreation
 
 function action(input: Omit<RepairActionReview, "commitment">): RepairActionReview { return Object.freeze({ ...input, commitment: publicHash(input) }); }
 
-export function createRepairGroupProposal(input: Readonly<{ creation: RepairCreationProposal; journal: OrdinaryScenarioJournal; state: RepairCanonicalState; assertion: Hex }>): PreparedRepairGroup {
+export function createRepairGroupProposal(input: Readonly<{ creation: RepairCreationProposal; journal: OrdinaryScenarioJournal; state: RepairCanonicalState; assertion: Hex; domain?: RepairExecutionDomain }>): PreparedRepairGroup {
+  const domain = input.domain ?? PRODUCTION_REPAIR_EXECUTION_DOMAIN; assertDomain(domain);
   const header = continuation(input.journal, input.creation); canonicalHex(input.assertion, "replacement assertion");
-  if (input.assertion === "0x" || !same(input.creation.candidate, CANDIDATE)) throw new Error("repair group fixed input mismatch");
-  if (input.state.chainId !== CHAIN_ID || input.state.safeNonce !== 14n || input.state.delayQueueNonce !== 6n || input.state.delayTxNonce !== 6n || !same(input.state.safeContractSecondary, OLD_SECONDARY) || !same(input.state.policyHash, PRE_ROTATION_POLICY_HASH) || input.state.frozen || !same(input.state.candidateBindingHash, REPAIR_BINDING_HASH) || /^0x0{64}$/i.test(input.state.candidateRuntimeCodeHash) || !input.state.observerReady) throw new Error("repair group preflight state mismatch");
+  if (input.assertion === "0x" || !same(input.creation.candidate, domain.candidate) || input.creation.chainId !== domain.chainId) throw new Error("repair group fixed input mismatch");
+  if (input.state.chainId !== domain.chainId || input.state.safeNonce !== 14n || input.state.delayQueueNonce !== 6n || input.state.delayTxNonce !== 6n || !same(input.state.safeContractSecondary, domain.oldSecondary) || !same(input.state.policyHash, domain.beforePolicyHash) || input.state.frozen || !same(input.state.candidateBindingHash, domain.bindingHash) || /^0x0{64}$/i.test(input.state.candidateRuntimeCodeHash) || !input.state.observerReady) throw new Error("repair group preflight state mismatch");
   const guard = input.creation.guard; const safe = input.creation.safe; const delay = input.creation.delay;
   const assertionHash = keccak256(input.assertion);
-  const maintenanceCalldata = encodeFunctionData({ abi: REPLACE_ABI, functionName: "replaceSigner", args: [guard, 1, OLD_SECONDARY, CANDIDATE, ZERO, 1n, input.assertion] });
-  const repairItem: DelayQueueItem = { safe, delay, to: REPAIR_MAINTENANCE, value: 0n, data: maintenanceCalldata, operation: 1, queueNonce: 6n };
+  const maintenanceCalldata = encodeFunctionData({ abi: REPLACE_ABI, functionName: "replaceSigner", args: [guard, 1, domain.oldSecondary, domain.candidate, ZERO, 1n, input.assertion] });
+  const repairItem: DelayQueueItem = { safe, delay, to: domain.maintenance, value: 0n, data: maintenanceCalldata, operation: 1, queueNonce: 6n };
   const repairQueueData = encodeFunctionData({ abi: DELAY_MODULE_ABI, functionName: "execTransactionFromModule", args: [repairItem.to, repairItem.value, repairItem.data, repairItem.operation] });
-  const repairSafeHash = safeHash(safe, 14n, delay, 0n, repairQueueData);
-  const proofItem: DelayQueueItem = { safe, delay, to: REPAIR_RECIPIENT, value: 1n, data: "0x", operation: 0, queueNonce: 7n };
+  const repairSafeHash = safeHash(domain.chainId, safe, 14n, delay, 0n, repairQueueData);
+  const proofItem: DelayQueueItem = { safe, delay, to: domain.recipient, value: 1n, data: "0x", operation: 0, queueNonce: 7n };
   const proofQueueData = encodeFunctionData({ abi: DELAY_MODULE_ABI, functionName: "execTransactionFromModule", args: [proofItem.to, proofItem.value, proofItem.data, proofItem.operation] });
-  const proofSafeHash = safeHash(safe, 15n, delay, 0n, proofQueueData);
+  const proofSafeHash = safeHash(domain.chainId, safe, 15n, delay, 0n, proofQueueData);
   const cancelData = encodeFunctionData({ abi: DELAY_ABI, functionName: "setTxNonce", args: [8n] });
-  const cancelSafeHash = safeHash(safe, 16n, delay, 0n, cancelData);
+  const cancelSafeHash = safeHash(domain.chainId, safe, 16n, delay, 0n, cancelData);
   const freezeData = encodeFunctionData({ abi: GUARD_ABI, functionName: "freeze" });
-  const freezeSafeHash = safeHash(safe, 17n, guard, 0n, freezeData);
+  const freezeSafeHash = safeHash(domain.chainId, safe, 17n, guard, 0n, freezeData);
   const repairFp = queueFingerprint(repairItem); const repairMonitoring = queueMonitoringFingerprint(repairItem); const proofFp = queueFingerprint(proofItem); const proofMonitoring = queueMonitoringFingerprint(proofItem);
   const gas = (cap: bigint) => ({ gasLimitCap: cap.toString(), maxFeePerGasCap: "1000000", maxPriorityFeePerGasCap: "1000000" });
   const actions: RepairActionReview[] = [
     action({ id: "repair-queue", kind: "safe-queue", dependsOn: ["repair-signer-create"], signerRoles: ["primary-passkey", "current-safe-contract-secondary"], policyPhase: "pre-rotation", safeNonceBefore: "14", safeNonceAfter: "15", delayQueueNonceBefore: "6", delayQueueNonceAfter: "7", delayTxNonceBefore: "6", delayTxNonceAfter: "6", ...gas(2000000n), safeTxHash: repairSafeHash, requestDataHash: keccak256(repairQueueData), queueFingerprint: repairFp, monitoringFingerprint: repairMonitoring, alert: "delayed-queued" }),
-    action({ id: "repair-ready-execute", kind: "delay-execute", dependsOn: ["repair-queue"], signerRoles: [], policyPhase: "pre-rotation", safeNonceBefore: "15", safeNonceAfter: "15", delayQueueNonceBefore: "7", delayQueueNonceAfter: "7", delayTxNonceBefore: "6", delayTxNonceAfter: "7", ...gas(300000n), safeTxHash: null, requestDataHash: keccak256(encodeFunctionData({ abi: DELAY_ABI, functionName: "executeNextTx", args: [repairItem.to, repairItem.value, repairItem.data, repairItem.operation] })), queueFingerprint: repairFp, monitoringFingerprint: repairMonitoring, alert: "delayed-executed" }),
+    action({ id: "repair-ready-execute", kind: "delay-execute", dependsOn: ["repair-queue"], signerRoles: [], policyPhase: "pre-rotation", safeNonceBefore: "15", safeNonceAfter: "15", delayQueueNonceBefore: "7", delayQueueNonceAfter: "7", delayTxNonceBefore: "6", delayTxNonceAfter: "7", ...gas(1000000n), safeTxHash: null, requestDataHash: keccak256(encodeFunctionData({ abi: DELAY_ABI, functionName: "executeNextTx", args: [repairItem.to, repairItem.value, repairItem.data, repairItem.operation] })), queueFingerprint: repairFp, monitoringFingerprint: repairMonitoring, alert: "delayed-executed" }),
     action({ id: "post-rotation-old-secondary-rejection", kind: "signed-rejection", dependsOn: ["repair-ready-execute"], signerRoles: ["primary-passkey", "old-safe-contract-secondary"], policyPhase: "post-rotation", safeNonceBefore: "15", safeNonceAfter: "15", delayQueueNonceBefore: "7", delayQueueNonceAfter: "7", delayTxNonceBefore: "7", delayTxNonceAfter: "7", ...gas(2000000n), safeTxHash: proofSafeHash, requestDataHash: keccak256(proofQueueData), queueFingerprint: proofFp, monitoringFingerprint: proofMonitoring, alert: "none" }),
     action({ id: "post-rotation-new-secondary-queue", kind: "safe-queue", dependsOn: ["post-rotation-old-secondary-rejection"], signerRoles: ["primary-passkey", "new-safe-contract-secondary"], policyPhase: "post-rotation", safeNonceBefore: "15", safeNonceAfter: "16", delayQueueNonceBefore: "7", delayQueueNonceAfter: "8", delayTxNonceBefore: "7", delayTxNonceAfter: "7", ...gas(2000000n), safeTxHash: proofSafeHash, requestDataHash: keccak256(proofQueueData), queueFingerprint: proofFp, monitoringFingerprint: proofMonitoring, alert: "delayed-queued" }),
     action({ id: "post-rotation-proof-cancel", kind: "safe-cancel", dependsOn: ["post-rotation-new-secondary-queue"], signerRoles: ["primary-passkey", "new-safe-contract-secondary"], policyPhase: "post-rotation", safeNonceBefore: "16", safeNonceAfter: "17", delayQueueNonceBefore: "8", delayQueueNonceAfter: "8", delayTxNonceBefore: "7", delayTxNonceAfter: "8", ...gas(2000000n), safeTxHash: cancelSafeHash, requestDataHash: keccak256(cancelData), queueFingerprint: proofFp, monitoringFingerprint: proofMonitoring, alert: "delayed-cancelled" }),
@@ -205,9 +215,9 @@ export function createRepairGroupProposal(input: Readonly<{ creation: RepairCrea
   header.cumulativeActualCostWei = cumulative.toString();
   const reservation = actions.filter(value => value.kind !== "signed-rejection").reduce((sum, value) => sum + BigInt(value.gasLimitCap) * BigInt(value.maxFeePerGasCap), 0n);
   if (cumulative + reservation > PHASE_OUTLAY_LIMIT) throw new Error("repair group maximum cumulative outlay exceeds ceiling");
-  const fixed: RepairFixedFields = { guard, role: 1, expectedOld: OLD_SECONDARY, replacement: CANDIDATE, previousOwner: ZERO, threshold: "1", proofHash: REPAIR_PROOF_HASH, assertionHash, maintenance: REPAIR_MAINTENANCE, maintenanceCalldataHash: keccak256(maintenanceCalldata) };
+  const fixed: RepairFixedFields = { guard, role: 1, expectedOld: domain.oldSecondary, replacement: domain.candidate, previousOwner: ZERO, threshold: "1", proofHash: domain.proofHash, assertionHash, maintenance: domain.maintenance, maintenanceCalldataHash: keccak256(maintenanceCalldata) };
   const repairQueueTiming = Object.freeze({ source: "CANONICAL_RECEIPT_CREATED_AT_ONLY" as const, queueNonce: "6" as const, queueFingerprint: repairFp, cooldownSeconds: "120" as const, expirationSeconds: "600" as const });
-  const base = { schemaVersion: 1 as const, scope: "repair-tail-group-v1" as const, authorization: "NONE" as const, chainId: CHAIN_ID as 11155111, prefixHash: input.creation.prefixHash, creationProposalHash: input.creation.proposalHash, originalProposalHash: input.creation.originalProposalHash, originalApprovalHash: input.creation.originalApprovalHash, cumulativeActualCostWei: cumulative.toString(), maximumCumulativeOutlayWei: (cumulative + reservation).toString(), phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), safe, delay, guard, candidate: CANDIDATE, oldSecondary: OLD_SECONDARY, recipient: REPAIR_RECIPIENT, beforePolicyHash: PRE_ROTATION_POLICY_HASH, afterPolicyHash: POST_ROTATION_POLICY_HASH, beforeSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: OLD_SECONDARY }), afterSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: CANDIDATE }), periodAnchor: input.creation.periodAnchor, establishedNativeWindow: input.state.nativeWindow.toString(), repair: fixed, repairQueueTiming, baseline: input.creation.baseline, actions: Object.freeze(actions) };
+  const base = { schemaVersion: 1 as const, scope: "repair-tail-group-v1" as const, authorization: "NONE" as const, chainId: domain.chainId, prefixHash: input.creation.prefixHash, creationProposalHash: input.creation.proposalHash, originalProposalHash: input.creation.originalProposalHash, originalApprovalHash: input.creation.originalApprovalHash, cumulativeActualCostWei: cumulative.toString(), maximumCumulativeOutlayWei: (cumulative + reservation).toString(), phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), safe, delay, guard, candidate: domain.candidate, oldSecondary: domain.oldSecondary, recipient: domain.recipient, beforePolicyHash: domain.beforePolicyHash, afterPolicyHash: domain.afterPolicyHash, beforeSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: domain.oldSecondary }), afterSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: domain.candidate }), periodAnchor: input.creation.periodAnchor, establishedNativeWindow: input.state.nativeWindow.toString(), repair: fixed, repairQueueTiming, baseline: input.creation.baseline, actions: Object.freeze(actions) };
   const proposal = Object.freeze({ ...base, proposalHash: publicHash(base) });
   return Object.freeze({ proposal, transient: Object.freeze({ assertion: input.assertion, maintenanceCalldata, safeTransactionData: repairQueueData }) });
 }
@@ -229,9 +239,10 @@ export function validateTransientRepairQueue(proposal: RepairGroupProposal, safe
   return true;
 }
 
-export function createRepairPrepareAuthorization(input: Readonly<{ creation: RepairCreationProposal; state: RepairCanonicalState; purpose: "materialize-one-repair-proof" }>) {
-  if (input.purpose !== "materialize-one-repair-proof" || input.state.chainId !== CHAIN_ID || !same(input.state.policyHash, PRE_ROTATION_POLICY_HASH) || !same(input.state.candidateBindingHash, REPAIR_BINDING_HASH)) throw new Error("repair prepare authorization binding mismatch");
-  const base = { schemaVersion: 1 as const, scope: "repair-proof-prepare-v1" as const, authority: "PREPARE_PROOF_ONLY" as const, chainId: CHAIN_ID as 11155111, candidate: CANDIDATE, proofHash: REPAIR_PROOF_HASH, prefixHash: input.creation.prefixHash, currentPolicyHash: input.state.policyHash, purpose: input.purpose, safeSignatureAuthority: false as const, outerSignatureAuthority: false as const, broadcastAuthority: false as const };
+export function createRepairPrepareAuthorization(input: Readonly<{ creation: RepairCreationProposal; state: RepairCanonicalState; purpose: "materialize-one-repair-proof"; domain?: RepairExecutionDomain }>) {
+  const domain = input.domain ?? PRODUCTION_REPAIR_EXECUTION_DOMAIN; assertDomain(domain);
+  if (input.purpose !== "materialize-one-repair-proof" || input.creation.chainId !== domain.chainId || !same(input.creation.candidate, domain.candidate) || input.state.chainId !== domain.chainId || !same(input.state.policyHash, domain.beforePolicyHash) || !same(input.state.candidateBindingHash, domain.bindingHash)) throw new Error("repair prepare authorization binding mismatch");
+  const base = { schemaVersion: 1 as const, scope: "repair-proof-prepare-v1" as const, authority: "PREPARE_PROOF_ONLY" as const, chainId: domain.chainId, candidate: domain.candidate, proofHash: domain.proofHash, prefixHash: input.creation.prefixHash, currentPolicyHash: input.state.policyHash, purpose: input.purpose, safeSignatureAuthority: false as const, outerSignatureAuthority: false as const, broadcastAuthority: false as const };
   return Object.freeze({ ...base, authorizationHash: publicHash(base) });
 }
 
@@ -303,7 +314,7 @@ export function loadRepairGroupProposal(serialized: string, expectedProposalHash
     ["post-rotation-proof-cancel", "safe-cancel", "post-rotation", "16", "17", "8", "8", "7", "8", "delayed-cancelled"],
     ["final-freeze", "safe-freeze", "post-rotation", "17", "18", "8", "8", "8", "8", "none"],
   ] as const;
-  for (let index = 0; index < expected.length; index++) { const action = value.actions[index] as Record<string, unknown>; const row = expected[index]!; if (action.id !== row[0] || action.kind !== row[1] || action.policyPhase !== row[2] || action.safeNonceBefore !== row[3] || action.safeNonceAfter !== row[4] || action.delayQueueNonceBefore !== row[5] || action.delayQueueNonceAfter !== row[6] || action.delayTxNonceBefore !== row[7] || action.delayTxNonceAfter !== row[8] || action.alert !== row[9] || !HASH.test(String(action.commitment)) || !HASH.test(String(action.requestDataHash))) throw new Error("repair group proposal identity or closed action map mismatch"); }
+  for (let index = 0; index < expected.length; index++) { const action = value.actions[index] as Record<string, unknown>; const row = expected[index]!; const expectedGas = index === 1 ? "1000000" : "2000000"; if (action.id !== row[0] || action.kind !== row[1] || action.policyPhase !== row[2] || action.safeNonceBefore !== row[3] || action.safeNonceAfter !== row[4] || action.delayQueueNonceBefore !== row[5] || action.delayQueueNonceAfter !== row[6] || action.delayTxNonceBefore !== row[7] || action.delayTxNonceAfter !== row[8] || action.alert !== row[9] || action.gasLimitCap !== expectedGas || action.maxFeePerGasCap !== "1000000" || action.maxPriorityFeePerGasCap !== "1000000" || !HASH.test(String(action.commitment)) || !HASH.test(String(action.requestDataHash))) throw new Error("repair group proposal identity or closed action map mismatch"); }
   const proposal = Object.freeze(value) as unknown as RepairGroupProposal;
   if (!same(proposal.repairQueueTiming.queueFingerprint, proposal.actions[0]!.queueFingerprint ?? "") || !same(proposal.actions[2]!.safeTxHash ?? "", proposal.actions[3]!.safeTxHash ?? "")) throw new Error("repair group proposal identity or closed action map mismatch");
   return proposal;
