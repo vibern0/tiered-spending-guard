@@ -123,6 +123,35 @@ describe("non-authorizing notifiers", () => {
     expect(requestedAddress).to.equal("93.184.216.34");
   });
 
+  it("validates DNS without connecting at readiness and re-resolves for pinned delivery", async () => {
+    const { createPinnedWebhookFetch } = await import("../../../src/monitoring/notifier");
+    let resolutions = 0;
+    let connections = 0;
+    const fetcher = createPinnedWebhookFetch(
+      async () => { resolutions++; return [{ address: "93.184.216.34", family: 4 }]; },
+      async () => { connections++; return { ok: true, status: 204 }; },
+    );
+    const endpoint = new URL("https://example.invalid/hook");
+
+    await fetcher.ready(endpoint);
+    expect(resolutions).to.equal(1);
+    expect(connections).to.equal(0);
+    await fetcher(endpoint, { method: "POST", body: "{}" });
+    expect(resolutions).to.equal(2);
+    expect(connections).to.equal(1);
+  });
+
+  it("rejects ambiguous public-private DNS readiness without connecting", async () => {
+    const { createPinnedWebhookFetch } = await import("../../../src/monitoring/notifier");
+    let connected = false;
+    const fetcher = createPinnedWebhookFetch(
+      async () => [{ address: "93.184.216.34", family: 4 }, { address: "127.0.0.1", family: 4 }],
+      async () => { connected = true; return { ok: true, status: 204 }; },
+    );
+    await expect(fetcher.ready(new URL("https://example.invalid/hook"))).to.be.rejectedWith(/public/);
+    expect(connected).to.equal(false);
+  });
+
   it("never connects when any DNS answer is private", async () => {
     const { createPinnedWebhookFetch } = await import("../../../src/monitoring/notifier");
     let connected = false;

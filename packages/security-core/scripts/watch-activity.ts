@@ -1,5 +1,5 @@
 import { createPublicClient, decodeEventLog, decodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
-import { decodeDelayLog, delayEventAbi, deriveDelayLifecycle, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
+import { assertDelayLifecycleArchiveCoverage, decodeDelayLog, delayEventAbi, deriveDelayLifecycle, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
 import { decodeGuardLog, type MonitoringIdentity } from "../src/monitoring/guard-events";
 import { createRpcGuardBinding, type RpcGuardClient } from "../src/monitoring/guard-rpc-binding";
 import { ActivityLedger, FileActivityStore, type ActivityLogKey } from "../src/monitoring/ledger";
@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   const guard = address("MONITOR_GUARD");
   const delay = address("MONITOR_DELAY");
   const notifier = createLiveWebhookNotifier(process.env);
+  await notifier.ready();
   const client = createPublicClient({ transport: http(env("MONITOR_RPC_URL")) });
   const rpcChain = await client.getChainId();
   if (rpcChain !== expectedChain) throw new Error(`RPC chain identity mismatch: expected ${expectedChain}, got ${rpcChain}`);
@@ -85,6 +86,8 @@ async function main(): Promise<void> {
         ledger.accept(key, alert);
     }, raw => `${raw.transactionHash}:${raw.logIndex}`);
     const queued = ledger.records().filter((record): record is DelayedQueuedAlert => record.kind === "delayed-queued" && record.queueNonce !== undefined && record.queueFingerprint !== undefined && record.createdAt !== undefined);
+    const queuedByNonce = new Map<bigint,DelayedQueuedAlert>();
+    for(const record of queued){if(queuedByNonce.has(record.queueNonce))throw new Error("ambiguous archived Delay queue nonce");queuedByNonce.set(record.queueNonce,record);}
     const lifecycleFrom = queued.reduce((minimum, record) => record.blockNumber < minimum ? record.blockNumber + 1n : minimum, fromBlock);
     async function readLifecycleReceipts(from: bigint, to: bigint) {
       const receipts: { transactionHash: Hex; blockNumber: bigint; blockHash: Hex; status: "success"|"reverted"; to: Address; input: Hex }[] = [];
@@ -101,13 +104,16 @@ async function main(): Promise<void> {
       return receipts;
     }
     const lifecycleReceipts = lifecycleFrom <= latest ? await readLifecycleReceipts(lifecycleFrom, latest) : [];
+    assertDelayLifecycleArchiveCoverage(queued.length,lifecycleReceipts);
     await scanFailClosed(queued, async record => {
         if (record.to === undefined || record.value === undefined || record.data === undefined || record.operation === undefined) throw new Error("queued call tuple evidence unavailable");
         const lifecycle = await deriveDelayLifecycle(record, delayContext, latest, {
           readNonce: readDelayNonce,
           readQueue: async (queueNonce, blockNumber) => {
+            const archived=queuedByNonce.get(queueNonce);
+            if(!archived||archived.blockNumber>blockNumber)throw new Error("missing archived Delay queue evidence");
             const [txHash, createdAt] = await readDelayQueueMetadata(queueNonce, blockNumber);
-            return { txHash, createdAt, to: record.to!, value: record.value!, data: record.data!, operation: record.operation! };
+            return { txHash, createdAt, to: archived.to, value: archived.value, data: archived.data, operation: archived.operation };
           },
           readLifecycleReceipts: async () => lifecycleReceipts,
           readCanonicalBlock: async blockNumber => { const block = await client.getBlock({ blockNumber }); if (!block.hash) throw new Error("missing canonical lifecycle block hash"); return { blockNumber, blockHash: block.hash, timestamp: block.timestamp }; },
