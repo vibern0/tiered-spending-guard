@@ -75,21 +75,21 @@ export type IndependentObserverDescriptor = Readonly<{
   independentFromProposer: true;
 }>;
 
-export type ScenarioTopologyEvidence = Readonly<{ planHash: Hex; ok: boolean; checked: readonly string[] }>;
+export type ScenarioTopologyEvidence = Readonly<{ planHash: Hex; ok: boolean; checked: readonly string[]; failures: readonly string[] }>;
 const topologyEvidence = new WeakSet<object>();
 
 export async function verifyOrdinaryScenarioTopology(plan: VaultDeploymentPlan, input: TopologyInput): Promise<ScenarioTopologyEvidence> {
   if (!isReviewedVaultDeploymentPlan(plan)) throw new Error("ordinary scenario review requires the opaque reviewed deployment plan");
   if (input.chainId !== plan.chainId || input.safe.toLowerCase() !== plan.safeProxyDeployment.expectedCreatedAddress.toLowerCase() || input.guard.toLowerCase() !== plan.review.transactionGuard.toLowerCase() || input.delay.toLowerCase() !== plan.review.modules[0].toLowerCase()) throw new Error("ordinary scenario topology input does not match the reviewed plan");
   const report = await verifyTopology(input);
-  const evidence = Object.freeze({ planHash: planHash(plan), ok: report.ok, checked: Object.freeze([...report.checked]) });
+  const evidence = Object.freeze({ planHash: planHash(plan), ok: report.ok, checked: Object.freeze([...report.checked]), failures: Object.freeze([...report.failures]) });
   topologyEvidence.add(evidence);
   return evidence;
 }
 
 export function brandOrdinaryScenarioTopologyForTestsOnly(plan: VaultDeploymentPlan, ok: boolean): ScenarioTopologyEvidence {
   if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") throw new Error("test-only topology branding is disabled outside tests");
-  const evidence = Object.freeze({ planHash: planHash(plan), ok, checked: Object.freeze(ok ? ["test topology"] : []) });
+  const evidence = Object.freeze({ planHash: planHash(plan), ok, checked: Object.freeze(ok ? ["test topology"] : []), failures: Object.freeze(ok ? [] : ["test topology"]) });
   topologyEvidence.add(evidence);
   return evidence;
 }
@@ -106,6 +106,7 @@ export type OrdinaryScenarioReviewClient = Readonly<{
   tokenBalance(token: Address, account: Address, blockNumber: bigint): Promise<bigint>;
   tokenMetadata(token: Address, blockNumber: bigint): Promise<Readonly<{ name: string; symbol: string; decimals: number }>>;
   runtimeCode(account: Address, blockNumber: bigint): Promise<Hex | undefined>;
+  passkeySignerAddress(factory: Address, x: bigint, y: bigint, verifiers: bigint, blockNumber: bigint): Promise<Address>;
   canonicalReceipt(transactionHash: Hex): Promise<LiveReceipt | undefined>;
 }>;
 
@@ -177,6 +178,7 @@ type CollectedState = Readonly<{
   spend: readonly [Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>, Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>];
   metadata: Readonly<{ name: string; symbol: string; decimals: number }>;
   runtime: readonly (Hex | undefined)[];
+  repairDerivedAddress?: Address;
 }>;
 
 const canonical = (value: unknown): string => {
@@ -239,14 +241,15 @@ function validateCapabilities(plan: VaultDeploymentPlan, input: OrdinaryScenario
 async function readState(input: OrdinaryScenarioReviewInput, client: OrdinaryScenarioReviewClient, blockNumber: bigint, usdc: Address, recipient: Address): Promise<CollectedState> {
   const plan = input.plan; const safe = plan.safeProxyDeployment.expectedCreatedAddress; const guard = plan.review.transactionGuard; const delay = plan.review.modules[0];
   const runtimeAddresses = [safe, guard, delay, plan.prerequisites.maintenance.expectedCreatedAddress, input.signers.primary.address, input.signers.safeContractSecondary.address, input.signers.ecdsaSecondary.address, ...(input.repair ? [input.repair.address] : [])] as const;
-  const [safeNonce, funderNonce, delayNonce, funderNative, safeNative, recipientNative, funderUsdc, safeUsdc, recipientUsdc, nativeSpend, usdcSpend, metadata, runtime] = await Promise.all([
+  const [safeNonce, funderNonce, delayNonce, funderNative, safeNative, recipientNative, funderUsdc, safeUsdc, recipientUsdc, nativeSpend, usdcSpend, metadata, runtime, repairDerivedAddress] = await Promise.all([
     client.safeNonce(safe, blockNumber), client.funderNonce(plan.deployer, blockNumber), client.delayNonce(delay, blockNumber),
     client.nativeBalance(plan.deployer, blockNumber), client.nativeBalance(safe, blockNumber), client.nativeBalance(recipient, blockNumber),
     client.tokenBalance(usdc, plan.deployer, blockNumber), client.tokenBalance(usdc, safe, blockNumber), client.tokenBalance(usdc, recipient, blockNumber),
     client.spendState(guard, ZERO, blockNumber), client.spendState(guard, usdc, blockNumber), client.tokenMetadata(usdc, blockNumber),
     Promise.all(runtimeAddresses.map((address) => client.runtimeCode(address, blockNumber))),
+    input.repair ? client.passkeySignerAddress(input.repair.factory, BigInt(input.repair.x), BigInt(input.repair.y), BigInt(input.repair.verifiers), blockNumber) : undefined,
   ]);
-  return Object.freeze({ safeNonce, funderNonce, delayNonce, nativeBalances: [funderNative, safeNative, recipientNative], usdcBalances: [funderUsdc, safeUsdc, recipientUsdc], spend: [nativeSpend, usdcSpend], metadata, runtime });
+  return Object.freeze({ safeNonce, funderNonce, delayNonce, nativeBalances: [funderNative, safeNative, recipientNative], usdcBalances: [funderUsdc, safeUsdc, recipientUsdc], spend: [nativeSpend, usdcSpend], metadata, runtime, repairDerivedAddress });
 }
 
 function validateFreshState(state: CollectedState, input: OrdinaryScenarioReviewInput): void {
@@ -261,6 +264,7 @@ function validateFreshState(state: CollectedState, input: OrdinaryScenarioReview
     const canonicalNumber = (value: string) => DECIMAL.test(value) && BigInt(value) > 0n;
     const bindingHash = canonicalNumber(repair.x) && canonicalNumber(repair.y) && canonicalNumber(repair.verifiers) ? keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }], [repair.factory, BigInt(repair.x), BigInt(repair.y), BigInt(repair.verifiers)])) : undefined;
     if (repair.formatVersion !== 1 || repair.scope !== "ordinary-baseline-proposed-contract-secondary-repair" || repair.chainId !== 11155111 || same(repair.address, input.plan.review.safeContractSecondary) || !same(repair.factory, PASSKEY_FACTORY) || !bindingHash || repair.observedRuntime !== "0x" || repair.deployed !== false || repair.signed !== false || repair.broadcast !== false || state.runtime[7] !== "0x") throw new Error("ordinary scenario fixed repair descriptor mismatch");
+    if (!state.repairDerivedAddress || !same(state.repairDerivedAddress, repair.address)) throw new Error("ordinary scenario factory-derived replacement address mismatch");
   }
 }
 

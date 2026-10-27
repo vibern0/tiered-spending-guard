@@ -106,6 +106,7 @@ function client(overrides: Partial<OrdinaryScenarioReviewClient> = {}): Ordinary
     tokenBalance: async (_token, who) => balances.get(`token:${who.toLowerCase()}`) ?? 0n,
     tokenMetadata: async () => ({ name: "USD Coin", symbol: "USDC", decimals: 6 }),
     runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() ? "0x" : CODE,
+    passkeySignerAddress: async () => address("0x1111111111111111111111111111111111111111"),
     canonicalReceipt: async (hash) => {
       const entry = baseline(reviewedPlan()).transactions.find((candidate) => candidate.transactionHash === hash);
       if (!entry) return undefined;
@@ -259,5 +260,9 @@ describe("ordinary scenario review collector", () => {
     expect(proofCancelIndex).to.be.greaterThan(repairIndex);
     expect(freezeIndex).to.be.greaterThan(proofCancelIndex);
     expect(result.rendered).to.not.include("replacementProof");
+    await expect(collectOrdinaryScenarioReview({ ...value, repair, observer }, client({
+      runtimeCode: async (who) => who.toLowerCase() === ECDSA_SECONDARY.toLowerCase() || who.toLowerCase() === repair.address.toLowerCase() ? "0x" : CODE,
+      passkeySignerAddress: async () => CONTRACT_SECONDARY,
+    }))).to.be.rejectedWith("factory-derived replacement");
   });
 });
