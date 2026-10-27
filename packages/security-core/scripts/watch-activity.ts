@@ -1,5 +1,5 @@
 import { createPublicClient, decodeEventLog, decodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
-import { assertDelayLifecycleArchiveCoverage, decodeDelayLog, delayEventAbi, deriveDelayLifecycle, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
+import { assertDelayLifecycleArchiveCoverage, decodeDelayLog, delayEventAbi, deriveDelayLifecycle, isDelayActivityLog, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
 import { decodeGuardLog, type MonitoringIdentity } from "../src/monitoring/guard-events";
 import { createRpcGuardBinding, type RpcGuardClient } from "../src/monitoring/guard-rpc-binding";
 import { ActivityLedger, FileActivityStore, type ActivityLogKey } from "../src/monitoring/ledger";
@@ -69,6 +69,10 @@ async function main(): Promise<void> {
           if (alert) ledger.accept(key, alert);
           return;
         }
+        if (!isDelayActivityLog(log)) {
+          await decodeDelayLog(log, delayContext, latest, 0n);
+          return;
+        }
         const eventBlock = await client.getBlock({ blockNumber: log.blockNumber });
         if (!eventBlock.hash) throw new Error("missing event block hash");
         const queueBinding: QueueBinding = {
@@ -82,6 +86,7 @@ async function main(): Promise<void> {
           },
         };
         const alert = await decodeDelayLog(log, delayContext, latest, eventBlock.timestamp, queueBinding);
+        if (!alert) return;
         await verifyDelayBinding(alert, queueBinding, delayContext);
         ledger.accept(key, alert);
     }, raw => `${raw.transactionHash}:${raw.logIndex}`);

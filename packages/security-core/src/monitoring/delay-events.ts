@@ -1,4 +1,4 @@
-import { decodeEventLog, getAddress, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
+import { decodeEventLog, getAddress, parseAbi, toEventSelector, toFunctionSelector, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../queue/delay";
 import type { ActivityAlert, DelayedQueuedAlert } from "./notifier";
 import { MonitoringDecodeError, type MonitorLog } from "./guard-events";
@@ -14,6 +14,8 @@ export type LifecycleCall=Readonly<{functionName:"executeNextTx"|"skipExpired"|"
 export type LifecycleBinding=QueueBinding&Readonly<{readLifecycleReceipts:(fromBlock:bigint,toBlock:bigint)=>Promise<readonly LifecycleReceipt[]>;readCanonicalBlock:(blockNumber:bigint)=>Promise<Readonly<{blockNumber:bigint;blockHash:Hex;timestamp:bigint}>>;decodeLifecycleCall:(input:Hex)=>LifecycleCall}>;
 export type { DelayedQueuedAlert } from "./notifier";
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
+const delayActivityTopics=new Set([toEventSelector("TransactionAdded(uint256,bytes32,address,uint256,bytes,uint8)"),toEventSelector("TxNonceSet(uint256)")].map(topic=>topic.toLowerCase()));
+export function isDelayActivityLog(log:Pick<MonitorLog,"topics">):boolean{const topic=log.topics[0];if(!topic||!/^0x[0-9a-fA-F]{64}$/.test(topic))throw new MonitoringDecodeError("malformed Delay event topic");return delayActivityTopics.has(topic.toLowerCase());}
 const lifecycleSelectorKinds=new Map<string,LifecycleCall["functionName"]>([[toFunctionSelector("executeNextTx(address,uint256,bytes,uint8)"),"executeNextTx"],[toFunctionSelector("skipExpired()"),"skipExpired"],[toFunctionSelector("setTxNonce(uint256)"),"setTxNonce"]]);
 const lifecycleSelectorKind=(input:Hex):LifecycleCall["functionName"]|undefined=>input.length>=10?lifecycleSelectorKinds.get(input.slice(0,10).toLowerCase()):undefined;
 const hasLifecycleSelector=(input:Hex):boolean=>lifecycleSelectorKind(input)!==undefined;
@@ -30,8 +32,8 @@ function exactExecuteArgs(call:LifecycleCall,item:QueueItem):boolean{
   return same(call.args[0],item.to)&&call.args[1]===item.value&&call.args[2].toLowerCase()===item.data.toLowerCase()&&call.args[3]===item.operation;
 }
 function check(log:MonitorLog,c:DelayMonitoringContext):void{if(!same(log.address,c.delay)||log.chainId!==c.chainId||log.removed)throw new MonitoringDecodeError("Delay event identity/reorg mismatch");if(!Number.isInteger(c.confirmations)||c.confirmations<1)throw new MonitoringDecodeError("invalid confirmation depth");}
-export async function decodeDelayLog(log:MonitorLog,c:DelayMonitoringContext,latestBlock:bigint,observedAt:bigint,binding?:QueueBinding):Promise<ActivityAlert>{
- check(log,c);if(latestBlock-log.blockNumber+1n<BigInt(c.confirmations))throw new MonitoringDecodeError("unconfirmed Delay event");if(!binding||typeof binding.readQueue!=="function"||typeof binding.readNonce!=="function")throw new MonitoringDecodeError("verified Delay binding callback required");
+export async function decodeDelayLog(log:MonitorLog,c:DelayMonitoringContext,latestBlock:bigint,observedAt:bigint,binding?:QueueBinding):Promise<ActivityAlert|undefined>{
+ check(log,c);if(latestBlock-log.blockNumber+1n<BigInt(c.confirmations))throw new MonitoringDecodeError("unconfirmed Delay event");if(!isDelayActivityLog(log))return undefined;if(!binding||typeof binding.readQueue!=="function"||typeof binding.readNonce!=="function")throw new MonitoringDecodeError("verified Delay binding callback required");
  let d:{eventName:string;args:readonly unknown[]};try{d=decodeEventLog({abi:delayEventAbi,data:log.data,topics:[...log.topics] as [Hex,...Hex[]]}) as unknown as typeof d;}catch{throw new MonitoringDecodeError("malformed Delay event");}
  const v=Array.isArray(d.args)?d.args:Object.values(d.args);if(d.eventName==="TxNonceSet"){const nonce=v[0] as bigint;const current=await binding.readNonce(log.blockNumber);if(current<nonce)throw new MonitoringDecodeError("Delay nonce binding mismatch");return{kind:"delayed-cancelled",chainId:c.chainId,safe:c.safe,delay:c.delay,transactionHash:log.transactionHash,blockNumber:log.blockNumber,logIndex:log.logIndex,cancelledThrough:nonce};}
  if(d.eventName!=="TransactionAdded")throw new MonitoringDecodeError("unsupported Delay event");const [queueNonce,indexedHash,to,value,data,operation]=v as[bigint,Hex,Address,bigint,Hex,number];if(same(to,c.delay))throw new MonitoringDecodeError("Delay queue target binding mismatch");const recomputed=queueFingerprint({safe:c.safe,delay:c.delay,to:getAddress(to),value,data,operation:operation as 0|1,queueNonce});if(!same(indexedHash,recomputed))throw new MonitoringDecodeError("indexed Delay hash mismatch");

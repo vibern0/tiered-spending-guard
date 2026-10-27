@@ -377,6 +377,35 @@ describe("bounded ordinary scenario coordinator", () => {
     expect(f.calls).not.to.include("broadcast");
   });
 
+  it("records the guard window-start timestamp after the first base confirmation",async()=>{
+    const timestamp=1_764_000_123n;
+    const windowStart=1_763_942_400n;
+    const state=canonicalState({blockTimestamp:timestamp,safeNativeBalance:30_000_000_000_001n,funderUsdcBalance:0n,safeUsdcBalance:20_000_000n,nativeSpend:{window:windowStart,baseSpent:0n,instantSpent:0n}});
+    const f=executionFixture(3,state);
+    for(let index=0;index<2;index++)f.store.journal.actions.push({id:f.proposal.actions[index]!.id,commitment:f.proposal.actions[index]!.commitment,status:"confirmed",transactionHash:keccak256(`0x${(320+index).toString(16)}` as Hex),evidenceHash:keccak256(`0x${(324+index).toString(16)}` as Hex)});
+    const funding=f.store.journal.actions[0]!;f.state.dependencies.push({actionId:funding.id,transactionHash:funding.transactionHash,evidenceHash:funding.evidenceHash!});
+    const scope=f.proposal.actions[2]!;const prepared=await f.context.materialize(scope,state);f.calls.length=0;
+    await executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,f.context);
+    const entry=f.store.journal.liveJournal.entries[0]!;
+    f.setReceipt({transactionHash:entry.transactionHash,status:"success",gasUsed:20_000n,effectiveGasPrice:800_000n,blockNumber:11n,blockHash:keccak256("0x76")});
+    const confirmedState={...state,blockNumber:11n,blockHash:keccak256("0x76"),outerNonce:state.outerNonce+1,safeNativeBalance:20_000_000_000_001n,safeNonce:1n,nativeSpend:{window:windowStart,baseSpent:10_000_000_000_000n,instantSpent:10_000_000_000_000n}};
+    const context:OrdinaryScenarioExecutionContext={...f.context,recoverPending:async()=>prepared.liveIntent,confirm:async()=>({postState:confirmedState,effect:{kind:"safe-execution",safeTxHash:scope.safeTxHash!}})};
+
+    expect((await executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,context)).status).to.equal("CONFIRMED");
+    expect(f.store.journal.actions[2]!.establishedWindow).to.equal(windowStart.toString());
+  });
+
+  it("rejects a later action after the established guard window rolls over",async()=>{
+    const established=1_763_942_400n;
+    const state=canonicalState({blockTimestamp:established+86_401n,safeNativeBalance:20_000_000_000_001n,funderUsdcBalance:0n,safeUsdcBalance:20_000_000n,safeNonce:1n,nativeSpend:{window:established+86_400n,baseSpent:10_000_000_000_000n,instantSpent:10_000_000_000_000n}});
+    const f=executionFixture(4,state);
+    for(let index=0;index<3;index++)f.store.journal.actions.push({id:f.proposal.actions[index]!.id,commitment:f.proposal.actions[index]!.commitment,status:"confirmed",transactionHash:keccak256(`0x${(328+index).toString(16)}` as Hex),evidenceHash:keccak256(`0x${(332+index).toString(16)}` as Hex),establishedWindow:index===2?established.toString():undefined});
+    const base=f.store.journal.actions[2]!;f.state.dependencies.push({actionId:base.id,transactionHash:base.transactionHash,evidenceHash:base.evidenceHash!});
+
+    await expect(executeOrdinaryScenarioAction(f.proposal,f.approval,f.store,f.context)).to.be.rejectedWith("period rollover requires new review");
+    expect(f.calls).not.to.include("materialize");
+  });
+
   it("makes a canonical revert terminal and never automatically retries it", async () => {
     const f = executionFixture();
     await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, f.context);

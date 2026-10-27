@@ -813,7 +813,9 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   recordEntry.status = "confirmed"; recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState) });
   if (confirmation.effect.kind === "safe-execution" && confirmation.effect.queueCreatedAt !== undefined) recordEntry.queueCreatedAt = confirmation.effect.queueCreatedAt.toString();
   if (action.kind === "base-transfer") {
-    const derived = (confirmation.postState.blockTimestamp - BigInt(proposal.periodAnchor)) / PERIOD_SECONDS;
+    const anchor = BigInt(proposal.periodAnchor);
+    if (confirmation.postState.blockTimestamp < anchor) throw new Error("ordinary scenario first base transfer predates period anchor");
+    const derived = anchor + ((confirmation.postState.blockTimestamp - anchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
     const actual = action.asset === "native" ? confirmation.postState.nativeSpend.window : confirmation.postState.usdcSpend.window;
     if (actual !== derived) throw new Error("ordinary scenario first base transfer window derivation mismatch");
     recordEntry.establishedWindow = derived.toString();

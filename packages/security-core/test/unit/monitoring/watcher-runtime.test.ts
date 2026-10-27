@@ -1,5 +1,6 @@
 import { expect } from "chai";
-import { getAddress } from "viem";
+import { getAddress, keccak256, toHex } from "viem";
+import { decodeDelayLog, type DelayMonitoringContext } from "../../../src/monitoring/delay-events";
 import { ActivityLedger, InMemoryActivityStore, type ActivityLogKey } from "../../../src/monitoring/ledger";
 import { createLiveWebhookNotifier, deliverPendingAlerts, scanFailClosed } from "../../../src/monitoring/watcher-runtime";
 import type { ActivityAlert, Notifier, WebhookFetch } from "../../../src/monitoring/notifier";
@@ -38,6 +39,26 @@ describe("activity watcher fail-closed composition",()=>{
     const completed:number[]=[];
     await expect(scanFailClosed([1,2,3],async value=>{if(value===2)throw new Error("wrong digest");completed.push(value);},value=>`log-${value}`)).to.be.rejectedWith(/observer scan failed.*log-2/i);
     expect(completed).to.deep.equal([1]);
+  });
+
+  it("keeps an ignored Delay setup log out of the ledger and continues to later activity",async()=>{
+    const ledger=new ActivityLedger(new InMemoryActivityStore());
+    const delay=getAddress("0xB8E143098CcCb9935228022173c2c987DF5FD53a");
+    const context:DelayMonitoringContext={chainId:11155111,safe:getAddress("0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6"),delay,confirmations:1,cooldownSeconds:120n,expirationSeconds:600n};
+    const setup={address:delay,chainId:11155111,blockNumber:12_006_943n,blockHash:"0x5dc79d6d89f0451d4e8c4fc84d563d4d72e2547b954563ada58e4c6c69f1fe6d" as const,transactionHash:"0xd93ab546afa11efdae949c4f21a31987cc161b62a3251d1f4107a228a3a95862" as const,logIndex:0,topics:["0xecdf3a3effea5783a3c4c2140e677577666428d44ed9d474a0b3a4c9943f8440" as const],data:"0x000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a6" as const};
+    let reads=0;
+    const binding={readQueue:async()=>{reads++;throw new Error("setup log must not read queue");},readNonce:async()=>{reads++;return 0n;}};
+    const laterKey={...key,chainId:11155111,blockHash:keccak256(toHex("later block")),transactionHash:keccak256(toHex("later tx"))};
+    const laterAlert={...alert,chainId:11155111,safe:context.safe,blockNumber:12_006_944n,transactionHash:laterKey.transactionHash};
+
+    await scanFailClosed([setup,"later"] as const,async item=>{
+      if(item==="later"){ledger.accept(laterKey,laterAlert);return;}
+      const decoded=await decodeDelayLog(item,context,item.blockNumber,0n,binding);
+      if(decoded)ledger.accept({chainId:item.chainId,blockHash:item.blockHash,transactionHash:item.transactionHash,logIndex:item.logIndex},decoded);
+    },item=>typeof item==="string"?item:`${item.transactionHash}:${item.logIndex}`);
+
+    expect(reads).to.equal(0);
+    expect(ledger.records()).to.deep.equal([laterAlert]);
   });
 
   it("retries the failed ordered item before accepting a later item after restart",async()=>{

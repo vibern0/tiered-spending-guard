@@ -42,9 +42,39 @@ describe("Delay activity decoding", () => {
   const item = { txHash: queueFingerprint({ safe: context.safe, delay: context.delay, to: context.safe, value: 0n, data: "0x", operation: 0, queueNonce: 4n }), createdAt: 100n, to: context.safe, value: 0n, data: "0x" as const, operation: 0 };
   const binding = { readQueue: async () => item, readNonce: async () => 5n };
 
+  it("ignores the canonical Safe-creation EnabledModule log without queue reads", async () => {
+    let queueReads = 0;
+    const setupContext = { ...context, chainId: 11155111, delay: getAddress("0xB8E143098CcCb9935228022173c2c987DF5FD53a") };
+    const setupLog = monitoringLog(
+      setupContext.delay,
+      setupContext.chainId,
+      ["0xecdf3a3effea5783a3c4c2140e677577666428d44ed9d474a0b3a4c9943f8440"],
+      "0x000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a6",
+      {
+        blockNumber: 12_006_943n,
+        blockHash: "0x5dc79d6d89f0451d4e8c4fc84d563d4d72e2547b954563ada58e4c6c69f1fe6d",
+        transactionHash: "0xd93ab546afa11efdae949c4f21a31987cc161b62a3251d1f4107a228a3a95862",
+      },
+    );
+    const setupBinding = {
+      readQueue: async () => { queueReads++; return item; },
+      readNonce: async () => { queueReads++; return 0n; },
+    };
+
+    expect(await decodeDelayLog(setupLog, setupContext, setupLog.blockNumber, 0n, setupBinding)).to.equal(undefined);
+    expect(queueReads).to.equal(0);
+  });
+
+  it("ignores only provably unrelated nonempty topics and rejects missing or malformed topics", async () => {
+    const unrelated = { ...log("TxNonceSet", [5n]), topics: [keccak256(toHex("unrelated Delay topic"))], data: "0x12" as `0x${string}` };
+    expect(await decodeDelayLog(unrelated, context, 21n, 100n, binding)).to.equal(undefined);
+    await expect(decodeDelayLog({ ...unrelated, topics: [] }, context, 21n, 100n, binding)).to.be.rejectedWith(/malformed/i);
+    await expect(decodeDelayLog({ ...unrelated, topics: ["0x12"] } as never, context, 21n, 100n, binding)).to.be.rejectedWith(/malformed/i);
+  });
+
   it("decodes a confirmed queue item with the recomputed Zodiac hash", async () => {
     const result = await decodeDelayLog(log("TransactionAdded", [4n, item.txHash, context.safe, 0n, "0x", 0]), context, 21n, 100n, binding);
-    if (result.kind !== "delayed-queued") throw new Error("expected delayed queue alert");
+    if (!result || result.kind !== "delayed-queued") throw new Error("expected delayed queue alert");
     expect(result.kind).to.equal("delayed-queued");
     expect(result.queueNonce).to.equal(4n);
     expect(result.queueFingerprint).to.match(/^0x[0-9a-f]{64}$/);
@@ -54,14 +84,17 @@ describe("Delay activity decoding", () => {
     await expect(decodeDelayLog(log("TransactionAdded", [4n, keccak256(toHex("hash")), context.safe, 0n, "0x", 0]), context, 21n, 100n, binding)).to.be.rejectedWith(/hash/i);
   });
 
-  it("fails closed on a wrong Delay, malformed log, and unbound queue target", async () => {
+  it("fails closed on wrong identity, reorg removal, malformed activity, and an unbound queue target", async () => {
     await expect(decodeDelayLog(log("TxNonceSet", [5n], { address: context.safe }), context, 21n, 100n, binding)).to.be.rejectedWith(/identity/i);
+    await expect(decodeDelayLog({ ...log("TxNonceSet", [5n]), chainId: context.chainId + 1 }, context, 21n, 100n, binding)).to.be.rejectedWith(/identity/i);
+    await expect(decodeDelayLog({ ...log("TxNonceSet", [5n]), removed: true }, context, 21n, 100n, binding)).to.be.rejectedWith(/reorg/i);
     await expect(decodeDelayLog({ ...log("TxNonceSet", [5n]), data: "0x12" }, context, 21n, 100n, binding)).to.be.rejectedWith(/malformed/i);
     await expect(decodeDelayLog(log("TransactionAdded", [4n, item.txHash, context.delay, 0n, "0x", 0]), context, 21n, 100n, binding)).to.be.rejectedWith(/binding/i);
   });
 
   it("requires queue hash and tuple revalidation before a lifecycle alert", async () => {
     const result = await decodeDelayLog(log("TransactionAdded", [4n, item.txHash, context.safe, 0n, "0x", 0]), context, 21n, 100n, binding);
+    if (!result) throw new Error("expected delayed queue alert");
     await expect(verifyDelayBinding(result, binding, context)).to.be.fulfilled;
     await expect(verifyDelayBinding(result, { readQueue: async () => ({ ...item, value: 1n }), readNonce: binding.readNonce }, context)).to.be.rejectedWith(/binding/i);
   });
@@ -73,10 +106,10 @@ describe("Delay activity decoding", () => {
     expect(readBlocks).to.deep.equal([20n]);
   });
 
-  it("does not accept an event ABI that is not emitted by the pinned Delay fixture", async () => {
+  it("ignores an unrelated event ABI that is not emitted as Delay activity", async () => {
     const item2 = parseAbiItem("event TransactionExecuted(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)");
     const encoded = encodeEventTopics({ abi: [item2], eventName: "TransactionExecuted", args: [4n, item.txHash, context.safe, 0n, "0x", 0] as never });
-    await expect(decodeDelayLog({ ...log("TxNonceSet", [5n]), topics: encoded, data: "0x" } as never, context, 21n, 100n, binding)).to.be.rejectedWith(/malformed|unsupported/i);
+    expect(await decodeDelayLog({ ...log("TxNonceSet", [5n]), topics: encoded, data: "0x" } as never, context, 21n, 100n, binding)).to.equal(undefined);
   });
 
   it("derives execution only from an exact successful canonical receipt and queue transition", async () => {
