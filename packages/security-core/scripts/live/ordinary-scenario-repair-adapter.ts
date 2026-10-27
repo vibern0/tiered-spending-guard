@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { decodeEventLog, encodeFunctionData, hashTypedData, keccak256, parseAbi, type Address, type Hex } from "viem";
+import { decodeEventLog, encodeFunctionData, hashTypedData, keccak256, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { encodeGuardSafeSignatures } from "../../src/signers/guard-signatures";
 import { SAFE_TX_TYPES, type SafeSignerRequest, type VaultSigner } from "../../src/signers/types";
@@ -24,6 +24,8 @@ const GUARD_ABI = parseAbi(["function freeze()"]);
 const GUARD_CHECK_ABI = parseAbi(["function checkTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes,address)", "function checkModuleTransaction(address,uint256,bytes,uint8,address) returns (bytes32)"]);
 const SAFE_EVENTS = parseAbi(["event ExecutionSuccess(bytes32 indexed txHash,uint256 payment)", "event ExecutionFailure(bytes32 indexed txHash,uint256 payment)"]);
 const DELAY_EVENTS = parseAbi(["event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)", "event TxNonceSet(uint256 nonce)"]);
+const FROZEN_SELECTOR = toFunctionSelector("Frozen()");
+const INVALID_DELAYED_ACTION_SELECTOR = toFunctionSelector("InvalidDelayedAction()");
 const publicHash = (value: unknown): Hex => `0x${createHash("sha256").update(JSON.stringify(value, (_, child) => typeof child === "bigint" ? child.toString() : child)).digest("hex")}` as Hex;
 
 export async function materializeRepairPrimaryFirstSafeCall(input: Readonly<{ chainId: number; safe: Address; to: Address; data: Hex; nonce: bigint; safeTxHash: Hex; primary: VaultSigner; secondary: VaultSigner }>): Promise<Hex> {
@@ -109,7 +111,7 @@ export type RepairProductionAdapter = Readonly<{
   recoverPendingIntent(proposal: RepairGroupProposal | undefined, action: RepairActionReview, transactionHash: Hex): Promise<LiveIntent>;
   validateReceiptEffect(proposal: RepairGroupProposal, action: RepairActionReview, logs: readonly Readonly<{ address: Address; data: Hex; topics: readonly Hex[] }>[], maintenanceCalldata?: Hex): true;
   materializeTailAction(proposal: RepairGroupProposal, action: RepairActionReview, maintenanceCalldata?: Hex): Promise<Readonly<{ signedSafeCalldata?: Hex; liveIntent?: LiveIntent; rejectionCalldata?: Hex }>>;
-  proveFrozenRejections(proposal: RepairGroupProposal): Promise<true>;
+  proveFrozenRejections(proposal: RepairGroupProposal, observerEvidenceHash: Hex, frozenState: RepairCanonicalState): Promise<true>;
 }>;
 
 export type RepairMechanicalAdapterInput = Readonly<{
@@ -121,6 +123,22 @@ export type RepairMechanicalAdapterInput = Readonly<{
   readStateAtBlock(phase: "pre-rotation" | "post-rotation", observerEvidenceHash: Hex, requestedBlock?: bigint, expectedBlockHash?: Hex): Promise<RepairCanonicalState>;
   loadPasskey(role: "primary" | "original-secondary" | "repair-secondary", expected: Address): Promise<VaultSigner>;
 }>;
+
+export function hasExactRepairRevert(error: unknown, selector: Hex): boolean {
+  const expected = selector.toLowerCase();
+  const pending: unknown[] = [error];
+  const seen = new Set<object>();
+  for (let index = 0; index < 24 && pending.length; index++) {
+    const current = pending.shift();
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+    const value = current as { data?: unknown; cause?: unknown };
+    if (typeof value.data === "string" && value.data.toLowerCase() === expected) return true;
+    if (value.data && typeof value.data === "object") pending.push(value.data);
+    if (value.cause && typeof value.cause === "object") pending.push(value.cause);
+  }
+  return false;
+}
 
 /** Chain-explicit repair mechanics shared by fixed production and validated local integration. */
 export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInput): RepairProductionAdapter {
@@ -179,12 +197,23 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
       if (action.id === "post-rotation-old-secondary-rejection") return Object.freeze({ signedSafeCalldata, rejectionCalldata: signedSafeCalldata });
       return Object.freeze({ signedSafeCalldata, liveIntent: { id: action.id, to: proposal.safe, data: signedSafeCalldata, value: 0n, nonce: outerNonce, gas: 2_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n } });
     },
-    proveFrozenRejections: async proposal => {
-      const rejects = async (request: Readonly<{ account: Address; to: Address; data: Hex }>, selector?: string) => { try { await input.current.call(request); return false; } catch (error) { if (!selector) return true; const seen = new Set<object>(); const pending: unknown[] = [error]; for (let index = 0; index < 128 && pending.length; index++) { const value = pending.shift(); if (typeof value === "string" && value.toLowerCase().includes(selector)) return true; if (!value || typeof value !== "object" || seen.has(value)) continue; seen.add(value); pending.push(...Object.values(value)); } return false; } };
+    proveFrozenRejections: async (proposal, observerEvidenceHash, frozenState) => {
+      if (!frozenState.frozen || frozenState.safeNonce !== 18n || frozenState.delayQueueNonce !== 8n || frozenState.delayTxNonce !== 8n || frozenState.safeContractSecondary.toLowerCase() !== proposal.candidate.toLowerCase() || frozenState.policyHash.toLowerCase() !== proposal.afterPolicyHash.toLowerCase() || frozenState.blockNumber <= 0n) throw new Error("repair final freeze canonical state mismatch");
+      const beforeBlock = await input.current.getBlock({ blockNumber: frozenState.blockNumber - 1n });
+      if (!beforeBlock.hash) throw new Error("repair pre-freeze canonical block is unavailable");
+      const before = await input.readStateAtBlock("post-rotation", observerEvidenceHash, beforeBlock.number, beforeBlock.hash);
+      const unchanged = ["chainId", "delayQueueNonce", "delayTxNonce", "safeContractSecondary", "candidateRuntimeCodeHash", "candidateBindingHash", "policyHash", "nativeWindow", "nativeBaseSpent", "nativeInstantSpent", "usdcWindow", "usdcBaseSpent", "usdcInstantSpent", "nativeBalance", "usdcBalance", "observerReady"] as const;
+      if (before.frozen || before.safeNonce !== 17n || !/^0x[0-9a-f]{64}$/i.test(before.topologyEvidenceHash) || unchanged.some(key => String(before[key]).toLowerCase() !== String(frozenState[key]).toLowerCase())) throw new Error("repair pre-freeze module proof state mismatch");
       const [primary, secondary] = await Promise.all([input.loadPasskey("primary", input.primary), input.loadPasskey("repair-secondary", proposal.candidate)]);
       const typedData = { domain: { chainId: input.domain.chainId, verifyingContract: proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: proposal.recipient, value: 1n, data: "0x" as Hex, operation: 0 as const, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: 18n } }; const request: SafeSignerRequest = { chainId: input.domain.chainId, safe: proposal.safe, safeTxHash: hashTypedData(typedData), typedData }; const signatures = await encodeGuardSafeSignatures(request, primary, secondary); const direct = encodeFunctionData({ abi: SAFE_ABI, functionName: "execTransaction", args: [proposal.recipient, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, signatures] });
       const delayed = encodeFunctionData({ abi: GUARD_CHECK_ABI, functionName: "checkModuleTransaction", args: [proposal.recipient, 1n, "0x", 0, proposal.delay] });
-      if (!await rejects({ account: input.creation.funder, to: proposal.safe, data: direct }) || !await rejects({ account: proposal.safe, to: proposal.guard, data: delayed })) throw new Error("repair final freeze lacks direct/module rejection proofs"); return true;
+      const allowed = await input.current.call({ account: proposal.safe, to: proposal.guard, data: delayed, blockNumber: before.blockNumber });
+      if (!allowed.data || !/^0x[0-9a-f]{64}$/i.test(allowed.data)) throw new Error("repair pre-freeze module probe did not return its transaction hash");
+      const rejectsExact = async (request: Readonly<{ account: Address; to: Address; data: Hex }>, selector: Hex) => { try { await input.current.call({ ...request, blockNumber: frozenState.blockNumber }); return false; } catch (error) { return hasExactRepairRevert(error, selector); } };
+      if (!await rejectsExact({ account: input.creation.funder, to: proposal.safe, data: direct }, FROZEN_SELECTOR) || !await rejectsExact({ account: proposal.safe, to: proposal.guard, data: delayed }, INVALID_DELAYED_ACTION_SELECTOR)) throw new Error("repair final freeze lacks exact owner/module rejection proofs");
+      const reread = await input.readStateAtBlock("post-rotation", observerEvidenceHash, frozenState.blockNumber, frozenState.blockHash);
+      if (publicHash(reread).toLowerCase() !== publicHash(frozenState).toLowerCase()) throw new Error("repair final freeze canonical state changed during rejection proofs");
+      return true;
     },
   };
 }

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, keccak256, toFunctionSelector, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createOrdinaryScenarioProposal, createOrdinaryScenarioStore, PRODUCTION_ORDINARY_SCENARIO_DOMAIN, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
 import {
@@ -30,7 +30,8 @@ import {
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
 import { createRepairCommandRuntime, repairObserverExpectedEffect, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
-import { validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
+import { createRepairMechanicalAdapter, validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
+import { encodeSafeContractSignature } from "../../../src/signers/passkey-helpers";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
 const hash = (suffix: string) => `0x${suffix.padStart(64, "0")}` as Hex;
@@ -220,6 +221,41 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const wrongDelay = { ...delayLog, data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }], [maintenance, 1n, prepared.transient.maintenanceCalldata, 1]) };
     expect(() => validateRepairReceiptEffect(prepared.proposal, action, [safeLog, wrongDelay], prepared.transient.maintenanceCalldata)).to.throw("TransactionAdded");
     expect(() => validateRepairReceiptEffect(prepared.proposal, action, [delayLog], prepared.transient.maintenanceCalldata)).to.throw("Safe execution");
+  });
+
+  it("binds valid pre-freeze module behavior and exact frozen owner/module reverts to canonical blocks", async () => {
+    const f = prefix(); const creation = createRepairCreationProposal({ ...f, state: state({ candidateRuntimeCodeHash: hash("0") }), quote }); approveCreation(f.journal, creation);
+    const group = createRepairGroupProposal({ creation, journal: f.journal, state: state(), assertion: "0x123456" }).proposal;
+    const frozen = toFunctionSelector("Frozen()"); const delayed = toFunctionSelector("InvalidDelayedAction()"); const unrelated = toFunctionSelector("InvalidSecondarySignature()");
+    const before = state({ blockNumber: 12009999n, blockHash: hash("700"), safeNonce: 17n, delayQueueNonce: 8n, delayTxNonce: 8n, safeContractSecondary: candidate, policyHash: group.afterPolicyHash });
+    const after = state({ blockNumber: 12010000n, blockHash: hash("701"), safeNonce: 18n, delayQueueNonce: 8n, delayTxNonce: 8n, safeContractSecondary: candidate, policyHash: group.afterPolicyHash, frozen: true });
+    const signer = (signerAddress: Address, role: "primary" | "secondary") => ({ address: signerAddress, role, kind: "safe-contract" as const, sign: async () => encodeSafeContractSignature(signerAddress, "0x12") });
+    const prove = async (outcomes: readonly unknown[], reread = after) => {
+      let call = 0;
+      const adapter = createRepairMechanicalAdapter({
+        domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN,
+        creation: { safe, guard, delay, funder, candidate, factory, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), preRotationBlockNumber: "1", preRotationBlockHash: hash("1") },
+        primary,
+        current: { getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ number: blockNumber, hash: blockNumber === before.blockNumber ? before.blockHash : after.blockHash }), call: async () => { const outcome = outcomes[call++]; if (outcome !== undefined) throw outcome; return { data: hash("123") }; } } as never,
+        archive: {} as never,
+        readStateAtBlock: async (_phase, _observer, blockNumber, blockHash) => { const value = blockNumber === before.blockNumber ? before : reread; expect(blockHash).to.equal(value.blockHash); return value; },
+        loadPasskey: async role => role === "primary" ? signer(primary, "primary") : signer(candidate, "secondary"),
+      });
+      return adapter.proveFrozenRejections(group, hash("308"), after);
+    };
+    expect(await prove([undefined, { cause: { data: { data: frozen } } }, { cause: { data: delayed } }])).to.equal(true);
+    for (const outcomes of [
+      [new Error("RPC unavailable"), { cause: { data: frozen } }, { cause: { data: delayed } }],
+      [undefined, { cause: { data: unrelated } }, { cause: { data: delayed } }],
+      [undefined, new Error("RPC unavailable"), { cause: { data: delayed } }],
+      [undefined, undefined, { cause: { data: delayed } }],
+      [undefined, { cause: { data: frozen } }, undefined],
+      [undefined, { cause: { data: frozen } }, { cause: { data: unrelated } }],
+      [undefined, { cause: { data: frozen } }, { cause: { data: frozen } }],
+      [undefined, { cause: { data: `${frozen}00` } }, { cause: { data: delayed } }],
+      [undefined, new Error(`execution reverted with ${frozen}`), { data: `execution reverted with ${delayed}` }],
+    ] as const) await expect(prove(outcomes)).to.be.rejected;
+    await expect(prove([undefined, { cause: { data: frozen } }, { cause: { data: delayed } }], { ...after, blockHash: hash("bad") })).to.be.rejected;
   });
 
   it("binds cancellation observer evidence to cancelledThrough without an inapplicable queue fingerprint", () => {

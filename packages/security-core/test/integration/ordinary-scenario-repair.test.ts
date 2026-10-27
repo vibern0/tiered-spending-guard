@@ -9,10 +9,10 @@ import { decodeEventLog, encodeAbiParameters, encodeFunctionData, getContract, h
 import { privateKeyToAccount } from "viem/accounts";
 import { createAutomatedCredential, signWebAuthn } from "../../scripts/live/webauthn";
 import { encodeSafeContractSignature } from "../../src/signers/passkey-helpers";
-import { createRepairMechanicalAdapter, createRepairMechanicalStateReader, materializeRepairPrimaryFirstSafeCall, recoverRepairPendingIntent } from "../../scripts/live/ordinary-scenario-repair-adapter";
+import { createRepairMechanicalAdapter, createRepairMechanicalStateReader, hasExactRepairRevert, materializeRepairPrimaryFirstSafeCall, recoverRepairPendingIntent } from "../../scripts/live/ordinary-scenario-repair-adapter";
 import { type RepairActionReview, type RepairGroupProposal } from "../../scripts/live/ordinary-scenario-repair";
 import { createRepairPrepareAuthorization, validateRepairExecutionDomain, type RepairCreationProposal } from "../../scripts/live/ordinary-scenario-repair";
-import { createRepairCommandRuntime, hasExactRepairRevert, runRepairQueueSession, validateRepairTailSimulation, type RepairCommandDependencies } from "../../scripts/live/ordinary-scenario-repair-session";
+import { createRepairCommandRuntime, runRepairQueueSession, validateRepairTailSimulation, type RepairCommandDependencies } from "../../scripts/live/ordinary-scenario-repair-session";
 import { submitLiveIntentForChain, type LiveReceipt } from "../../scripts/live/submission";
 import { passkeySignerBindingHash } from "../../src/topology/evidence";
 import { policyHash } from "../../src/topology/build";
