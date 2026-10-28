@@ -368,6 +368,21 @@ export function createExpiredHashlessContinuationExecutionView(original: Ordinar
   const view = deepFreeze({ kind: "expired-hashless-continuation-v1" as const, original, continuation, proposal }); executionViews.add(view); return view;
 }
 
+/** Select one exact fresh submission from validated attached continuation progress. */
+export function selectExpiredHashlessContinuationSubmissionAction(original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope {
+  assertExpiredHashlessContinuationAuthorization(continuation, approval);
+  const view = createExpiredHashlessContinuationExecutionView(original, continuation, approval);
+  assertHashlessContinuationJournal(journal, original, continuation, approval);
+  const progressed = journal.hashlessContinuation!.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
+  const projected = structuredClone({ ...journal, actions: [...journal.actions.slice(0, 18), ...progressed] });
+  const binding: ApprovalBinding = { proposal: view.proposal, actions: continuation.actions.map(continuationScope), actionCount: continuation.actions.length, maximumApprovedReservation: BigInt(continuation.reservation.maximumCumulativeOutlayWei) };
+  const action = nextAction(binding, projected);
+  if (!action) throw new Error("hashless continuation submission is complete");
+  const attached = journal.hashlessContinuation!.actions.find(entry => entry.id === action.id);
+  if (!attached || attached.status !== "approved") throw new Error("hashless continuation submission requires one fresh approved action");
+  return action;
+}
+
 export type OrdinaryScenarioStore = Readonly<{
   load(): OrdinaryScenarioJournal;
   save(journal: OrdinaryScenarioJournal): void;

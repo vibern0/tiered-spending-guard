@@ -24,7 +24,7 @@ const TRANSACTION_BLOCK = Object.freeze({ number: 12_013_885n, hash: "0x1cd3daf4
 const QUEUE_FINGERPRINT = "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67" as Hex;
 
 export type HashlessCanonicalBlock = Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>;
-export type HashlessCanonicalTransaction = Readonly<{
+type HashlessCanonicalTransactionBase = Readonly<{
   hash: Hex;
   recoveredSender: Address;
   nonce: number;
@@ -32,11 +32,13 @@ export type HashlessCanonicalTransaction = Readonly<{
   value: bigint;
   inputHash: Hex;
   gas: bigint;
-  maxFeePerGas: bigint;
-  maxPriorityFeePerGas: bigint;
   blockNumber: bigint;
   blockHash: Hex;
 }>;
+export type HashlessCanonicalTransaction = HashlessCanonicalTransactionBase & (
+  | Readonly<{ type: "legacy"; chainId: number; gasPrice: bigint; v: bigint }>
+  | Readonly<{ type: "eip1559"; chainId: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>
+);
 export type HashlessCanonicalReceipt = Readonly<{ transactionHash: Hex; status: "success" | "reverted"; blockNumber: bigint; blockHash: Hex }>;
 export type HashlessControlledState = {
   chainId: number;
@@ -258,14 +260,19 @@ function assertBlock(actual: HashlessCanonicalBlock, expected: HashlessCanonical
   if (actual.number !== expected.number || !same(actual.hash, expected.hash) || actual.timestamp !== expected.timestamp) throw new Error(`${label} canonical block mismatch`);
 }
 
-function assertProviderView(view: ProviderView, latest: HashlessCanonicalBlock): void {
+function assertHistoricalTransactionEvidence(view: ProviderView): void {
   assertBlock(view.selected, MATERIALIZATION_BLOCK, "materialization"); assertBlock(view.certificate, CERTIFICATE_BLOCK, "certificate");
   if (view.transactionBlock.number !== TRANSACTION_BLOCK.number || !same(view.transactionBlock.hash, TRANSACTION_BLOCK.hash)) throw new Error("nonce-809 canonical transaction block mismatch");
   const tx = view.transaction; const receipt = view.receipt;
   if (!same(tx.hash, CONSUMING_TRANSACTION) || tx.nonce !== 809 || !same(tx.recoveredSender, FUNDER)) throw new Error("nonce-809 recovered sender or transaction mismatch");
+  if (tx.chainId !== CHAIN_ID || (tx.type === "legacy" ? tx.v !== 22_310_258n || tx.gasPrice !== 100_000n : tx.maxFeePerGas <= 0n || tx.maxPriorityFeePerGas < 0n || tx.maxPriorityFeePerGas > tx.maxFeePerGas)) throw new Error("nonce-809 canonical transaction type or fee mismatch");
   if (!same(tx.blockHash, TRANSACTION_BLOCK.hash) || tx.blockNumber !== TRANSACTION_BLOCK.number || !same(receipt.transactionHash, tx.hash) || receipt.status !== "success" || receipt.blockNumber !== tx.blockNumber || !same(receipt.blockHash, tx.blockHash)) throw new Error("nonce-809 canonical receipt mismatch");
   const confirmations = view.certificate.number - tx.blockNumber + 1n;
   if (confirmations < 6n) throw new Error("nonce-809 confirmation depth is below six");
+}
+
+function assertProviderView(view: ProviderView, latest: HashlessCanonicalBlock): void {
+  assertHistoricalTransactionEvidence(view);
   if (latest.number - view.current.number + 1n < 6n || view.current.number <= view.certificate.number || view.current.timestamp <= view.certificate.timestamp) throw new Error("current controlled snapshot lacks six confirmations or ordering");
   for (const [label, before, after] of [["materialization", view.selected, view.canonicalRecheck[0]], ["certificate", view.certificate, view.canonicalRecheck[1]], ["nonce-809 transaction", view.transactionBlock, view.canonicalRecheck[2]], ["current", view.current, view.canonicalRecheck[3]]] as const) {
     if (!after || before.number !== after.number || !same(before.hash, after.hash) || before.timestamp !== after.timestamp) throw new Error(`${label} canonical recheck detected a reorg`);
@@ -281,9 +288,10 @@ function assertProviderView(view: ProviderView, latest: HashlessCanonicalBlock):
 
 function resolution(view: ProviderView, journal: OrdinaryScenarioJournal): HashlessNonce809Resolution {
   const source = journal.actions[18]!; const tx = view.transaction;
-  const exact = tx.to !== null && source.outerTo !== undefined && same(tx.to, source.outerTo) && tx.value.toString() === source.outerValue && source.outerDataHash !== undefined && same(tx.inputHash, source.outerDataHash) && tx.gas.toString() === source.gas && tx.maxFeePerGas.toString() === source.maxFeePerGas && tx.maxPriorityFeePerGas.toString() === source.maxPriorityFeePerGas;
+  const exact = tx.type === "eip1559" && tx.to !== null && source.outerTo !== undefined && same(tx.to, source.outerTo) && tx.value.toString() === source.outerValue && source.outerDataHash !== undefined && same(tx.inputHash, source.outerDataHash) && tx.gas.toString() === source.gas && tx.maxFeePerGas.toString() === source.maxFeePerGas && tx.maxPriorityFeePerGas.toString() === source.maxPriorityFeePerGas;
   if (exact) return { kind: "MATCH_FOUND_RECONCILE", transactionHash: tx.hash };
-  const envelopeDifferenceHash = publicHash({ source: { to: source.outerTo, value: source.outerValue, inputHash: source.outerDataHash, gas: source.gas, maxFeePerGas: source.maxFeePerGas, maxPriorityFeePerGas: source.maxPriorityFeePerGas }, canonical: { to: tx.to, value: tx.value, inputHash: tx.inputHash, gas: tx.gas, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas } });
+  const canonical = tx.type === "legacy" ? { type: tx.type, chainId: tx.chainId, to: tx.to, value: tx.value, inputHash: tx.inputHash, gas: tx.gas, gasPrice: tx.gasPrice, v: tx.v } : { type: tx.type, chainId: tx.chainId, to: tx.to, value: tx.value, inputHash: tx.inputHash, gas: tx.gas, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas };
+  const envelopeDifferenceHash = publicHash({ source: { type: "eip1559", chainId: CHAIN_ID, to: source.outerTo, value: source.outerValue, inputHash: source.outerDataHash, gas: source.gas, maxFeePerGas: source.maxFeePerGas, maxPriorityFeePerGas: source.maxPriorityFeePerGas }, canonical });
   return { kind: "NONCE_809_INVALIDATED", transactionHash: tx.hash, recoveredSender: tx.recoveredSender, confirmations: view.certificate.number - tx.blockNumber + 1n, envelopeDifferenceHash };
 }
 
@@ -357,7 +365,7 @@ export async function reverifyHashlessStateCertificate(recordedCertificate: stri
   const artifact: Artifact = { selected: MATERIALIZATION_BLOCK, tip: CERTIFICATE_BLOCK, transactionHash: CONSUMING_TRANSACTION };
   const views = await Promise.all([readProvider(providers[0], artifact, certificate.currentSnapshot.block.number), readProvider(providers[1], artifact, certificate.currentSnapshot.block.number)] as const);
   for (const view of views) {
-    assertBlock(view.selected, MATERIALIZATION_BLOCK, "materialization"); assertBlock(view.certificate, CERTIFICATE_BLOCK, "certificate"); assertBlock(view.current, certificate.currentSnapshot.block, "recorded current snapshot");
+    assertHistoricalTransactionEvidence(view); assertBlock(view.current, certificate.currentSnapshot.block, "recorded current snapshot");
     if (view.selectedNonce !== 809 || view.certificateNonce !== 811 || view.currentNonce !== certificate.currentSnapshot.funderNonce) throw new Error("recorded certificate historical nonce mismatch");
     if (publicHash(view.selectedState) !== certificate.controlledStateHash || publicHash(view.certificateState) !== certificate.controlledStateHash || publicHash(view.currentState) !== certificate.currentSnapshot.controlledStateHash || view.currentState.funderUsdcBalance !== certificate.currentSnapshot.funderUsdcBalance) throw new Error("recorded certificate controlled state mismatch");
     const nonce809 = resolution(view, journal); if (nonce809.kind !== "NONCE_809_INVALIDATED" || publicHash(nonce809) !== publicHash(certificate.nonce809)) throw new Error("recorded certificate nonce-809 proof mismatch");

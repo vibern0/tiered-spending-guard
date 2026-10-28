@@ -12,6 +12,7 @@ import {
   verifyHashlessStateCertificate,
   type HashlessControlledState,
   type HashlessEvidenceProvider,
+  type HashlessCanonicalTransaction,
 } from "../../../scripts/live/ordinary-scenario-hashless-certificate";
 
 const fixtureRoot = join(__dirname, "../../fixtures/ordinary-hashless");
@@ -49,7 +50,7 @@ const controlledState = (): HashlessControlledState => ({
 type ProviderOptions = Readonly<{
   selected?: Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>;
   certificate?: Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>;
-  transaction?: Partial<Awaited<ReturnType<HashlessEvidenceProvider["readTransaction"]>>>;
+  transaction?: Partial<HashlessCanonicalTransaction>;
   receipt?: Partial<Awaited<ReturnType<HashlessEvidenceProvider["readReceipt"]>>>;
   latestNonce?: number;
   pendingNonce?: number;
@@ -65,20 +66,18 @@ type ProviderOptions = Readonly<{
 function provider(options: ProviderOptions = {}): HashlessEvidenceProvider {
   const selected = options.selected ?? selectedBlock;
   const certificate = options.certificate ?? certificateBlock;
-  const transaction = {
+  const common = {
     hash: consumingHash,
     recoveredSender: funder,
     nonce: 809,
     to: "0xadb8f835e565ac7e71d2df6cfbd0fc003fa22c27" as Address,
     value: 0n,
     inputHash: "0x25491caa28455d896a7211a1c4532ab1e72412bdb15293292e2e37e5f9406c63" as Hex,
-    gas: 21_000n,
-    maxFeePerGas: 30n,
-    maxPriorityFeePerGas: 2n,
+    gas: 1_820_162n,
     blockNumber: 12_013_885n,
     blockHash: "0x1cd3daf4cef11721feb5d564c0768f42e88d1d14c6c909e64b7cd5532b6f158b" as Hex,
-    ...options.transaction,
   };
+  const transaction = (options.transaction?.type === "eip1559" ? { ...common, type: "eip1559" as const, chainId: 11_155_111, maxFeePerGas: 30n, maxPriorityFeePerGas: 2n, ...options.transaction } : { ...common, type: "legacy" as const, chainId: 11_155_111, gasPrice: 100_000n, v: 22_310_258n, ...options.transaction }) as HashlessCanonicalTransaction;
   const receipt = {
     transactionHash: consumingHash,
     status: "success" as const,
@@ -146,6 +145,11 @@ describe("ordinary scenario hashless certificate", function () {
     await expect(reverifyHashlessStateCertificate(JSON.stringify(extra), certificate.certificateHash, journal, [provider(), provider()])).to.be.rejectedWith(/shape|certificate/i);
     await expect(reverifyHashlessStateCertificate(serialized, `0x${"00".repeat(32)}` as Hex, journal, [provider(), provider()])).to.be.rejectedWith(/hash/i);
     await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ selectedNonce: 810 }), provider({ selectedNonce: 810 })])).to.be.rejectedWith(/selected|809|nonce/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ receipt: { status: "reverted" } }), provider({ receipt: { status: "reverted" } })])).to.be.rejectedWith(/receipt/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ receipt: { transactionHash: `0x${"12".repeat(32)}` as Hex } }), provider({ receipt: { transactionHash: `0x${"12".repeat(32)}` as Hex } })])).to.be.rejectedWith(/receipt/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ receipt: { blockNumber: 12_013_886n } }), provider({ receipt: { blockNumber: 12_013_886n } })])).to.be.rejectedWith(/receipt/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ receipt: { blockHash: `0x${"13".repeat(32)}` as Hex } }), provider({ receipt: { blockHash: `0x${"13".repeat(32)}` as Hex } })])).to.be.rejectedWith(/receipt/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ transaction: { blockNumber: 12_013_931n, blockHash: `0x${"14".repeat(32)}` as Hex } }), provider({ transaction: { blockNumber: 12_013_931n, blockHash: `0x${"14".repeat(32)}` as Hex } })])).to.be.rejectedWith(/transaction block|confirmation/i);
     await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ currentRecheckHash: `0x${"aa".repeat(32)}` as Hex }), provider({ currentRecheckHash: `0x${"aa".repeat(32)}` as Hex })])).to.be.rejectedWith(/reorg|canonical/i);
   });
 
@@ -192,7 +196,7 @@ describe("ordinary scenario hashless certificate", function () {
   it("classifies_nonce809", async function () {
     expect(isVerifiedHashlessStateCertificate(await verify(trackedSource()))).to.equal(true);
 
-    const exactEnvelope = { to: delay, value: 0n, inputHash: "0xc1e7bbfb9942640a3d4bfadf4540cbe0f5c8bd92f1cd8adeb0ca58bcaba7c24f" as Hex, gas: 300_000n, maxFeePerGas: 28n, maxPriorityFeePerGas: 2n };
+    const exactEnvelope = { type: "eip1559" as const, chainId: 11_155_111, to: delay, value: 0n, inputHash: "0xc1e7bbfb9942640a3d4bfadf4540cbe0f5c8bd92f1cd8adeb0ca58bcaba7c24f" as Hex, gas: 300_000n, maxFeePerGas: 28n, maxPriorityFeePerGas: 2n };
     await expect(verify(trackedSource(), [provider({ transaction: exactEnvelope }), provider({ transaction: exactEnvelope })])).to.be.rejectedWith("MATCH_FOUND_RECONCILE");
 
     for (const [label, providers] of [

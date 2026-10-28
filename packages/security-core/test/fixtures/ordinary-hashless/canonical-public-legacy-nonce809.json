@@ -1,0 +1,23 @@
+{
+  "scope": "CANONICAL_PUBLIC_LEGACY_NONCE809_RPC_FIXTURE",
+  "source": "fixed-public-current",
+  "retrievedAt": "2026-10-28T20:05:55.557Z",
+  "transaction": {
+    "type": "0x0",
+    "chainId": "0xaa36a7",
+    "nonce": "0x329",
+    "gasPrice": "0x186a0",
+    "gas": "0x1bc602",
+    "to": "0xadb8f835e565ac7e71d2df6cfbd0fc003fa22c27",
+    "value": "0x0",
+    "input": "0xa0eb5570",
+    "r": "0xc7160b3a1431fb48e377ba191c112a3c3ac24d70fe1069ccd2d60361bed1e70a",
+    "s": "0x437546d2517f2b39c06fe10b3d8907f5da4aa03a8c5fccf1bda456b756da7ab8",
+    "v": "0x1546d72",
+    "hash": "0x83923abf9c1224125296a3485f8cc0a910e7f729ea5d5a73d6f01bf1cdbfe1f5",
+    "blockHash": "0x1cd3daf4cef11721feb5d564c0768f42e88d1d14c6c909e64b7cd5532b6f158b",
+    "blockNumber": "0xb7513d",
+    "transactionIndex": "0xd",
+    "from": "0xad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc"
+  }
+}

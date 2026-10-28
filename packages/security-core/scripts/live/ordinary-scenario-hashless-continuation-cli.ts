@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { createPublicClient, erc20Abi, http, keccak256, parseAbi, recoverTransactionAddress, type Address, type Hex } from "viem";
+import { createPublicClient, erc20Abi, http, keccak256, parseAbi, recoverTransactionAddress, serializeTransaction, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { PUBLIC_ARCHIVE_RPC, PUBLIC_CURRENT_RPC } from "./ordinary-scenario-review-cli";
 import { createOrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
-import { createExpiredHashlessContinuationExecutionView } from "./ordinary-scenario-executor";
+import { createExpiredHashlessContinuationExecutionView, selectExpiredHashlessContinuationSubmissionAction } from "./ordinary-scenario-executor";
 import { createFrozenSafeSignerProvider, createOrdinaryScenarioExecutionContext, createOrdinaryScenarioStateReader, reconstructCanonicalType2Transaction } from "./ordinary-scenario-adapter";
 import { createEip1193SecondarySigner } from "../../src/signers/eip1193";
 import {
@@ -92,7 +92,7 @@ export type HashlessContinuationCliDependencies = Readonly<{
   environment: Readonly<Record<string, string | undefined>>;
   providers?: readonly [HashlessEvidenceProvider, HashlessEvidenceProvider];
   now?: () => Date;
-  publicPreflight?(inputs: HashlessContinuationPublicInputs): Promise<void>;
+  publicPreflight?(mode: "review" | "submit-one", inputs: HashlessContinuationPublicInputs): Promise<void>;
   createExecutionContext?(mode: "submit-one" | "resume-one", inputs: HashlessContinuationPublicInputs, journal: () => OrdinaryScenarioJournal): Promise<OrdinaryScenarioExecutionContext>;
 }>;
 
@@ -121,13 +121,13 @@ async function review(args: HashlessContinuationCliArguments, dependencies: Hash
   if (!dependencies.providers) throw new Error("two fixed public providers are unavailable"); const original = loadOriginal(args); const journal = loadHashlessSourceJournalReadOnly(required(args, "--source-journal"));
   const certificate = await verifyHashlessStateCertificate(readPublicText(required(args, "--source-artifact"), "source artifact"), requiredHash(args, "--source-artifact-hash"), journal, dependencies.providers);
   const observer = createContinuationObserverBinding(readPublicText(required(args, "--observer-startup"), "observer startup proof"), readPublicText(required(args, "--observer-probe"), "observer probe proof"), (dependencies.now ?? (() => new Date()))());
-  const continuation = createExpiredHashlessContinuationProposal({ original, journal, certificate, observer, caps: HASHLESS_CONTINUATION_CAPS }); const inputs = Object.freeze({ original, journal, certificate, continuation }); await dependencies.publicPreflight?.(inputs);
+  const continuation = createExpiredHashlessContinuationProposal({ original, journal, certificate, observer, caps: HASHLESS_CONTINUATION_CAPS }); const inputs = Object.freeze({ original, journal, certificate, continuation }); await dependencies.publicPreflight?.("review", inputs);
   return Object.freeze({ schemaVersion: 1, scope: "FIRST38_HASHLESS_CONTINUATION_UNSIGNED_REVIEW_V1", authorization: "NONE", certificate: JSON.parse(serializeHashlessStateCertificate(certificate)), continuation, certificateHash: certificate.certificateHash, proposalHash: continuation.proposalHash, actionCount: 22, caps: continuation.caps, signing: false, broadcast: false });
 }
 
 async function execute(command: "submit-one" | "resume-one", args: HashlessContinuationCliArguments, dependencies: HashlessContinuationCliDependencies): Promise<OrdinaryScenarioExecutionResult> {
   if (!dependencies.providers) throw new Error("two fixed public providers are unavailable"); const inputs = await loadHashlessContinuationPublicInputs(args, dependencies.providers); if (!inputs.approval) throw new Error("execution requires exact continuation approval");
-  if (command === "submit-one") { await dependencies.publicPreflight?.(inputs); assertContinuationObserverFresh(inputs.continuation.observer, (dependencies.now ?? (() => new Date()))()); }
+  if (command === "submit-one") { await dependencies.publicPreflight?.("submit-one", inputs); assertContinuationObserverFresh(inputs.continuation.observer, (dependencies.now ?? (() => new Date()))()); }
   const journalPath = required(args, "--journal"); if (journalPath !== required(args, "--source-journal")) throw new Error("continuation must use the same physical source journal");
   const store = createOrdinaryScenarioStore(journalPath, { proposalHash: inputs.original.proposalHash, approvalHash: inputs.continuation.source.originalApprovalHash, funder: inputs.original.funder }, () => { throw new Error("source journal is required"); });
   try {
@@ -147,8 +147,15 @@ const SAFE_ABI = parseAbi(["function nonce() view returns (uint256)"]);
 const DELAY_ABI = parseAbi(["function txNonce() view returns (uint256)", "function queueNonce() view returns (uint256)", "function getTxHash(uint256) view returns (bytes32)", "function getTxCreatedAt(uint256) view returns (uint256)"]);
 const GUARD_ABI = parseAbi(["function spendState(address) view returns (uint256,uint256,uint256)"]);
 const FIXED = Object.freeze({ funder: "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc" as Address, safe: "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6" as Address, delay: "0xB8E143098CcCb9935228022173c2c987DF5FD53a" as Address, guard: "0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA" as Address, usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address, queueFingerprint: "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67" as Hex });
+const CANONICAL_LEGACY_V = 22_310_258n;
 
-/** Fixed read-only Sepolia adapter. It reconstructs and sender-recovers the canonical type-2 nonce-809 transaction before returning evidence. */
+function reconstructCanonicalLegacyTransaction(source: Readonly<{ chainId: number; nonce: number; gas: bigint; gasPrice: bigint; to: Address; value: bigint; data: Hex; r: Hex; s: Hex; v: bigint; hash: Hex }>): Hex {
+  const parity = source.v - (2n * BigInt(source.chainId) + 35n); if (parity !== 0n && parity !== 1n) throw new Error("canonical legacy transaction EIP-155 v mismatch");
+  const serialized = serializeTransaction({ type: "legacy", chainId: source.chainId, nonce: source.nonce, gas: source.gas, gasPrice: source.gasPrice, to: source.to, value: source.value, data: source.data }, { r: source.r, s: source.s, v: 27n + parity });
+  if (keccak256(serialized).toLowerCase() !== source.hash.toLowerCase()) throw new Error("canonical legacy transaction hash mismatch"); return serialized;
+}
+
+/** Fixed read-only Sepolia adapter. It reconstructs and sender-recovers the canonical signed nonce-809 transaction before returning evidence. */
 export function createHashlessEvidenceProvider(client: ReturnType<typeof createPublicClient>): HashlessEvidenceProvider {
   const readBlock = async (number: bigint) => { try { const block = await client.getBlock({ blockNumber: number }); return block.hash ? { number: block.number, hash: block.hash, timestamp: block.timestamp } : undefined; } catch { return undefined; } };
   return Object.freeze({
@@ -156,10 +163,17 @@ export function createHashlessEvidenceProvider(client: ReturnType<typeof createP
     readBlock,
     readTransaction: async hash => { try {
       const tx = await client.getTransaction({ hash });
-      if (tx.type !== "eip1559" || tx.to === null || tx.blockNumber === null || tx.blockHash === null || tx.maxFeePerGas === undefined || tx.maxPriorityFeePerGas === undefined || tx.r === undefined || tx.s === undefined || (tx.yParity !== 0 && tx.yParity !== 1) || tx.accessList.length !== 0) return undefined;
-      const serialized = reconstructCanonicalType2Transaction({ chainId: Number(tx.chainId), nonce: tx.nonce, gas: tx.gas, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas, to: tx.to, value: tx.value, data: tx.input, accessList: [], r: tx.r, s: tx.s, yParity: tx.yParity, hash: tx.hash });
+      if (tx.to === null || tx.blockNumber === null || tx.blockHash === null || tx.r === undefined || tx.s === undefined) return undefined;
+      const chainId = Number(tx.chainId); let serialized: Hex; let feeIdentity: Readonly<{ type: "legacy"; chainId: number; gasPrice: bigint; v: bigint }> | Readonly<{ type: "eip1559"; chainId: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>;
+      if (tx.type === "legacy") {
+        if (tx.gasPrice === undefined || tx.v === undefined || tx.v !== CANONICAL_LEGACY_V) return undefined;
+        serialized = reconstructCanonicalLegacyTransaction({ chainId, nonce: tx.nonce, gas: tx.gas, gasPrice: tx.gasPrice, to: tx.to, value: tx.value, data: tx.input, r: tx.r, s: tx.s, v: tx.v, hash: tx.hash }); feeIdentity = { type: "legacy", chainId, gasPrice: tx.gasPrice, v: tx.v };
+      } else if (tx.type === "eip1559") {
+        if (tx.maxFeePerGas === undefined || tx.maxPriorityFeePerGas === undefined || (tx.yParity !== 0 && tx.yParity !== 1) || tx.accessList.length !== 0) return undefined;
+        serialized = reconstructCanonicalType2Transaction({ chainId, nonce: tx.nonce, gas: tx.gas, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas, to: tx.to, value: tx.value, data: tx.input, accessList: [], r: tx.r, s: tx.s, yParity: tx.yParity, hash: tx.hash }); feeIdentity = { type: "eip1559", chainId, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas };
+      } else return undefined;
       const recoveredSender = await recoverTransactionAddress({ serializedTransaction: serialized as never });
-      return { hash: tx.hash, recoveredSender, nonce: tx.nonce, to: tx.to, value: tx.value, inputHash: keccak256(tx.input), gas: tx.gas, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas, blockNumber: tx.blockNumber, blockHash: tx.blockHash };
+      return { hash: tx.hash, recoveredSender, nonce: tx.nonce, to: tx.to, value: tx.value, inputHash: keccak256(tx.input), gas: tx.gas, blockNumber: tx.blockNumber, blockHash: tx.blockHash, ...feeIdentity };
     } catch { return undefined; } },
     readReceipt: async hash => { try { const receipt = await client.getTransactionReceipt({ hash }); return { transactionHash: receipt.transactionHash, status: receipt.status, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash }; } catch { return undefined; } },
     readTransactionCount: async (address, at) => Number(await client.getTransactionCount(at === "latest" || at === "pending" ? { address, blockTag: at } : { address, blockNumber: at })),
@@ -175,15 +189,17 @@ export function createHashlessEvidenceProvider(client: ReturnType<typeof createP
 
 function requiredEnvironment(environment: Readonly<Record<string, string | undefined>>, key: string): string { const value = environment[key]; if (!value) throw new Error(`submit-one requires ${key}`); return value; }
 
-export function createHashlessContinuationProductionDependencies(repository: string, argv: readonly string[]): HashlessContinuationCliDependencies {
+type HashlessContinuationProductionSeams = Readonly<{ createStateReader?: typeof createOrdinaryScenarioStateReader }>;
+export function createHashlessContinuationProductionDependencies(repository: string, argv: readonly string[], seams: HashlessContinuationProductionSeams = {}): HashlessContinuationCliDependencies {
   const current = createPublicClient({ chain: sepolia, transport: http(PUBLIC_CURRENT_RPC) }); const archive = createPublicClient({ chain: sepolia, transport: http(PUBLIC_ARCHIVE_RPC) }); const harness = createOrdinaryScenarioProductionHarness(repository); const cli = parseHashlessContinuationCliArguments(argv);
   const observerReadiness = (inputs: HashlessContinuationPublicInputs, mode: "submit-one" | "resume-one") => async () => { if (mode === "submit-one") assertContinuationObserverFresh(inputs.continuation.observer, new Date()); return { ready: true, evidenceHash: inputs.continuation.observer.probeEvidenceHash }; };
   return {
     environment: process.env,
     providers: [createHashlessEvidenceProvider(current), createHashlessEvidenceProvider(archive)],
-    publicPreflight: async inputs => {
-      const view = createExpiredHashlessContinuationExecutionView(inputs.original, inputs.continuation); const reader = createOrdinaryScenarioStateReader({ repository, proposal: view, journal: () => inputs.journal, currentClient: current, archiveClient: archive, observerReadiness: async () => { assertContinuationObserverFresh(inputs.continuation.observer, new Date()); return { ready: true, evidenceHash: inputs.continuation.observer.probeEvidenceHash }; } });
-      await reader(view.proposal.actions[18]!, "pre-private");
+    publicPreflight: async (mode, inputs) => {
+      const view = createExpiredHashlessContinuationExecutionView(inputs.original, inputs.continuation, inputs.approval); const reader = (seams.createStateReader ?? createOrdinaryScenarioStateReader)({ repository, proposal: view, journal: () => inputs.journal, currentClient: current, archiveClient: archive, observerReadiness: async () => { assertContinuationObserverFresh(inputs.continuation.observer, new Date()); return { ready: true, evidenceHash: inputs.continuation.observer.probeEvidenceHash }; } });
+      const action = mode === "review" || inputs.journal.hashlessContinuation === undefined ? view.proposal.actions[18]! : inputs.approval ? selectExpiredHashlessContinuationSubmissionAction(inputs.original, inputs.continuation, inputs.approval, inputs.journal) : (() => { throw new Error("submission preflight requires exact continuation approval"); })();
+      await reader(action, "pre-private");
     },
     createExecutionContext: async (mode, inputs, journal) => {
       const view = createExpiredHashlessContinuationExecutionView(inputs.original, inputs.continuation, inputs.approval); const readiness = observerReadiness(inputs, mode);
@@ -199,7 +215,8 @@ export function createHashlessContinuationProductionDependencies(repository: str
   };
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const result = await runExpiredHashlessContinuationCli(argv, createHashlessContinuationProductionDependencies(repository, argv)); process.stdout.write(publicJson(result));
+export type HashlessContinuationMainOptions = Readonly<{ repository?: string; dependencies?: HashlessContinuationCliDependencies; writeStdout?(value: string): void }>;
+export async function main(argv = process.argv.slice(2), options: HashlessContinuationMainOptions = {}): Promise<void> {
+  const repository = options.repository ?? process.cwd().replace(/\/packages\/security-core$/, ""); const result = await runExpiredHashlessContinuationCli(argv, options.dependencies ?? createHashlessContinuationProductionDependencies(repository, argv)); (options.writeStdout ?? (value => { process.stdout.write(value); }))(publicJson(result));
 }
 if (require.main === module) void runHashlessContinuationEntryPoint(main());
