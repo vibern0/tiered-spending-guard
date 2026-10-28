@@ -287,6 +287,7 @@ function resolution(view: ProviderView, journal: OrdinaryScenarioJournal): Hashl
 }
 
 function assertSourceRow(journal: OrdinaryScenarioJournal): void {
+  if (journal.actions.length !== 19) throw new Error("hashless source top-level actions must contain exactly 19 original records");
   if (!same(hashHistoricalPrefix(journal), EXPECTED_PREFIX_HASH)) throw new Error("hashless source historical prefix mismatch");
   const row = journal.actions[18];
   if (!row || row.id !== "native-queue-ready-execute" || row.status !== "signed-simulated" || row.outerNonce !== 809 || row.gas !== "300000" || row.maxFeePerGas !== "28" || row.maxPriorityFeePerGas !== "2" || row.intentHash !== undefined || row.transactionHash !== undefined || row.receipt !== undefined || journal.liveJournal.entries.some(entry => entry.id === row.id)) throw new Error("hashless source row 19 is not the immutable stopped attempt");
@@ -312,7 +313,7 @@ export async function verifyHashlessStateCertificate(artifactText: string, expec
   const currentSnapshot = Object.freeze({ block: Object.freeze({ ...views[0].current }), controlledStateHash: currentStateHash, funderNonce: views[0].currentNonce, latestNonce: views[0].latestNonce, pendingNonce: views[0].pendingNonce, sharedFunderActivity });
   const body = { kind: "VERIFIED_HASHLESS_STATE_CERTIFICATE" as const, source: sourceProvenance, artifactSha256: expectedArtifactSha256, historicalPrefixHash: EXPECTED_PREFIX_HASH, materializationBlock: MATERIALIZATION_BLOCK, certificateBlock: CERTIFICATE_BLOCK, controlledStateHash, currentSnapshot, classification: "EXPIRED_UNEXECUTED" as const, nonce809 };
   const certificate = Object.freeze({ ...body, nonce809: Object.freeze(nonce809), certificateHash: publicHash(body) }) as VerifiedHashlessStateCertificate;
-  revalidateSourceJournal(journal);
+  revalidateSourceJournal(journal); assertSourceRow(journal);
   verifiedCertificates.add(certificate);
   return certificate;
 }

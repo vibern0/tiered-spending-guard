@@ -156,6 +156,15 @@ describe("ordinary scenario hashless certificate", function () {
     expect(hashHistoricalPrefix(journal)).to.equal(before);
   });
 
+  it("rejects a reloaded twentieth original action even with a continuation key", async function () {
+    const value = JSON.parse(journalFixture) as any;
+    value.actions.push({ ...value.actions[18], id: "top-level-lineage-violation" });
+    value.hashlessContinuation = { actions: [] };
+    const source = trackedSource(`${JSON.stringify(value)}\n`);
+
+    await expect(verify(source)).to.be.rejectedWith(/top-level actions|19/);
+  });
+
   it("classifies_nonce809", async function () {
     expect(isVerifiedHashlessStateCertificate(await verify(trackedSource()))).to.equal(true);
 
