@@ -114,5 +114,6 @@ describe("closed repair-to-freeze path against real local Safe/WebAuthn", () => 
       for (const index of [3, 4] as const) { expect((await submitRuntime.tailSubmitOne(tail) as any).status).to.equal("PENDING"); pending = JSON.parse(readFileSync(journalPath, "utf8")).repairContinuation.actions.find((value: any) => value.id === group.actions[index]!.id); await observerEvidence(pending.transactionHash, group.actions[index]!); expect((await publicRuntime.tailResumeOne(tail) as any).status).to.equal("CONFIRMED"); }
       expect((await submitRuntime.tailSubmitOne(tail) as any).status).to.equal("PENDING"); expect((await publicRuntime.tailResumeOne(tail) as any).status).to.equal("CONFIRMED"); expect((await publicRuntime.tailResumeOne(tail) as any).status).to.equal("COMPLETE"); expect(await safe.read.nonce()).to.equal(18n); expect(await delay.read.queueNonce()).to.equal(8n); expect(await delay.read.txNonce()).to.equal(8n); expect(await guard.read.frozen()).to.equal(true);
     } finally { rmSync(directory, { recursive: true, force: true }); }
-  }).timeout(120_000);
+  // Coverage instrumentation makes the serial gas estimates load-sensitive; keep normal runs at 120 seconds.
+  }).timeout(process.env.SOLIDITY_COVERAGE === "true" ? 180_000 : 120_000);
 });
