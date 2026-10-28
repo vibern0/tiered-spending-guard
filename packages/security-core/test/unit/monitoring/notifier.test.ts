@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { createHash } from "node:crypto";
 import { getAddress } from "viem";
-import { createWebhookNotifier, publicAlert, type ActivityAlert, type Notifier } from "../../../src/monitoring/notifier";
+import { createPinnedLookup, createWebhookNotifier, publicAlert, type ActivityAlert, type Notifier } from "../../../src/monitoring/notifier";
 
 const alert: ActivityAlert = {
   kind: "step-up-executed",
@@ -121,6 +121,20 @@ describe("non-authorizing notifiers", () => {
     await fetcher(new URL("https://example.invalid/hook"), { method: "POST", body: "{}" });
 
     expect(requestedAddress).to.equal("93.184.216.34");
+  });
+
+  it("returns the pinned address in the callback shape requested by Node", async () => {
+    const pinnedLookup = createPinnedLookup("93.184.216.34", 4);
+    const invoke = (options: { all?: boolean }) => new Promise<{ address: unknown; family: unknown }>((resolve, reject) => {
+      pinnedLookup("example.invalid", options, (error, address, family) => {
+        if (error) reject(error);
+        else resolve({ address, family });
+      });
+    });
+
+    expect(await invoke({ all: true })).to.deep.equal({ address: [{ address: "93.184.216.34", family: 4 }], family: undefined });
+    expect(await invoke({ all: false })).to.deep.equal({ address: "93.184.216.34", family: 4 });
+    expect(await invoke({})).to.deep.equal({ address: "93.184.216.34", family: 4 });
   });
 
   it("validates DNS without connecting at readiness and re-resolves for pinned delivery", async () => {

@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest, type RequestOptions } from "node:https";
-import { BlockList, isIP } from "node:net";
+import { BlockList, isIP, type LookupFunction } from "node:net";
 import { createHash } from "node:crypto";
 import { isAddress, type Address, type Hex } from "viem";
 export type ActivityKind="step-up-executed"|"delayed-queued"|"delayed-cancelled"|"delayed-executed"|"delayed-expired";
@@ -41,8 +41,12 @@ type WebhookResponse=Readonly<{ok:boolean;status:number}>;
 type WebhookResolver=(hostname:string)=>Promise<readonly ResolvedAddress[]>;
 type WebhookSender=(url:URL,options:Readonly<{lookupAddress:string;family:number;servername:string;method:string;headers:Record<string,string>;body:string}>)=>Promise<WebhookResponse>;
 const resolveWebhookHost:WebhookResolver=hostname=>lookup(hostname,{all:true,verbatim:true});
+export const createPinnedLookup=(address:string,family:number):LookupFunction=>(_hostname,options,callback)=>{
+  if(options.all)callback(null,[{address,family}]);
+  else callback(null,address,family);
+};
 const sendWebhookRequest:WebhookSender=(url,options)=>new Promise((resolve,reject)=>{
-  const requestOptions:RequestOptions={protocol:"https:",hostname:url.hostname,port:url.port||443,path:`${url.pathname}${url.search}`,method:options.method,headers:options.headers,servername:options.servername,lookup:(_hostname,_lookupOptions,callback)=>callback(null,options.lookupAddress,options.family)};
+  const requestOptions:RequestOptions={protocol:"https:",hostname:url.hostname,port:url.port||443,path:`${url.pathname}${url.search}`,method:options.method,headers:options.headers,servername:options.servername,lookup:createPinnedLookup(options.lookupAddress,options.family)};
   const request=httpsRequest(requestOptions,response=>{response.resume();const status=response.statusCode??0;resolve({ok:status>=200&&status<300,status});});
   request.setTimeout(10_000,()=>request.destroy(new Error("webhook request timed out")));
   request.once("error",reject);
