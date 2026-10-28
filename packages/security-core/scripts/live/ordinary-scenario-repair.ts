@@ -194,11 +194,21 @@ export function verifyRepairPredecessor(
   const progressed = attached.actions as readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[];
   for (let index = 0; index < 22; index++) { const action = lineage.continuation.actions[index]!; const record = progressed[index]!; const expected = action.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed"; if (record.id !== action.id || !same(record.commitment, action.commitment) || attached.actionCommitments[index]?.id !== action.id || !same(attached.actionCommitments[index]!.commitment, action.commitment) || record.status !== expected || !record.evidenceHash || (expected === "confirmed" && (!record.transactionHash || !record.receipt))) throw new Error("repair continuation terminal catalog is incomplete or changed"); }
   assertEvidence(progressed, evidence, 19);
-  const expectedLiveIds = [...journal.actions.slice(0, 18).filter(record => record.status === "confirmed").map(record => record.id), ...lineage.continuation.actions.filter(action => action.expectedOutcome === "success").map(action => action.id)];
-  assertProjectedLivePrefix(expectedLiveIds);
-  const historicalGas = journal.actions.reduce((sum, record) => sum + BigInt(record.ourReceiptGasCost ?? "0"), 0n);
+  const historicalRecords = journal.actions.slice(0, 18).filter((record): record is import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord => record.status === "confirmed");
+  const continuationRecords = progressed.filter(record => record.status === "confirmed");
+  const expectedLiveIds = [...historicalRecords.map(record => record.id), ...continuationRecords.map(record => record.id)];
+  const predecessorLiveEntries = assertProjectedLivePrefix(expectedLiveIds);
+  const actualGas = (records: readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[], offset: number): bigint => records.reduce((sum, record, index) => {
+    if (!record.receipt || record.ourReceiptGasCost === undefined) throw new Error("repair continuation receipt gas accounting is incomplete");
+    const receiptGasUsed = BigInt(record.receipt.gasUsed), receiptEffectiveGasPrice = BigInt(record.receipt.effectiveGasPrice); const receiptCost = receiptGasUsed * receiptEffectiveGasPrice;
+    if (BigInt(record.ourReceiptGasCost) !== receiptCost) throw new Error("repair continuation stored receipt gas accounting mismatch");
+    const live = predecessorLiveEntries[offset + index]; const outerValue = BigInt(record.outerValue ?? "0");
+    if (!live || live.id !== record.id || !live.receipt || live.transactionHash !== record.transactionHash || live.receipt.transactionHash !== record.receipt.transactionHash || BigInt(live.receipt.gasUsed) !== receiptGasUsed || BigInt(live.receipt.effectiveGasPrice) !== receiptEffectiveGasPrice || BigInt(live.receipt.blockNumber) !== BigInt(record.receipt.blockNumber) || !same(live.receipt.blockHash, record.receipt.blockHash) || BigInt(live.reserved) !== receiptCost + outerValue) throw new Error("repair continuation live receipt gas accounting mismatch");
+    return sum + receiptCost;
+  }, 0n);
+  const historicalGas = actualGas(historicalRecords, 0);
   if (BigInt(lineage.continuation.reservation.originalActualGasCostWei) !== BigInt(proposal.baselineActualCostWei) + historicalGas || BigInt(lineage.continuation.reservation.originalPrincipalWei) !== 60_000_000_000_001n) throw new Error("repair continuation original accounting lineage changed");
-  const continuationGas = progressed.reduce((sum, record) => sum + BigInt(record.ourReceiptGasCost ?? "0"), 0n);
+  const continuationGas = actualGas(continuationRecords, historicalRecords.length);
   const replacementPrincipal = progressed.reduce((sum, record) => sum + BigInt(record.ourPrincipalDelta ?? "0"), 0n);
   if (replacementPrincipal !== 1n) throw new Error("repair continuation replacement principal accounting mismatch");
   const cumulative = BigInt(lineage.continuation.reservation.originalActualGasCostWei) + 60_000_000_000_001n + continuationGas + replacementPrincipal;

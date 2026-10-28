@@ -107,3 +107,83 @@ Result: no matching production diagnostics. The repository-wide TypeScript comma
 - The existing large single-file repair/executor modules remain structurally dense; this task kept changes within their established boundaries and did not refactor unrelated code.
 - The new production route is wired and tested through the shared loader seam without network access. No live command or provider was invoked.
 - The parent retains ownership of plan checkboxes and the task ledger.
+
+## Fix round 1 — independent review findings
+
+Status: complete. All three Important findings were reproduced and fixed without private material, live RPC, signing, simulation, broadcast, new contracts, dependencies, EOAs, or runtime chain/profile overrides.
+
+### Receipt-derived accounting
+
+- Every confirmed historical and continuation predecessor now recomputes `receipt.gasUsed * receipt.effectiveGasPrice`. The result must equal its stored `ourReceiptGasCost` and the matching live entry reservation after adding only that record's `outerValue` principal.
+- Canonical archive validation now compares `gasUsed` and `effectiveGasPrice` as well as success, block number, and block hash. Mutating both persisted gas fields/accounting cannot replace the RPC receipt.
+- The calculation retains original actual gas, gross original principal `60000000000001`, every continuation receipt cost, replacement principal `1`, and the phase `50000000000000000` ceiling. It does not use unrelated funder traffic as an offset or reset the prior phase.
+
+### Historical acknowledgement recovery
+
+- Fresh creation review/submission, proof preparation, and tail submission still require the complete current observer lifetime through `assertContinuationObserverFresh`.
+- `tail-resume-one` alone loads the already-approved opaque lineage in historical mode. It still requires one exact durable pending hash, canonical receipt/effect/state checks, the sender ledger delivery, and the official receiver acknowledgement recorded and retrieved before the exact continuation observer expiry.
+- The production adapter hides its current readiness callback only for historical pending reconciliation state reads. The same adapter in fresh mode still calls readiness. The command regression runs after expiry, reaches the actual `tailResumeOne` body, reconciles the known hash, and proves no signer or broadcaster is invoked.
+
+### Exact persisted catalog
+
+- Repair/hashless coexistence decoding now requires the exact ordered 24-entry predecessor prefix: 10 historical successful entries followed by 14 successful continuation entries. Every ID, transaction hash, and receipt must match its source record.
+- Extra, duplicate, reordered, pending, and reverted predecessor entries fail through actual disk-backed store construction. Later entries are allowed only for unique recognized repair IDs, preserving append-only repair growth without changing the fixed predecessor prefix.
+
+### Mechanical route coverage and integration boundary
+
+The recovered route's public-fixture test now selects the `15/7/7` lineage, checks the full shifted action spine, materializes the primary-first Safe call at Safe nonce `15`, independently recomputes its Safe typed-data digest, and checks observer queue nonces `7` and `8` plus cancellation through `9`. Codec, archive receipt, accounting, and command recovery tests exercise the recovered lineage itself.
+
+The fixed Sepolia opaque epoch cannot honestly execute against fresh `31337` addresses. The real local Safe/WebAuthn/Delay integration remains evidence for the shared cryptographic and mechanical adapter behavior; it does not claim to execute the new fixed-Sepolia `15/7/7` lineage. An actual Sepolia execution remains subject to the Task 0 gate.
+
+### Round 1 TDD evidence
+
+Accounting/catalog RED:
+
+```text
+npx hardhat test test/unit/security/ordinary-scenario-repair.test.ts
+```
+
+Observed result before the fixes: `22 passing, 2 failing`. The understated `ourReceiptGasCost` mutation did not throw, and the non-canonical combined live catalog reached disk reload without the required exact-prefix rejection.
+
+Expired-observer command RED after the fixture persisted its initial journal correctly:
+
+```text
+npx hardhat test test/unit/security/ordinary-scenario-repair.test.ts --grep "keylessly resumes"
+```
+
+Observed result: `0 passing, 1 failing`, with `receiver acknowledgement was not captured timely before expiry` because the shared acknowledgement validator still required the earlier fixed epoch.
+
+Focused GREEN:
+
+```text
+npx hardhat test test/unit/security/ordinary-scenario-repair.test.ts
+```
+
+Result: `26 passing (235ms)` in the final focused run. This includes receipt-product/accounting mutation, canonical archive gas mismatch, actual-disk 24-entry mutations, production hidden-readiness selection, expired keyless command recovery, Safe nonce-15 digest, queue `7/8`, and cancellation `9`.
+
+Final affected GREEN:
+
+```text
+npx hardhat test \
+  test/unit/security/ordinary-scenario-repair.test.ts \
+  test/integration/ordinary-scenario-repair.test.ts \
+  test/unit/security/ordinary-scenario-executor.test.ts \
+  test/unit/security/ordinary-scenario-executor-cli.test.ts \
+  test/unit/security/ordinary-scenario-hashless-certificate.test.ts \
+  test/unit/security/ordinary-scenario-hashless-continuation.test.ts \
+  test/unit/security/ordinary-scenario-hashless-executor.test.ts \
+  test/unit/security/ordinary-scenario-hashless-continuation-cli.test.ts \
+  test/integration/ordinary-scenario-hashless-adapter.test.ts \
+  test/unit/security/ordinary-scenario-adapter.test.ts \
+  test/integration/ordinary-scenario-adapter.test.ts
+```
+
+Result: `122 passing (10s)`.
+
+Filtered TypeScript check:
+
+```text
+npx tsc --noEmit 2>&1 | rg 'scripts/live/ordinary-scenario-(repair|executor|adapter)|ordinary-scenario-(repair|adapter).*test' || true
+```
+
+Result: no matching diagnostics. `git diff --check` passes.

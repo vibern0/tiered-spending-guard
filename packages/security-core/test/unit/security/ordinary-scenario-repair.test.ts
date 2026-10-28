@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, keccak256, toFunctionSelector, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, hashTypedData, keccak256, toFunctionSelector, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createOrdinaryScenarioProposal, createOrdinaryScenarioStore, PRODUCTION_ORDINARY_SCENARIO_DOMAIN, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
 import {
@@ -31,9 +31,11 @@ import {
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
 import { createRepairCommandRuntime, repairObserverExpectedEffect, runOrdinaryScenarioRepairEntryPoint, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
-import { createRepairMechanicalAdapter, validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
+import { createRepairMechanicalAdapter, createRepairProductionAdapter, materializeRepairPrimaryFirstSafeCall, validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 import { encodeSafeContractSignature } from "../../../src/signers/passkey-helpers";
 import { hashlessContinuationFixture } from "../../support/hashless-continuation-fixture";
+import { ActivityLedger, FileActivityStore } from "../../../src/monitoring/ledger";
+import type { ActivityAlert } from "../../../src/monitoring/notifier";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
 const hash = (suffix: string) => `0x${suffix.padStart(64, "0")}` as Hex;
@@ -93,10 +95,10 @@ async function closedHashlessPredecessor() {
       id: action.id,
       commitment: action.commitment,
       status: confirmed ? "confirmed" as const : "rejection-proved" as const,
-      evidenceHash: fixture.h((40 + index).toString(16).padStart(2, "0")),
+      evidenceHash: hash((40 + index).toString(16)),
       ...(confirmed ? {
-        transactionHash: fixture.h((80 + index).toString(16).padStart(2, "0")),
-        receipt: { transactionHash: fixture.h((80 + index).toString(16).padStart(2, "0")), status: "success" as const, gasUsed: 10n, effectiveGasPrice: 10n, blockNumber: 12_014_000n + BigInt(index), blockHash: fixture.h((120 + index).toString(16).padStart(2, "0")) },
+        transactionHash: hash((80 + index).toString(16)),
+        receipt: { transactionHash: hash((80 + index).toString(16)), status: "success" as const, gasUsed: 10n, effectiveGasPrice: 10n, blockNumber: 12_014_000n + BigInt(index), blockHash: hash((120 + index).toString(16)) },
         ourReceiptGasCost: "100",
         ourPrincipalDelta: action.id === "native-queue-ready-replacement-execute" ? "1" : "0",
       } : {}),
@@ -104,7 +106,7 @@ async function closedHashlessPredecessor() {
   });
   continuation.actions.splice(0, continuation.actions.length, ...records);
   journal.liveJournal.entries.push(...records.filter(record => record.status === "confirmed").map((record, index) => ({
-    id: record.id, intentHash: fixture.h((160 + index).toString(16).padStart(2, "0")), transactionHash: record.transactionHash!, nonce: 810 + index, reserved: 100n, status: "success" as const, receipt: record.receipt!,
+    id: record.id, intentHash: hash((160 + index).toString(16)), transactionHash: record.transactionHash!, nonce: 810 + index, reserved: 100n, status: "success" as const, receipt: record.receipt!,
   })));
   const evidence = [
     ...journal.actions.map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash ?? rawHash(JSON.stringify(fixture.proposal.source.stoppedRow)), transactionHash: record.transactionHash })),
@@ -132,6 +134,11 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     expect(() => verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence.slice(1), lineage)).to.throw(/evidence/i);
     const mutated = structuredClone(recovered.journal); (mutated.hashlessContinuation as any).certificateHash = hash("bad");
     expect(() => verifyRepairPredecessor(recovered.original, mutated, recovered.evidence, lineage)).to.throw(/lineage|header|canonical/i);
+    const understated = structuredClone(recovered.journal); const understatedAction = understated.hashlessContinuation!.actions.find(action => action.status === "confirmed") as any; understatedAction.ourReceiptGasCost = "1";
+    expect(() => verifyRepairPredecessor(recovered.original, understated, recovered.evidence, lineage)).to.throw(/receipt gas|accounting/i);
+    const confirmed = [...recovered.journal.actions, ...recovered.journal.hashlessContinuation!.actions].filter((action): action is any => action.status === "confirmed"); const changedHash = confirmed[0]!.transactionHash;
+    const adapter = createRepairMechanicalAdapter({ domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, creation: { safe, guard, delay, funder, candidate, factory, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), preRotationBlockNumber: "1", preRotationBlockHash: hash("1") }, primary, current: {} as never, archive: { getTransactionReceipt: async ({ hash: transactionHash }: { hash: Hex }) => { const record = confirmed.find(action => action.transactionHash === transactionHash)!; return { ...record.receipt, gasUsed: transactionHash === changedHash ? BigInt(record.receipt.gasUsed) - 1n : BigInt(record.receipt.gasUsed), effectiveGasPrice: BigInt(record.receipt.effectiveGasPrice), blockNumber: BigInt(record.receipt.blockNumber) }; } } as never, readStateAtBlock: async () => { throw new Error("unexpected state read"); }, loadPasskey: async () => { throw new Error("unexpected signer"); } });
+    await expect(adapter.validateTerminalPrefix(recovered.journal)).to.be.rejectedWith(/canonical receipt|gas/i);
     expect(() => verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence)).to.throw(/lineage|38-action/i);
     expect(() => verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence, { ...lineage, approval: { approvalHash: recovered.approval.approvalHash } as any })).to.throw(/opaque|authorization/i);
   });
@@ -152,6 +159,29 @@ describe("closed ordinary repair-to-freeze continuation", () => {
       ["repair-queue", "15", "16", "7", "8", "7", "7"], ["repair-ready-execute", "16", "16", "8", "8", "7", "8"], ["post-rotation-old-secondary-rejection", "16", "16", "8", "8", "8", "8"], ["post-rotation-new-secondary-queue", "16", "17", "8", "9", "8", "8"], ["post-rotation-proof-cancel", "17", "18", "9", "9", "8", "9"], ["final-freeze", "18", "19", "9", "9", "9", "9"],
     ]);
     expect(prepared.proposal.repairQueueTiming.queueNonce).to.equal("7");
+    const signer = (signerAddress: Address, role: "primary" | "secondary") => ({ address: signerAddress, kind: "safe-contract" as const, role, sign: async () => encodeSafeContractSignature(signerAddress, "0x12") });
+    const signed = await materializeRepairPrimaryFirstSafeCall({ chainId: prepared.proposal.chainId, safe: prepared.proposal.safe, to: prepared.proposal.delay, data: prepared.transient.safeTransactionData, nonce: 15n, safeTxHash: prepared.proposal.actions[0]!.safeTxHash!, primary: signer(primary, "primary"), secondary: signer(oldSecondary, "secondary") });
+    const decoded = decodeFunctionData({ abi: safeExecAbi, data: signed }); const args = decoded.args as readonly [Address, bigint, Hex, number, bigint, bigint, bigint, Address, Address, Hex]; expect(args[2]).to.equal(prepared.transient.safeTransactionData); expect(hashTypedData({ domain: { chainId: prepared.proposal.chainId, verifyingContract: prepared.proposal.safe }, types: { SafeTx: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" }, { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "nonce", type: "uint256" }] }, primaryType: "SafeTx", message: { to: args[0], value: args[1], data: args[2], operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: args[7], refundReceiver: args[8], nonce: 15n } })).to.equal(prepared.proposal.actions[0]!.safeTxHash);
+    expect(repairObserverExpectedEffect(prepared.proposal, prepared.proposal.actions[0]!, 1n).queueNonce).to.equal(7n); expect(repairObserverExpectedEffect(prepared.proposal, prepared.proposal.actions[3]!, 1n).queueNonce).to.equal(8n); expect(repairObserverExpectedEffect(prepared.proposal, prepared.proposal.actions[4]!, 1n).cancelledThrough).to.equal(9n);
+  });
+
+  it("rejects noncanonical combined live catalogs through an actual disk reload", async () => {
+    const recovered = await closedHashlessPredecessor(); const lineage = { kind: "expired-hashless-continuation-v1" as const, continuation: recovered.proposal, approval: recovered.approval };
+    const before = state({ safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, candidateRuntimeCodeHash: hash("0"), candidateBindingHash: hash("0"), nativeWindow: 1793145600n, usdcWindow: 0n, nativeBaseSpent: 10000000000000n, nativeInstantSpent: 30000000000000n, usdcBaseSpent: 10000000n, usdcInstantSpent: 30000000n, nativeBalance: 0n, usdcBalance: 1000000n });
+    const creation = createRepairCreationProposal({ proposal: recovered.original, journal: recovered.journal, evidence: recovered.evidence, lineage, state: before, quote }); extendJournalForRepair(recovered.journal, creation);
+    const identity = { proposalHash: recovered.original.proposalHash, approvalHash: recovered.journal.approvalHash, funder: recovered.original.funder }; const directory = mkdtempSync(join(tmpdir(), "repair-codec-lineage-"));
+    const reload = (name: string, journal: OrdinaryScenarioJournal) => { const store = createOrdinaryScenarioStore(join(directory, `${name}.json`), identity, () => journal); store.close?.(); };
+    try {
+      reload("canonical", structuredClone(recovered.journal));
+      const mutations: Array<[string, (journal: OrdinaryScenarioJournal) => void]> = [
+        ["extra", journal => { const source = structuredClone(journal.liveJournal.entries[10]!); source.id = "unknown-success"; journal.liveJournal.entries.splice(24, 0, source); }],
+        ["duplicate", journal => { journal.liveJournal.entries[11]!.id = journal.liveJournal.entries[10]!.id; }],
+        ["reordered", journal => { [journal.liveJournal.entries[10], journal.liveJournal.entries[11]] = [journal.liveJournal.entries[11]!, journal.liveJournal.entries[10]!]; }],
+        ["pending", journal => { (journal.liveJournal.entries[10] as any).status = "pending"; delete (journal.liveJournal.entries[10] as any).receipt; }],
+        ["reverted", journal => { (journal.liveJournal.entries[10] as any).status = "reverted"; (journal.liveJournal.entries[10]!.receipt as any).status = "reverted"; }],
+      ];
+      for (const [name, mutate] of mutations) { const journal = structuredClone(recovered.journal); mutate(journal); expect(() => reload(name, journal), name).to.throw(/lineage|catalog|prefix|coexistence/i); }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
   it("does not inspect thrown strings or hostile objects at the repair entrypoint", async () => {
     const stringMarker = "SIGNED_SAFE_CALLDATA_MARKER_repair";
@@ -175,6 +205,12 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const reportPath = join(process.cwd(), "test/fixtures/ordinary-scenario-review.public.json"); const raw = readFileSync(reportPath, "utf8"); const expected = { expectedPackageHash: "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571" as Hex, expectedArtifactBytesHash: "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831" as Hex };
     expect(createOrdinaryScenarioProposal(raw, expected).proposalHash).to.equal("0x22770c7944ee289543c10090b3483bdcd87f0d2c193887df4f32916c5782e45f");
     expect(() => createOrdinaryScenarioProposal(raw.replace('"11155111"', '"31337"'), { ...expected, expectedArtifactBytesHash: rawHash(raw.replace('"11155111"', '"31337"')) }, { chainId: 31337 })).to.throw("domain is not canonically verified");
+  });
+  it("hides current observer readiness only from historical pending reconciliation state reads", async () => {
+    let readinessCalls = 0; const canonicalBlock = { number: 1n, hash: hash("701"), timestamp: 1n }; const creation = { safe, guard, delay, funder, candidate, factory, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), preRotationBlockNumber: "1", preRotationBlockHash: hash("702") };
+    const current = { getBlock: async () => canonicalBlock, readContract: async () => 0n, getBalance: async () => 0n, getCode: async () => "0x" }; const harness: any = { current, archive: { getBlock: async () => canonicalBlock }, observerReadiness: async () => { readinessCalls += 1; return { ready: false }; }, loadClosedPasskey: async () => { throw new Error("unexpected signer"); } }; const reconstructed: any = { config: { erc20: address("777"), primaryPasskey: primary } };
+    const historical = createRepairProductionAdapter({ repository: process.cwd(), harness, reconstructed, creation, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, observerMode: "historical" }); await expect(historical.readState("post-rotation", hash("703"))).to.be.rejectedWith(/immutable pre-rotation block changed/); expect(readinessCalls).to.equal(0);
+    const fresh = createRepairProductionAdapter({ repository: process.cwd(), harness, reconstructed, creation, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, observerMode: "current" }); await expect(fresh.readState("post-rotation", hash("703"))).to.be.rejectedWith(/immutable pre-rotation block changed/); expect(readinessCalls).to.equal(1);
   });
   it("dispatches each of the five runnable main branches exactly once", async () => {
     const seen: string[] = [];
@@ -259,6 +295,27 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     await expect(runtime.creationReview(arguments_)).to.be.rejectedWith("shared loader reached");
     expect(loaded).to.deep.equal(["submit-one", "--source-journal", "journal.json", "--original-report", "report.json", "--original-package-hash", hash("2"), "--original-artifact-hash", hash("1"), "--original-proposal-hash", hash("3"), "--certificate", "certificate.json", "--certificate-hash", hash("5"), "--proposal", "continuation.json", "--approval", "approval.json", "--approval-hash", hash("6"), "--journal", "journal.json"]);
     await expect(runtime.creationReview(arguments_.slice(0, -2))).to.be.rejectedWith("complete shared public loader inputs");
+  });
+
+  it("keylessly resumes one known recovered-lineage hash after observer expiry using its timely acknowledgement", async () => {
+    const recovered = await closedHashlessPredecessor(); const lineage = { kind: "expired-hashless-continuation-v1" as const, continuation: recovered.proposal, approval: recovered.approval };
+    const before = state({ safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, candidateRuntimeCodeHash: hash("0"), candidateBindingHash: hash("0"), nativeWindow: 1793145600n, usdcWindow: 0n, nativeBaseSpent: 10000000000000n, nativeInstantSpent: 30000000000000n, usdcBaseSpent: 10000000n, usdcInstantSpent: 30000000n, nativeBalance: 0n, usdcBalance: 1000000n });
+    const creation = createRepairCreationProposal({ proposal: recovered.original, journal: recovered.journal, evidence: recovered.evidence, lineage, state: before, quote }); approveCreation(recovered.journal, creation);
+    const group = createRepairGroupProposal({ creation, journal: recovered.journal, state: state({ ...before, candidateRuntimeCodeHash: hash("702"), candidateBindingHash: REPAIR_BINDING_HASH }), assertion: "0x123456", lineage }).proposal; const cancel = group.actions[4]!; const pendingHash = hash("f01");
+    const continuation = recovered.journal.repairContinuation!; continuation.groupProposalHash = group.proposalHash; continuation.groupApprovalHash = hash("f02"); continuation.actions.push(...group.actions.map((action, index) => ({ id: action.id, commitment: action.commitment, status: index === 2 ? "rejection-proved" as const : index < 4 ? "confirmed" as const : index === 4 ? "pending" as const : "approved" as const, ...(index < 4 ? { evidenceHash: hash((0xf10 + index).toString(16)) } : {}), ...(index === 4 ? { transactionHash: pendingHash } : {}) })));
+    recovered.journal.liveJournal.entries.push({ id: cancel.id, intentHash: hash("f03"), transactionHash: pendingHash, nonce: 901, reserved: 2_000_000_000_000n, status: "pending" });
+    const directory = mkdtempSync(join(tmpdir(), "repair-expired-resume-")); const journalPath = join(directory, "journal.json"), creationPath = join(directory, "creation.json"), groupPath = join(directory, "group.json"), ledgerPath = join(directory, "ledger.json"), acknowledgementPath = join(directory, "ack.json");
+    try {
+      const store = createOrdinaryScenarioStore(journalPath, { proposalHash: recovered.original.proposalHash, approvalHash: recovered.journal.approvalHash, funder: recovered.original.funder }, () => recovered.journal); store.save(recovered.journal); store.close?.(); writeFileSync(creationPath, JSON.stringify(creation)); writeFileSync(groupPath, JSON.stringify(group));
+      const blockNumber = 12_020_000n, blockHash = hash("f04"); const expected = repairObserverExpectedEffect(group, cancel, blockNumber); if (expected.kind !== "delayed-cancelled" || expected.cancelledThrough === undefined) throw new Error("expected cancellation observer effect"); const alert: ActivityAlert = { chainId: 11155111, safe: group.safe, transactionHash: pendingHash, blockNumber, logIndex: 0, kind: expected.kind, delay: expected.delay, cancelledThrough: expected.cancelledThrough }; const key = { chainId: 11155111, transactionHash: pendingHash, blockHash, logIndex: 0 }; const activityStore = new FileActivityStore(ledgerPath); const ledger = new ActivityLedger(activityStore); ledger.accept(key, alert); const payloadSha256 = ledger.payloadHash(alert); ledger.markDelivered(key, { channel: "webhook", httpStatus: 200, payloadHash: payloadSha256, deliveredAt: "2026-10-28T17:00:00Z" }); activityStore.close();
+      writeFileSync(acknowledgementPath, JSON.stringify({ schemaVersion: 1, endpointHash: recovered.proposal.observer.endpointHash, transactionHash: pendingHash, payloadSha256, receiverRequestId: "repair-expired-resume", receiverRecordedAt: "2026-10-28T17:00:00Z", retrievedAt: "2026-10-28T17:01:00Z", retrievalProvenance: "official-receiver-api", expiresAt: new Date(Number(BigInt(recovered.proposal.observer.expiresAt)) * 1000).toISOString() }));
+      let observerMode: string | undefined, recoveredHash: Hex | undefined, signed = false, broadcast = false; const receipt = { transactionHash: pendingHash, status: "success" as const, gasUsed: 100n, effectiveGasPrice: 1n, blockNumber, blockHash };
+      const after = state({ ...before, blockNumber, blockHash, safeNonce: 18n, delayQueueNonce: 9n, delayTxNonce: 9n, safeContractSecondary: candidate, candidateRuntimeCodeHash: hash("702"), candidateBindingHash: REPAIR_BINDING_HASH, policyHash: group.afterPolicyHash, frozen: false });
+      const harness: any = { current: { getTransactionReceipt: async () => ({ logs: [] }) }, reconstructedProfile: async () => ({}), createLiveContext: async (_mode: string, _funder: Address, persist: (journal: any) => Promise<void>) => ({ funder, chainId: async () => 11155111, nonce: async () => 901, balance: async () => 1n, verify: async () => {}, sign: async () => { signed = true; throw new Error("must not sign"); }, broadcast: async () => { broadcast = true; throw new Error("must not broadcast"); }, receipt: async () => undefined, persist }) };
+      const createAdapter: any = (input: any) => { observerMode = input.observerMode; return { validateTerminalPrefix: async () => recovered.evidence, recoverPendingIntent: async (_group: any, _action: any, transactionHash: Hex) => { recoveredHash = transactionHash; return { id: cancel.id, to: group.safe, data: "0x12", value: 0n, nonce: 901, gas: 2_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n }; }, validateReceiptEffect: () => true, readStateAt: async () => after, proveFrozenRejections: async () => true }; }; const runtime = createRepairCommandRuntime({ environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN, repository: () => directory, createHarness: () => harness, createAdapter, loadCreationQuote: () => quote, now: () => new Date((Number(BigInt(recovered.proposal.observer.expiresAt)) + 100) * 1000), awaitApprovalHandoff: async () => { throw new Error("unexpected approval"); }, loadHashlessLineage: async () => ({ original: recovered.original, journal: recovered.journal, certificate: {} as any, continuation: recovered.proposal, approval: recovered.approval }), submit: async (_intent, liveJournal, live) => { const updated = structuredClone(liveJournal); const entry = updated.entries.find(item => item.id === cancel.id)!; entry.status = "success"; entry.receipt = receipt; await live.persist(updated); return entry; } });
+      const common = ["--creation", creationPath, "--creation-hash", creation.proposalHash, "--report", "unused-report.json", "--artifact-hash", recovered.original.reviewArtifactBytesHash, "--package-hash", recovered.original.reviewPackageHash, "--proposal-hash", recovered.original.proposalHash, "--original-approval-hash", recovered.journal.approvalHash, "--journal", journalPath, "--group", groupPath, "--group-hash", group.proposalHash, "--observer-ledger", ledgerPath, "--receiver-ack", acknowledgementPath, "--continuation-certificate", "certificate.json", "--continuation-certificate-hash", recovered.proposal.certificateHash, "--continuation-proposal", "continuation.json", "--continuation-approval", "approval.json", "--continuation-approval-hash", recovered.approval.approvalHash];
+      expect(await runtime.tailResumeOne(common)).to.deep.equal({ status: "CONFIRMED", actionId: cancel.id }); expect(observerMode).to.equal("historical"); expect(recoveredHash).to.equal(pendingHash); expect(signed).to.equal(false); expect(broadcast).to.equal(false);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("builds only the exact seven-action map and keeps assertion and nested calldata out of public JSON", () => {

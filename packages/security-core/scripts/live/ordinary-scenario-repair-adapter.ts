@@ -153,7 +153,7 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
         if (record.status === "confirmed") {
           if (!record.transactionHash || !record.receipt) throw new Error("repair confirmed prefix receipt is missing");
           const receipt = await input.archive.getTransactionReceipt({ hash: record.transactionHash });
-          if (receipt.status !== "success" || receipt.blockNumber !== record.receipt.blockNumber || receipt.blockHash.toLowerCase() !== record.receipt.blockHash.toLowerCase()) throw new Error("repair terminal prefix canonical receipt changed");
+          if (receipt.status !== "success" || BigInt(receipt.blockNumber) !== BigInt(record.receipt.blockNumber) || receipt.blockHash.toLowerCase() !== record.receipt.blockHash.toLowerCase() || BigInt(receipt.gasUsed) !== BigInt(record.receipt.gasUsed) || BigInt(receipt.effectiveGasPrice) !== BigInt(record.receipt.effectiveGasPrice)) throw new Error("repair terminal prefix canonical receipt changed");
         }
         evidence.push(Object.freeze({ actionId: record.id, evidenceHash: recordEvidenceHash, transactionHash: record.transactionHash }));
       };
@@ -229,7 +229,7 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
 }
 
 /** Fixed-Sepolia repair mechanics. Proposal/approval/order ownership stays in the repair modules. */
-export function createRepairProductionAdapter(input: Readonly<{ repository: string; harness: OrdinaryScenarioProductionHarness; reconstructed: Reconstructed; creation: RepairAdapterDescriptor; domain?: import("./ordinary-scenario-repair").RepairExecutionDomain }>): RepairProductionAdapter {
+export function createRepairProductionAdapter(input: Readonly<{ repository: string; harness: OrdinaryScenarioProductionHarness; reconstructed: Reconstructed; creation: RepairAdapterDescriptor; domain?: import("./ordinary-scenario-repair").RepairExecutionDomain; observerMode?: "current" | "historical" }>): RepairProductionAdapter {
   const { harness, reconstructed, creation } = input;
   const domain = input.domain ?? PRODUCTION_REPAIR_EXECUTION_DOMAIN;
   if (domain !== PRODUCTION_REPAIR_EXECUTION_DOMAIN) throw new Error("repair production adapter requires the fixed Sepolia domain");
@@ -251,6 +251,7 @@ export function createRepairProductionAdapter(input: Readonly<{ repository: stri
     if (!report.ok) throw new Error(`repair current topology failed: ${report.failures.join(", ")}`);
     return publicHash({ immutableBlock: immutablePreRotationBlock, immutableTopology: base.topology, currentBlock: blockNumber, phase, checked: report.checked });
   };
-  const readStateAtBlock = createRepairMechanicalStateReader({ chainId: sepolia.id, current: harness.current, creation, usdc: reconstructed.config.erc20, candidateBindingHash: REPAIR_BINDING_HASH, observerReadiness: harness.observerReadiness, verifyCanonicalProfile: verifyCurrent });
+  const observerReadiness = input.observerMode === "historical" ? async (_observerEvidenceHash: Hex) => ({ ready: true }) : harness.observerReadiness;
+  const readStateAtBlock = createRepairMechanicalStateReader({ chainId: sepolia.id, current: harness.current, creation, usdc: reconstructed.config.erc20, candidateBindingHash: REPAIR_BINDING_HASH, observerReadiness, verifyCanonicalProfile: verifyCurrent });
   return createRepairMechanicalAdapter({ domain, creation, primary: reconstructed.config.primaryPasskey, current: harness.current, archive: harness.archive, readStateAtBlock, loadPasskey: (role, expected) => harness.loadClosedPasskey(role, expected) });
 }
