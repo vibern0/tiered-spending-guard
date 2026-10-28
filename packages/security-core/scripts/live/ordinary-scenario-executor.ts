@@ -299,8 +299,9 @@ export type OrdinaryScenarioJournal = {
   hashlessContinuation?: HashlessContinuationStorage;
   repairContinuation?: {
     schemaVersion: 1;
+    predecessor?: Readonly<{ kind: "terminal-first38-v1" | "expired-hashless-continuation-v1"; actionCount: 38 | 41; prefixHash: Hex; certificateHash: Hex | null; continuationProposalHash: Hex | null; continuationApprovalHash: Hex | null; observerIdentityHash: Hex | null; observerEvidenceHash: Hex }>;
     prefixHash: Hex;
-    originalActionCount: 38;
+    originalActionCount: 38 | 41;
     cumulativeActualCostWei: string;
     creationProposalHash: Hex;
     creationApprovalHash?: Hex;
@@ -1156,8 +1157,17 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
   let repairContinuation: OrdinaryScenarioJournal["repairContinuation"];
   if (value.repairContinuation !== undefined) {
     const repair = record(value.repairContinuation, "repair continuation");
+    if (value.hashlessContinuation !== undefined && repair.predecessor === undefined) throw new Error("repair/hashless coexistence requires a validated continuation predecessor");
     const optional = ["creationApprovalHash", "groupProposalHash", "groupApprovalHash"].filter(key => repair[key] !== undefined);
-    exactKeys(repair, ["schemaVersion", "prefixHash", "originalActionCount", "cumulativeActualCostWei", "creationProposalHash", "actions", ...optional], "repair continuation");
+    exactKeys(repair, ["schemaVersion", "predecessor", "prefixHash", "originalActionCount", "cumulativeActualCostWei", "creationProposalHash", "actions", ...optional], "repair continuation");
+    const predecessor = record(repair.predecessor, "repair predecessor");
+    exactKeys(predecessor, ["kind", "actionCount", "prefixHash", "certificateHash", "continuationProposalHash", "continuationApprovalHash", "observerIdentityHash", "observerEvidenceHash"], "repair predecessor");
+    const rawPredecessorKind = predecessor.kind; if (rawPredecessorKind !== "terminal-first38-v1" && rawPredecessorKind !== "expired-hashless-continuation-v1") throw new Error("repair predecessor kind mismatch"); const predecessorKind = rawPredecessorKind as "terminal-first38-v1" | "expired-hashless-continuation-v1";
+    const predecessorCount = Number(decimal(String(predecessor.actionCount), "repair predecessor action count")); const expectedCount = predecessorKind === "terminal-first38-v1" ? 38 : 41;
+    if (predecessorCount !== expectedCount || predecessor.prefixHash !== repair.prefixHash) throw new Error("repair predecessor count or prefix mismatch");
+    const nullableHash = (entry: unknown, label: string): Hex | null => entry === null ? null : hash(entry, label);
+    const decodedPredecessor = { kind: predecessorKind, actionCount: predecessorCount as 38 | 41, prefixHash: hash(predecessor.prefixHash, "repair predecessor prefix hash"), certificateHash: nullableHash(predecessor.certificateHash, "repair predecessor certificate hash"), continuationProposalHash: nullableHash(predecessor.continuationProposalHash, "repair predecessor proposal hash"), continuationApprovalHash: nullableHash(predecessor.continuationApprovalHash, "repair predecessor approval hash"), observerIdentityHash: nullableHash(predecessor.observerIdentityHash, "repair predecessor observer identity hash"), observerEvidenceHash: hash(predecessor.observerEvidenceHash, "repair predecessor observer evidence hash") };
+    if (predecessorKind === "terminal-first38-v1" ? decodedPredecessor.certificateHash !== null || decodedPredecessor.continuationProposalHash !== null || decodedPredecessor.continuationApprovalHash !== null || decodedPredecessor.observerIdentityHash !== null : decodedPredecessor.certificateHash === null || decodedPredecessor.continuationProposalHash === null || decodedPredecessor.continuationApprovalHash === null || decodedPredecessor.observerIdentityHash === null) throw new Error("repair predecessor lineage hash mismatch");
     const repairActions: NonNullable<OrdinaryScenarioJournal["repairContinuation"]>["actions"] = array(repair.actions, "repair continuation actions").map((raw, index) => {
       const action = record(raw, `repair continuation action ${index}`); const optionalAction = ["transactionHash", "evidenceHash"].filter(key => action[key] !== undefined);
       exactKeys(action, ["id", "commitment", "status", ...optionalAction], `repair continuation action ${index}`);
@@ -1165,8 +1175,8 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
       return { id: text(action.id, "repair continuation action id"), commitment: hash(action.commitment, "repair continuation commitment"), status: status as "proposed" | "approved" | "pending" | "confirmed" | "rejection-proved" | "stopped", transactionHash: action.transactionHash === undefined ? undefined : hash(action.transactionHash, "repair continuation transaction hash"), evidenceHash: action.evidenceHash === undefined ? undefined : hash(action.evidenceHash, "repair continuation evidence hash") };
     });
     const repairIds = [...EXCLUDED_IDS];
-    if (repair.schemaVersion !== 1 || decimal(String(repair.originalActionCount), "repair continuation prefix count") !== 38n || repairActions.length > 7 || repairActions.some((entry, index) => entry.id !== repairIds[index])) throw new Error("repair continuation header mismatch");
-    repairContinuation = { schemaVersion: 1, prefixHash: hash(repair.prefixHash, "repair continuation prefix hash"), originalActionCount: 38, cumulativeActualCostWei: decimal(repair.cumulativeActualCostWei, "repair continuation cumulative cost").toString(), creationProposalHash: hash(repair.creationProposalHash, "repair creation proposal hash"), creationApprovalHash: repair.creationApprovalHash === undefined ? undefined : hash(repair.creationApprovalHash, "repair creation approval hash"), groupProposalHash: repair.groupProposalHash === undefined ? undefined : hash(repair.groupProposalHash, "repair group proposal hash"), groupApprovalHash: repair.groupApprovalHash === undefined ? undefined : hash(repair.groupApprovalHash, "repair group approval hash"), actions: repairActions };
+    if (repair.schemaVersion !== 1 || decimal(String(repair.originalActionCount), "repair continuation prefix count") !== BigInt(expectedCount) || repairActions.length > 7 || repairActions.some((entry, index) => entry.id !== repairIds[index])) throw new Error("repair continuation header mismatch");
+    repairContinuation = { schemaVersion: 1, predecessor: decodedPredecessor, prefixHash: hash(repair.prefixHash, "repair continuation prefix hash"), originalActionCount: expectedCount, cumulativeActualCostWei: decimal(repair.cumulativeActualCostWei, "repair continuation cumulative cost").toString(), creationProposalHash: hash(repair.creationProposalHash, "repair creation proposal hash"), creationApprovalHash: repair.creationApprovalHash === undefined ? undefined : hash(repair.creationApprovalHash, "repair creation approval hash"), groupProposalHash: repair.groupProposalHash === undefined ? undefined : hash(repair.groupProposalHash, "repair group proposal hash"), groupApprovalHash: repair.groupApprovalHash === undefined ? undefined : hash(repair.groupApprovalHash, "repair group approval hash"), actions: repairActions };
   }
   let hashlessContinuation: HashlessContinuationStorage | undefined;
   if (value.hashlessContinuation !== undefined) {
@@ -1203,7 +1213,13 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (continuation.schemaVersion !== 1 || continuation.recoveryKind !== "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1" || continuation.historicalActionCount !== 19 || continuation.historicalLiveEntryCount !== 10 || commitments.length !== 22 || continuationActions.length !== 22 || commitments.some((entry, index) => entry.id !== continuationActions[index]!.id || entry.commitment !== continuationActions[index]!.commitment)) throw new Error("hashless continuation header or catalog mismatch");
     hashlessContinuation = { schemaVersion: 1, recoveryKind: "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1", source: continuation.source as HashlessContinuationStorage["source"], historicalActionCount: 19, historicalLiveEntryCount: 10, historicalPrefixHash: hash(continuation.historicalPrefixHash, "hashless prefix hash"), originalProposalHash: hash(continuation.originalProposalHash, "hashless original proposal hash"), certificateHash: hash(continuation.certificateHash, "hashless certificate hash"), proposalHash: hash(continuation.proposalHash, "hashless proposal hash"), approvalHash: hash(continuation.approvalHash, "hashless approval hash"), actionCommitments: commitments, cumulativeContinuationReservationWei: decimal(continuation.cumulativeContinuationReservationWei, "hashless reservation").toString(), actions: continuationActions };
   }
-  if (repairContinuation !== undefined && hashlessContinuation !== undefined) throw new Error("hashless and repair continuation coexistence is unsupported");
+  if (repairContinuation !== undefined && hashlessContinuation !== undefined) {
+    const predecessor = repairContinuation.predecessor;
+    if (!predecessor) throw new Error("repair/hashless coexistence requires a validated continuation predecessor");
+    const closed = hashlessContinuation.actions.every((entry, index) => entry.id === hashlessContinuation!.actionCommitments[index]?.id && entry.commitment === hashlessContinuation!.actionCommitments[index]?.commitment && (entry.status === "confirmed" || entry.status === "rejection-proved"));
+    const predecessorEntries = entries.filter(entry => !EXCLUDED_IDS.has(entry.id));
+    if (predecessor.kind !== "expired-hashless-continuation-v1" || predecessor.actionCount !== 41 || predecessor.certificateHash !== hashlessContinuation.certificateHash || predecessor.continuationProposalHash !== hashlessContinuation.proposalHash || predecessor.continuationApprovalHash !== hashlessContinuation.approvalHash || !closed || predecessorEntries.some(entry => entry.status !== "success" || !entry.receipt)) throw new Error("hashless and repair continuation coexistence lacks a complete validated repair lineage");
+  }
   const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, ...(repairContinuation === undefined ? {} : { repairContinuation }), ...(hashlessContinuation === undefined ? {} : { hashlessContinuation }) };
   if (hashlessContinuation && (actions.length !== 19 || entries.length < 10 || !same(hashHistoricalPrefix(journal), APPROVED_HASHLESS_PREFIX))) throw new Error("hashless continuation fixed historical prefix mismatch");
   if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario persisted journal identity mismatch");
@@ -1254,6 +1270,19 @@ export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ p
       const { actions: priorActions, ...priorHeader } = prior.hashlessContinuation; const { actions: nextActions, ...nextHeader } = next.hashlessContinuation;
       if (JSON.stringify(priorHeader) !== JSON.stringify(nextHeader) || nextActions.length !== priorActions.length) throw new Error("hashless continuation immutable header or catalog changed");
       priorActions.forEach((entry, index) => assertActionProgress(entry as typeof entry & Record<string, unknown>, nextActions[index] as typeof entry & Record<string, unknown>, "hashless continuation"));
+    }
+    if (prior.repairContinuation) {
+      if (!next.repairContinuation) throw new Error("repair continuation cannot be deleted");
+      const { actions: priorActions, cumulativeActualCostWei: priorCost, ...priorHeader } = prior.repairContinuation; const { actions: nextActions, cumulativeActualCostWei: nextCost, ...nextHeader } = next.repairContinuation;
+      for (const key of ["predecessor", "prefixHash", "originalActionCount", "creationProposalHash"] as const) if (JSON.stringify(priorHeader[key]) !== JSON.stringify(nextHeader[key])) throw new Error(`repair continuation fixed field ${key} changed or was deleted`);
+      for (const key of ["creationApprovalHash", "groupProposalHash", "groupApprovalHash"] as const) if (priorHeader[key] !== undefined && priorHeader[key] !== nextHeader[key]) throw new Error(`repair continuation fixed field ${key} changed or was deleted`);
+      if (BigInt(nextCost) < BigInt(priorCost) || nextActions.length < priorActions.length) throw new Error("repair continuation cost or action history regressed");
+      const repairTransitions: Record<string, ReadonlySet<string>> = { proposed: new Set(["proposed", "approved", "pending", "confirmed", "stopped"]), approved: new Set(["approved", "pending", "confirmed", "rejection-proved", "stopped"]), pending: new Set(["pending", "confirmed"]), confirmed: new Set(["confirmed"]), "rejection-proved": new Set(["rejection-proved"]), stopped: new Set(["stopped"]) };
+      priorActions.forEach((entry, index) => {
+        const candidate = nextActions[index]; if (!candidate || entry.id !== candidate.id || entry.commitment !== candidate.commitment || !repairTransitions[entry.status]?.has(candidate.status)) throw new Error("repair continuation action removal, reordering, identity drift, or status regression");
+        if (entry.transactionHash !== undefined && entry.transactionHash !== candidate.transactionHash) throw new Error("repair continuation transaction hash changed or was deleted");
+        if (entry.evidenceHash !== undefined && entry.evidenceHash !== candidate.evidenceHash) throw new Error("repair continuation evidence hash changed or was deleted");
+      });
     }
   };
   const save = (journal: OrdinaryScenarioJournal): void => {

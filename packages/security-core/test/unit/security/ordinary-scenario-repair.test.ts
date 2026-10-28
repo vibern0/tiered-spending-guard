@@ -27,11 +27,13 @@ import {
   validateRepairCreationReceiptLogs,
   validateRepairCreationSimulation,
   validateTransientRepairQueue,
+  verifyRepairPredecessor,
   type RepairCanonicalState,
 } from "../../../scripts/live/ordinary-scenario-repair";
 import { createRepairCommandRuntime, repairObserverExpectedEffect, runOrdinaryScenarioRepairEntryPoint, runRepairCommand, runRepairQueueSession } from "../../../scripts/live/ordinary-scenario-repair-session";
 import { createRepairMechanicalAdapter, validateRepairReceiptEffect } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 import { encodeSafeContractSignature } from "../../../src/signers/passkey-helpers";
+import { hashlessContinuationFixture } from "../../support/hashless-continuation-fixture";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
 const hash = (suffix: string) => `0x${suffix.padStart(64, "0")}` as Hex;
@@ -81,7 +83,76 @@ const approveCreation = (journal: OrdinaryScenarioJournal, creation: ReturnType<
   recordRepairCreationConfirmation(journal, creation, hash("c01"));
 };
 
+async function closedHashlessPredecessor() {
+  const fixture = await hashlessContinuationFixture();
+  const journal = structuredClone(fixture.journal);
+  const continuation = journal.hashlessContinuation!;
+  const records = fixture.proposal.actions.map((action, index) => {
+    const confirmed = action.expectedOutcome === "success";
+    return {
+      id: action.id,
+      commitment: action.commitment,
+      status: confirmed ? "confirmed" as const : "rejection-proved" as const,
+      evidenceHash: fixture.h((40 + index).toString(16).padStart(2, "0")),
+      ...(confirmed ? {
+        transactionHash: fixture.h((80 + index).toString(16).padStart(2, "0")),
+        receipt: { transactionHash: fixture.h((80 + index).toString(16).padStart(2, "0")), status: "success" as const, gasUsed: 10n, effectiveGasPrice: 10n, blockNumber: 12_014_000n + BigInt(index), blockHash: fixture.h((120 + index).toString(16).padStart(2, "0")) },
+        ourReceiptGasCost: "100",
+        ourPrincipalDelta: action.id === "native-queue-ready-replacement-execute" ? "1" : "0",
+      } : {}),
+    };
+  });
+  continuation.actions.splice(0, continuation.actions.length, ...records);
+  journal.liveJournal.entries.push(...records.filter(record => record.status === "confirmed").map((record, index) => ({
+    id: record.id, intentHash: fixture.h((160 + index).toString(16).padStart(2, "0")), transactionHash: record.transactionHash!, nonce: 810 + index, reserved: 100n, status: "success" as const, receipt: record.receipt!,
+  })));
+  const evidence = [
+    ...journal.actions.map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash ?? rawHash(JSON.stringify(fixture.proposal.source.stoppedRow)), transactionHash: record.transactionHash })),
+    ...records.map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash })),
+  ];
+  return { ...fixture, journal, evidence };
+}
+
 describe("closed ordinary repair-to-freeze continuation", () => {
+  it("accepts_only_two_complete_canonical_predecessors", async () => {
+    const legacy = prefix();
+    expect(verifyRepairPredecessor(legacy.proposal, legacy.journal, legacy.evidence)).to.include({ kind: "terminal-first38-v1", actionCount: 38, safeNonce: 14n, delayQueueNonce: 6n, delayTxNonce: 6n });
+
+    const recovered = await closedHashlessPredecessor();
+    const predecessor = verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence, { kind: "expired-hashless-continuation-v1", continuation: recovered.proposal, approval: recovered.approval });
+    expect(predecessor).to.include({ kind: "expired-hashless-continuation-v1", actionCount: 41, safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n });
+    expect(predecessor).to.include({ certificateHash: recovered.proposal.certificateHash, continuationProposalHash: recovered.proposal.proposalHash, continuationApprovalHash: recovered.approval.approvalHash, observerEvidenceHash: recovered.proposal.observer.probeEvidenceHash });
+  });
+
+  it("rejects_partial_mixed_forged_or_mutated_lineage", async () => {
+    const recovered = await closedHashlessPredecessor();
+    const lineage = { kind: "expired-hashless-continuation-v1" as const, continuation: recovered.proposal, approval: recovered.approval };
+    const partial = structuredClone(recovered.journal); partial.hashlessContinuation!.actions[21] = { id: recovered.proposal.actions[21]!.id, commitment: recovered.proposal.actions[21]!.commitment, status: "approved" };
+    expect(() => verifyRepairPredecessor(recovered.original, partial, recovered.evidence, lineage)).to.throw(/terminal|complete|canonical/i);
+    expect(() => verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence.slice(1), lineage)).to.throw(/evidence/i);
+    const mutated = structuredClone(recovered.journal); (mutated.hashlessContinuation as any).certificateHash = hash("bad");
+    expect(() => verifyRepairPredecessor(recovered.original, mutated, recovered.evidence, lineage)).to.throw(/lineage|header|canonical/i);
+    expect(() => verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence)).to.throw(/lineage|38-action/i);
+    expect(() => verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence, { ...lineage, approval: { approvalHash: recovered.approval.approvalHash } as any })).to.throw(/opaque|authorization/i);
+  });
+
+  it("rebases_repair_entire_spine", async () => {
+    const recovered = await closedHashlessPredecessor();
+    const lineage = { kind: "expired-hashless-continuation-v1" as const, continuation: recovered.proposal, approval: recovered.approval };
+    const before = state({ safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, candidateRuntimeCodeHash: hash("0"), candidateBindingHash: hash("0"), nativeWindow: 1793145600n, usdcWindow: 0n, nativeBaseSpent: 10000000000000n, nativeInstantSpent: 30000000000000n, usdcBaseSpent: 10000000n, usdcInstantSpent: 30000000n, nativeBalance: 0n, usdcBalance: 1000000n });
+    const creation = createRepairCreationProposal({ proposal: recovered.original, journal: recovered.journal, evidence: recovered.evidence, lineage, state: before, quote });
+    const continuationGas = recovered.proposal.actions.filter(action => action.expectedOutcome === "success").length * 100;
+    expect(creation.cumulativeActualCostWei).to.equal((BigInt(recovered.proposal.reservation.originalActualGasCostWei) + 60000000000001n + 1n + BigInt(continuationGas)).toString());
+    expect(creation.predecessor.kind).to.equal("expired-hashless-continuation-v1");
+    approveCreation(recovered.journal, creation);
+    recovered.journal.liveJournal.entries.push({ id: "repair-signer-create", intentHash: recovered.h("e"), transactionHash: recovered.h("d"), nonce: 900, reserved: 4321n, status: "success", receipt: { transactionHash: recovered.h("d"), status: "success", gasUsed: 4321n, effectiveGasPrice: 1n, blockNumber: 30n, blockHash: recovered.h("c") } });
+    expect(verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence, lineage).prefixHash).to.equal(creation.prefixHash);
+    const prepared = createRepairGroupProposal({ creation, journal: recovered.journal, state: state({ ...before, candidateRuntimeCodeHash: hash("702"), candidateBindingHash: REPAIR_BINDING_HASH }), assertion: "0x123456", lineage });
+    expect(prepared.proposal.actions.map(action => [action.id, action.safeNonceBefore, action.safeNonceAfter, action.delayQueueNonceBefore, action.delayQueueNonceAfter, action.delayTxNonceBefore, action.delayTxNonceAfter])).to.deep.equal([
+      ["repair-queue", "15", "16", "7", "8", "7", "7"], ["repair-ready-execute", "16", "16", "8", "8", "7", "8"], ["post-rotation-old-secondary-rejection", "16", "16", "8", "8", "8", "8"], ["post-rotation-new-secondary-queue", "16", "17", "8", "9", "8", "8"], ["post-rotation-proof-cancel", "17", "18", "9", "9", "8", "9"], ["final-freeze", "18", "19", "9", "9", "9", "9"],
+    ]);
+    expect(prepared.proposal.repairQueueTiming.queueNonce).to.equal("7");
+  });
   it("does not inspect thrown strings or hostile objects at the repair entrypoint", async () => {
     const stringMarker = "SIGNED_SAFE_CALLDATA_MARKER_repair";
     let messageRead = false; let stringified = false;
@@ -175,6 +246,19 @@ describe("closed ordinary repair-to-freeze continuation", () => {
         expect(String(error)).to.include(`rejects unknown flag ${flag}`);
       }
     } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("loads the complete shared hashless lineage before acquiring the repair journal lease", async () => {
+    let loaded: readonly string[] | undefined;
+    const runtime = createRepairCommandRuntime({
+      environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN,
+      repository: () => { throw new Error("journal lease was reached before shared loader"); }, createHarness: () => { throw new Error("unexpected harness"); }, createAdapter: () => { throw new Error("unexpected adapter"); }, loadCreationQuote: () => { throw new Error("unexpected quote"); }, submit: async () => { throw new Error("unexpected submit"); }, now: () => new Date(0), awaitApprovalHandoff: async () => { throw new Error("unexpected approval"); },
+      loadHashlessLineage: async argv => { loaded = argv; throw new Error("shared loader reached"); },
+    });
+    const arguments_ = ["--report", "report.json", "--artifact-hash", hash("1"), "--package-hash", hash("2"), "--proposal-hash", hash("3"), "--original-approval-hash", hash("4"), "--journal", "journal.json", "--continuation-certificate", "certificate.json", "--continuation-certificate-hash", hash("5"), "--continuation-proposal", "continuation.json", "--continuation-approval", "approval.json", "--continuation-approval-hash", hash("6")];
+    await expect(runtime.creationReview(arguments_)).to.be.rejectedWith("shared loader reached");
+    expect(loaded).to.deep.equal(["submit-one", "--source-journal", "journal.json", "--original-report", "report.json", "--original-package-hash", hash("2"), "--original-artifact-hash", hash("1"), "--original-proposal-hash", hash("3"), "--certificate", "certificate.json", "--certificate-hash", hash("5"), "--proposal", "continuation.json", "--approval", "approval.json", "--approval-hash", hash("6"), "--journal", "journal.json"]);
+    await expect(runtime.creationReview(arguments_.slice(0, -2))).to.be.rejectedWith("complete shared public loader inputs");
   });
 
   it("builds only the exact seven-action map and keeps assertion and nested calldata out of public JSON", () => {

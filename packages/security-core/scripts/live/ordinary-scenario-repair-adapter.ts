@@ -43,7 +43,7 @@ export function validateRepairReceiptEffect(proposal: RepairGroupProposal, actio
   }
   const delayEvents = logs.filter(log => log.address.toLowerCase() === proposal.delay.toLowerCase()).flatMap(log => { try { if (log.topics.length === 0) return []; return [decodeEventLog({ abi: DELAY_EVENTS, data: log.data, topics: [...log.topics] as [Hex, ...Hex[]], strict: true })]; } catch { return []; } });
   if (action.id === "repair-queue" || action.id === "post-rotation-new-secondary-queue") {
-    const expected = action.id === "repair-queue" ? { queueNonce: 6n, to: proposal.repair.maintenance, value: 0n, data: maintenanceCalldata, operation: 1 as const } : { queueNonce: 7n, to: proposal.recipient, value: 1n, data: "0x" as Hex, operation: 0 as const };
+    const expected = action.id === "repair-queue" ? { queueNonce: BigInt(action.delayQueueNonceBefore), to: proposal.repair.maintenance, value: 0n, data: maintenanceCalldata, operation: 1 as const } : { queueNonce: BigInt(action.delayQueueNonceBefore), to: proposal.recipient, value: 1n, data: "0x" as Hex, operation: 0 as const };
     if (!expected.data) throw new Error("repair queue receipt validation requires canonical maintenance calldata");
     const additions = delayEvents.flatMap(event => event.eventName === "TransactionAdded" ? [event.args] : []);
     const added = additions[0];
@@ -51,7 +51,7 @@ export function validateRepairReceiptEffect(proposal: RepairGroupProposal, actio
   }
   if (action.id === "post-rotation-proof-cancel") {
     const nonces = delayEvents.flatMap(event => event.eventName === "TxNonceSet" ? [event.args.nonce] : []);
-    if (nonces.length !== 1 || nonces[0] !== 8n) throw new Error("repair exact TxNonceSet receipt mismatch");
+    if (nonces.length !== 1 || nonces[0] !== BigInt(action.delayTxNonceAfter)) throw new Error("repair exact TxNonceSet receipt mismatch");
   }
   return true;
 }
@@ -147,14 +147,23 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
     readStateAt: (phase, observerEvidenceHash, blockNumber, expectedBlockHash) => input.readStateAtBlock(phase, observerEvidenceHash, blockNumber, expectedBlockHash),
     validateTerminalPrefix: async journal => {
       const evidence: Array<{ actionId: string; evidenceHash: Hex; transactionHash?: Hex }> = [];
-      for (const record of journal.actions) {
-        if (!record.evidenceHash || (record.status !== "confirmed" && record.status !== "rejection-proved")) throw new Error("repair terminal prefix evidence is incomplete");
+      const validate = async (record: OrdinaryScenarioJournal["actions"][number], evidenceHashOverride?: Hex) => {
+        const recordEvidenceHash = evidenceHashOverride ?? record.evidenceHash;
+        if (!recordEvidenceHash || (record.status !== "confirmed" && record.status !== "rejection-proved" && !(evidenceHashOverride && record.status === "signed-simulated"))) throw new Error("repair terminal prefix evidence is incomplete");
         if (record.status === "confirmed") {
           if (!record.transactionHash || !record.receipt) throw new Error("repair confirmed prefix receipt is missing");
           const receipt = await input.archive.getTransactionReceipt({ hash: record.transactionHash });
           if (receipt.status !== "success" || receipt.blockNumber !== record.receipt.blockNumber || receipt.blockHash.toLowerCase() !== record.receipt.blockHash.toLowerCase()) throw new Error("repair terminal prefix canonical receipt changed");
         }
-        evidence.push(Object.freeze({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash }));
+        evidence.push(Object.freeze({ actionId: record.id, evidenceHash: recordEvidenceHash, transactionHash: record.transactionHash }));
+      };
+      for (let index = 0; index < journal.actions.length; index++) {
+        const stoppedHash = index === 18 && journal.hashlessContinuation ? publicHash(journal.hashlessContinuation.source.stoppedRow) : undefined;
+        await validate(journal.actions[index]!, stoppedHash);
+      }
+      if (journal.hashlessContinuation) for (const record of journal.hashlessContinuation.actions) {
+        if (record.status === "approved") throw new Error("repair terminal prefix evidence is incomplete");
+        await validate(record);
       }
       return Object.freeze(evidence);
     },
@@ -162,7 +171,7 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
       const block = await input.current.getBlock(); if (!block.hash) throw new Error("repair materialization block is unavailable");
       const [primary, secondary] = await Promise.all([input.loadPasskey("primary", input.primary), input.loadPasskey("original-secondary", proposal.oldSecondary)]);
       const action = proposal.actions[0]!; if (!action.safeTxHash) throw new Error("repair queue Safe hash is missing");
-      const signedSafeCalldata = await materializeRepairPrimaryFirstSafeCall({ chainId: input.domain.chainId, safe: proposal.safe, to: proposal.delay, data: transient.safeTransactionData, nonce: 14n, safeTxHash: action.safeTxHash, primary, secondary });
+      const signedSafeCalldata = await materializeRepairPrimaryFirstSafeCall({ chainId: input.domain.chainId, safe: proposal.safe, to: proposal.delay, data: transient.safeTransactionData, nonce: BigInt(action.safeNonceBefore), safeTxHash: action.safeTxHash, primary, secondary });
       const nonce = Number(await input.current.getTransactionCount({ address: input.creation.funder }));
       return Object.freeze({ signedSafeCalldata, liveIntent: { id: "repair-queue", to: proposal.safe, data: signedSafeCalldata, value: 0n, nonce, gas: 2_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n } });
     },
@@ -187,9 +196,9 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
         return Object.freeze({ liveIntent: { id: action.id, to: proposal.delay, data, value: 0n, nonce: outerNonce, gas: 1_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n } });
       }
       let to: Address; let data: Hex; let safeNonce: bigint; let signerRole: "original-secondary" | "repair-secondary";
-      if (action.id === "post-rotation-old-secondary-rejection" || action.id === "post-rotation-new-secondary-queue") { to = proposal.delay; data = encodeFunctionData({ abi: DELAY_ABI, functionName: "execTransactionFromModule", args: [proposal.recipient, 1n, "0x", 0] }); safeNonce = 15n; signerRole = action.id === "post-rotation-old-secondary-rejection" ? "original-secondary" : "repair-secondary"; }
-      else if (action.id === "post-rotation-proof-cancel") { to = proposal.delay; data = encodeFunctionData({ abi: DELAY_ABI, functionName: "setTxNonce", args: [8n] }); safeNonce = 16n; signerRole = "repair-secondary"; }
-      else if (action.id === "final-freeze") { to = proposal.guard; data = encodeFunctionData({ abi: GUARD_ABI, functionName: "freeze" }); safeNonce = 17n; signerRole = "repair-secondary"; }
+      if (action.id === "post-rotation-old-secondary-rejection" || action.id === "post-rotation-new-secondary-queue") { to = proposal.delay; data = encodeFunctionData({ abi: DELAY_ABI, functionName: "execTransactionFromModule", args: [proposal.recipient, 1n, "0x", 0] }); safeNonce = BigInt(action.safeNonceBefore); signerRole = action.id === "post-rotation-old-secondary-rejection" ? "original-secondary" : "repair-secondary"; }
+      else if (action.id === "post-rotation-proof-cancel") { to = proposal.delay; data = encodeFunctionData({ abi: DELAY_ABI, functionName: "setTxNonce", args: [BigInt(action.delayTxNonceAfter)] }); safeNonce = BigInt(action.safeNonceBefore); signerRole = "repair-secondary"; }
+      else if (action.id === "final-freeze") { to = proposal.guard; data = encodeFunctionData({ abi: GUARD_ABI, functionName: "freeze" }); safeNonce = BigInt(action.safeNonceBefore); signerRole = "repair-secondary"; }
       else throw new Error("repair tail action is not materializable");
       if (!action.safeTxHash || keccak256(data).toLowerCase() !== action.requestDataHash.toLowerCase()) throw new Error("repair tail reviewed request mismatch");
       const [primary, secondary] = await Promise.all([input.loadPasskey("primary", input.primary), input.loadPasskey(signerRole, signerRole === "repair-secondary" ? proposal.candidate : proposal.oldSecondary)]);
@@ -198,14 +207,15 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
       return Object.freeze({ signedSafeCalldata, liveIntent: { id: action.id, to: proposal.safe, data: signedSafeCalldata, value: 0n, nonce: outerNonce, gas: 2_000_000n, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n } });
     },
     proveFrozenRejections: async (proposal, observerEvidenceHash, frozenState) => {
-      if (!frozenState.frozen || frozenState.safeNonce !== 18n || frozenState.delayQueueNonce !== 8n || frozenState.delayTxNonce !== 8n || frozenState.safeContractSecondary.toLowerCase() !== proposal.candidate.toLowerCase() || frozenState.policyHash.toLowerCase() !== proposal.afterPolicyHash.toLowerCase() || frozenState.blockNumber <= 0n) throw new Error("repair final freeze canonical state mismatch");
+      const final = proposal.actions[5]!;
+      if (!frozenState.frozen || frozenState.safeNonce !== BigInt(final.safeNonceAfter) || frozenState.delayQueueNonce !== BigInt(final.delayQueueNonceAfter) || frozenState.delayTxNonce !== BigInt(final.delayTxNonceAfter) || frozenState.safeContractSecondary.toLowerCase() !== proposal.candidate.toLowerCase() || frozenState.policyHash.toLowerCase() !== proposal.afterPolicyHash.toLowerCase() || frozenState.blockNumber <= 0n) throw new Error("repair final freeze canonical state mismatch");
       const beforeBlock = await input.current.getBlock({ blockNumber: frozenState.blockNumber - 1n });
       if (!beforeBlock.hash) throw new Error("repair pre-freeze canonical block is unavailable");
       const before = await input.readStateAtBlock("post-rotation", observerEvidenceHash, beforeBlock.number, beforeBlock.hash);
       const unchanged = ["chainId", "delayQueueNonce", "delayTxNonce", "safeContractSecondary", "candidateRuntimeCodeHash", "candidateBindingHash", "policyHash", "nativeWindow", "nativeBaseSpent", "nativeInstantSpent", "usdcWindow", "usdcBaseSpent", "usdcInstantSpent", "nativeBalance", "usdcBalance", "observerReady"] as const;
-      if (before.frozen || before.safeNonce !== 17n || !/^0x[0-9a-f]{64}$/i.test(before.topologyEvidenceHash) || unchanged.some(key => String(before[key]).toLowerCase() !== String(frozenState[key]).toLowerCase())) throw new Error("repair pre-freeze module proof state mismatch");
+      if (before.frozen || before.safeNonce !== BigInt(final.safeNonceBefore) || !/^0x[0-9a-f]{64}$/i.test(before.topologyEvidenceHash) || unchanged.some(key => String(before[key]).toLowerCase() !== String(frozenState[key]).toLowerCase())) throw new Error("repair pre-freeze module proof state mismatch");
       const [primary, secondary] = await Promise.all([input.loadPasskey("primary", input.primary), input.loadPasskey("repair-secondary", proposal.candidate)]);
-      const typedData = { domain: { chainId: input.domain.chainId, verifyingContract: proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: proposal.recipient, value: 1n, data: "0x" as Hex, operation: 0 as const, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: 18n } }; const request: SafeSignerRequest = { chainId: input.domain.chainId, safe: proposal.safe, safeTxHash: hashTypedData(typedData), typedData }; const signatures = await encodeGuardSafeSignatures(request, primary, secondary); const direct = encodeFunctionData({ abi: SAFE_ABI, functionName: "execTransaction", args: [proposal.recipient, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, signatures] });
+      const typedData = { domain: { chainId: input.domain.chainId, verifyingContract: proposal.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: proposal.recipient, value: 1n, data: "0x" as Hex, operation: 0 as const, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: BigInt(final.safeNonceAfter) } }; const request: SafeSignerRequest = { chainId: input.domain.chainId, safe: proposal.safe, safeTxHash: hashTypedData(typedData), typedData }; const signatures = await encodeGuardSafeSignatures(request, primary, secondary); const direct = encodeFunctionData({ abi: SAFE_ABI, functionName: "execTransaction", args: [proposal.recipient, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, signatures] });
       const delayed = encodeFunctionData({ abi: GUARD_CHECK_ABI, functionName: "checkModuleTransaction", args: [proposal.recipient, 1n, "0x", 0, proposal.delay] });
       const allowed = await input.current.call({ account: proposal.safe, to: proposal.guard, data: delayed, blockNumber: before.blockNumber });
       if (!allowed.data || !/^0x[0-9a-f]{64}$/i.test(allowed.data)) throw new Error("repair pre-freeze module probe did not return its transaction hash");
