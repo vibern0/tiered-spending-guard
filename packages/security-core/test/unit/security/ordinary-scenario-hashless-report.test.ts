@@ -211,6 +211,34 @@ describe("ordinary hashless continuation evidence report", function () {
     const changedCommitment = structuredClone(complete.journal); changedCommitment.repairContinuation!.actions[1]!.commitment = hash(0xa06);
     expect(() => renderExpiredHashlessContinuationReport(complete.original, complete.proposal, changedCommitment, complete.repairEvidence)).to.throw(/commitment|catalog|repair/i);
 
+    const proposedCreation = structuredClone(complete.journal);
+    proposedCreation.repairContinuation!.actions[0]!.status = "proposed";
+    delete proposedCreation.repairContinuation!.actions[0]!.transactionHash;
+    delete proposedCreation.repairContinuation!.actions[0]!.evidenceHash;
+    const acceptedProposedRows: string[] = [];
+    try { renderExpiredHashlessContinuationReport(complete.original, complete.proposal, proposedCreation, complete.repairEvidence); acceptedProposedRows.push("repair-signer-create"); } catch {}
+
+    for (let index = 1; index < 7; index++) {
+      const proposedGroupRow = structuredClone(complete.journal);
+      const record = proposedGroupRow.repairContinuation!.actions[index]!;
+      record.status = "proposed";
+      delete record.transactionHash;
+      delete record.evidenceHash;
+      const liveIndex = proposedGroupRow.liveJournal.entries.findIndex(entry => entry.id === record.id);
+      if (liveIndex >= 0) proposedGroupRow.liveJournal.entries.splice(liveIndex, 1);
+      try { renderExpiredHashlessContinuationReport(complete.original, complete.proposal, proposedGroupRow, complete.repairEvidence); acceptedProposedRows.push(record.id); } catch {}
+    }
+    expect(acceptedProposedRows).to.deep.equal([]);
+
+    const stopped = structuredClone(complete.journal);
+    const stoppedRecord = stopped.repairContinuation!.actions[6]!;
+    stoppedRecord.status = "stopped";
+    delete stoppedRecord.transactionHash;
+    delete stoppedRecord.evidenceHash;
+    stopped.liveJournal.entries.pop();
+    const stoppedReport = renderExpiredHashlessContinuationReport(complete.original, complete.proposal, stopped, complete.repairEvidence) as any;
+    expect(stoppedReport.laterRepair).to.include({ status: "REPAIR_INCOMPLETE", actionCount: 7 });
+
     const firstLive = 24;
     const receiptMutations: Array<[string, (journal: any) => void]> = [
       ["status", journal => { journal.liveJournal.entries[firstLive].status = "reverted"; }],

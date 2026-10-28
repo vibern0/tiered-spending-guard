@@ -124,12 +124,14 @@ function renderRepair(original: OrdinaryScenarioProposal, continuation: ExpiredH
     if (!evidence.creationApproval) throw new Error("hashless report repair creation approval context is missing");
     assertRepairApproval(evidence.creation, evidence.creationApproval);
     if (!same(repair.creationApprovalHash, evidence.creationApproval.approvalHash)) throw new Error("hashless report repair creation approval hash mismatch");
+    if (creationRecord.status === "proposed") throw new Error("hashless report repair creation approval stage mismatch");
   } else if (evidence.creationApproval !== undefined || creationRecord.status !== "proposed") throw new Error("hashless report repair creation approval stage mismatch");
 
   const hasGroup = repair.groupProposalHash !== undefined || repair.groupApprovalHash !== undefined || repair.actions.length > 1;
   let group: RepairGroupProposal | undefined;
   if (hasGroup) {
     if (!repair.groupProposalHash || !repair.groupApprovalHash || !evidence.group || !evidence.groupApproval) throw new Error("hashless report repair group evidence context is incomplete");
+    if (creationRecord.status !== "confirmed") throw new Error("hashless report repair group requires confirmed creation");
     group = loadRepairGroupProposal(JSON.stringify(evidence.group), evidence.group.proposalHash);
     assertRepairApproval(evidence.group, evidence.groupApproval);
     if (!same(repair.groupProposalHash, group.proposalHash) || !same(repair.groupApprovalHash, evidence.groupApproval.approvalHash) || !same(group.creationProposalHash, creation.proposalHash) || !same(group.originalProposalHash, original.proposalHash) || !same(group.originalApprovalHash, journal.approvalHash) || !same(group.prefixHash, verified.prefixHash) || publicHash(group.predecessor) !== publicHash(creation.predecessor)) throw new Error("hashless report repair group header or approval mismatch");
@@ -140,6 +142,7 @@ function renderRepair(original: OrdinaryScenarioProposal, continuation: ExpiredH
   for (let index = 0; index < repair.actions.length; index++) {
     const action = repair.actions[index]!, expectedId = REPAIR_ACTION_IDS[index];
     if (expectedId === undefined || action.id !== expectedId) throw new Error("hashless report repair action catalog or order mismatch");
+    if (index > 0 && group && action.status === "proposed") throw new Error("hashless report repair group approval stage mismatch");
     const artifact = index === 0 ? creation.action : group?.actions[index - 1];
     if (!artifact || artifact.id !== action.id || !same(artifact.commitment, action.commitment)) throw new Error("hashless report repair action commitment mismatch");
     const expectedTerminal = action.id === "post-rotation-old-secondary-rejection" ? "rejection-proved" : "confirmed";
