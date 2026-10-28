@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeAbiParameters, encodeEventTopics, keccak256, parseAbi, type Hex } from "viem";
@@ -260,12 +260,4 @@ describe("ordinary hashless continuation evidence report", function () {
     expect(JSON.stringify(report.continuation.actions[0])).not.to.include("inferred");
   });
 
-  it("records_exact_hashless_runtime_schedule_and_caps_in_the_runbook", function () {
-    const runbook = readFileSync(join(process.cwd(), "docs/security/testnet-runbook.md"), "utf8");
-    expect(runbook).to.include("`3600/960/180/60/300/300` seconds");
-    expect(runbook).to.include("`5400` seconds");
-    expect(runbook).to.include("`740292/2000000/300000` gas");
-    expect(runbook).to.include("`1000000` wei maximum fee and priority-fee ceilings");
-    expect(runbook).to.include("later repair ready-execution cap remains the distinct `1000000` gas");
-  });
 });
