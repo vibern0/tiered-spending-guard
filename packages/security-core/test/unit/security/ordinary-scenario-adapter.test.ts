@@ -214,12 +214,13 @@ describe("ordinary scenario frozen EIP-1193 facade", () => {
     expect(() => context.simulate({ id: "unknown-token-call", gasLimitCap: 100n, publicTransaction: { to: USDC, value: 0n, data: "0x095ea7b3" } } as never, prepared("unknown-token-call", USDC, "0x095ea7b3") as never, state)).to.throw("not transfer");
   });
 
-  it("binds public receiver acknowledgement and enforces temporary receiver expiry", () => {
+  it("keeps timely historical acknowledgement valid after expiry but rejects late capture", () => {
     const endpointHash = "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0" as Hex;
     const transactionHash = keccak256("0x06"); const payloadSha256 = keccak256("0x07");
     const receipt = { schemaVersion: 1 as const, endpointHash, transactionHash, payloadSha256, receiverRequestId: "request-1", receiverRecordedAt: "2026-10-27T12:00:00Z", retrievedAt: "2026-10-27T12:01:00Z", retrievalProvenance: "official-receiver-api" as const, expiresAt: "2026-10-28T18:51:57Z" };
     expect(validatePublicReceiverAcknowledgement(receipt, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-27T13:00:00Z") })).to.match(/^0x[0-9a-f]{64}$/);
-    expect(() => validatePublicReceiverAcknowledgement(receipt, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-28T18:51:58Z") })).to.throw("expired");
+    expect(validatePublicReceiverAcknowledgement(receipt, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-28T18:51:58Z") })).to.match(/^0x[0-9a-f]{64}$/);
+    expect(() => validatePublicReceiverAcknowledgement({ ...receipt, retrievedAt: "2026-10-28T18:51:58Z" }, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-28T18:51:58Z") })).to.throw("timely");
   });
 
   it("requires delivered ledger evidence after a real restart and a matching receiver acknowledgement", () => {

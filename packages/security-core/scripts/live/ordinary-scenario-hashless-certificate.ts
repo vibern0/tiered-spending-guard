@@ -239,19 +239,19 @@ const expectedControlledState = (): HashlessControlledState => ({
   nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, usdcSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
 });
 
-type ProviderView = Readonly<{ selected: HashlessCanonicalBlock; certificate: HashlessCanonicalBlock; transactionBlock: HashlessCanonicalBlock; current: HashlessCanonicalBlock; transaction: HashlessCanonicalTransaction; receipt: HashlessCanonicalReceipt; certificateNonce: number; currentNonce: number; latestNonce: number; pendingNonce: number; selectedState: HashlessControlledState; certificateState: HashlessControlledState; currentState: HashlessControlledState; canonicalRecheck: readonly [HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined] }>;
+type ProviderView = Readonly<{ selected: HashlessCanonicalBlock; certificate: HashlessCanonicalBlock; transactionBlock: HashlessCanonicalBlock; current: HashlessCanonicalBlock; transaction: HashlessCanonicalTransaction; receipt: HashlessCanonicalReceipt; selectedNonce: number; certificateNonce: number; currentNonce: number; latestNonce: number; pendingNonce: number; selectedState: HashlessControlledState; certificateState: HashlessControlledState; currentState: HashlessControlledState; canonicalRecheck: readonly [HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined] }>;
 async function readProvider(provider: HashlessEvidenceProvider, artifact: Artifact, currentNumber: bigint): Promise<ProviderView> {
   const selected = await provider.readBlock(artifact.selected.number); const certificate = await provider.readBlock(artifact.tip.number);
   const transaction = await provider.readTransaction(artifact.transactionHash); const receipt = await provider.readReceipt(artifact.transactionHash);
   if (!selected || !certificate || !transaction || !receipt) throw new Error("hashless provider canonical evidence is incomplete");
   const transactionBlock = await provider.readBlock(transaction.blockNumber); const current = await provider.readBlock(currentNumber);
   if (!transactionBlock || !current) throw new Error("hashless provider transaction or current block is unavailable");
-  const [certificateNonce, currentNonce, latestNonce, pendingNonce, selectedState, certificateState, currentState] = await Promise.all([
-    provider.readTransactionCount(FUNDER, certificate.number), provider.readTransactionCount(FUNDER, currentNumber), provider.readTransactionCount(FUNDER, "latest"), provider.readTransactionCount(FUNDER, "pending"),
+  const [selectedNonce, certificateNonce, currentNonce, latestNonce, pendingNonce, selectedState, certificateState, currentState] = await Promise.all([
+    provider.readTransactionCount(FUNDER, selected.number), provider.readTransactionCount(FUNDER, certificate.number), provider.readTransactionCount(FUNDER, currentNumber), provider.readTransactionCount(FUNDER, "latest"), provider.readTransactionCount(FUNDER, "pending"),
     provider.readControlledState(selected.number), provider.readControlledState(certificate.number), provider.readControlledState(currentNumber),
   ]);
   const canonicalRecheck = await Promise.all([provider.readBlock(selected.number), provider.readBlock(certificate.number), provider.readBlock(transaction.blockNumber), provider.readBlock(currentNumber)] as const);
-  return { selected, certificate, transactionBlock, current, transaction, receipt, certificateNonce, currentNonce, latestNonce, pendingNonce, selectedState, certificateState, currentState, canonicalRecheck };
+  return { selected, certificate, transactionBlock, current, transaction, receipt, selectedNonce, certificateNonce, currentNonce, latestNonce, pendingNonce, selectedState, certificateState, currentState, canonicalRecheck };
 }
 
 function assertBlock(actual: HashlessCanonicalBlock, expected: HashlessCanonicalBlock, label: string): void {
@@ -270,7 +270,7 @@ function assertProviderView(view: ProviderView, latest: HashlessCanonicalBlock):
   for (const [label, before, after] of [["materialization", view.selected, view.canonicalRecheck[0]], ["certificate", view.certificate, view.canonicalRecheck[1]], ["nonce-809 transaction", view.transactionBlock, view.canonicalRecheck[2]], ["current", view.current, view.canonicalRecheck[3]]] as const) {
     if (!after || before.number !== after.number || !same(before.hash, after.hash) || before.timestamp !== after.timestamp) throw new Error(`${label} canonical recheck detected a reorg`);
   }
-  if (view.certificateNonce !== 811 || view.currentNonce < 811 || view.latestNonce < view.currentNonce || view.pendingNonce < view.latestNonce) throw new Error("nonce-809 is unused, pending-only, or nonce state drifted");
+  if (view.selectedNonce !== 809 || view.certificateNonce !== 811 || view.currentNonce < 811 || view.latestNonce < view.currentNonce || view.pendingNonce < view.latestNonce) throw new Error("nonce-809 is unused, pending-only, or nonce state drifted");
   const expectedState = expectedControlledState();
   for (const [label, state] of [["materialization", view.selectedState], ["certificate", view.certificateState], ["current", view.currentState]] as const) {
     if (!HASH.test(state.queue.data) && state.queue.data !== "0x") throw new Error(`${label} controlled queue calldata is malformed`);
@@ -321,4 +321,49 @@ export async function verifyHashlessStateCertificate(artifactText: string, expec
 
 export function isVerifiedHashlessStateCertificate(value: unknown): value is VerifiedHashlessStateCertificate {
   return !!value && typeof value === "object" && verifiedCertificates.has(value as object);
+}
+
+export function serializeHashlessStateCertificate(certificate: VerifiedHashlessStateCertificate): string {
+  if (!isVerifiedHashlessStateCertificate(certificate)) throw new Error("hashless certificate is not runtime verified");
+  return `${JSON.stringify(publicValue(certificate))}\n`;
+}
+
+function decodeRecordedCertificate(serialized: string, expectedCertificateHash: Hex): VerifiedHashlessStateCertificate {
+  if (!HASH.test(expectedCertificateHash)) throw new Error("recorded certificate expected hash is malformed");
+  let parsed: unknown; try { parsed = JSON.parse(serialized); } catch { throw new Error("recorded certificate must be JSON"); }
+  const value = record(parsed, "recorded certificate");
+  exactKeys(value, ["kind", "source", "artifactSha256", "historicalPrefixHash", "materializationBlock", "certificateBlock", "controlledStateHash", "currentSnapshot", "classification", "nonce809", "certificateHash"], "recorded certificate");
+  const decodeBlock = (raw: unknown, label: string): HashlessCanonicalBlock => { const block = record(raw, label); exactKeys(block, ["number", "hash", "timestamp"], label); return Object.freeze({ number: decimal(block.number, `${label} number`), hash: hash(block.hash, `${label} hash`), timestamp: decimal(block.timestamp, `${label} timestamp`) }); };
+  const current = record(value.currentSnapshot, "recorded certificate current snapshot");
+  exactKeys(current, ["block", "controlledStateHash", "funderUsdcBalance", "funderNonce", "latestNonce", "pendingNonce", "sharedFunderActivity"], "recorded certificate current snapshot");
+  const nonce = record(value.nonce809, "recorded certificate nonce-809 proof");
+  exactKeys(nonce, ["kind", "transactionHash", "recoveredSender", "confirmations", "envelopeDifferenceHash"], "recorded certificate nonce-809 proof");
+  if (value.kind !== "VERIFIED_HASHLESS_STATE_CERTIFICATE" || value.classification !== "EXPIRED_UNEXECUTED" || publicHash(value.source) !== publicHash(sourceProvenance) || !same(hash(value.artifactSha256, "recorded artifact hash"), EXPECTED_ARTIFACT_SHA256) || !same(hash(value.historicalPrefixHash, "recorded prefix hash"), EXPECTED_PREFIX_HASH) || nonce.kind !== "NONCE_809_INVALIDATED" || !same(hash(nonce.transactionHash, "recorded transaction hash"), CONSUMING_TRANSACTION) || !same(address(nonce.recoveredSender, "recorded recovered sender"), FUNDER)) throw new Error("recorded certificate fixed evidence mismatch");
+  const materializationBlock = decodeBlock(value.materializationBlock, "recorded materialization block"); const certificateBlock = decodeBlock(value.certificateBlock, "recorded certificate block");
+  assertBlock(materializationBlock, MATERIALIZATION_BLOCK, "recorded materialization"); assertBlock(certificateBlock, CERTIFICATE_BLOCK, "recorded certificate");
+  const currentSnapshot = Object.freeze({ block: decodeBlock(current.block, "recorded current block"), controlledStateHash: hash(current.controlledStateHash, "recorded current state hash"), funderUsdcBalance: decimal(current.funderUsdcBalance, "recorded funder USDC balance"), funderNonce: number(current.funderNonce, "recorded funder nonce"), latestNonce: number(current.latestNonce, "recorded latest nonce"), pendingNonce: number(current.pendingNonce, "recorded pending nonce"), sharedFunderActivity: current.sharedFunderActivity as VerifiedHashlessStateCertificate["currentSnapshot"]["sharedFunderActivity"] });
+  if ((currentSnapshot.sharedFunderActivity !== "NONE" && currentSnapshot.sharedFunderActivity !== "UNRELATED_CONFIRMED_OR_PENDING_ACTIVITY") || currentSnapshot.funderUsdcBalance !== 0n) throw new Error("recorded certificate current snapshot shape mismatch");
+  const nonce809 = Object.freeze({ kind: "NONCE_809_INVALIDATED" as const, transactionHash: CONSUMING_TRANSACTION, recoveredSender: FUNDER, confirmations: decimal(nonce.confirmations, "recorded confirmations"), envelopeDifferenceHash: hash(nonce.envelopeDifferenceHash, "recorded envelope difference hash") });
+  const body = { kind: "VERIFIED_HASHLESS_STATE_CERTIFICATE" as const, source: sourceProvenance, artifactSha256: EXPECTED_ARTIFACT_SHA256, historicalPrefixHash: EXPECTED_PREFIX_HASH, materializationBlock, certificateBlock, controlledStateHash: hash(value.controlledStateHash, "recorded controlled state hash"), currentSnapshot, classification: "EXPIRED_UNEXECUTED" as const, nonce809 };
+  const certificateHash = hash(value.certificateHash, "recorded certificate hash");
+  if (!same(certificateHash, expectedCertificateHash) || !same(publicHash(body), certificateHash)) throw new Error("recorded certificate hash mismatch");
+  return Object.freeze({ ...body, certificateHash }) as VerifiedHashlessStateCertificate;
+}
+
+export async function reverifyHashlessStateCertificate(recordedCertificate: string, expectedCertificateHash: Hex, journal: OrdinaryScenarioJournal, providers: readonly [HashlessEvidenceProvider, HashlessEvidenceProvider]): Promise<VerifiedHashlessStateCertificate> {
+  const certificate = decodeRecordedCertificate(recordedCertificate, expectedCertificateHash);
+  revalidateSourceJournal(journal); assertSourceRow(journal);
+  if (providers.length !== 2 || providers[0] === providers[1]) throw new Error("recorded certificate requires two independent providers");
+  const artifact: Artifact = { selected: MATERIALIZATION_BLOCK, tip: CERTIFICATE_BLOCK, transactionHash: CONSUMING_TRANSACTION };
+  const views = await Promise.all([readProvider(providers[0], artifact, certificate.currentSnapshot.block.number), readProvider(providers[1], artifact, certificate.currentSnapshot.block.number)] as const);
+  for (const view of views) {
+    assertBlock(view.selected, MATERIALIZATION_BLOCK, "materialization"); assertBlock(view.certificate, CERTIFICATE_BLOCK, "certificate"); assertBlock(view.current, certificate.currentSnapshot.block, "recorded current snapshot");
+    if (view.selectedNonce !== 809 || view.certificateNonce !== 811 || view.currentNonce !== certificate.currentSnapshot.funderNonce) throw new Error("recorded certificate historical nonce mismatch");
+    if (publicHash(view.selectedState) !== certificate.controlledStateHash || publicHash(view.certificateState) !== certificate.controlledStateHash || publicHash(view.currentState) !== certificate.currentSnapshot.controlledStateHash || view.currentState.funderUsdcBalance !== certificate.currentSnapshot.funderUsdcBalance) throw new Error("recorded certificate controlled state mismatch");
+    const nonce809 = resolution(view, journal); if (nonce809.kind !== "NONCE_809_INVALIDATED" || publicHash(nonce809) !== publicHash(certificate.nonce809)) throw new Error("recorded certificate nonce-809 proof mismatch");
+    for (const [before, after] of [[view.selected, view.canonicalRecheck[0]], [view.certificate, view.canonicalRecheck[1]], [view.transactionBlock, view.canonicalRecheck[2]], [view.current, view.canonicalRecheck[3]]] as const) if (!after || publicHash(before) !== publicHash(after)) throw new Error("recorded certificate canonical recheck detected a reorg");
+  }
+  const comparable = (view: ProviderView) => ({ selected: view.selected, certificate: view.certificate, transactionBlock: view.transactionBlock, current: view.current, transaction: view.transaction, receipt: view.receipt, selectedNonce: view.selectedNonce, certificateNonce: view.certificateNonce, currentNonce: view.currentNonce, selectedState: view.selectedState, certificateState: view.certificateState, currentState: view.currentState, canonicalRecheck: view.canonicalRecheck });
+  if (publicHash(comparable(views[0])) !== publicHash(comparable(views[1]))) throw new Error("recorded certificate providers disagree on canonical history");
+  revalidateSourceJournal(journal); assertSourceRow(journal); verifiedCertificates.add(certificate); return certificate;
 }

@@ -339,7 +339,8 @@ export type PublicReceiverAcknowledgement = Readonly<{ schemaVersion: 1; endpoin
 export function validatePublicReceiverAcknowledgement(value: PublicReceiverAcknowledgement, expected: Readonly<{ endpointHash: Hex; transactionHash: Hex; payloadSha256: Hex; now: Date }>): Hex {
   if (value.schemaVersion !== 1 || value.retrievalProvenance !== "official-receiver-api" || value.endpointHash.toLowerCase() !== expected.endpointHash.toLowerCase() || value.transactionHash.toLowerCase() !== expected.transactionHash.toLowerCase() || value.payloadSha256.toLowerCase() !== expected.payloadSha256.toLowerCase() || !/^[A-Za-z0-9-]{1,200}$/.test(value.receiverRequestId)) throw new Error("receiver acknowledgement binding mismatch");
   for (const [label, timestamp] of [["receiver time", value.receiverRecordedAt], ["retrieval time", value.retrievedAt], ["expiry", value.expiresAt]] as const) if (!Number.isFinite(Date.parse(timestamp))) throw new Error(`invalid ${label}`);
-  if (Date.parse(value.expiresAt) !== Date.parse("2026-10-28T18:51:57Z") || expected.now.getTime() > Date.parse(value.expiresAt)) throw new Error("receiver acknowledgement source expired");
+  const expiry = Date.parse(value.expiresAt); const recorded = Date.parse(value.receiverRecordedAt); const retrieved = Date.parse(value.retrievedAt);
+  if (expiry !== Date.parse("2026-10-28T18:51:57Z") || recorded > retrieved || recorded > expiry || retrieved > expiry) throw new Error("receiver acknowledgement was not captured timely before expiry");
   return keccak256(new TextEncoder().encode(JSON.stringify(value)));
 }
 

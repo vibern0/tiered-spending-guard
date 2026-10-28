@@ -7,6 +7,8 @@ import {
   hashHistoricalPrefix,
   isVerifiedHashlessStateCertificate,
   loadHashlessSourceJournalReadOnly,
+  reverifyHashlessStateCertificate,
+  serializeHashlessStateCertificate,
   verifyHashlessStateCertificate,
   type HashlessControlledState,
   type HashlessEvidenceProvider,
@@ -52,6 +54,7 @@ type ProviderOptions = Readonly<{
   latestNonce?: number;
   pendingNonce?: number;
   certificateNonce?: number;
+  selectedNonce?: number;
   currentNonce?: number;
   selectedState?: HashlessControlledState;
   certificateState?: HashlessControlledState;
@@ -95,7 +98,7 @@ function provider(options: ProviderOptions = {}): HashlessEvidenceProvider {
     },
     readTransaction: async (hash: Hex) => hash.toLowerCase() === consumingHash.toLowerCase() ? transaction : undefined,
     readReceipt: async (hash: Hex) => hash.toLowerCase() === consumingHash.toLowerCase() ? receipt : undefined,
-    readTransactionCount: async (_address: Address, block: bigint | "latest" | "pending") => block === "pending" ? (options.pendingNonce ?? 811) : block === "latest" ? (options.latestNonce ?? 811) : block === certificate.number ? (options.certificateNonce ?? 811) : (options.currentNonce ?? 811),
+    readTransactionCount: async (_address: Address, block: bigint | "latest" | "pending") => block === "pending" ? (options.pendingNonce ?? 811) : block === "latest" ? (options.latestNonce ?? 811) : block === selected.number ? (options.selectedNonce ?? 809) : block === certificate.number ? (options.certificateNonce ?? 811) : (options.currentNonce ?? 811),
     readControlledState: async (block: bigint) => structuredClone(block === selected.number ? (options.selectedState ?? controlledState()) : block === certificate.number ? (options.certificateState ?? controlledState()) : (options.currentState ?? controlledState())),
   } as HashlessEvidenceProvider);
 }
@@ -125,6 +128,25 @@ describe("ordinary scenario hashless certificate", function () {
     expect(certificate.source.laterCorrectedRevision).to.equal("e11a893fd36913411e7f7c4598832e96bdf368b7");
     expect(certificate.source.failureCause).to.equal("UNKNOWN");
     expect(certificate.currentSnapshot.funderUsdcBalance).to.equal(0n);
+  });
+
+  it("reverifies the recorded certificate without regenerating it after later funder traffic", async function () {
+    const source = trackedSource();
+    const journal = loadHashlessSourceJournalReadOnly(source.path);
+    const certificate = await verifyHashlessStateCertificate(artifact, artifactSha, journal, [provider(), provider()]);
+    const serialized = serializeHashlessStateCertificate(certificate);
+    const reverified = await reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [
+      provider({ latestNonce: 901, pendingNonce: 902 }),
+      provider({ latestNonce: 901, pendingNonce: 902 }),
+    ]);
+
+    expect(reverified.certificateHash).to.equal(certificate.certificateHash);
+    expect(reverified.currentSnapshot).to.deep.equal(certificate.currentSnapshot);
+    const extra = JSON.parse(serialized); extra.trusted = true;
+    await expect(reverifyHashlessStateCertificate(JSON.stringify(extra), certificate.certificateHash, journal, [provider(), provider()])).to.be.rejectedWith(/shape|certificate/i);
+    await expect(reverifyHashlessStateCertificate(serialized, `0x${"00".repeat(32)}` as Hex, journal, [provider(), provider()])).to.be.rejectedWith(/hash/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ selectedNonce: 810 }), provider({ selectedNonce: 810 })])).to.be.rejectedWith(/selected|809|nonce/i);
+    await expect(reverifyHashlessStateCertificate(serialized, certificate.certificateHash, journal, [provider({ currentRecheckHash: `0x${"aa".repeat(32)}` as Hex }), provider({ currentRecheckHash: `0x${"aa".repeat(32)}` as Hex })])).to.be.rejectedWith(/reorg|canonical/i);
   });
 
   it("rejects_mutated_prefix", async function () {
