@@ -1,0 +1,115 @@
+# Ordinary Hashless Continuation Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Implement approved expired-only FIRST38 recovery; preserve history; produce unsigned exact review; no new signing authority.
+
+**Architecture:** Closed sibling 22-action continuation; same atomic journal; opaque certificate/proposal/approval. Share private ordinary mechanics; preserve original 38 parser and row-19 stop. Repair accepts two exact predecessors, never arbitrary lineage.
+
+**Tech Stack:** Existing TypeScript, viem 2.56.7, Hardhat 2.22.6, Safe 1.5, Zodiac Delay; unchanged dependencies/contracts.
+
+**Spec:** `packages/security-core/docs/superpowers/specs/2026-10-28-ordinary-hashless-continuation.md` (approved original bytes SHA-256 `fd877315cb3db6f634a4e318e26e8651206054c409131dfdd607d14960733be1`). Historical revision references retained verbatim; current implementation base `e11a893fd36913411e7f7c4598832e96bdf368b7` contains corrected frozen-fee behavior and strict fee types.
+
+## Global Constraints
+
+- Same Safe, topology, signers, assets, limits, delay, recipient; Sepolia `11155111`. No new EOA, redeploy, contract, dependency, WalletConnect, generic append/retry/transaction runner.
+- Original FIRST38 permanently `INTERRUPTED_HASHLESS_AT_19_OF_38`; rows 1–18 terminal; row 19 `signed-simulated`, nonce `809`, forever stopped. Original approval authorizes none of continuation.
+- Same atomic journal; fixed historical slices: `actions.slice(0,19)`, `liveJournal.entries.slice(0,10)` plus original identity header. Every load verifies immutable hash. New entries append outside slices; new records only `hashlessContinuation.actions`.
+- Recovery unlock requires two independent canonical sources, recovered funder sender, nonce-809 consumption by different envelope, successful receipt, at least six confirmations, unchanged controlled state, expired-unexecuted item 2. Match routes reconciliation; unused/pending/disagreement/reorg stops.
+- Exactly 22 actions: source skip, replacement queue, replacement execution, original 19 USDC semantics rebased. Source classification is certificate evidence, never a 23rd action. Terminal Safe `15`, Delay `7/7`.
+- One final materialization per broadcast action; nonce `>809`; freeze nonce/quote/estimate/block/reservation before private signing. Subsequent drift stops. One broadcast attempt; durable outer hash before broadcast. Frozen fees checked against caps and canonical basefee, never fresh heuristic equality.
+- Preserve cumulative actual phase cost and `0.05 ETH` ceiling; original live cost/principals never reset. Require remaining reservation and shared-funder coverage.
+- Gate exact runtimes/topology/policy/signers/nonces/queue/timing/balances/raw spend/effective window/dependencies/observer/prefix/pending/budget at every applicable boundary. Native window `1793145600` rollover stops; no reset or forecast blessing.
+- Historical pre-expiry acknowledgements remain historical evidence. New alerts require fresh bound receiver/probe and TTL covering review, execution, six confirmations, delivery, acknowledgement, keyless confirmation.
+- No private files/material, live signing/simulation/broadcast by workers. Tests use tracked public fixtures only. No force-add of `.superpowers`. No raw arbitrary errors, credentials, endpoint URLs, private calldata in output.
+- Implementation approval granted 2026-10-28. Exact new artifact + capped financial approval still required before root private loading/signing. Task 0/native Tasks 1–13 remain gated. Future relayer deferred; user executes ready withdrawal manually.
+- Read AGENTS required research, security-core plan, signer evaluation in order before relevant changes. Security property conflicts require explicit resolution. TDD security behavior; every execution path updates call graph/adversarial tests.
+
+## Review Focus
+
+- JSON shape/coercion/unknown keys or forged structural types: reject before branding; Task 1/2/3 tests.
+- Partial atomic writes, old lock/temp files, truncation or mixed source/continuation lineage: fail closed; Task 1/3 tests.
+- Shared-funder unrelated traffic, exact matching nonce-809 envelope, later nonce drift: classify without balance absence inference; Task 1/3 tests.
+- Stale original USDC descriptors, ambiguous same-fingerprint queue heads, historical dependencies and window rollover: select only closed executed lineage; Task 2/3 tests.
+- Receiver expiry across historical/new evidence and old repair `14/6/6` assumptions: preserve history, reject new stale binding; Task 4/5 tests.
+
+---
+
+## Files and boundaries
+
+New closed modules: `scripts/live/ordinary-scenario-hashless-{certificate,continuation,continuation-cli,report}.ts` under `packages/security-core/`. Existing executor/store/adapter own mechanical execution; review builder shares only needed deterministic USDC construction. Repair modules retain fixed repair action set. No generic framework or duplicate submission workflow.
+
+Public evidence inputs live in `test/fixtures/ordinary-hashless-*.public.json`. Copy vetted original public journal/proofs only after secret-shape scan; original frozen sources remain unchanged. Parent Task-0 scratch files are explicit input dependencies, not this subplan's ledger. This plan owns its own ignored SDD workspace.
+
+### Task 1: Verified certificate and immutable prefix
+
+**Files:** Create `packages/security-core/scripts/live/ordinary-scenario-hashless-certificate.ts`; `packages/security-core/test/unit/security/ordinary-scenario-hashless-certificate.test.ts`; vetted public fixtures above. Modify call graph for evidence-only boundary.
+
+**Interfaces:** Produce opaque `VerifiedHashlessStateCertificate`, `HashlessEvidenceProvider`, `HashlessNonce809Resolution`; `hashHistoricalPrefix(journal: OrdinaryScenarioJournal): Hex`; `verifyHashlessStateCertificate(artifact: string, expectedArtifactSha256: Hex, journal: OrdinaryScenarioJournal, providers: readonly [HashlessEvidenceProvider, HashlessEvidenceProvider]): Promise<VerifiedHashlessStateCertificate>`; `isVerifiedHashlessStateCertificate(value: unknown): value is VerifiedHashlessStateCertificate`. Provider interface uses public canonical block/transaction/receipt/nonce/controlled-state reads; expose no authority. Cert binds source provenance and exact materialization block per spec. Filesystem lock/temp check is supplied as explicit fail-closed evidence, never arbitrary caller branding.
+
+- [ ] **Step 1: Write failing tests.** `rejects_mutated_prefix` checks historical row/entry order/status/hash/receipt/count, unexpected source hash/live entry; `keeps_hash_after_entry_growth` proves fixed slices; `classifies_nonce809` checks exact envelope match → reconciliation, different confirmed envelope → invalidation, unused/pending/wrong sender/<6/reorg/provider disagreement → stop. `rejects_source_drift` checks canonical prestate, tuple/createdAt/expiry/Safe7/Delay3/2/native1/USDC20000000/raw counters/window and unresolved lock/temp; `rejects_bad_runtime_json` checks missing/malformed/extra keys/coercion and forged certificate.
+- [ ] **Step 2: Run RED:** `cd packages/security-core && npx hardhat test test/unit/security/ordinary-scenario-hashless-certificate.test.ts`; expected new API assertion/import failure only.
+- [ ] **Step 3: Implement interfaces.** Fixed source identities/hashes; canonical historical-prefix serialization; independently reread both providers. Recompute hashes, do not trust artifact booleans or absence from short scans. Matching transaction stops with reconciliation result/error, never certificate. Recovered sender mandatory. Full spec certificate source/control-flow evidence retained, hashed, validated; no inference of original failure cause.
+- [ ] **Step 4: Run GREEN:** same command; all proof cases pass; `git diff --check` clean. Report exact source provenance and public-fixture scan.
+- [ ] **Step 5: Commit** explicit Task-1 source/tests/fixtures/call-graph only, `feat: verify expired hashless source certificate`.
+
+### Task 2: Exact 22-action proposal and approval
+
+**Files:** Create `packages/security-core/scripts/live/ordinary-scenario-hashless-continuation.ts`; `packages/security-core/test/unit/security/ordinary-scenario-hashless-continuation.test.ts`. Modify `ordinary-scenario-review.ts` only for narrowly shared deterministic builder; preserve original output bytes/parser.
+
+**Interfaces:** Consume Task-1 certificate. Produce opaque `ExpiredHashlessContinuationProposal`, opaque `ExpiredHashlessContinuationApproval`, `ContinuationObserverBinding`, `ContinuationActionCaps`; `createExpiredHashlessContinuationProposal({ original, journal, certificate, observer, caps }): ExpiredHashlessContinuationProposal`; `parseExpiredHashlessContinuationProposal(serialized: string, original: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, certificate: VerifiedHashlessStateCertificate): ExpiredHashlessContinuationProposal`; `loadExpiredHashlessContinuationApproval(proposal, serializedApproval: string, expectedApprovalHash: Hex): ExpiredHashlessContinuationApproval`; `attachExpiredHashlessContinuation(journal, proposal, approval): OrdinaryScenarioJournal`. Journal type attachment finalized Task 3; Task 2 may define exported storage type without activating executor.
+
+- [ ] **Step 1: Write failing tests.** `builds_exact22` asserts literal IDs, closed selectors/roles/amounts/dependencies and before/after states; Safe7→8 replacement, USDC8→15, Delay2→3→4→7. `rebases_every_usdc_hash` recomputes typed hashes and queue fingerprints, rejects old Safe7/item3 descriptors. `approval_is_separate_opaque_and_exact` rejects old approval, forged object, reordered/unknown/omitted action or commitment/cap/observer mutation. `budget_and_observer_binding` includes original actual gas + principal, maximum remaining reservation under 0.05ETH; fresh receiver/probe/TTL; no raw private fields. `roundtrip_closed_artifact` rejects shape/coercion/unknown keys/hash drift.
+- [ ] **Step 2: Run RED:** `cd packages/security-core && npx hardhat test test/unit/security/ordinary-scenario-hashless-continuation.test.ts`.
+- [ ] **Step 3: Implement interfaces.** Literal private catalog; recompute USDC semantic tail through shared deterministic mechanics, never arithmetic-patch old serialized hashes. Snapshot/freeze validated values; WeakSet/WeakMap capability checks. Exact source hash/header/certificate/observer/22 commitments/derivation rules/maxBroadcastAttempts1/caps/reservation approval. New artifact `authorization: NONE`. Keep original 38 parser/approval closure unchanged.
+- [ ] **Step 4: Run GREEN:** new test plus `test/unit/security/ordinary-scenario-review.test.ts` and `test/unit/security/ordinary-scenario-executor.test.ts`; all pass, original fixture hash unchanged.
+- [ ] **Step 5: Commit** explicit files, `feat: define closed expired continuation approval`.
+
+### Task 3: Same-journal execution and mechanical adapter
+
+**Files:** Modify `packages/security-core/scripts/live/ordinary-scenario-executor.ts`, `ordinary-scenario-adapter.ts`; add `test/unit/security/ordinary-scenario-hashless-executor.test.ts`, `test/integration/ordinary-scenario-hashless-adapter.test.ts`; update call graph.
+
+**Interfaces:** Consume Task-2 proposal/approval/storage. Add optional `hashlessContinuation` journal storage per spec. Produce `OrdinaryScenarioExecutionView` closed union (`original-ordinary-v1` with proposal; `expired-hashless-continuation-v1` with original/continuation); `executeExpiredHashlessContinuationAction(original, continuation, approval, store, context): Promise<OrdinaryScenarioExecutionResult>`. Extend mechanical constructors via closed union, retain existing original API compatibility. Both public entries route one private executor helper; no exported arbitrary action array. Store decode recomputes fixed prefix every load/save. One physical journal; only new continuation records mutate.
+
+- [ ] **Step 1: Write failing tests.** `original19_still_stops` confirms zero signing/save/broadcast; `old_approval_never_authorizes_tail`; `same_atomic_journal_preserves19_and10` exercises all statuses/pending reconciliation/partial files/mixed repair; `one_final_materialization` rejects second materialization/sign attempt/nonce<=809/post-freeze nonce drift/basefee/cap/estimate/funder coverage failures. `actual_adapter_uses_closed_lineage` covers original completed head/dependencies, new item3/4/5/6 exact createdAt/status/operation, duplicate same-fingerprint superseded head exclusion, wrong tuple, window rollover, fee heuristic drift, unique frozen record strict types. `durable_hash_precedes_one_broadcast` tests existing submission boundary with continuation and crash ambiguity.
+- [ ] **Step 2: Run RED:** `cd packages/security-core && npx hardhat test test/unit/security/ordinary-scenario-hashless-executor.test.ts test/integration/ordinary-scenario-hashless-adapter.test.ts`.
+- [ ] **Step 3: Implement interfaces.** Internal resolved view includes validated original terminal evidence needed for counters/dependencies, excludes immutable hashless row from executable actions and excludes superseded original USDC descriptors. Prefix validation is mandatory before every boundary. Final record hash binds continuation proposal/action/nonce/gas/frozen fees/pinned block/reservation. Existing `submitLiveIntent` remains sole broadcaster, unchanged. Reject continuation materialized/signed-simulated without durable hash, no retry/rematerialize.
+- [ ] **Step 4: Run GREEN:** same command plus existing ordinary executor/adapter unit and integration tests. Confirm old behavior unchanged; record actual Hardhat crypto/adapter proof, not only mock callbacks.
+- [ ] **Step 5: Commit** explicit files, `feat: execute closed continuation in original journal`.
+
+### Task 4: Public CLI and observer continuity
+
+**Files:** Create `packages/security-core/scripts/live/ordinary-scenario-hashless-continuation-cli.ts`; test `packages/security-core/test/unit/security/ordinary-scenario-hashless-continuation-cli.test.ts`. Modify existing executor CLI exports/adapter only for shared harness and proposal-bound observer. No dependency/package scripts needed; invoke existing tsx.
+
+**Interfaces:** Produce `HASHLESS_CONTINUATION_COMMANDS = ["review", "submit-one", "resume-one"]`; `runExpiredHashlessContinuationCli(argv: readonly string[], dependencies): Promise<number>` following existing CLI injectable pattern. Production uses fixed reviewed Sepolia runtime/topology clients and two independent certificate providers. `review` produces reproducible public unsigned JSON with source certificate/full22/caps; `submit-one` consumes exact new proposal/approval + journal; `resume-one` only reconciles one durable pending hash keylessly. New observer binding carries endpoint/startup/probe/evidence hashes and expiry, never raw endpoint.
+
+- [ ] **Step 1: Write failing tests.** `review_is_public_unsigned_and_fail_closed` rejects private flags/unknown commands/source drift and never loads signer; `submit_loads_only_action_required_keys_after_all_gates`; `resume_is_keyless_pending_only`; `new_observer_requires_fresh_binding_and_sufficient_ttl`; `historical_ack_survives_old_expiry_but_cannot_ack_new_action`; `actual_stdout_stderr_artifacts_are_public` captures real observable output on secret-bearing thrown causes. Missing RPC/receipt/lock/probe/TTL fail closed.
+- [ ] **Step 2: Run RED:** `cd packages/security-core && npx hardhat test test/unit/security/ordinary-scenario-hashless-continuation-cli.test.ts`.
+- [ ] **Step 3: Implement interfaces.** Reuse original production harness/mechanical adapter, pinned HTTPS monitoring and six-confirmation checks. Certificate provider must actually recover/check sender and canonical public envelope/receipt/controlled state; artifact alone insufficient. Bind new receiver identity before proposal approval; no hardcoded expired receiver fallback. Static public errors, no secret/error causes logged. No live invocation by worker.
+- [ ] **Step 4: Run GREEN:** same test plus existing executor CLI and monitoring tests affected; record zero sign/load/write boundaries for public review/keyless resume.
+- [ ] **Step 5: Commit** explicit files, `feat: expose reviewed hashless continuation CLI`.
+
+### Task 5: Repair lineage and shifted proof spine
+
+**Files:** Modify `packages/security-core/scripts/live/ordinary-scenario-repair.ts`, `ordinary-scenario-repair-adapter.ts`, `ordinary-scenario-repair-session.ts`, executor decoder; extend existing repair unit/integration tests; update call graph.
+
+**Interfaces:** Produce opaque `VerifiedRepairPredecessor` two-case union: `terminal-first38-v1` (38/Safe14/Delay6/6), `expired-hashless-continuation-v1` (19+22/Safe15/Delay7/7/certificate+proposal+approval hashes); `verifyRepairPredecessor(proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, evidence: readonly RepairPrefixEvidence[]): VerifiedRepairPredecessor`. Existing repair constructors consume branded predecessor internally; no caller-controlled nonce/count arithmetic. Original lineage remains supported.
+
+- [ ] **Step 1: Write failing tests.** `accepts_only_two_complete_canonical_predecessors`; `rejects_partial_mixed_forged_or_mutated_lineage`; `rebases_repair_entire_spine`: repair Safe15/item7→16/8/7, execute tx8, old rejection/new queue Safe16/item8→17/q9, cancellation Safe17→18/tx9, freeze Safe18→19, terminal19/9/9. Assert independently recomputed Safe hashes/maintenance calldata/fingerprints/roles/policy/dependencies/cumulative costs; reject stale14/6/6 and reset budgets; preserve separate creation/group exact approvals and observer binding. Actual Safe integration tests preserve old/new signer rejection and freeze assertions.
+- [ ] **Step 2: Run RED:** `cd packages/security-core && npx hardhat test test/unit/security/ordinary-scenario-repair.test.ts test/integration/ordinary-scenario-repair.test.ts` with new assertions.
+- [ ] **Step 3: Implement interfaces.** One closed predecessor resolver owns literals; derive existing fixed repair catalog from verified case. Same journal, immutable historical+continuation slices; no repair until22terminal/canonical/evidence complete/no pending. Update parser/session/adapter/observer queue indices consistently; no generic predecessor substitution or copied serialized proposal.
+- [ ] **Step 4: Run GREEN:** same command plus affected executor/store tests; prove both predecessor cases.
+- [ ] **Step 5: Commit** explicit files, `feat: bind repair to verified continuation lineage`.
+
+### Task 6: Honest evidence report, runbook, verification
+
+**Files:** Create `packages/security-core/scripts/live/ordinary-scenario-hashless-report.ts`, `packages/security-core/test/unit/security/ordinary-scenario-hashless-report.test.ts`; update `packages/security-core/docs/security/call-graph.md`, focused existing Task-0 runbook, parent native plan Task-0 evidence pointer only.
+
+**Interfaces:** `renderExpiredHashlessContinuationReport(original, continuation, journal): Readonly<Record<string, unknown>>`; no private inputs/signing. Distinguish original terminal18, immutable19, certificate, superseded USDC, new22, later repair; original status fixed, continuation complete only all22terminal with required canonical evidence; Task0 still separate.
+
+- [ ] **Step 1: Write failing tests.** `never_calls_original_complete_or19_confirmed`; `requires22_terminal_evidence_for_continuation_complete`; `reports_superseded_tail_and_repair_separately`; malformed/mixed/pending/failed journal cannot report complete or infer failure cause/hash.
+- [ ] **Step 2: Run RED:** `cd packages/security-core && npx hardhat test test/unit/security/ordinary-scenario-hashless-report.test.ts`.
+- [ ] **Step 3: Implement renderer/runbook/call graph.** Document exact public review/submit/resume command flags from Task4, immutable source evidence, one materialization, new approval, fresh observer, rollover stop, later repair approval, manual delayed execution. Keep all Task0/native plan gates honest.
+- [ ] **Step 4: Run GREEN:** focused report and affected tests; `git diff --check`; commit explicit files, `docs: report immutable interrupted recovery lineage`.
+- [ ] **Step 5: Root final verification:** fresh whole-subplan independent security review; fix accepted findings; `npm --prefix packages/security-core run security:check`; `npm --prefix apps/backend test` where existing script applies. Serialize artifact mutation. Inspect exit/raw logs/head; no unsupported TypeScript/Codacy claim.
+- [ ] **Step 6: Root public artifact review:** fixed public RPCs, no private load/signing. Generate exact unsigned proposal/certificate when controlled gates and fresh observer lifetime permit. Independent exact artifact review; then ask one concrete capped financial approval. If public state/TTL/window blocks, report exact blocker with reviewed solution; never weaken gate. No PR merge or native Task1 until Task0 evidence complete.
