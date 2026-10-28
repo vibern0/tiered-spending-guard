@@ -52,6 +52,12 @@ function assertOriginal(original: OrdinaryScenarioProposal): void {
   if (original.actions.length !== 38 || USDC_IDS.some((id, index) => original.actions[index + 19]?.id !== id)) throw new Error("original proposal exact USDC semantic tail mismatch");
 }
 
+/** Closed lineage check for unsigned review and execution-view construction. */
+export function assertExpiredHashlessContinuationLineage(original: OrdinaryScenarioProposal, proposal: ExpiredHashlessContinuationProposal): void {
+  assertOriginal(original);
+  if (!proposals.has(proposal) || !same(proposal.originalProposalHash, original.proposalHash) || proposal.actions.length !== 22) throw new Error("expired hashless continuation proposal is not opaque and content-bound to the exact original");
+}
+
 function validateObserver(value: ContinuationObserverBinding, certificate: VerifiedHashlessStateCertificate, original: OrdinaryScenarioProposal): ContinuationObserverBinding {
   const object = value as unknown as Record<string, unknown>; exactKeys(object, ["kind", "publicId", "endpointHash", "probeEvidenceHash", "independentFromProposer", "readyAt", "workflowScheduleSeconds", "requiredThrough", "expiresAt"], "continuation observer");
   if (value.kind !== "https-webhook" || value.independentFromProposer !== true || !value.publicId.startsWith("temporary-test-receiver:") || !HASH.test(value.endpointHash) || !HASH.test(value.probeEvidenceHash) || !value.publicId.endsWith(value.endpointHash) || same(value.endpointHash, value.probeEvidenceHash)) throw new Error("continuation observer binding is invalid");
