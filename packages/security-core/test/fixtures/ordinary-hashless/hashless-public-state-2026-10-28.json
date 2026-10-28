@@ -1,0 +1,67 @@
+{
+  "scope": "PUBLIC_HASHLESS_STOP_STATE_NOT_RECOVERY_AUTHORIZATION",
+  "selected": {
+    "number": "12013857",
+    "hash": "0x197add23b0385bce509adab0a3f3234b58b71e63d0ebccad9aa2e99ba5f44e20",
+    "timestamp": "1793209056"
+  },
+  "tip": {
+    "number": "12013934",
+    "hash": "0x05d0f3b8f503bfee60455adc88c717e330aa2bafaffb6badca3b5c8215f3948e",
+    "timestamp": "1793209980"
+  },
+  "failedOuterNonce": 809,
+  "currentOuterNonce": 811,
+  "delayTxNonce": "2",
+  "delayQueueNonce": "3",
+  "createdAt": "1793208888",
+  "expiresAt": "1793209608",
+  "nonceTransactions": [
+    {
+      "hash": "0xf78f36e9b8a128d780936111278bb76850079eb9b4492bf2ad0b039078a5072f",
+      "nonce": 807,
+      "to": "0xd751a1479f49d63dc61e0081b0b4d8c60623d9a6",
+      "inputHash": "0x5fb5840fd1b47116db8e89446d81bcff0a3071d355c66359d01c86394e479e19",
+      "value": "0",
+      "blockNumber": "12013843",
+      "blockHash": "0xd075a590d6487a5904f7a36bbef529b5a18730481126e8a9772046e118855333",
+      "confirmations": "92",
+      "matchesFailedEnvelope": false
+    },
+    {
+      "hash": "0x0cd2ceccf7b9e0d1ed320f541cc0300d1bd76ea23ca46a42a70130edf7815bcd",
+      "nonce": 808,
+      "to": "0xd011ee229e7459ba1ddd22631ef7bf528d424a14",
+      "inputHash": "0xffaa74228f2392e4608cc915fc25a87cc5a63c11643dcdc05115d05da158564c",
+      "value": "0",
+      "blockNumber": "12013853",
+      "blockHash": "0xc5104cc6d2fcb04fdbb3e286d11e3ec71a8e5796979787c74d45dd8e70d4084b",
+      "confirmations": "82",
+      "matchesFailedEnvelope": false
+    },
+    {
+      "hash": "0x83923abf9c1224125296a3485f8cc0a910e7f729ea5d5a73d6f01bf1cdbfe1f5",
+      "nonce": 809,
+      "to": "0xadb8f835e565ac7e71d2df6cfbd0fc003fa22c27",
+      "inputHash": "0x25491caa28455d896a7211a1c4532ab1e72412bdb15293292e2e37e5f9406c63",
+      "value": "0",
+      "blockNumber": "12013885",
+      "blockHash": "0x1cd3daf4cef11721feb5d564c0768f42e88d1d14c6c909e64b7cd5532b6f158b",
+      "confirmations": "50",
+      "matchesFailedEnvelope": false
+    },
+    {
+      "hash": "0xbaf8845732cb40cf4c1975d83835af266e327c64cc7a010ecece7ab68361d232",
+      "nonce": 810,
+      "to": "0xadb8f835e565ac7e71d2df6cfbd0fc003fa22c27",
+      "inputHash": "0x25491caa28455d896a7211a1c4532ab1e72412bdb15293292e2e37e5f9406c63",
+      "value": "0",
+      "blockNumber": "12013895",
+      "blockHash": "0x885efd406ac86edb3374a2fa2559fbd84ba37770cd0bedf791c99af173a79de4",
+      "confirmations": "40",
+      "matchesFailedEnvelope": false
+    }
+  ],
+  "signing": false,
+  "broadcast": false
+}

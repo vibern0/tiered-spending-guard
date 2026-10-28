@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "scope": "bounded-ordinary-matrix-v1",
+  "authorization": "EXPLICIT_GROUP_APPROVAL",
+  "chainId": 11155111,
+  "proposalHash": "0x22770c7944ee289543c10090b3483bdcd87f0d2c193887df4f32916c5782e45f",
+  "reviewPackageHash": "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571",
+  "reviewArtifactBytesHash": "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831",
+  "planHash": "0x95ef22995ba9c1527d4c12463663aca0b07d092676df12cea4064476a89855cb",
+  "approvedActions": [
+    {
+      "id": "native-funding",
+      "commitment": "0x9744c124108b6d2cf7ea182d36a5cde1ca69e2d3327ccf93379d0f9e4a0962a3"
+    },
+    {
+      "id": "usdc-funding",
+      "commitment": "0x493a0d90fd56060110c79f8f7f217e9c7885b96ee265c582633327f8a3c89b43"
+    },
+    {
+      "id": "native-base-x",
+      "commitment": "0x615f81a42080291f2a222bba2d4eebb8ca4ea22a2a716e643adcaf7d2492aa08"
+    },
+    {
+      "id": "native-step-up-contract",
+      "commitment": "0x64fe07e1c434c37156ddd41f17a2cbdd25d7c3c00d131561d7297e1a02da2c6e"
+    },
+    {
+      "id": "native-step-up-ecdsa",
+      "commitment": "0x9d044f4588f8ad339ba4099783838fa772f6a1dc69a3d7c053f5703c5308c5fe"
+    },
+    {
+      "id": "native-direct-overspend-rejection",
+      "commitment": "0xa428a6f8c6f1237357621d7f813b5fbc547aba17ed4f9c5e8f7f82bdf1efb9e1"
+    },
+    {
+      "id": "native-replay-rejection",
+      "commitment": "0xe786ee8fe4d27c2b2f76d4fdd22d79474949a722525a25f6bde2cd3fd07f169c"
+    },
+    {
+      "id": "native-unsupported-path-rejection",
+      "commitment": "0xf609092c6a5bf69fc5aeb828bb72d4a90379a355792c67a1550397c46df07945"
+    },
+    {
+      "id": "native-queue-cancel",
+      "commitment": "0x2a7a7e48899635887de3f48ca40f2b4b5f00c7827a397a58dab70f49d7d50f9f"
+    },
+    {
+      "id": "native-queue-cancel-early-rejection",
+      "commitment": "0xd89c6e109b0dd6594d8907d5a635e8044fcb2bbc0f9dde8962360d94b6be630a"
+    },
+    {
+      "id": "native-queue-cancel-action",
+      "commitment": "0x7b15ad0db3af732bf8a9309e6e9aac96aa0eb78037dfcd79de7a933c31ceefb0"
+    },
+    {
+      "id": "native-queue-cancelled-execution-rejection",
+      "commitment": "0xc7418746b27640de78de8ac049db5727b2c6e95b5717c5ba1137b391bc44e29c"
+    },
+    {
+      "id": "native-queue-expiry",
+      "commitment": "0x3620c79bfb22b53ddb4cdfb5ac755b253726a87f0624dcbe3bf2eb674c814119"
+    },
+    {
+      "id": "native-queue-expiry-early-rejection",
+      "commitment": "0x49c7610bbcc34872c5a71ead122f882f2035e80737ba67a597c8227d707fcb17"
+    },
+    {
+      "id": "native-queue-expiry-skip",
+      "commitment": "0x30be40b332fdf07599a41e2db3e6ddb4df1d649018241503af3ba2b6fcdbf164"
+    },
+    {
+      "id": "native-queue-expired-execution-rejection",
+      "commitment": "0x8b2e90dc31e54c6cb5ae8bf2d8d76e6d77450d7b9bec4f1196cc3f66e97e4a27"
+    },
+    {
+      "id": "native-queue-execute",
+      "commitment": "0xdf9419e3c2eabb6c3c861cd7d69e1c993eceaff5cf347110c0a6ed529747c244"
+    },
+    {
+      "id": "native-queue-execute-early-rejection",
+      "commitment": "0x486d085a686b70161b14605bfe6e054f5c4ee09501e20cea3d3aee977343e0d9"
+    },
+    {
+      "id": "native-queue-ready-execute",
+      "commitment": "0x2e024d850e4b7f18fe03fac5165285160f60fa0a417ff6c5afd2e1caaefbc813"
+    },
+    {
+      "id": "usdc-base-x",
+      "commitment": "0xb852193df426715e680d5712e431658b02e1a7d99781869b8afa7fa59c210aca"
+    },
+    {
+      "id": "usdc-step-up-contract",
+      "commitment": "0xb3c9f9825e8cda2eb2fc3805952a2a1da4dea207c695d73d5a7b9a07db935d3b"
+    },
+    {
+      "id": "usdc-recycle-topup-step-up",
+      "commitment": "0x9f1093a16d11e7d6c84337c5cca1aca6d5b500038f78bcd292352b658a500ec0"
+    },
+    {
+      "id": "usdc-step-up-ecdsa",
+      "commitment": "0x709c68b0b23a06fbe6b334f700b0524935ade16e3d8aa0e57815d1543a160979"
+    },
+    {
+      "id": "usdc-direct-overspend-rejection",
+      "commitment": "0xa8d5572cb454683c22777ef4a2d44e867bb79476498be3217de1f34501a0c53a"
+    },
+    {
+      "id": "usdc-replay-rejection",
+      "commitment": "0xc9ded08eb16d411ef588926b556a75165fcf97c046380f34b2ca7e5df22a6fea"
+    },
+    {
+      "id": "usdc-unsupported-path-rejection",
+      "commitment": "0x004bc8e76a7d0721f3cbce7320749929859f2263a9239d15d020f8d3e3e2240f"
+    },
+    {
+      "id": "usdc-recycle-topup-delayed",
+      "commitment": "0x9e34c9e7592fcebc491b71fd2200e2cb461a34cc7042cd2a89e87e60a557591f"
+    },
+    {
+      "id": "usdc-queue-cancel",
+      "commitment": "0x3ae27a509c10ac841e948c957d424df5ed3c8194e3f253742323e01a7f44af45"
+    },
+    {
+      "id": "usdc-queue-cancel-early-rejection",
+      "commitment": "0x9282e66a365b74bbb0a1bfb5c50a07bd0fe64550479e6ed8398574c361618dae"
+    },
+    {
+      "id": "usdc-queue-cancel-action",
+      "commitment": "0x2b001145312d149216791b3fad623257d65d0e4bb5d1d4ded0fbda4cac1c8e61"
+    },
+    {
+      "id": "usdc-queue-cancelled-execution-rejection",
+      "commitment": "0x24884457185388efab324683ed155bee7ca8f91ad2f958c5269a8833ccf7fdca"
+    },
+    {
+      "id": "usdc-queue-expiry",
+      "commitment": "0x6e421180bd8aa50f54234b1ad6cfb1493a097e1c2413d677f7dd713487d3d8fa"
+    },
+    {
+      "id": "usdc-queue-expiry-early-rejection",
+      "commitment": "0x466dbde3e040dbab1d71eb55f7743e350c0971ab03555e10239f504b2b9740e3"
+    },
+    {
+      "id": "usdc-queue-expiry-skip",
+      "commitment": "0x59b860a03813ee099d0c06a73498513384167aef377bbea244a1a66647e28c16"
+    },
+    {
+      "id": "usdc-queue-expired-execution-rejection",
+      "commitment": "0xfcf83617b73ca0ac32d1532435b4ae1c0d25fa72ea79708b4d809236b3d296ab"
+    },
+    {
+      "id": "usdc-queue-execute",
+      "commitment": "0x2f44f45b5cddfcac9099d7a8dfee6568838aa496b81f5a4b7fb0d526ec40bf1e"
+    },
+    {
+      "id": "usdc-queue-execute-early-rejection",
+      "commitment": "0x2c606241f9f7bd8b21cc965c6f41832f6a7fc31ef3c3a54f7a3a900d32b5fb12"
+    },
+    {
+      "id": "usdc-queue-ready-execute",
+      "commitment": "0x5ec7a091318c2e128e1d5aeab1d9bd0163532e77ddac0484880222fd63a3284b"
+    }
+  ],
+  "derivations": {
+    "outerEoaNonce": "CURRENT_ONLY",
+    "fees": "AT_OR_BELOW_ACTION_CAPS",
+    "gas": "SIGNED_SIMULATION_AT_OR_BELOW_ACTION_CAP",
+    "queueTiming": "CANONICAL_RECEIPT_CREATED_AT_ONLY",
+    "safeNonce": "FIXED",
+    "delayQueueNonce": "FIXED",
+    "delayTxNonce": "FIXED"
+  },
+  "phaseLimitWei": "50000000000000000",
+  "maxBroadcastAttempts": 1
+}

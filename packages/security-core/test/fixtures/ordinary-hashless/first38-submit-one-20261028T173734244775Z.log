@@ -1,0 +1,5 @@
+
+> scenario:execute
+> tsx scripts/live/ordinary-scenario-executor-cli.ts submit-one --report /Users/bernardo/.codex/worktrees/native-safe-4337-implementation/recent-tx-safe-guard/.superpowers/sdd/2026-10-19-native-safe-4337/scenario-review-2m-2026-10-27/ordinary-scenario-review.json --artifact-hash 0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831 --package-hash 0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571 --proposal-hash 0x22770c7944ee289543c10090b3483bdcd87f0d2c193887df4f32916c5782e45f --approval /Users/bernardo/.codex/worktrees/native-safe-4337-implementation/recent-tx-safe-guard/.superpowers/sdd/2026-10-19-native-safe-4337/first38-approval-2026-10-28.json --approval-hash 0x9f4af3d3a6142dd901019a7acd5dc10c69af23c89a884cb018c201b095e4e4a1 --journal /Users/bernardo/.codex/worktrees/native-safe-4337-implementation/recent-tx-safe-guard/.superpowers/sdd/2026-10-19-native-safe-4337/first38-live-journal-2026-10-28.json
+
+[ORDINARY_SCENARIO_EXECUTOR_FAILED] ordinary scenario executor failed

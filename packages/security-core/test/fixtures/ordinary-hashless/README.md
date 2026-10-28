@@ -1,0 +1,1 @@
+These fixtures are immutable public evidence copied from the approved FIRST38 recovery workspace after a public-data scan. They contain no signing material or live authority. Their source SHA-256 values are asserted by the focused certificate tests.
