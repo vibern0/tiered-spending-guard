@@ -188,6 +188,22 @@ function authorizedFixture(actionCount = 6) {
   return { proposal, approval, packageHash, artifactBytesHash, approvalHash, document };
 }
 
+function trackedAuthorizedFixture(actionCount: number) {
+  const fixturePath = join(__dirname, "../../fixtures/ordinary-scenario-review.public.json");
+  const serialized = readFileSync(fixturePath, "utf8");
+  const packageHash = sha256(JSON.parse(serialized)) as Hex;
+  const proposal = createOrdinaryScenarioProposal(serialized, { expectedPackageHash: packageHash, expectedArtifactBytesHash: rawHash(serialized) });
+  const document = {
+    schemaVersion: 1, scope: "bounded-ordinary-matrix-v1", authorization: "EXPLICIT_GROUP_APPROVAL", chainId: 11155111,
+    proposalHash: proposal.proposalHash, reviewPackageHash: proposal.reviewPackageHash, reviewArtifactBytesHash: proposal.reviewArtifactBytesHash, planHash: proposal.planHash,
+    approvedActions: proposal.actions.slice(0, actionCount).map(value => ({ id: value.id, commitment: value.commitment })),
+    derivations: { outerEoaNonce: "CURRENT_ONLY", fees: "AT_OR_BELOW_ACTION_CAPS", gas: "SIGNED_SIMULATION_AT_OR_BELOW_ACTION_CAP", queueTiming: "CANONICAL_RECEIPT_CREATED_AT_ONLY", safeNonce: "FIXED", delayQueueNonce: "FIXED", delayTxNonce: "FIXED" },
+    phaseLimitWei: "50000000000000000", maxBroadcastAttempts: 1,
+  };
+  const approval = loadOrdinaryScenarioApproval(proposal, `${JSON.stringify(document)}\n`, { expectedProposalHash: proposal.proposalHash, expectedPackageHash: packageHash, expectedApprovalHash: sha256(document) as Hex });
+  return { proposal, approval };
+}
+
 class MemoryStore implements OrdinaryScenarioStore {
   public saves: string[] = [];
   constructor(public journal: OrdinaryScenarioJournal) {}
@@ -245,6 +261,57 @@ function executionFixture(actionCount = 1, state = canonicalState()) {
 }
 
 describe("bounded ordinary scenario coordinator", () => {
+  it("reaches private materialization for every reviewed queue proposal before the future head exists", async () => {
+    const tracked = trackedAuthorizedFixture(38);
+    const proposals = tracked.proposal.actions.map((value, index) => ({ value, index })).filter(entry => entry.value.kind === "queue-proposal");
+    expect(proposals.map(entry => entry.value.id)).to.deep.equal([
+      "native-queue-cancel", "native-queue-expiry", "native-queue-execute",
+      "usdc-queue-cancel", "usdc-queue-expiry", "usdc-queue-execute",
+    ]);
+    for (const { value: actionScope, index } of proposals) {
+      const fixture = trackedAuthorizedFixture(index + 1);
+      const journal = createOrdinaryScenarioJournal(fixture.proposal, fixture.approval, fixture.proposal.funder);
+      for (const [priorIndex, prior] of fixture.proposal.actions.slice(0, index).entries()) {
+        journal.actions.push({
+          id: prior.id, commitment: prior.commitment, status: prior.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed",
+          transactionHash: prior.expectedOutcome === "rejection" ? undefined : keccak256(toHex(priorIndex + 1, { size: 32 })),
+          evidenceHash: keccak256(toHex(priorIndex + 101, { size: 32 })),
+          queueCreatedAt: prior.kind === "queue-proposal" ? "1000" : undefined,
+          establishedWindow: prior.kind === "base-transfer" ? fixture.proposal.periodAnchor : undefined,
+        });
+      }
+      const before = actionScope.before;
+      const reviewedHead = before.queueNonce === null ? undefined : fixture.proposal.actions.find(candidate => candidate.kind === "queue-proposal" && candidate.queue?.queueNonce.toString() === before.queueNonce && candidate.queue.fingerprint.toLowerCase() === before.queueFingerprint?.toLowerCase());
+      const state: CanonicalOrdinaryScenarioState = {
+        chainId: fixture.proposal.chainId, blockNumber: 10n, blockHash: keccak256("0x22"), blockTimestamp: 1000n,
+        evidenceBasis: { kind: "current-head" }, planHash: fixture.proposal.planHash, topologyEvidenceHash: fixture.proposal.topologyEvidenceHash,
+        publicIdentitiesHash: fixture.proposal.publicIdentitiesHash, observerReady: true, observerEvidenceHash: fixture.proposal.observerEvidenceHash,
+        outerNonce: 900, funderNativeBalance: 10n ** 30n, safeNativeBalance: BigInt(before.safeNativeBalance), funderUsdcBalance: BigInt(before.funderUsdcBalance), safeUsdcBalance: BigInt(before.safeUsdcBalance),
+        safeNonce: BigInt(before.safeNonce), delayQueueNonce: BigInt(before.delayQueueNonce), delayTxNonce: BigInt(before.delayTxNonce),
+        nativeSpend: { window: BigInt(fixture.proposal.periodAnchor), baseSpent: BigInt(before.nativeBaseSpent), instantSpent: BigInt(before.nativeInstantSpent) },
+        usdcSpend: { window: BigInt(fixture.proposal.periodAnchor), baseSpent: BigInt(before.usdcBaseSpent), instantSpent: BigInt(before.usdcInstantSpent) },
+        queue: reviewedHead?.queue ? { ...reviewedHead.queue, createdAt: 1000n, status: before.queueStatus === "QUEUED_CONDITIONAL" ? "queued" : before.queueStatus === "CANCELLED_CONDITIONAL" ? "cancelled" : before.queueStatus === "EXPIRED_CONDITIONAL" ? "expired" : "executed" } : undefined,
+        dependencies: actionScope.dependsOn.map(actionId => { const record = journal.actions.find(value => value.id === actionId)!; return { actionId, transactionHash: record.transactionHash, evidenceHash: record.evidenceHash! }; }),
+        fees: { maxFeePerGas: 1n, maxPriorityFeePerGas: 1n },
+      };
+      let materialized = false;
+      const context = {
+        readState: async () => state,
+        materialize: async () => { materialized = true; throw new Error("materialization boundary reached"); },
+      } as unknown as OrdinaryScenarioExecutionContext;
+      if (state.queue) {
+        let wrongMaterialized = false;
+        const wrongCreatedAt = { ...state, queue: { ...state.queue, createdAt: 999n } };
+        const wrongContext = { readState: async () => wrongCreatedAt, materialize: async () => { wrongMaterialized = true; throw new Error("must not materialize"); } } as unknown as OrdinaryScenarioExecutionContext;
+        await expect(executeOrdinaryScenarioAction(fixture.proposal, fixture.approval, new MemoryStore(structuredClone(journal)), wrongContext)).to.be.rejectedWith("queue createdAt is not bound to proposal receipt");
+        expect(wrongMaterialized, actionScope.id).to.equal(false);
+      }
+      const store = new MemoryStore(journal);
+      await expect(executeOrdinaryScenarioAction(fixture.proposal, fixture.approval, store, context)).to.be.rejectedWith("materialization boundary reached");
+      expect(materialized, actionScope.id).to.equal(true);
+    }
+  });
+
   it("treats a proposal as non-authorizing and rejects package or approval mutations before capabilities", async () => {
     const f = executionFixture();
     await expect(executeOrdinaryScenarioAction(f.proposal, undefined, f.store, f.context)).to.be.rejectedWith("explicit group approval");

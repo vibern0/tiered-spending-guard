@@ -716,6 +716,7 @@ function queueTimes(action: OrdinaryScenarioActionScope, proposal: OrdinaryScena
 }
 
 function timingGate(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, state: CanonicalOrdinaryScenarioState): OrdinaryScenarioExecutionResult | undefined {
+  if (action.kind === "queue-proposal") return undefined;
   const timing = queueTimes(action, proposal, journal, state); if (!timing) return undefined;
   if (action.kind === "ready-delay-execution") {
     if (state.blockTimestamp < timing.readyAt) return { status: "WAITING", actionId: action.id, nextCanonicalTime: timing.readyAt };

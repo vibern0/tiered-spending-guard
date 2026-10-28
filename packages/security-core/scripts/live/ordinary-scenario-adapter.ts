@@ -117,11 +117,13 @@ export function createOrdinaryScenarioMechanicalStateReader(input: OrdinaryScena
     let queue: CanonicalOrdinaryScenarioState["queue"];
     const controlled = evidenceBasis.kind === "receipt-poststate" ? action.after : action.before;
     if (controlled.queueStatus !== "EMPTY") {
-      if (!action.queue) throw new Error("ordinary scenario reviewed queue tuple is missing");
-      const [fingerprint, createdAt] = await Promise.all([read(input.proposal.delay, DELAY_READ_ABI, "getTxHash", [action.queue.queueNonce]), read(input.proposal.delay, DELAY_READ_ABI, "getTxCreatedAt", [action.queue.queueNonce])]);
-      if (String(fingerprint).toLowerCase() !== action.queue.fingerprint.toLowerCase()) throw new Error("ordinary scenario queue archive fingerprint mismatch");
+      const reviewedHeads = input.proposal.actions.filter(candidate => candidate.kind === "queue-proposal" && candidate.queue && candidate.queue.queueNonce.toString() === controlled.queueNonce && candidate.queue.fingerprint.toLowerCase() === controlled.queueFingerprint?.toLowerCase());
+      if (reviewedHeads.length !== 1 || !reviewedHeads[0]!.queue) throw new Error("ordinary scenario reviewed controlled queue head is missing or ambiguous");
+      const reviewed = reviewedHeads[0]!.queue;
+      const [fingerprint, createdAt] = await Promise.all([read(input.proposal.delay, DELAY_READ_ABI, "getTxHash", [reviewed.queueNonce]), read(input.proposal.delay, DELAY_READ_ABI, "getTxCreatedAt", [reviewed.queueNonce])]);
+      if (String(fingerprint).toLowerCase() !== reviewed.fingerprint.toLowerCase()) throw new Error("ordinary scenario queue archive fingerprint mismatch");
       const status = controlled.queueStatus === "QUEUED_CONDITIONAL" ? "queued" : controlled.queueStatus === "CANCELLED_CONDITIONAL" ? "cancelled" : controlled.queueStatus === "EXPIRED_CONDITIONAL" ? "expired" : "executed";
-      queue = { queueNonce: action.queue.queueNonce, fingerprint: action.queue.fingerprint, createdAt: BigInt(createdAt as bigint), status, to: action.queue.to, value: action.queue.value, data: action.queue.data, operation: 0 };
+      queue = { queueNonce: reviewed.queueNonce, fingerprint: reviewed.fingerprint, createdAt: BigInt(createdAt as bigint), status, to: reviewed.to, value: reviewed.value, data: reviewed.data, operation: reviewed.operation };
     }
     const dependencies = [];
     for (const dependencyId of action.dependsOn) {
