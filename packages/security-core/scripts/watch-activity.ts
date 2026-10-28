@@ -1,4 +1,5 @@
-import { createPublicClient, decodeEventLog, decodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
+import { createPublicClient, decodeEventLog, http, parseAbi, type Address, type Hex } from "viem";
+import { decodeDelayLifecycleCall } from "../src/monitoring/delay-lifecycle-decoder";
 import { assertDelayLifecycleArchiveCoverage, decodeDelayLog, delayEventAbi, deriveDelayLifecycle, isDelayActivityLog, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
 import { decodeGuardLog, type MonitoringIdentity } from "../src/monitoring/guard-events";
 import { createRpcGuardBinding, type RpcGuardClient } from "../src/monitoring/guard-rpc-binding";
@@ -16,7 +17,6 @@ const safeAbi = parseAbi([
   "function skipExpired()",
   "function setTxNonce(uint256)",
 ]);
-const lifecycleAbi = parseAbi(["function executeNextTx(address,uint256,bytes,uint8)","function skipExpired()","function setTxNonce(uint256)"]);
 type RawLog = { address: Address; blockNumber: bigint; blockHash: Hex; transactionHash: Hex; logIndex: number; topics: readonly Hex[]; data: Hex; removed?: boolean };
 
 async function main(): Promise<void> {
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
           },
           readLifecycleReceipts: async () => lifecycleReceipts,
           readCanonicalBlock: async blockNumber => { const block = await client.getBlock({ blockNumber }); if (!block.hash) throw new Error("missing canonical lifecycle block hash"); return { blockNumber, blockHash: block.hash, timestamp: block.timestamp }; },
-          decodeLifecycleCall: input => { const decoded = decodeFunctionData({ abi: lifecycleAbi, data: input }); return { functionName: decoded.functionName as "executeNextTx"|"skipExpired"|"setTxNonce", args: decoded.args as readonly unknown[] }; },
+          decodeLifecycleCall: decodeDelayLifecycleCall,
         });
         if (lifecycle) { const block = await client.getBlock({ blockNumber: lifecycle.blockNumber }); if (!block.hash) throw new Error("missing derived lifecycle block hash"); ledger.accept({ chainId: rpcChain, blockHash: block.hash, transactionHash: lifecycle.transactionHash, logIndex: lifecycle.logIndex }, lifecycle); }
     }, record => `queue-${record.queueNonce}`);
