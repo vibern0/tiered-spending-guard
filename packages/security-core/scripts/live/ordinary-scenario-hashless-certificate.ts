@@ -236,7 +236,7 @@ const expectedControlledState = (): HashlessControlledState => ({
   chainId: CHAIN_ID, safe: SAFE, delay: DELAY, usdc: USDC, safeNonce: 7n, delayQueueNonce: 3n, delayTxNonce: 2n,
   queue: { queueNonce: 2n, to: FUNDER, value: 1n, data: "0x", operation: 0, createdAt: 1_793_208_888n, expiresAt: 1_793_209_608n },
   safeNativeBalance: 1n, safeUsdcBalance: 20_000_000n, funderUsdcBalance: 0n, effectiveGuardWindow: 1_793_145_600n,
-  nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, usdcSpend: { window: 1_793_145_600n, baseSpent: 0n, instantSpent: 0n },
+  nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, usdcSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
 });
 
 type ProviderView = Readonly<{ selected: HashlessCanonicalBlock; certificate: HashlessCanonicalBlock; transactionBlock: HashlessCanonicalBlock; current: HashlessCanonicalBlock; transaction: HashlessCanonicalTransaction; receipt: HashlessCanonicalReceipt; certificateNonce: number; currentNonce: number; latestNonce: number; pendingNonce: number; selectedState: HashlessControlledState; certificateState: HashlessControlledState; currentState: HashlessControlledState; canonicalRecheck: readonly [HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined, HashlessCanonicalBlock | undefined] }>;

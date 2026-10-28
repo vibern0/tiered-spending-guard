@@ -6,7 +6,7 @@ import { deriveDelayLifecycle } from "../../src/monitoring/delay-events";
 import { assertSameSignerRequest, snapshotSafeSignerRequest, type Eip1193Provider, type SafeSignerRequest } from "../../src/signers/types";
 import { decodeEventLog, decodeFunctionData, encodeAbiParameters, encodeFunctionData, hashTypedData, parseAbi, keccak256, serializeTransaction, type Address, type Hex } from "viem";
 import type { LiveContext, LiveReceipt } from "./submission";
-import type { CanonicalOrdinaryScenarioState, ConfirmationEffect, OrdinaryScenarioActionScope, OrdinaryScenarioExecutionContext, OrdinaryScenarioJournal, OrdinaryScenarioProposal, PreparedOrdinaryAction, SignedSimulationEvidence } from "./ordinary-scenario-executor";
+import { resolveOrdinaryScenarioExecutionProposal, type CanonicalOrdinaryScenarioState, type ConfirmationEffect, type OrdinaryScenarioActionRecord, type OrdinaryScenarioActionScope, type OrdinaryScenarioExecutionContext, type OrdinaryScenarioExecutionView, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal, type PreparedOrdinaryAction, type SignedSimulationEvidence } from "./ordinary-scenario-executor";
 import { reconstructReviewedPlan, verifyReconstructedPlanAtBlock } from "./ordinary-scenario-review-cli";
 import { selectApprovedFees } from "./ordinary-review-profile";
 import { SAFE_TX_TYPES, type VaultSigner } from "../../src/signers/types";
@@ -25,6 +25,12 @@ const DELAY_EVENT_ABI = parseAbi(["event TransactionAdded(uint256 indexed queueN
 const DELAY_CALL_ABI = parseAbi(["function executeNextTx(address,uint256,bytes,uint8)", "function skipExpired()", "function setTxNonce(uint256)"]);
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
+const normalizeJournalInput = <T extends { proposal: OrdinaryScenarioProposal | OrdinaryScenarioExecutionView; journal(): OrdinaryScenarioJournal }>(input: T): Omit<T, "proposal" | "journal"> & { proposal: OrdinaryScenarioProposal; journal(): OrdinaryScenarioJournal } => {
+  const proposal = resolveOrdinaryScenarioExecutionProposal(input.proposal);
+  if (!("kind" in input.proposal) || input.proposal.kind === "original-ordinary-v1") return { ...input, proposal };
+  const sourceJournal = input.journal;
+  return { ...input, proposal, journal: () => { const source = sourceJournal(); const records = source.hashlessContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions.slice(0, 18), ...records] }; } };
+};
 
 export type FrozenLocalAccountCapability = Readonly<{
   account: Address;
@@ -57,7 +63,7 @@ export function createFrozenSafeSignerProvider(input: FrozenLocalAccountCapabili
 type ViemPublicClient = Parameters<typeof reconstructReviewedPlan>[1];
 export type OrdinaryScenarioStateReaderInput = Readonly<{
   repository: string;
-  proposal: OrdinaryScenarioProposal;
+  proposal: OrdinaryScenarioProposal | OrdinaryScenarioExecutionView;
   journal(): OrdinaryScenarioJournal;
   currentClient: ViemPublicClient;
   archiveClient: ViemPublicClient;
@@ -66,9 +72,10 @@ export type OrdinaryScenarioStateReaderInput = Readonly<{
 export type ReceiptStateBinding = Readonly<{ actionId: string; transactionHash: Hex; blockNumber: bigint; blockHash: Hex; evidenceBasis?: CanonicalOrdinaryScenarioState["evidenceBasis"] }>;
 
 export function createOrdinaryScenarioStateReader(input: OrdinaryScenarioStateReaderInput) {
+  const normalized = normalizeJournalInput(input);
   let reconstruction: Awaited<ReturnType<typeof reconstructReviewedPlan>> | undefined;
   const reconstructed = async () => reconstruction ??= await reconstructReviewedPlan(input.repository, input.archiveClient);
-  return createOrdinaryScenarioMechanicalStateReader({ ...input, expectedChainId: 11155111, verifyProfileAtBlock: async (client, blockNumber) => { await verifyReconstructedPlanAtBlock(await reconstructed(), client, blockNumber); } });
+  return createOrdinaryScenarioMechanicalStateReader({ ...normalized, expectedChainId: 11155111, verifyProfileAtBlock: async (client, blockNumber) => { await verifyReconstructedPlanAtBlock(await reconstructed(), client, blockNumber); } });
 }
 
 export type OrdinaryScenarioMechanicalStateReaderInput = Omit<OrdinaryScenarioStateReaderInput, "repository"> & Readonly<{
@@ -77,7 +84,8 @@ export type OrdinaryScenarioMechanicalStateReaderInput = Omit<OrdinaryScenarioSt
 }>;
 
 /** Non-authorizing mechanical core; the production wrapper above fixes Sepolia and public descriptor verification. */
-export function createOrdinaryScenarioMechanicalStateReader(input: OrdinaryScenarioMechanicalStateReaderInput) {
+export function createOrdinaryScenarioMechanicalStateReader(rawInput: OrdinaryScenarioMechanicalStateReaderInput) {
+  const input = normalizeJournalInput(rawInput);
   return async (action: OrdinaryScenarioActionScope, phase: "pre-private" | "pre-outer", receiptBinding?: ReceiptStateBinding): Promise<CanonicalOrdinaryScenarioState> => {
     const journal = input.journal();
     let frozenFees: Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> | undefined;
@@ -168,7 +176,8 @@ export function createOrdinaryScenarioExecutionContext(input: OrdinaryScenarioAd
 export type OrdinaryScenarioMechanicalAdapterInput = Omit<OrdinaryScenarioAdapterInput, "repository"> & Readonly<{ expectedChainId: number }>;
 
 /** Non-authorizing callback core; production supplies the closed state reader and Sepolia chain above. */
-export function createOrdinaryScenarioMechanicalExecutionContext(input: OrdinaryScenarioMechanicalAdapterInput, stateReader: ReturnType<typeof createOrdinaryScenarioMechanicalStateReader>): OrdinaryScenarioExecutionContext {
+export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: OrdinaryScenarioMechanicalAdapterInput, stateReader: ReturnType<typeof createOrdinaryScenarioMechanicalStateReader>): OrdinaryScenarioExecutionContext {
+  const input = normalizeJournalInput(rawInput);
   const current = input.currentClient;
   const archive = input.archiveClient;
   const materialize = async (action: OrdinaryScenarioActionScope, state: CanonicalOrdinaryScenarioState): Promise<PreparedOrdinaryAction> => {

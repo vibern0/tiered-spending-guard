@@ -41,7 +41,7 @@ const controlledState = (): HashlessControlledState => ({
   funderUsdcBalance: 0n,
   effectiveGuardWindow: 1_793_145_600n,
   nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n },
-  usdcSpend: { window: 1_793_145_600n, baseSpent: 0n, instantSpent: 0n },
+  usdcSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
 });
 
 type ProviderOptions = Readonly<{
@@ -197,6 +197,9 @@ describe("ordinary scenario hashless certificate", function () {
 
     const window = controlledState(); window.nativeSpend.window += 86_400n;
     await expect(verify(trackedSource(), [provider({ currentState: window }), provider({ currentState: window })])).to.be.rejectedWith(/window|current|controlled|state/i);
+
+    const inventedUsdcWindow = controlledState(); inventedUsdcWindow.usdcSpend.window = inventedUsdcWindow.effectiveGuardWindow;
+    await expect(verify(trackedSource(), [provider({ currentState: inventedUsdcWindow }), provider({ currentState: inventedUsdcWindow })])).to.be.rejectedWith(/window|current|controlled|state/i);
 
     await expect(verify(trackedSource(), [provider({ currentRecheckHash: `0x${"99".repeat(32)}` as Hex }), provider({ currentRecheckHash: `0x${"99".repeat(32)}` as Hex })])).to.be.rejectedWith(/reorg|current|canonical/i);
   });

@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { decodeFunctionData, hashTypedData, isAddress, keccak256, parseTransaction, recoverAddress, recoverTransactionAddress, type Address, type Hex } from "viem";
 import { sha256 } from "../plan-deployment";
+import { hashHistoricalPrefix } from "./ordinary-scenario-hashless-certificate";
+import {
+  assertExpiredHashlessContinuationAuthorization,
+  type ExpiredHashlessContinuationAction,
+  type ExpiredHashlessContinuationApproval,
+  type ExpiredHashlessContinuationProposal,
+  type HashlessContinuationStorage,
+} from "./ordinary-scenario-hashless-continuation";
 import { SAFE_TX_TYPES } from "../../src/signers/types";
 import {
   PHASE_OUTLAY_LIMIT,
@@ -16,6 +24,7 @@ import {
 } from "./submission";
 
 const CHAIN_ID = 11155111;
+const APPROVED_HASHLESS_PREFIX = "0x299d8cf298cf0a905046e4fbe569c44c2329b54207e159db551d41fee1dbb83d" as Hex;
 export type OrdinaryScenarioProposalDomain = Readonly<{ chainId: number }>;
 const ordinaryScenarioDomainBrands = new WeakSet<object>();
 export function validateOrdinaryScenarioProposalDomain(domain: OrdinaryScenarioProposalDomain, verifyCanonicalProfile: (domain: OrdinaryScenarioProposalDomain) => true): OrdinaryScenarioProposalDomain {
@@ -227,7 +236,7 @@ export type OrdinaryScenarioProposal = Readonly<{
 }>;
 
 export type OrdinaryScenarioApproval = Readonly<{ approvalHash: Hex }>;
-type ApprovalBinding = Readonly<{ proposal: OrdinaryScenarioProposal; actionCount: number; maximumApprovedReservation: bigint }>;
+type ApprovalBinding = Readonly<{ proposal: OrdinaryScenarioProposal; actions: readonly OrdinaryScenarioActionScope[]; actionCount: number; maximumApprovedReservation: bigint }>;
 const approvalBindings = new WeakMap<object, ApprovalBinding>();
 
 export type OrdinaryScenarioActionStatus = "materialized" | "signed-simulated" | "outer-pending" | "confirmed" | "rejection-proved" | "reverted" | "stopped";
@@ -271,6 +280,7 @@ export type OrdinaryScenarioJournal = {
   funder: Address;
   liveJournal: LiveJournal;
   actions: OrdinaryScenarioActionRecord[];
+  hashlessContinuation?: HashlessContinuationStorage;
   repairContinuation?: {
     schemaVersion: 1;
     prefixHash: Hex;
@@ -283,6 +293,64 @@ export type OrdinaryScenarioJournal = {
     actions: Array<{ id: string; commitment: Hex; status: "proposed" | "approved" | "pending" | "confirmed" | "rejection-proved" | "stopped"; transactionHash?: Hex; evidenceHash?: Hex }>;
   };
 };
+
+export type OrdinaryScenarioExecutionView =
+  | Readonly<{ kind: "original-ordinary-v1"; proposal: OrdinaryScenarioProposal }>
+  | Readonly<{ kind: "expired-hashless-continuation-v1"; original: OrdinaryScenarioProposal; continuation: ExpiredHashlessContinuationProposal; proposal: OrdinaryScenarioProposal }>;
+const executionViews = new WeakSet<object>();
+
+export function createOriginalOrdinaryScenarioExecutionView(proposal: OrdinaryScenarioProposal): OrdinaryScenarioExecutionView {
+  const view = deepFreeze({ kind: "original-ordinary-v1" as const, proposal }); executionViews.add(view); return view;
+}
+
+export function resolveOrdinaryScenarioExecutionProposal(value: OrdinaryScenarioProposal | OrdinaryScenarioExecutionView): OrdinaryScenarioProposal {
+  if ("kind" in value) {
+    if (!executionViews.has(value)) throw new Error("ordinary scenario execution view is not closed");
+    return value.proposal;
+  }
+  return value;
+}
+
+const continuationQueueStatus = (status: string): ControlledState["queueStatus"] => {
+  if (status === "EXPIRED") return "QUEUED_CONDITIONAL";
+  if (status === "EXPIRED_SKIPPED") return "EXPIRED_CONDITIONAL";
+  if (status === "QUEUED") return "QUEUED_CONDITIONAL";
+  if (status === "EXECUTED") return "EXECUTED_CONDITIONAL";
+  if (status === "EMPTY" || status === "QUEUED_CONDITIONAL" || status === "CANCELLED_CONDITIONAL" || status === "EXPIRED_CONDITIONAL" || status === "EXECUTED_CONDITIONAL") return status;
+  throw new Error("continuation queue status is unsupported");
+};
+
+function continuationState(value: ExpiredHashlessContinuationAction["before"]): ControlledState {
+  return {
+    safeNativeBalance: value.safeNativeBalance, funderUsdcBalance: value.funderUsdcBalance, safeUsdcBalance: value.safeUsdcBalance,
+    safeNonce: value.safeNonce, delayQueueNonce: value.delayQueueNonce, delayTxNonce: value.delayTxNonce,
+    nativeBaseSpent: value.nativeBaseSpent, nativeInstantSpent: value.nativeInstantSpent, usdcBaseSpent: value.usdcBaseSpent, usdcInstantSpent: value.usdcInstantSpent,
+    queueStatus: continuationQueueStatus(value.queueStatus), queueNonce: value.queueNonce, queueFingerprint: value.queueFingerprint,
+  };
+}
+
+function continuationScope(action: ExpiredHashlessContinuationAction): OrdinaryScenarioActionScope {
+  const safeTransaction: ReviewedSafeTransaction | undefined = action.safeTransaction && action.safeTxHash ? {
+    to: action.safeTransaction.to, value: BigInt(action.safeTransaction.value), data: action.safeTransaction.data, operation: 0 as const,
+    safeNonce: BigInt(action.safeTransaction.nonce), safeTxHash: action.safeTxHash, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n,
+    gasToken: action.safeTransaction.gasToken, refundReceiver: action.safeTransaction.refundReceiver,
+  } : undefined;
+  return deepFreeze({
+    id: action.id, kind: action.kind, asset: action.asset, expectedOutcome: action.expectedOutcome, signerRoles: [...action.signerRoles], dependsOn: [...action.dependsOn], commitment: action.commitment,
+    gasLimitCap: BigInt(action.gasLimitCap), maxFeePerGasCap: BigInt(action.maxFeePerGasCap), maxPriorityFeePerGasCap: BigInt(action.maxPriorityFeePerGasCap),
+    before: continuationState(action.before), after: continuationState(action.after),
+    ...(safeTransaction ? { safeTxHash: action.safeTxHash!, safeTransaction } : { publicTransaction: { to: action.transaction.to, value: BigInt(action.transaction.value), data: action.transaction.data } }),
+    ...(action.queue ? { queue: { queueNonce: BigInt(action.queue.queueNonce), fingerprint: action.queue.fingerprint, monitoringFingerprint: action.queue.monitoringFingerprint, to: action.queue.to, value: BigInt(action.queue.value), data: action.queue.data, operation: 0 as const } } : {}),
+  });
+}
+
+export function createExpiredHashlessContinuationExecutionView(original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval): OrdinaryScenarioExecutionView {
+  assertExpiredHashlessContinuationAuthorization(continuation, approval);
+  if (continuation.originalProposalHash !== original.proposalHash || continuation.actions.length !== 22) throw new Error("continuation execution view lineage mismatch");
+  const continuationActions = continuation.actions.map(continuationScope);
+  const proposal = deepFreeze({ ...original, proposalHash: continuation.proposalHash, observerEvidenceHash: continuation.observer.probeEvidenceHash, actions: [...original.actions.slice(0, 18), ...continuationActions] });
+  const view = deepFreeze({ kind: "expired-hashless-continuation-v1" as const, original, continuation, proposal }); executionViews.add(view); return view;
+}
 
 export type OrdinaryScenarioStore = Readonly<{
   load(): OrdinaryScenarioJournal;
@@ -613,7 +681,7 @@ export function loadOrdinaryScenarioApproval(proposal: OrdinaryScenarioProposal,
     if (scope.expectedOutcome === "success") maximumApprovedReservation += scope.gasLimitCap * scope.maxFeePerGasCap + nativePrincipal(scope);
   }
   if (maximumApprovedReservation > PHASE_OUTLAY_LIMIT) throw new Error("ordinary scenario approved phase outlay exceeds ceiling");
-  const approval = deepFreeze({ approvalHash }); approvalBindings.set(approval, deepFreeze({ proposal, actionCount: approved.length, maximumApprovedReservation }));
+  const approval = deepFreeze({ approvalHash }); approvalBindings.set(approval, deepFreeze({ proposal, actions: proposal.actions, actionCount: approved.length, maximumApprovedReservation }));
   return approval;
 }
 
@@ -694,7 +762,7 @@ function assertFreshState(action: OrdinaryScenarioActionScope, proposal: Ordinar
 function approvedRemainingReservation(proposal: OrdinaryScenarioProposal, binding: ApprovalBinding, journal: OrdinaryScenarioJournal): bigint {
   let total = 0n;
   for (let index = 0; index < binding.actionCount; index++) {
-    const scope = proposal.actions[index]!; if (scope.expectedOutcome !== "success") continue;
+    const scope = binding.actions[index]!; if (scope.expectedOutcome !== "success") continue;
     const existing = journal.actions.find((entry) => entry.id === scope.id);
     if (existing?.status === "confirmed" || existing?.status === "reverted") continue;
     if (existing?.status === "outer-pending") {
@@ -816,8 +884,10 @@ function expectedEffect(action: OrdinaryScenarioActionScope, proposal: OrdinaryS
 }
 
 function nextAction(binding: ApprovalBinding, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope | undefined {
+  const approvedIds = new Set(binding.actions.slice(0, binding.actionCount).map(action => action.id));
+  const records = journal.actions.filter(entry => approvedIds.has(entry.id));
   for (let index = 0; index < binding.actionCount; index++) {
-    const scope = binding.proposal.actions[index]!; const existing = journal.actions[index];
+    const scope = binding.actions[index]!; const existing = records[index];
     if (!existing) return scope;
     if (existing.id !== scope.id || !same(existing.commitment, scope.commitment)) throw new Error("ordinary scenario action journal order mismatch");
     if (existing.status === "confirmed" || existing.status === "rejection-proved") {
@@ -872,7 +942,11 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
   if (!approval) throw new Error("ordinary scenario requires explicit group approval");
   const binding = approvalBindings.get(approval);
   if (!binding || binding.proposal !== proposal) throw new Error("ordinary scenario requires exact opaque validated approval");
-  const journal = store.load(); journalMatches(journal, proposal, approval);
+  return executeResolvedOrdinaryScenarioAction(proposal, binding, store, context, journal => journalMatches(journal, proposal, approval));
+}
+
+async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioProposal, binding: ApprovalBinding, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext, validateJournal: (journal: OrdinaryScenarioJournal) => void, continuationReservation?: string): Promise<OrdinaryScenarioExecutionResult> {
+  const journal = store.load(); validateJournal(journal);
   const action = nextAction(binding, journal); if (!action) return { status: "COMPLETE" };
   const existing = journal.actions.find((entry) => entry.id === action.id);
   if (existing?.status === "reverted") return { status: "REVERTED", actionId: action.id };
@@ -918,6 +992,7 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
   const prepared = await context.materialize(action, state); await validatePrepared(action, proposal, prepared, state, context);
   const simulation = await context.simulate(action, prepared, state);
   if (!simulation.success || simulation.blockNumber !== state.blockNumber || !same(simulation.blockHash, state.blockHash) || simulation.gasEstimate <= 0n || simulation.gasEstimate > prepared.liveIntent.gas || simulation.gasEstimate > action.gasLimitCap || !HASH.test(simulation.resultHash)) throw new Error("ordinary scenario exact signed simulation failed or exceeded cap");
+  if (continuationReservation !== undefined) recordEntry.materializationHash = publicHash({ proposal: proposal.proposalHash, action: action.commitment, outerNonce: prepared.liveIntent.nonce, gas: prepared.liveIntent.gas.toString(), gasEstimate: simulation.gasEstimate.toString(), frozenFees: { maxFeePerGas: prepared.liveIntent.maxFeePerGas.toString(), maxPriorityFeePerGas: prepared.liveIntent.maxPriorityFeePerGas.toString() }, pinnedBlock: { number: state.blockNumber.toString(), hash: state.blockHash }, reservation: { approvedContinuation: continuationReservation, remainingAtMaterialization: remaining.toString() } });
   recordEntry.status = "signed-simulated"; recordEntry.requestHash = prepared.requestHash; recordEntry.signatureBundleHash = prepared.signatureBundleHash; recordEntry.signedCalldataHash = prepared.signedCalldataHash; recordEntry.simulationEvidenceHash = sha256({ ...simulation, blockNumber: simulation.blockNumber.toString(), gasEstimate: simulation.gasEstimate.toString() }) as Hex; recordEntry.gas = prepared.liveIntent.gas.toString(); recordEntry.outerTo = prepared.liveIntent.to; recordEntry.outerValue = prepared.liveIntent.value.toString(); recordEntry.outerDataHash = keccak256(prepared.liveIntent.data); store.save(journal);
   const live: LiveContext = {
     ...context.live,
@@ -936,6 +1011,45 @@ export async function executeOrdinaryScenarioAction(proposal: OrdinaryScenarioPr
   return { status: "PENDING", actionId: action.id };
 }
 
+export async function executeExpiredHashlessContinuationAction(original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> {
+  if (!approval) throw new Error("expired hashless continuation explicit approval is required");
+  assertExpiredHashlessContinuationAuthorization(continuation, approval);
+  const view = createExpiredHashlessContinuationExecutionView(original, continuation, approval);
+  const sourceStore: OrdinaryScenarioStore = {
+    load: () => {
+      const source = store.load();
+      assertHashlessContinuationJournal(source, original, continuation, approval);
+      const progressed = source.hashlessContinuation!.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
+      return { ...source, actions: [...source.actions.slice(0, 18), ...progressed] };
+    },
+    save: projected => {
+      const source = store.load();
+      assertHashlessContinuationJournal(source, original, continuation, approval);
+      const progressed = new Map(projected.actions.slice(18).map(entry => [entry.id, entry]));
+      source.hashlessContinuation!.actions.splice(0, source.hashlessContinuation!.actions.length, ...continuation.actions.map(action => progressed.get(action.id) ?? { id: action.id, commitment: action.commitment, status: "approved" as const }));
+      source.liveJournal = projected.liveJournal;
+      assertHashlessContinuationJournal(source, original, continuation, approval);
+      store.save(source);
+    },
+  };
+  const proposal = { ...view.proposal, baselineActualCostWei: (BigInt(continuation.reservation.originalActualGasCostWei) + BigInt(continuation.reservation.originalPrincipalWei)).toString() };
+  const binding: ApprovalBinding = { proposal, actions: continuation.actions.map(continuationScope), actionCount: continuation.actions.length, maximumApprovedReservation: BigInt(continuation.reservation.maximumCumulativeOutlayWei) };
+  const guardedContext: OrdinaryScenarioExecutionContext = { ...context, readState: async (action, phase) => { const state = await context.readState(action, phase); if (state.outerNonce <= 809) throw new Error("continuation outer nonce must be greater than historical nonce 809"); return state; } };
+  return executeResolvedOrdinaryScenarioAction(proposal, binding, sourceStore, guardedContext, journal => {
+    if (journal.actions.some(entry => entry.id === "native-queue-ready-execute")) throw new Error("immutable hashless source row is not executable");
+  }, continuation.reservation.continuationMaximumReservationWei);
+}
+
+function assertHashlessContinuationJournal(journal: OrdinaryScenarioJournal, original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval): void {
+  const attached = journal.hashlessContinuation;
+  if (!attached || journal.actions.length !== 19 || journal.liveJournal.entries.length < 10 || hashHistoricalPrefix(journal) !== continuation.historicalPrefixHash) throw new Error("hashless continuation historical 19/10 prefix mismatch");
+  if (journal.proposalHash !== original.proposalHash || journal.approvalHash !== continuation.source.originalApprovalHash || journal.approvalHash === approval.approvalHash || attached.historicalActionCount !== 19 || attached.historicalLiveEntryCount !== 10 || attached.historicalPrefixHash !== continuation.historicalPrefixHash || attached.originalProposalHash !== continuation.originalProposalHash || attached.certificateHash !== continuation.certificateHash || attached.proposalHash !== continuation.proposalHash || attached.approvalHash !== approval.approvalHash || attached.cumulativeContinuationReservationWei !== continuation.reservation.continuationMaximumReservationWei || publicHash(attached.source) !== publicHash(continuation.source) || attached.actions.length !== 22 || attached.actionCommitments.length !== 22) throw new Error("hashless continuation journal authority mismatch");
+  for (let index = 0; index < continuation.actions.length; index++) {
+    const expected = continuation.actions[index]!; const actual = attached.actions[index]!;
+    if (actual.id !== expected.id || actual.commitment !== expected.commitment) throw new Error("hashless continuation action lineage mismatch");
+  }
+}
+
 function encodeJournal(journal: OrdinaryScenarioJournal): string {
   return `${JSON.stringify(journal, (_, value) => typeof value === "bigint" ? value.toString() : value)}\n`;
 }
@@ -950,7 +1064,7 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
   assertOrdinaryDomain(domain);
   let parsed: unknown; try { parsed = JSON.parse(serialized); } catch { throw new Error("ordinary scenario journal must be JSON"); }
   const value = record(parsed, "ordinary scenario journal");
-  exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...(value.repairContinuation === undefined ? [] : ["repairContinuation"])], "ordinary scenario journal");
+  exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...(value.repairContinuation === undefined ? [] : ["repairContinuation"]), ...(value.hashlessContinuation === undefined ? [] : ["hashlessContinuation"])], "ordinary scenario journal");
   const live = record(value.liveJournal, "embedded live journal");
   exactKeys(live, ["chainId", "funder", "entries"], "embedded live journal");
   if (value.schemaVersion !== 1 || value.chainId !== domain.chainId || live.chainId !== domain.chainId) throw new Error("ordinary scenario persisted journal chain mismatch");
@@ -984,7 +1098,41 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (repair.schemaVersion !== 1 || decimal(String(repair.originalActionCount), "repair continuation prefix count") !== 38n || repairActions.length > 7 || repairActions.some((entry, index) => entry.id !== repairIds[index])) throw new Error("repair continuation header mismatch");
     repairContinuation = { schemaVersion: 1, prefixHash: hash(repair.prefixHash, "repair continuation prefix hash"), originalActionCount: 38, cumulativeActualCostWei: decimal(repair.cumulativeActualCostWei, "repair continuation cumulative cost").toString(), creationProposalHash: hash(repair.creationProposalHash, "repair creation proposal hash"), creationApprovalHash: repair.creationApprovalHash === undefined ? undefined : hash(repair.creationApprovalHash, "repair creation approval hash"), groupProposalHash: repair.groupProposalHash === undefined ? undefined : hash(repair.groupProposalHash, "repair group proposal hash"), groupApprovalHash: repair.groupApprovalHash === undefined ? undefined : hash(repair.groupApprovalHash, "repair group approval hash"), actions: repairActions };
   }
-  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, repairContinuation };
+  let hashlessContinuation: HashlessContinuationStorage | undefined;
+  if (value.hashlessContinuation !== undefined) {
+    const continuation = record(value.hashlessContinuation, "hashless continuation");
+    exactKeys(continuation, ["schemaVersion", "recoveryKind", "source", "historicalActionCount", "historicalLiveEntryCount", "historicalPrefixHash", "originalProposalHash", "certificateHash", "proposalHash", "approvalHash", "actionCommitments", "cumulativeContinuationReservationWei", "actions"], "hashless continuation");
+    if (continuation.schemaVersion !== 1 || continuation.recoveryKind !== "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1" || continuation.historicalActionCount !== 19 || continuation.historicalLiveEntryCount !== 10) throw new Error("hashless continuation header mismatch");
+    const source = record(continuation.source, "hashless continuation source");
+    exactKeys(source, ["originalReviewPackageHash", "originalProposalHash", "originalReviewArtifactBytesHash", "originalApprovalHash", "historicalActionCount", "historicalLiveEntryCount", "historicalPrefixHash", "stoppedRow"], "hashless continuation source");
+    const stopped = record(source.stoppedRow, "hashless continuation stopped row");
+    exactKeys(stopped, ["id", "commitment", "materializationHash", "prestateHash", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "outerDataHash", "outerNonce"], "hashless continuation stopped row");
+    if (source.historicalActionCount !== 19 || source.historicalLiveEntryCount !== 10 || stopped.id !== "native-queue-ready-execute" || stopped.signatureBundleHash !== null || stopped.outerNonce !== 809) throw new Error("hashless continuation source constants mismatch");
+    for (const key of ["originalReviewPackageHash", "originalProposalHash", "originalReviewArtifactBytesHash", "originalApprovalHash", "historicalPrefixHash"] as const) hash(source[key], `hashless source ${key}`);
+    for (const key of ["commitment", "materializationHash", "prestateHash", "requestHash", "signedCalldataHash", "simulationEvidenceHash", "outerDataHash"] as const) hash(stopped[key], `hashless stopped ${key}`);
+    const commitments = array(continuation.actionCommitments, "hashless commitments").map((raw, index) => { const item = record(raw, `hashless commitment ${index}`); exactKeys(item, ["id", "commitment"], `hashless commitment ${index}`); return { id: text(item.id, "hashless commitment id"), commitment: hash(item.commitment, "hashless commitment") }; });
+    const continuationActions = array(continuation.actions, "hashless actions").map((raw, index) => {
+      const rawItem = record(raw, `hashless action ${index}`);
+      if (typeof rawItem.id !== "string" || !HASH.test(String(rawItem.commitment))) throw new Error("hashless action identity mismatch");
+      if (rawItem.status === "approved") { exactKeys(rawItem, ["id", "commitment", "status"], `hashless action ${index}`); return rawItem as unknown as Readonly<{ id: string; commitment: Hex; status: "approved" }>; }
+      const item = rawItem as unknown as OrdinaryScenarioActionRecord;
+      if (!["materialized", "signed-simulated", "outer-pending", "confirmed", "rejection-proved", "reverted", "stopped"].includes(item.status)) throw new Error("hashless action status mismatch");
+      const allowed = new Set(["id", "commitment", "status", "materializationHash", "prestateHash", "outerNonce", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerTo", "outerValue", "outerDataHash", "evidenceHash", "receipt", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta", "externalFunderDeltaClassification"]);
+      if (Object.keys(item).some(key => !allowed.has(key))) throw new Error("hashless action has unknown fields");
+      for (const key of ["materializationHash", "prestateHash", "requestHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerDataHash", "evidenceHash"] as const) if (item[key] !== undefined) hash(item[key], `hashless action ${key}`);
+      if (item.signatureBundleHash !== undefined && item.signatureBundleHash !== null) hash(item.signatureBundleHash, "hashless action signature bundle hash");
+      for (const key of ["gas", "maxFeePerGas", "maxPriorityFeePerGas", "outerValue", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta"] as const) if (item[key] !== undefined) decimal(item[key], `hashless action ${key}`);
+      if (item.outerNonce !== undefined && (!Number.isSafeInteger(item.outerNonce) || item.outerNonce <= 809)) throw new Error("hashless action outer nonce is invalid");
+      if (item.outerTo !== undefined) address(item.outerTo, "hashless action outer target");
+      if (item.externalFunderDeltaClassification !== undefined && item.externalFunderDeltaClassification !== "unrelated/shared-funder activity") throw new Error("hashless action external funder classification mismatch");
+      if (item.receipt) item.receipt = decodeReceipt(item.receipt);
+      return item;
+    });
+    if (continuation.schemaVersion !== 1 || continuation.recoveryKind !== "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1" || continuation.historicalActionCount !== 19 || continuation.historicalLiveEntryCount !== 10 || commitments.length !== 22 || continuationActions.length !== 22 || commitments.some((entry, index) => entry.id !== continuationActions[index]!.id || entry.commitment !== continuationActions[index]!.commitment)) throw new Error("hashless continuation header or catalog mismatch");
+    hashlessContinuation = { schemaVersion: 1, recoveryKind: "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1", source: continuation.source as HashlessContinuationStorage["source"], historicalActionCount: 19, historicalLiveEntryCount: 10, historicalPrefixHash: hash(continuation.historicalPrefixHash, "hashless prefix hash"), originalProposalHash: hash(continuation.originalProposalHash, "hashless original proposal hash"), certificateHash: hash(continuation.certificateHash, "hashless certificate hash"), proposalHash: hash(continuation.proposalHash, "hashless proposal hash"), approvalHash: hash(continuation.approvalHash, "hashless approval hash"), actionCommitments: commitments, cumulativeContinuationReservationWei: decimal(continuation.cumulativeContinuationReservationWei, "hashless reservation").toString(), actions: continuationActions };
+  }
+  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, repairContinuation, hashlessContinuation };
+  if (hashlessContinuation && (actions.length !== 19 || entries.length < 10 || !same(hashHistoricalPrefix(journal), APPROVED_HASHLESS_PREFIX))) throw new Error("hashless continuation fixed historical prefix mismatch");
   if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario persisted journal identity mismatch");
   return journal;
 }
@@ -992,18 +1140,26 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
 /** One lock and one fsynced replacement own both coordinator state and the embedded LiveJournal. */
 export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ proposalHash: Hex; approvalHash: Hex; funder: Address }>, initial: () => OrdinaryScenarioJournal, domain: OrdinaryScenarioProposalDomain = PRODUCTION_ORDINARY_SCENARIO_DOMAIN): OrdinaryScenarioStore {
   assertOrdinaryDomain(domain);
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); const lockPath = `${path}.lock`; let lock: number | undefined;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporaryPrefix = `${basename(path)}.`;
+  if (readdirSync(dirname(path)).some(name => name.startsWith(temporaryPrefix) && name.endsWith(".tmp"))) throw new Error("ordinary scenario unresolved temporary journal exists");
+  const lockPath = `${path}.lock`; let lock: number | undefined;
   try { lock = openSync(lockPath, "wx", 0o600); writeFileSync(lock, `${process.pid}\n`, "utf8"); fsyncSync(lock); } catch { throw new Error("ordinary scenario writer lock unavailable"); }
-  let current = existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), identity, domain) : initial();
+  let current: OrdinaryScenarioJournal;
+  try { current = existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), identity, domain) : initial(); }
+  catch (error) { if (lock !== undefined) closeSync(lock); lock = undefined; unlinkSync(lockPath); throw error; }
   if (current.chainId !== domain.chainId || current.liveJournal.chainId !== domain.chainId) { closeSync(lock); lock = undefined; unlinkSync(lockPath); throw new Error("ordinary scenario initial journal chain mismatch"); }
+  const assertFixedPrefix = (journal: OrdinaryScenarioJournal): void => { if (journal.hashlessContinuation && (journal.actions.length !== 19 || journal.liveJournal.entries.length < 10 || !same(hashHistoricalPrefix(journal), APPROVED_HASHLESS_PREFIX))) throw new Error("hashless continuation fixed historical prefix mismatch"); };
+  assertFixedPrefix(current);
   const save = (journal: OrdinaryScenarioJournal): void => {
     if (lock === undefined) throw new Error("ordinary scenario writer lock is closed");
     if (journal.chainId !== domain.chainId || journal.liveJournal.chainId !== domain.chainId || !same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario store identity mismatch");
+    assertFixedPrefix(journal);
     const temporary = `${path}.${process.pid}.tmp`; const fd = openSync(temporary, "wx", 0o600);
     try { writeFileSync(fd, encodeJournal(journal), "utf8"); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temporary, path); const directory = openSync(dirname(path), "r"); try { fsyncSync(directory); } finally { closeSync(directory); }
     current = journal;
   };
   const close = (): void => { if (lock === undefined) return; closeSync(lock); lock = undefined; unlinkSync(lockPath); };
-  return Object.freeze({ load: () => current, save, close });
+  return Object.freeze({ load: () => { assertFixedPrefix(current); return current; }, save, close });
 }

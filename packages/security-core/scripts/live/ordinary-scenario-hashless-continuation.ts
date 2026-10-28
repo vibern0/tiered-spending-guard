@@ -3,7 +3,7 @@ import { buildCancellationTransaction, buildExecutionTransaction, buildQueueTran
 import { SAFE_TX_TYPES } from "../../src/signers/types";
 import { sha256 } from "../plan-deployment";
 import { hashHistoricalPrefix, isVerifiedHashlessStateCertificate, type VerifiedHashlessStateCertificate } from "./ordinary-scenario-hashless-certificate";
-import type { OrdinaryScenarioJournal, OrdinaryScenarioProposal } from "./ordinary-scenario-executor";
+import type { OrdinaryScenarioActionRecord, OrdinaryScenarioJournal, OrdinaryScenarioProposal } from "./ordinary-scenario-executor";
 
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
@@ -32,7 +32,7 @@ declare const proposalBrand: unique symbol;
 export type ExpiredHashlessContinuationProposal = Readonly<{ schemaVersion: 1; recoveryKind: "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1"; authorization: "NONE"; chainId: 11155111; source: ContinuationSourceBinding; originalProposalHash: Hex; historicalPrefixHash: Hex; certificateHash: Hex; sourceCurrentSnapshotHash: Hex; observer: ContinuationObserverBinding; caps: ContinuationActionCaps; derivations: Readonly<{ outerEoaNonce: "CURRENT_GREATER_THAN_809_ONLY"; fees: "FROZEN_AT_OR_BELOW_ACTION_CAPS_AND_CANONICAL_BASEFEE"; gas: "POSITIVE_ESTIMATE_AT_OR_BELOW_ACTION_CAP"; queueTiming: "CANONICAL_RECEIPT_CREATED_AT_ONLY"; safeNonce: "FIXED"; delayQueueNonce: "FIXED"; delayTxNonce: "FIXED" }>; maxBroadcastAttempts: 1; reservation: Readonly<{ phaseLimitWei: string; originalActualGasCostWei: string; originalPrincipalWei: string; continuationMaximumReservationWei: string; maximumRemainingReservationWei: string; maximumCumulativeOutlayWei: string }>; actions: readonly ExpiredHashlessContinuationAction[]; proposalHash: Hex; readonly [proposalBrand]: true }>;
 declare const approvalBrand: unique symbol;
 export type ExpiredHashlessContinuationApproval = Readonly<{ approvalHash: Hex; readonly [approvalBrand]: true }>;
-export type HashlessContinuationStorage = Readonly<{ schemaVersion: 1; recoveryKind: "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1"; source: ContinuationSourceBinding; historicalActionCount: 19; historicalLiveEntryCount: 10; historicalPrefixHash: Hex; originalProposalHash: Hex; certificateHash: Hex; proposalHash: Hex; approvalHash: Hex; actionCommitments: readonly Readonly<{ id: string; commitment: Hex }>[]; cumulativeContinuationReservationWei: string; actions: Array<{ id: string; commitment: Hex; status: "approved" }> }>;
+export type HashlessContinuationStorage = Readonly<{ schemaVersion: 1; recoveryKind: "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1"; source: ContinuationSourceBinding; historicalActionCount: 19; historicalLiveEntryCount: 10; historicalPrefixHash: Hex; originalProposalHash: Hex; certificateHash: Hex; proposalHash: Hex; approvalHash: Hex; actionCommitments: readonly Readonly<{ id: string; commitment: Hex }>[]; cumulativeContinuationReservationWei: string; actions: Array<Readonly<{ id: string; commitment: Hex; status: "approved" }> | OrdinaryScenarioActionRecord> }>;
 
 const proposals = new WeakSet<object>();
 const approvals = new WeakMap<object, ExpiredHashlessContinuationProposal>();
