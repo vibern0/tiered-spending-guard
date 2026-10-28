@@ -73,6 +73,30 @@ describe("ordinary scenario hashless continuation CLI", function () {
     rmSync(prepared.directory, { recursive: true, force: true });
   });
 
+  it("holds the real journal writer lease until deferred execution settles", async function () {
+    const prepared = await prepareReviewFiles(); let releaseRead!: () => void; let markReadStarted!: () => void;
+    const readStarted = new Promise<void>(resolve => { markReadStarted = resolve; }); const release = new Promise<void>(resolve => { releaseRead = resolve; });
+    try {
+      const execution = runExpiredHashlessContinuationCli(prepared.submitArgs, {
+        environment: { LIVE_SUBMIT: "YES" }, providers: [evidenceProvider(), evidenceProvider()], now: () => new Date("2026-10-28T20:01:00Z"),
+        createExecutionContext: async (_mode, inputs) => ({
+          readState: async action => {
+            markReadStarted(); await release;
+            return { chainId: 11_155_111, blockNumber: current.number, blockHash: current.hash, blockTimestamp: current.timestamp, evidenceBasis: { kind: "current-head" as const }, planHash: inputs.original.planHash, topologyEvidenceHash: inputs.original.topologyEvidenceHash, publicIdentitiesHash: inputs.original.publicIdentitiesHash, observerReady: true, observerEvidenceHash: inputs.continuation.observer.probeEvidenceHash, outerNonce: 810, funderNativeBalance: 10n ** 18n, safeNativeBalance: BigInt(action.before.safeNativeBalance), funderUsdcBalance: BigInt(action.before.funderUsdcBalance), safeUsdcBalance: BigInt(action.before.safeUsdcBalance), safeNonce: BigInt(action.before.safeNonce), delayQueueNonce: BigInt(action.before.delayQueueNonce), delayTxNonce: BigInt(action.before.delayTxNonce), nativeSpend: { window: 1_793_145_600n, baseSpent: BigInt(action.before.nativeBaseSpent), instantSpent: BigInt(action.before.nativeInstantSpent) }, usdcSpend: { window: 0n, baseSpent: BigInt(action.before.usdcBaseSpent), instantSpent: BigInt(action.before.usdcInstantSpent) }, queue: { queueNonce: action.queue!.queueNonce, fingerprint: action.queue!.fingerprint, createdAt: 1_793_208_888n, status: "queued" as const, to: action.queue!.to, value: action.queue!.value, data: action.queue!.data, operation: action.queue!.operation }, dependencies: [], fees: { maxFeePerGas: 28n, maxPriorityFeePerGas: 2n } };
+          },
+          materialize: async () => { throw new Error("LEASE_HELD_THROUGH_FIRST_MATERIALIZATION"); },
+        } as never),
+      });
+      await readStarted;
+      const attached = JSON.parse(readFileSync(prepared.sourceJournal, "utf8"));
+      expect(() => createOrdinaryScenarioStore(prepared.sourceJournal, { proposalHash: attached.proposalHash, approvalHash: attached.approvalHash, funder: attached.funder }, () => { throw new Error("existing journal required"); })).to.throw(/writer lock unavailable/);
+      releaseRead();
+      await expect(execution).to.be.rejectedWith("LEASE_HELD_THROUGH_FIRST_MATERIALIZATION");
+      expect(JSON.parse(readFileSync(prepared.sourceJournal, "utf8")).hashlessContinuation.actions[0].status).to.equal("materialized");
+      const reopened = createOrdinaryScenarioStore(prepared.sourceJournal, { proposalHash: attached.proposalHash, approvalHash: attached.approvalHash, funder: attached.funder }, () => { throw new Error("existing journal required"); }); reopened.close?.();
+    } finally { releaseRead?.(); rmSync(prepared.directory, { recursive: true, force: true }); }
+  });
+
   it("resume-one accepts only one durable pending record and reaches a keyless context without authority environment", async function () {
     const prepared = await prepareReviewFiles();
     await expect(runExpiredHashlessContinuationCli(prepared.submitArgs, { environment: { LIVE_SUBMIT: "YES" }, providers: [evidenceProvider(), evidenceProvider()], now: () => new Date("2026-10-28T20:01:00Z"), createExecutionContext: async () => { throw new Error("ATTACHED"); } })).to.be.rejectedWith("ATTACHED");

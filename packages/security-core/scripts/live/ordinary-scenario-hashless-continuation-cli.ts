@@ -133,7 +133,7 @@ async function execute(command: "submit-one" | "resume-one", args: HashlessConti
   try {
     let current = store.load(); if (!current.hashlessContinuation) { if (command === "resume-one") throw new Error("resume-one requires an attached continuation"); current = attachExpiredHashlessContinuation(current, inputs.continuation, inputs.approval); store.save(current); }
     const pending = current.hashlessContinuation!.actions.filter(action => action.status === "outer-pending"); if (command === "resume-one" && pending.length !== 1) throw new Error("resume-one requires exactly one durable pending continuation action"); if (command === "submit-one" && pending.length !== 0) throw new Error("submit-one refuses a journal with a pending continuation action");
-    if (!dependencies.createExecutionContext) throw new Error("execution context is unavailable"); const context = await dependencies.createExecutionContext(command, inputs, () => store.load()); return executeExpiredHashlessContinuationAction(inputs.original, inputs.continuation, inputs.approval, store, context);
+    if (!dependencies.createExecutionContext) throw new Error("execution context is unavailable"); const context = await dependencies.createExecutionContext(command, inputs, () => store.load()); return await executeExpiredHashlessContinuationAction(inputs.original, inputs.continuation, inputs.approval, store, context);
   } finally { store.close?.(); }
 }
 
