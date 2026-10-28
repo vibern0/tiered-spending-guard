@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "scope": "FROZEN_PRIMARY_NATIVE_OBSERVER_EVIDENCE",
+  "source": "Unmodified stock watcher ledgers and official receiver acknowledgement files captured by the root operator",
+  "limitations": "Historical root-captured public evidence. Hashes bind files; files are not cryptographic attestations from the receiver or a new live observation.",
+  "files": {
+    "ledger-source-native-item2.json": {
+      "sha256": "0xbee106f2486ff37a01580b9304118a70eb5a1e95a9c02725ef1e842fdc85c994",
+      "bytes": 2128
+    },
+    "ledger-replacement-native-item3.json": {
+      "sha256": "0xc8c6631558b3935c262314e0d23cc1bed6d04df3fd94ba2ef2c37289c041372f",
+      "bytes": 2129
+    },
+    "ack-native-queue-ready-hashless-skip.json": {
+      "sha256": "0x988c112343be5a5433edf10190be4d3737b2bf02885e62b456d9c8e83b3616f7",
+      "bytes": 538
+    },
+    "ack-native-queue-ready-replacement.json": {
+      "sha256": "0x3ababf5cf452cffeda36a02d41065efc48aa187839638e33ed766f462b1df733",
+      "bytes": 538
+    },
+    "ack-native-queue-ready-replacement-execute.json": {
+      "sha256": "0x6f25d47b4b240f0f2661510a3fc9b34d6a411d4964db425d08dc8f788838d6a4",
+      "bytes": 538
+    }
+  }
+}

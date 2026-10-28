@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "scope": "ORDINARY_NATIVE_RECOVERY_PARTIAL_LIVE_EVIDENCE",
+  "completion": "NATIVE_RECOVERY_3_OF_22_ONLY",
+  "originalHistoricalPrefixHash": "0x299d8cf298cf0a905046e4fbe569c44c2329b54207e159db551d41fee1dbb83d",
+  "sourceCheckpointSha256": "0x07688f1c68a892078f86f98fe7e689f2ece7163a815725cc5a5eb92d937662d6",
+  "checkpoint": {
+    "schemaVersion": 1,
+    "scope": "NATIVE_RECOVERY_CLEAN_BOUNDARY_READ_ONLY_CHECKPOINT",
+    "recordedAt": "2026-10-28T23:43:02.476Z",
+    "providers": [
+      "https://ethereum-sepolia-rpc.publicnode.com",
+      "https://sepolia.gateway.tenderly.co"
+    ],
+    "journalBytesSha256": "0x3333527eb824ced15b911f35e38f5a80337bfbde66ecadbf8f971465a93e662f",
+    "proposalHash": "0x3a92e6d8a383f015f16c1e35746ad84ea31915208c1cc36e9e724a02fcd9f857",
+    "approvalHash": "0x644bf0b6e9cd4710683717511db665684ff31a86107198282d2364c9816dee26",
+    "confirmedNativeActionCount": 3,
+    "untouchedUsdcActionCount": 19,
+    "minimumConfirmations": 6,
+    "publicCanonicalEvidence": {
+      "block": {
+        "number": "12015677",
+        "hash": "0xb07311cc0e59585e3b90904ceefd32a999a16159c53f84fb19d2ce6107f851c1",
+        "timestamp": "1793230908"
+      },
+      "state": {
+        "safeNonce": "8",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "nativeBalance": "0",
+        "safeUsdcBalance": "20000000",
+        "funderUsdcBalance": "0",
+        "nativeSpend": [
+          "1793145600",
+          "10000000000000",
+          "30000000000000"
+        ],
+        "usdcSpend": [
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "receipts": [
+        {
+          "id": "native-queue-ready-hashless-skip",
+          "transactionHash": "0x0b80a651b416e815930f1664558c29bee5525f496b1410291d40295f85eb11f7",
+          "blockNumber": "12015599",
+          "blockHash": "0xa55ddf8f2857776bcc156fbfe25eb9b6d583cfade4f30f1bebb52552fdd3f2bd",
+          "status": "success",
+          "gasUsed": "40110",
+          "effectiveGasPrice": "17"
+        },
+        {
+          "id": "native-queue-ready-replacement",
+          "transactionHash": "0x5dc85b25ee465159478ddb989dfb7818b9423a7f146510494f8108c3edb0aa3e",
+          "blockNumber": "12015643",
+          "blockHash": "0x932ea24867fb1064d8543d6ff5b3cfd0a9a576380126e1c55a5f70f6a3f1c3d8",
+          "status": "success",
+          "gasUsed": "1434077",
+          "effectiveGasPrice": "17"
+        },
+        {
+          "id": "native-queue-ready-replacement-execute",
+          "transactionHash": "0xd99c42d02e46371d4e94cb4ebdb85fd0a5d7127e0fe0399346590e9a9fac10fe",
+          "blockNumber": "12015659",
+          "blockHash": "0xacfb1490e125160df2c04ef33404175c690497a58bfc20d92967bf6ba9c59f9e",
+          "status": "success",
+          "gasUsed": "94033",
+          "effectiveGasPrice": "17"
+        }
+      ]
+    },
+    "limits": "Narrow receipt and controlled-state checkpoint; not a new topology, execution, rollover, successor certificate, approval, or Task0 completion.",
+    "signing": false,
+    "broadcast": false
+  },
+  "completedActions": [
+    {
+      "id": "native-queue-ready-hashless-skip",
+      "status": "confirmed",
+      "receipt": {
+        "transactionHash": "0x0b80a651b416e815930f1664558c29bee5525f496b1410291d40295f85eb11f7",
+        "status": "success",
+        "gasUsed": "40110",
+        "effectiveGasPrice": "17",
+        "blockNumber": "12015599",
+        "blockHash": "0xa55ddf8f2857776bcc156fbfe25eb9b6d583cfade4f30f1bebb52552fdd3f2bd"
+      },
+      "evidenceHash": "0x59ba51857dea17c1971ad8b954634e64a1019004a90a0639ec39127f3f245a40",
+      "ourReceiptGasCostWei": "681870",
+      "ourPrincipalDeltaWei": "0",
+      "observer": {
+        "kind": "delayed-expired",
+        "delivery": {
+          "channel": "webhook",
+          "httpStatus": 200,
+          "payloadHash": "0x9764217bcc0f9a81ca6944607f8d2dc92daf171ae0c6df847d27211cdc56fbbb",
+          "deliveredAt": "2026-10-28T23:32:23.240Z"
+        },
+        "acknowledgement": {
+          "schemaVersion": 1,
+          "endpointHash": "0x9da61bdac05edece5a0238565f067efe55528087f341f1c21436ba5cbc16e420",
+          "transactionHash": "0x0b80a651b416e815930f1664558c29bee5525f496b1410291d40295f85eb11f7",
+          "payloadSha256": "0x9764217bcc0f9a81ca6944607f8d2dc92daf171ae0c6df847d27211cdc56fbbb",
+          "receiverRequestId": "6512fd9b-8060-4c1b-a765-b6bb77f5d617",
+          "receiverRecordedAt": "2026-10-28T23:32:23Z",
+          "retrievedAt": "2026-10-28T23:32:23.990Z",
+          "retrievalProvenance": "official-receiver-api",
+          "expiresAt": "2026-10-29T21:38:09Z"
+        }
+      }
+    },
+    {
+      "id": "native-queue-ready-replacement",
+      "status": "confirmed",
+      "receipt": {
+        "transactionHash": "0x5dc85b25ee465159478ddb989dfb7818b9423a7f146510494f8108c3edb0aa3e",
+        "status": "success",
+        "gasUsed": "1434077",
+        "effectiveGasPrice": "17",
+        "blockNumber": "12015643",
+        "blockHash": "0x932ea24867fb1064d8543d6ff5b3cfd0a9a576380126e1c55a5f70f6a3f1c3d8"
+      },
+      "evidenceHash": "0xbe035b11463f37d37658fe07fe0809cd937e45c125a175098b643641f1d607a9",
+      "ourReceiptGasCostWei": "24379309",
+      "ourPrincipalDeltaWei": "0",
+      "observer": {
+        "kind": "delayed-queued",
+        "delivery": {
+          "channel": "webhook",
+          "httpStatus": 200,
+          "payloadHash": "0x0191802db62e34d7debb24d28025824ef5507d47f86134360aea5376f504d749",
+          "deliveredAt": "2026-10-28T23:36:15.129Z"
+        },
+        "acknowledgement": {
+          "schemaVersion": 1,
+          "endpointHash": "0x9da61bdac05edece5a0238565f067efe55528087f341f1c21436ba5cbc16e420",
+          "transactionHash": "0x5dc85b25ee465159478ddb989dfb7818b9423a7f146510494f8108c3edb0aa3e",
+          "payloadSha256": "0x0191802db62e34d7debb24d28025824ef5507d47f86134360aea5376f504d749",
+          "receiverRequestId": "5a88d052-ca2e-4def-8502-dc7e05602186",
+          "receiverRecordedAt": "2026-10-28T23:36:15Z",
+          "retrievedAt": "2026-10-28T23:36:15.847Z",
+          "retrievalProvenance": "official-receiver-api",
+          "expiresAt": "2026-10-29T21:38:09Z"
+        }
+      }
+    },
+    {
+      "id": "native-queue-ready-replacement-execute",
+      "status": "confirmed",
+      "receipt": {
+        "transactionHash": "0xd99c42d02e46371d4e94cb4ebdb85fd0a5d7127e0fe0399346590e9a9fac10fe",
+        "status": "success",
+        "gasUsed": "94033",
+        "effectiveGasPrice": "17",
+        "blockNumber": "12015659",
+        "blockHash": "0xacfb1490e125160df2c04ef33404175c690497a58bfc20d92967bf6ba9c59f9e"
+      },
+      "evidenceHash": "0x232c1624f9e24fd6f4632362dc3a9ba2be382020c5b7e77acb69894c1150e8f9",
+      "ourReceiptGasCostWei": "1598561",
+      "ourPrincipalDeltaWei": "1",
+      "observer": {
+        "kind": "delayed-executed",
+        "delivery": {
+          "channel": "webhook",
+          "httpStatus": 200,
+          "payloadHash": "0xd8f486a6eb29cf951065f8c4c91272c38dce0c6217f778e1597eab5d834d2cc9",
+          "deliveredAt": "2026-10-28T23:39:42.976Z"
+        },
+        "acknowledgement": {
+          "schemaVersion": 1,
+          "endpointHash": "0x9da61bdac05edece5a0238565f067efe55528087f341f1c21436ba5cbc16e420",
+          "transactionHash": "0xd99c42d02e46371d4e94cb4ebdb85fd0a5d7127e0fe0399346590e9a9fac10fe",
+          "payloadSha256": "0xd8f486a6eb29cf951065f8c4c91272c38dce0c6217f778e1597eab5d834d2cc9",
+          "receiverRequestId": "c38ab109-dca4-4819-94b4-ff1a64b6955f",
+          "receiverRecordedAt": "2026-10-28T23:39:42Z",
+          "retrievedAt": "2026-10-28T23:39:51.960Z",
+          "retrievalProvenance": "official-receiver-api",
+          "expiresAt": "2026-10-29T21:38:09Z"
+        }
+      }
+    }
+  ],
+  "additionalGasCostWei": "26659740",
+  "additionalNativePrincipalWei": "1",
+  "remainingUntouchedActions": 19,
+  "remainingAuthorityStop": "2026-10-29T00:00:00Z",
+  "operatorDecision": "STOP_AT_CLEAN_NATIVE_BOUNDARY; USDC tail cannot credibly fit full mandatory checks before cutoff",
+  "task0": "OPEN",
+  "nativeTasks1Through13": "GATED",
+  "laterRepairAuthorized": false,
+  "limitations": [
+    "Current narrow public receipt/state capture only; fresh successor-epoch topology/runtime/state evidence still required.",
+    "No USDC transfer, rollover, repair, freeze, native ERC-4337, audit, or production completion is claimed.",
+    "First official execution-alert lookup failed; cause unknown. A read-only lookup reconciled the already-delivered exact payload without another POST or wallet transaction."
+  ]
+}
