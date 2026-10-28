@@ -22,6 +22,7 @@ import type { LiveIntent, LiveReceipt } from "../../../scripts/live/submission";
 import { encodeSafeContractSignature } from "../../../src/signers/passkey-helpers";
 import { SAFE_TX_TYPES } from "../../../src/signers/types";
 import { ECDSA_SECONDARY_SIGNATURE_TYPE_HASH, safeContractSignatures } from "../../helpers/safe";
+import { createOrdinaryScenarioMechanicalStateReader } from "../../../scripts/live/ordinary-scenario-adapter";
 
 const account = privateKeyToAccount(generatePrivateKey());
 const ecdsaAccount = privateKeyToAccount(generatePrivateKey());
@@ -260,6 +261,44 @@ function executionFixture(actionCount = 1, state = canonicalState()) {
   return { ...f, store, calls, context, state, setReceipt(value: LiveReceipt | undefined) { liveReceipt = value; } };
 }
 
+function withMechanicalFeeReader(
+  fixture: ReturnType<typeof executionFixture>,
+  feeSuggestions: readonly Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>[],
+  baseFees: readonly bigint[],
+  beforeRead?: (read: number) => void,
+  feeReads?: Array<Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>>,
+) {
+  let reads = 0;
+  const blockHash = fixture.state.blockHash;
+  const client = {
+    getBlock: async () => ({ number: fixture.state.blockNumber, hash: blockHash, timestamp: fixture.state.blockTimestamp, baseFeePerGas: baseFees[Math.min(reads, baseFees.length - 1)] }),
+    getChainId: async () => fixture.state.chainId,
+    getTransactionCount: async () => fixture.state.outerNonce,
+    getBalance: async ({ address }: { address: Address }) => address.toLowerCase() === fixture.proposal.safe.toLowerCase() ? fixture.state.safeNativeBalance : fixture.state.funderNativeBalance,
+    estimateFeesPerGas: async () => { const fees = feeSuggestions[Math.min(reads++, feeSuggestions.length - 1)]!; feeReads?.push(fees); return fees; },
+    readContract: async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
+      if (functionName === "nonce") return fixture.state.safeNonce;
+      if (functionName === "queueNonce") return fixture.state.delayQueueNonce;
+      if (functionName === "txNonce") return fixture.state.delayTxNonce;
+      if (functionName === "balanceOf") return String(args?.[0]).toLowerCase() === fixture.proposal.safe.toLowerCase() ? fixture.state.safeUsdcBalance : fixture.state.funderUsdcBalance;
+      if (functionName === "spendState") return String(args?.[0]).toLowerCase() === zero.toLowerCase()
+        ? [fixture.state.nativeSpend.window, fixture.state.nativeSpend.baseSpent, fixture.state.nativeSpend.instantSpent]
+        : [fixture.state.usdcSpend.window, fixture.state.usdcSpend.baseSpent, fixture.state.usdcSpend.instantSpent];
+      throw new Error(`unexpected mechanical state read ${functionName}`);
+    },
+  };
+  const reader = createOrdinaryScenarioMechanicalStateReader({
+    expectedChainId: fixture.state.chainId,
+    proposal: fixture.proposal,
+    journal: () => fixture.store.load(),
+    currentClient: client as never,
+    archiveClient: client as never,
+    observerReadiness: async () => ({ ready: true, evidenceHash: fixture.proposal.observerEvidenceHash }),
+    verifyProfileAtBlock: async () => undefined,
+  });
+  return { ...fixture.context, readState: async (actionScope: Parameters<typeof reader>[0], phase: Parameters<typeof reader>[1]) => { fixture.calls.push(`state:${phase}`); beforeRead?.(phase === "pre-outer" ? 1 : 0); return reader(actionScope, phase); } };
+}
+
 describe("bounded ordinary scenario coordinator", () => {
   it("reaches private materialization for every reviewed queue proposal before the future head exists", async () => {
     const tracked = trackedAuthorizedFixture(38);
@@ -404,6 +443,67 @@ describe("bounded ordinary scenario coordinator", () => {
     expect(f.store.journal.liveJournal.entries[0]).to.include({ nonce: 999, status: "pending" });
     expect(f.store.journal.actions[0]).to.include({ status: "outer-pending", signedCalldataHash: keccak256("0x") });
     expect(f.store.saves.some(value => value.includes("transientSignedCalldata"))).to.equal(false);
+  });
+
+  it("keeps the exact viable signed-simulated fee quote when the later provider heuristic changes", async () => {
+    for (const later of [{ maxFeePerGas: 26n, maxPriorityFeePerGas: 2n }, { maxFeePerGas: 30n, maxPriorityFeePerGas: 3n }]) {
+      const f = executionFixture(1, canonicalState({ fees: { maxFeePerGas: 28n, maxPriorityFeePerGas: 2n } }));
+      const feeReads: Array<Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>> = [];
+      const context = withMechanicalFeeReader(f, [{ maxFeePerGas: 28n, maxPriorityFeePerGas: 2n }, later], [20n, 20n], undefined, feeReads);
+      expect((await executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, context)).status).to.equal("PENDING");
+      expect(feeReads).to.deep.equal([{ maxFeePerGas: 28n, maxPriorityFeePerGas: 2n }]);
+      expect(f.calls.filter(value => value === "outer-sign")).to.have.length(1);
+      expect(f.calls.filter(value => value === "broadcast")).to.have.length(1);
+      expect(f.store.journal.actions[0]).to.include({ maxFeePerGas: "28", maxPriorityFeePerGas: "2" });
+    }
+  });
+
+  it("rejects an unaffordable frozen fee quote before outer signing and retains the original record", async () => {
+    const f = executionFixture(1, canonicalState({ fees: { maxFeePerGas: 28n, maxPriorityFeePerGas: 2n } }));
+    const context = withMechanicalFeeReader(f, [{ maxFeePerGas: 28n, maxPriorityFeePerGas: 2n }, { maxFeePerGas: 26n, maxPriorityFeePerGas: 2n }], [20n, 27n]);
+    await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, context)).to.be.rejectedWith("outer signing preflight drift");
+    expect(f.calls).not.to.include("outer-sign");
+    expect(f.calls).not.to.include("broadcast");
+    expect(f.store.journal.actions[0]).to.include({ status: "signed-simulated", maxFeePerGas: "28", maxPriorityFeePerGas: "2" });
+  });
+
+  it("fails closed when the pre-outer persisted fee quote is missing or invalid", async () => {
+    for (const invalid of ["missing", "invalid"] as const) {
+      const f = executionFixture(1, canonicalState({ fees: { maxFeePerGas: 28n, maxPriorityFeePerGas: 2n } }));
+      const context = withMechanicalFeeReader(f, [{ maxFeePerGas: 28n, maxPriorityFeePerGas: 2n }, { maxFeePerGas: 26n, maxPriorityFeePerGas: 2n }], [20n, 20n], read => {
+        if (read !== 1) return;
+        if (invalid === "missing") f.store.journal.actions.splice(0, 1);
+        else f.store.journal.actions[0]!.maxFeePerGas = "028";
+      });
+      await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, context)).to.be.rejectedWith("persisted pre-outer fee quote");
+      expect(f.calls).not.to.include("outer-sign");
+      expect(f.calls).not.to.include("broadcast");
+    }
+  });
+
+  it("rejects numeric persisted fee fields before outer signing", async () => {
+    for (const field of ["maxFeePerGas", "maxPriorityFeePerGas"] as const) {
+      const f = executionFixture(1, canonicalState({ fees: { maxFeePerGas: 28n, maxPriorityFeePerGas: 2n } }));
+      const context = withMechanicalFeeReader(f, [{ maxFeePerGas: 28n, maxPriorityFeePerGas: 2n }], [20n, 20n], read => {
+        if (read !== 1) return;
+        const record = f.store.journal.actions[0]! as unknown as Record<string, unknown>;
+        record[field] = field === "maxFeePerGas" ? 28 : 2;
+      });
+      await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, context)).to.be.rejectedWith("persisted pre-outer fee quote");
+      expect(f.calls).not.to.include("outer-sign");
+      expect(f.calls).not.to.include("broadcast");
+    }
+  });
+
+  it("keeps interrupted signed-simulated attempts stopped without invoking the mechanical reader", async () => {
+    const f = executionFixture(1, canonicalState({ fees: { maxFeePerGas: 28n, maxPriorityFeePerGas: 2n } }));
+    const actionScope = f.proposal.actions[0]!;
+    f.store.journal.actions.push({ id: actionScope.id, commitment: actionScope.commitment, status: "signed-simulated", maxFeePerGas: "28", maxPriorityFeePerGas: "2" });
+    const before = structuredClone(f.store.journal);
+    const context = withMechanicalFeeReader(f, [{ maxFeePerGas: 28n, maxPriorityFeePerGas: 2n }], [20n]);
+    await expect(executeOrdinaryScenarioAction(f.proposal, f.approval, f.store, context)).to.be.rejectedWith("approved attempt is stopped");
+    expect(f.calls).to.deep.equal([]);
+    expect(f.store.journal).to.deep.equal(before);
   });
 
   it("verifies the configured terminal ECDSA secondary before outer signing", async () => {

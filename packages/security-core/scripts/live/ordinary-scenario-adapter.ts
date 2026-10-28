@@ -24,6 +24,7 @@ const ERC20_EVENT_ABI = parseAbi(["event Transfer(address indexed from,address i
 const DELAY_EVENT_ABI = parseAbi(["event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)", "event TxNonceSet(uint256 nonce)"]);
 const DELAY_CALL_ABI = parseAbi(["function executeNextTx(address,uint256,bytes,uint8)", "function skipExpired()", "function setTxNonce(uint256)"]);
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const DECIMAL = /^(0|[1-9][0-9]*)$/;
 
 export type FrozenLocalAccountCapability = Readonly<{
   account: Address;
@@ -77,8 +78,18 @@ export type OrdinaryScenarioMechanicalStateReaderInput = Omit<OrdinaryScenarioSt
 
 /** Non-authorizing mechanical core; the production wrapper above fixes Sepolia and public descriptor verification. */
 export function createOrdinaryScenarioMechanicalStateReader(input: OrdinaryScenarioMechanicalStateReaderInput) {
-  return async (action: OrdinaryScenarioActionScope, _phase: "pre-private" | "pre-outer", receiptBinding?: ReceiptStateBinding): Promise<CanonicalOrdinaryScenarioState> => {
+  return async (action: OrdinaryScenarioActionScope, phase: "pre-private" | "pre-outer", receiptBinding?: ReceiptStateBinding): Promise<CanonicalOrdinaryScenarioState> => {
     const journal = input.journal();
+    let frozenFees: Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> | undefined;
+    if (phase === "pre-outer") {
+      const records = journal.actions.filter(record => record.id === action.id && record.commitment.toLowerCase() === action.commitment.toLowerCase());
+      const record = records.length === 1 ? records[0] : undefined;
+      if (record?.status !== "signed-simulated" || typeof record.maxFeePerGas !== "string" || typeof record.maxPriorityFeePerGas !== "string" || !DECIMAL.test(record.maxFeePerGas) || !DECIMAL.test(record.maxPriorityFeePerGas)) throw new Error("ordinary scenario persisted pre-outer fee quote is missing or invalid");
+      const maxFeePerGas = BigInt(record.maxFeePerGas);
+      const maxPriorityFeePerGas = BigInt(record.maxPriorityFeePerGas);
+      if (maxFeePerGas <= 0n || maxPriorityFeePerGas > maxFeePerGas || maxFeePerGas > action.maxFeePerGasCap || maxPriorityFeePerGas > action.maxPriorityFeePerGasCap) throw new Error("ordinary scenario persisted pre-outer fee quote is missing or invalid");
+      frozenFees = { maxFeePerGas, maxPriorityFeePerGas };
+    }
     let client = input.currentClient;
     let evidenceBasis: CanonicalOrdinaryScenarioState["evidenceBasis"] = { kind: "current-head" };
     let selected: Readonly<{ number: bigint; hash: Hex; timestamp: bigint; baseFeePerGas?: bigint | null }>;
@@ -110,7 +121,7 @@ export function createOrdinaryScenarioMechanicalStateReader(input: OrdinaryScena
       client.getBalance({ address: input.proposal.funder, blockNumber: selected.number } as never), client.getBalance({ address: input.proposal.safe, blockNumber: selected.number } as never),
       read(input.proposal.usdc, ERC20_READ_ABI, "balanceOf", [input.proposal.funder]), read(input.proposal.usdc, ERC20_READ_ABI, "balanceOf", [input.proposal.safe]), read(input.proposal.safe, SAFE_READ_ABI, "nonce"),
       read(input.proposal.delay, DELAY_READ_ABI, "queueNonce"), read(input.proposal.delay, DELAY_READ_ABI, "txNonce"), read(input.proposal.guard, GUARD_READ_ABI, "spendState", [ZERO]), read(input.proposal.guard, GUARD_READ_ABI, "spendState", [input.proposal.usdc]),
-      input.observerReadiness(), client.estimateFeesPerGas({ type: "eip1559" } as never),
+      input.observerReadiness(), frozenFees ?? client.estimateFeesPerGas({ type: "eip1559" } as never),
     ]);
     if (!observer.ready || observer.evidenceHash.toLowerCase() !== input.proposal.observerEvidenceHash.toLowerCase()) throw new Error("ordinary scenario independent observer is not ready");
     const spend = (value: unknown) => { const tuple = value as readonly bigint[]; if (tuple.length !== 3) throw new Error("ordinary scenario spendState tuple mismatch"); return { window: BigInt(tuple[0]!), baseSpent: BigInt(tuple[1]!), instantSpent: BigInt(tuple[2]!) }; };
