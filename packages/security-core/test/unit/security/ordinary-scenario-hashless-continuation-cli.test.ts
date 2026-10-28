@@ -152,6 +152,24 @@ describe("ordinary scenario hashless continuation CLI", function () {
     expect(dependencies.publicPreflight).to.be.a("function");
     expect(dependencies.createExecutionContext).to.be.a("function");
   });
+
+  it("forwards the approved continuation observer ready and expiry bounds into production confirmation", async function () {
+    const prepared = await prepareReviewFiles();
+    try {
+      const parsed = (await import("../../../scripts/live/ordinary-scenario-hashless-continuation-cli")).parseHashlessContinuationCliArguments(prepared.submitArgs);
+      const inputs = await loadHashlessContinuationPublicInputs(parsed, [evidenceProvider(), evidenceProvider()]);
+      let executionInput: Record<string, unknown> | undefined;
+      const dependencies = createHashlessContinuationProductionDependencies(process.cwd().replace(/\/packages\/security-core$/, ""), prepared.submitArgs, {
+        createHarness: (() => ({ createLiveContext: async () => ({}) })) as never,
+        createExecutionContext: ((input: any) => { executionInput = input as Record<string, unknown>; return {} as never; }) as never,
+      });
+      await dependencies.createExecutionContext!("resume-one", inputs, () => inputs.journal);
+      expect(executionInput).to.include({
+        receiverReadyAt: new Date(Number(BigInt(inputs.continuation.observer.readyAt)) * 1000).toISOString(),
+        receiverExpiresAt: new Date(Number(BigInt(inputs.continuation.observer.expiresAt)) * 1000).toISOString(),
+      });
+    } finally { rmSync(prepared.directory, { recursive: true, force: true }); }
+  });
 });
 
 async function prepareReviewFiles() {

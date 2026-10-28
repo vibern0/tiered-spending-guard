@@ -164,6 +164,7 @@ export type OrdinaryScenarioAdapterInput = OrdinaryScenarioStateReaderInput & Re
   observerLedgerPath?: string;
   receiverAcknowledgementPath?: string;
   observerEndpointHash?: Hex;
+  receiverReadyAt?: string;
   receiverExpiresAt?: string;
   now?(): Date;
 }>;
@@ -283,7 +284,7 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
       let observerEvidenceHash: Hex | null = null;
       if (alertKind(action.kind)) {
         if (!input.observerLedgerPath || !input.receiverAcknowledgementPath || !input.observerEndpointHash) throw new Error("ordinary scenario activity evidence is not yet available");
-        observerEvidenceHash = loadObserverConfirmationEvidence({ ledgerPath: input.observerLedgerPath, acknowledgementPath: input.receiverAcknowledgementPath, endpointHash: input.observerEndpointHash, ...(input.receiverExpiresAt ? { receiverExpiresAt: input.receiverExpiresAt } : {}), transactionHash: entry.receipt.transactionHash, now: input.now?.() ?? new Date() });
+        observerEvidenceHash = loadObserverConfirmationEvidence({ ledgerPath: input.observerLedgerPath, acknowledgementPath: input.receiverAcknowledgementPath, endpointHash: input.observerEndpointHash, ...(input.receiverReadyAt ? { receiverReadyAt: input.receiverReadyAt } : {}), ...(input.receiverExpiresAt ? { receiverExpiresAt: input.receiverExpiresAt } : {}), transactionHash: entry.receipt.transactionHash, now: input.now?.() ?? new Date() });
       }
       return { postState, effect, observerEvidenceHash };
     },
@@ -337,15 +338,36 @@ export async function simulatePreparedOrdinaryAction(client: ExactSimulationClie
 
 export type PublicReceiverAcknowledgement = Readonly<{ schemaVersion: 1; endpointHash: Hex; transactionHash: Hex; payloadSha256: Hex; receiverRequestId: string; receiverRecordedAt: string; retrievedAt: string; retrievalProvenance: "official-receiver-api"; expiresAt: string }>;
 
-export function validatePublicReceiverAcknowledgement(value: PublicReceiverAcknowledgement, expected: Readonly<{ endpointHash: Hex; transactionHash: Hex; payloadSha256: Hex; now: Date; expiresAt?: string }>): Hex {
-  if (value.schemaVersion !== 1 || value.retrievalProvenance !== "official-receiver-api" || value.endpointHash.toLowerCase() !== expected.endpointHash.toLowerCase() || value.transactionHash.toLowerCase() !== expected.transactionHash.toLowerCase() || value.payloadSha256.toLowerCase() !== expected.payloadSha256.toLowerCase() || !/^[A-Za-z0-9-]{1,200}$/.test(value.receiverRequestId)) throw new Error("receiver acknowledgement binding mismatch");
-  for (const [label, timestamp] of [["receiver time", value.receiverRecordedAt], ["retrieval time", value.retrievedAt], ["expiry", value.expiresAt]] as const) if (!Number.isFinite(Date.parse(timestamp))) throw new Error(`invalid ${label}`);
-  const expiry = Date.parse(value.expiresAt); const recorded = Date.parse(value.receiverRecordedAt); const retrieved = Date.parse(value.retrievedAt);
-  if (expiry !== Date.parse(expected.expiresAt ?? "2026-10-28T18:51:57Z") || recorded > retrieved || recorded > expiry || retrieved > expiry) throw new Error("receiver acknowledgement was not captured timely before expiry");
-  return keccak256(new TextEncoder().encode(JSON.stringify(value)));
+type ReceiverAcknowledgementExpectation = Readonly<{ endpointHash: Hex; transactionHash: Hex; payloadSha256: Hex; now: Date; readyAt?: string; expiresAt?: string }>;
+
+function parseObserverTime(value: string, label: string): number {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`invalid ${label}`);
+  return parsed;
 }
 
-export function loadObserverConfirmationEvidence(input: Readonly<{ ledgerPath: string; acknowledgementPath: string; endpointHash: Hex; receiverExpiresAt?: string; transactionHash: Hex; expected?: Readonly<{ kind: "delayed-queued" | "delayed-executed" | "delayed-cancelled"; safe: Address; delay: Address; blockNumber: bigint; queueNonce?: bigint; queueFingerprint?: Hex; cancelledThrough?: bigint }>; now: Date }>): Hex {
+function validateReceiverAcknowledgement(value: PublicReceiverAcknowledgement, expected: ReceiverAcknowledgementExpectation, now: number): Readonly<{ hash: Hex; recorded: number; retrieved: number; ready?: number; expiry: number }> {
+  if (value.schemaVersion !== 1 || value.retrievalProvenance !== "official-receiver-api" || value.endpointHash.toLowerCase() !== expected.endpointHash.toLowerCase() || value.transactionHash.toLowerCase() !== expected.transactionHash.toLowerCase() || value.payloadSha256.toLowerCase() !== expected.payloadSha256.toLowerCase() || !/^[A-Za-z0-9-]{1,200}$/.test(value.receiverRequestId)) throw new Error("receiver acknowledgement binding mismatch");
+  const expiry = parseObserverTime(value.expiresAt, "expiry"); const recorded = parseObserverTime(value.receiverRecordedAt, "receiver time"); const retrieved = parseObserverTime(value.retrievedAt, "retrieval time");
+  const expectedExpiry = parseObserverTime(expected.expiresAt ?? "2026-10-28T18:51:57Z", "expected expiry"); const ready = expected.readyAt === undefined ? undefined : parseObserverTime(expected.readyAt, "ready time");
+  if (expiry !== expectedExpiry) throw new Error("receiver acknowledgement binding mismatch");
+  if (ready !== undefined && ready >= expiry) throw new Error("receiver acknowledgement window bounds are invalid");
+  if (recorded >= expiry || retrieved >= expiry) throw new Error("receiver acknowledgement was not captured timely before expiry");
+  if (recorded > retrieved) throw new Error("receiver acknowledgement times are unordered");
+  if (recorded > now || retrieved > now) throw new Error("receiver acknowledgement is from the verifier future");
+  if (ready !== undefined && (recorded < ready || retrieved < ready)) throw new Error("receiver acknowledgement is outside the bound observer window");
+  return { hash: keccak256(new TextEncoder().encode(JSON.stringify(value))), recorded, retrieved, ready, expiry };
+}
+
+export function validatePublicReceiverAcknowledgement(value: PublicReceiverAcknowledgement, expected: ReceiverAcknowledgementExpectation): Hex {
+  const now = expected.now.getTime();
+  if (!Number.isFinite(now)) throw new Error("invalid receiver acknowledgement verification time");
+  return validateReceiverAcknowledgement(value, expected, now).hash;
+}
+
+export function loadObserverConfirmationEvidence(input: Readonly<{ ledgerPath: string; acknowledgementPath: string; endpointHash: Hex; receiverReadyAt?: string; receiverExpiresAt?: string; transactionHash: Hex; expected?: Readonly<{ kind: "delayed-queued" | "delayed-executed" | "delayed-cancelled"; safe: Address; delay: Address; blockNumber: bigint; queueNonce?: bigint; queueFingerprint?: Hex; cancelledThrough?: bigint }>; now: Date }>): Hex {
+  const now = input.now.getTime();
+  if (!Number.isFinite(now)) throw new Error("invalid observer evidence verification time");
   const store = new FileActivityStore(input.ledgerPath);
   try {
     const state = store.load();
@@ -359,8 +381,13 @@ export function loadObserverConfirmationEvidence(input: Readonly<{ ledgerPath: s
     if (!delivery || delivery.payloadHash.toLowerCase() !== payloadSha256.toLowerCase()) throw new Error("observer sender delivery evidence is missing or mismatched");
     let acknowledgement: PublicReceiverAcknowledgement;
     try { acknowledgement = JSON.parse(readFileSync(input.acknowledgementPath, "utf8")) as PublicReceiverAcknowledgement; } catch { throw new Error("receiver acknowledgement is unavailable or malformed"); }
-    const acknowledgementHash = validatePublicReceiverAcknowledgement(acknowledgement, { endpointHash: input.endpointHash, transactionHash: input.transactionHash, payloadSha256, now: input.now, ...(input.receiverExpiresAt ? { expiresAt: input.receiverExpiresAt } : {}) });
-    return `0x${createHash("sha256").update(JSON.stringify({ transactionHash: input.transactionHash.toLowerCase(), payloadSha256: payloadSha256.toLowerCase(), delivery, acknowledgementHash })).digest("hex")}` as Hex;
+    const acknowledgementEvidence = validateReceiverAcknowledgement(acknowledgement, { endpointHash: input.endpointHash, transactionHash: input.transactionHash, payloadSha256, now: input.now, ...(input.receiverReadyAt ? { readyAt: input.receiverReadyAt } : {}), ...(input.receiverExpiresAt ? { expiresAt: input.receiverExpiresAt } : {}) }, now);
+    const delivered = parseObserverTime(delivery.deliveredAt, "delivery time");
+    if (delivered > now) throw new Error("observer delivery is from the verifier future");
+    if (delivered >= acknowledgementEvidence.expiry) throw new Error("observer delivery was not captured timely before expiry");
+    if (delivered > acknowledgementEvidence.retrieved) throw new Error("observer delivery occurred after acknowledgement retrieval");
+    if (acknowledgementEvidence.ready !== undefined && delivered < acknowledgementEvidence.ready) throw new Error("observer delivery is outside the bound observer window");
+    return `0x${createHash("sha256").update(JSON.stringify({ transactionHash: input.transactionHash.toLowerCase(), payloadSha256: payloadSha256.toLowerCase(), delivery, acknowledgementHash: acknowledgementEvidence.hash })).digest("hex")}` as Hex;
   } finally { store.close(); }
 }
 

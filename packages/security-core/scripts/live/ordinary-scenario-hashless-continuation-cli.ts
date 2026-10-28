@@ -214,7 +214,7 @@ export function createHashlessContinuationProductionDependencies(repository: str
         return { primary };
       };
       const live = await harness.createLiveContext(mode, inputs.original.funder, async () => {});
-      return (seams.createExecutionContext ?? createOrdinaryScenarioExecutionContext)({ repository, proposal: view, journal, currentClient: current, archiveClient: archive, observerReadiness: readiness, live, loadSigners, observerLedgerPath: cli.values.get("--observer-ledger"), receiverAcknowledgementPath: cli.values.get("--receiver-ack"), observerEndpointHash: inputs.continuation.observer.endpointHash, receiverExpiresAt: new Date(Number(BigInt(inputs.continuation.observer.expiresAt)) * 1000).toISOString() });
+      return (seams.createExecutionContext ?? createOrdinaryScenarioExecutionContext)({ repository, proposal: view, journal, currentClient: current, archiveClient: archive, observerReadiness: readiness, live, loadSigners, observerLedgerPath: cli.values.get("--observer-ledger"), receiverAcknowledgementPath: cli.values.get("--receiver-ack"), observerEndpointHash: inputs.continuation.observer.endpointHash, receiverReadyAt: new Date(Number(BigInt(inputs.continuation.observer.readyAt)) * 1000).toISOString(), receiverExpiresAt: new Date(Number(BigInt(inputs.continuation.observer.expiresAt)) * 1000).toISOString() });
     },
   };
 }

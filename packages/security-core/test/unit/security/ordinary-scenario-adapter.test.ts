@@ -223,6 +223,21 @@ describe("ordinary scenario frozen EIP-1193 facade", () => {
     expect(() => validatePublicReceiverAcknowledgement({ ...receipt, retrievedAt: "2026-10-28T18:51:58Z" }, { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-28T18:51:58Z") })).to.throw("timely");
   });
 
+  it("rejects future, expired, and pre-ready acknowledgement clocks while preserving zero-skew observation", () => {
+    const endpointHash = "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0" as Hex;
+    const transactionHash = keccak256("0x16"); const payloadSha256 = keccak256("0x17");
+    const receipt = { schemaVersion: 1 as const, endpointHash, transactionHash, payloadSha256, receiverRequestId: "request-clock", receiverRecordedAt: "2026-10-28T20:02:00Z", retrievedAt: "2026-10-28T20:03:00Z", retrievalProvenance: "official-receiver-api" as const, expiresAt: "2026-10-28T22:00:00Z" };
+    const expected = { endpointHash, transactionHash, payloadSha256, now: new Date("2026-10-28T20:03:00Z"), readyAt: "2026-10-28T20:01:00Z", expiresAt: receipt.expiresAt };
+    expect(validatePublicReceiverAcknowledgement(receipt, expected)).to.match(/^0x[0-9a-f]{64}$/);
+    expect(() => validatePublicReceiverAcknowledgement(receipt, { ...expected, now: new Date("2026-10-28T20:02:59Z") })).to.throw("future");
+    expect(() => validatePublicReceiverAcknowledgement({ ...receipt, retrievedAt: receipt.expiresAt }, expected)).to.throw("timely");
+    expect(() => validatePublicReceiverAcknowledgement({ ...receipt, receiverRecordedAt: "2026-10-28T20:00:59Z" }, expected)).to.throw("window");
+    expect(() => validatePublicReceiverAcknowledgement(receipt, { ...expected, now: new Date("invalid") })).to.throw("verification time");
+    expect(() => validatePublicReceiverAcknowledgement(receipt, { ...expected, readyAt: "invalid" })).to.throw("ready time");
+    expect(() => validatePublicReceiverAcknowledgement(receipt, { ...expected, readyAt: receipt.expiresAt })).to.throw("window bounds");
+    expect(() => validatePublicReceiverAcknowledgement(receipt, { ...expected, readyAt: "2026-10-28T22:00:01Z" })).to.throw("window bounds");
+  });
+
   it("requires delivered ledger evidence after a real restart and a matching receiver acknowledgement", () => {
     const directory = mkdtempSync(join(tmpdir(), "ordinary-observer-")); const ledgerPath = join(directory, "ledger.json"); const acknowledgementPath = join(directory, "ack.json");
     const endpointHash = "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0" as Hex; const transactionHash = keccak256("0x08"); const blockHash = keccak256("0x09");
@@ -238,6 +253,27 @@ describe("ordinary scenario frozen EIP-1193 facade", () => {
       expect(loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, expected: { kind: "delayed-cancelled", safe: SAFE, delay: SAFE, blockNumber: 10n, cancelledThrough: 1n }, now: new Date("2026-10-27T13:00:00Z") })).to.match(/^0x[0-9a-f]{64}$/);
       const wrong = JSON.parse(readFileSync(acknowledgementPath, "utf8")); wrong.payloadSha256 = keccak256("0xaa"); writeFileSync(acknowledgementPath, JSON.stringify(wrong));
       expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, transactionHash, now: new Date("2026-10-27T13:00:00Z") })).to.throw("binding");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("binds file-backed delivery and acknowledgement to the same observer clock window", () => {
+    const directory = mkdtempSync(join(tmpdir(), "ordinary-observer-clock-")); const ledgerPath = join(directory, "ledger.json"); const acknowledgementPath = join(directory, "ack.json");
+    const endpointHash = "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0" as Hex; const transactionHash = keccak256("0x18"); const blockHash = keccak256("0x19");
+    const alert = { kind: "delayed-cancelled" as const, chainId: 11155111, safe: SAFE, transactionHash, blockNumber: 10n, logIndex: 0, delay: SAFE, cancelledThrough: 1n };
+    const key = { chainId: 11155111, transactionHash, blockHash, logIndex: 0 }; const readyAt = "2026-10-28T20:01:00Z"; const expiresAt = "2026-10-28T22:00:00Z"; const now = new Date("2026-10-29T00:00:00Z");
+    try {
+      const activityStore = new FileActivityStore(ledgerPath); const ledger = new ActivityLedger(activityStore); ledger.accept(key, alert); const payloadSha256 = ledger.payloadHash(alert); ledger.markDelivered(key, { channel: "webhook", httpStatus: 200, payloadHash: payloadSha256, deliveredAt: "2026-10-28T20:02:30Z" }); activityStore.close();
+      const acknowledgement = { schemaVersion: 1, endpointHash, transactionHash, payloadSha256, receiverRequestId: "request-window", receiverRecordedAt: "2026-10-28T20:02:00Z", retrievedAt: "2026-10-28T20:03:00Z", retrievalProvenance: "official-receiver-api", expiresAt }; writeFileSync(acknowledgementPath, JSON.stringify(acknowledgement));
+      const load = () => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, receiverReadyAt: readyAt, receiverExpiresAt: expiresAt, transactionHash, now });
+      expect(load()).to.match(/^0x[0-9a-f]{64}$/);
+      const mutateDelivery = (deliveredAt: string) => { const state = JSON.parse(readFileSync(ledgerPath, "utf8")); const recordId = Object.keys(state.deliveries)[0]!; state.deliveries[recordId].deliveredAt = deliveredAt; writeFileSync(ledgerPath, JSON.stringify(state)); };
+      mutateDelivery("2026-10-28T20:03:01Z"); expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, receiverReadyAt: readyAt, receiverExpiresAt: expiresAt, transactionHash, now: new Date("2026-10-28T20:03:00Z") })).to.throw("future");
+      mutateDelivery(expiresAt); expect(() => load()).to.throw("timely");
+      mutateDelivery("2026-10-28T22:00:01Z"); expect(() => load()).to.throw("timely");
+      mutateDelivery("2026-10-28T20:03:01Z"); expect(() => load()).to.throw("retrieval");
+      mutateDelivery("2026-10-28T20:00:59Z"); expect(() => load()).to.throw("window");
+      mutateDelivery("2026-10-28T20:02:30Z"); writeFileSync(acknowledgementPath, JSON.stringify({ ...acknowledgement, receiverRecordedAt: "2026-10-28T23:01:00Z", retrievedAt: "2026-10-28T23:02:00Z", expiresAt: "2026-10-29T02:00:00Z" }));
+      expect(() => loadObserverConfirmationEvidence({ ledgerPath, acknowledgementPath, endpointHash, receiverReadyAt: readyAt, receiverExpiresAt: "2026-10-29T02:00:00Z", transactionHash, now: new Date("2026-10-28T21:00:00Z") })).to.throw("future");
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
