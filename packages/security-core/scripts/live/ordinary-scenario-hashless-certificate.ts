@@ -49,6 +49,7 @@ export type HashlessControlledState = {
   queue: { queueNonce: bigint; to: Address; value: bigint; data: Hex; operation: 0 | 1; createdAt: bigint; expiresAt: bigint };
   safeNativeBalance: bigint;
   safeUsdcBalance: bigint;
+  funderUsdcBalance: bigint;
   effectiveGuardWindow: bigint;
   nativeSpend: { window: bigint; baseSpent: bigint; instantSpent: bigint };
   usdcSpend: { window: bigint; baseSpent: bigint; instantSpent: bigint };
@@ -95,7 +96,7 @@ export type VerifiedHashlessStateCertificate = Readonly<{
   materializationBlock: HashlessCanonicalBlock;
   certificateBlock: HashlessCanonicalBlock;
   controlledStateHash: Hex;
-  currentSnapshot: Readonly<{ block: HashlessCanonicalBlock; controlledStateHash: Hex; funderNonce: number; latestNonce: number; pendingNonce: number; sharedFunderActivity: "NONE" | "UNRELATED_CONFIRMED_OR_PENDING_ACTIVITY" }>;
+  currentSnapshot: Readonly<{ block: HashlessCanonicalBlock; controlledStateHash: Hex; funderUsdcBalance: bigint; funderNonce: number; latestNonce: number; pendingNonce: number; sharedFunderActivity: "NONE" | "UNRELATED_CONFIRMED_OR_PENDING_ACTIVITY" }>;
   classification: "EXPIRED_UNEXECUTED";
   nonce809: Extract<HashlessNonce809Resolution, { kind: "NONCE_809_INVALIDATED" }>;
   certificateHash: Hex;
@@ -234,7 +235,7 @@ function decodeArtifact(serialized: string, expectedSha256: Hex): Artifact {
 const expectedControlledState = (): HashlessControlledState => ({
   chainId: CHAIN_ID, safe: SAFE, delay: DELAY, usdc: USDC, safeNonce: 7n, delayQueueNonce: 3n, delayTxNonce: 2n,
   queue: { queueNonce: 2n, to: FUNDER, value: 1n, data: "0x", operation: 0, createdAt: 1_793_208_888n, expiresAt: 1_793_209_608n },
-  safeNativeBalance: 1n, safeUsdcBalance: 20_000_000n, effectiveGuardWindow: 1_793_145_600n,
+  safeNativeBalance: 1n, safeUsdcBalance: 20_000_000n, funderUsdcBalance: 0n, effectiveGuardWindow: 1_793_145_600n,
   nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, usdcSpend: { window: 1_793_145_600n, baseSpent: 0n, instantSpent: 0n },
 });
 
@@ -310,7 +311,7 @@ export async function verifyHashlessStateCertificate(artifactText: string, expec
   const controlledStateHash = publicHash(views[0].certificateState);
   const currentStateHash = publicHash(views[0].currentState);
   const sharedFunderActivity = views[0].currentNonce > 811 || views[0].latestNonce > 811 || views[0].pendingNonce > 811 ? "UNRELATED_CONFIRMED_OR_PENDING_ACTIVITY" as const : "NONE" as const;
-  const currentSnapshot = Object.freeze({ block: Object.freeze({ ...views[0].current }), controlledStateHash: currentStateHash, funderNonce: views[0].currentNonce, latestNonce: views[0].latestNonce, pendingNonce: views[0].pendingNonce, sharedFunderActivity });
+  const currentSnapshot = Object.freeze({ block: Object.freeze({ ...views[0].current }), controlledStateHash: currentStateHash, funderUsdcBalance: views[0].currentState.funderUsdcBalance, funderNonce: views[0].currentNonce, latestNonce: views[0].latestNonce, pendingNonce: views[0].pendingNonce, sharedFunderActivity });
   const body = { kind: "VERIFIED_HASHLESS_STATE_CERTIFICATE" as const, source: sourceProvenance, artifactSha256: expectedArtifactSha256, historicalPrefixHash: EXPECTED_PREFIX_HASH, materializationBlock: MATERIALIZATION_BLOCK, certificateBlock: CERTIFICATE_BLOCK, controlledStateHash, currentSnapshot, classification: "EXPIRED_UNEXECUTED" as const, nonce809 };
   const certificate = Object.freeze({ ...body, nonce809: Object.freeze(nonce809), certificateHash: publicHash(body) }) as VerifiedHashlessStateCertificate;
   revalidateSourceJournal(journal); assertSourceRow(journal);

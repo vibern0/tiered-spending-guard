@@ -38,6 +38,7 @@ const controlledState = (): HashlessControlledState => ({
   queue: { queueNonce: 2n, to: recipient, value: 1n, data: "0x", operation: 0, createdAt: 1_793_208_888n, expiresAt: 1_793_209_608n },
   safeNativeBalance: 1n,
   safeUsdcBalance: 20_000_000n,
+  funderUsdcBalance: 0n,
   effectiveGuardWindow: 1_793_145_600n,
   nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n },
   usdcSpend: { window: 1_793_145_600n, baseSpent: 0n, instantSpent: 0n },
@@ -123,6 +124,7 @@ describe("ordinary scenario hashless certificate", function () {
     expect(certificate.source.interruptionRevision).to.equal("1e24c636b665b8d44f5755e0e30fd6d485939d35");
     expect(certificate.source.laterCorrectedRevision).to.equal("e11a893fd36913411e7f7c4598832e96bdf368b7");
     expect(certificate.source.failureCause).to.equal("UNKNOWN");
+    expect(certificate.currentSnapshot.funderUsdcBalance).to.equal(0n);
   });
 
   it("rejects_mutated_prefix", async function () {
@@ -190,6 +192,9 @@ describe("ordinary scenario hashless certificate", function () {
     const changed = controlledState(); changed.safeNativeBalance = 0n;
     await expect(verify(trackedSource(), [provider({ currentState: changed }), provider({ currentState: changed })])).to.be.rejectedWith(/current|controlled|state/i);
 
+    const funderBalance = controlledState(); funderBalance.funderUsdcBalance = 1n;
+    await expect(verify(trackedSource(), [provider({ currentState: funderBalance }), provider({ currentState: funderBalance })])).to.be.rejectedWith(/current|controlled|state|balance/i);
+
     const window = controlledState(); window.nativeSpend.window += 86_400n;
     await expect(verify(trackedSource(), [provider({ currentState: window }), provider({ currentState: window })])).to.be.rejectedWith(/window|current|controlled|state/i);
 
@@ -207,6 +212,7 @@ describe("ordinary scenario hashless certificate", function () {
       ["expiry", state => { state.queue.expiresAt += 1n; }],
       ["native balance", state => { state.safeNativeBalance = 0n; }],
       ["USDC balance", state => { state.safeUsdcBalance = 19_999_999n; }],
+      ["funder USDC balance", state => { state.funderUsdcBalance = 1n; }],
       ["native base counter", state => { state.nativeSpend.baseSpent -= 1n; }],
       ["native instant counter", state => { state.nativeSpend.instantSpent -= 1n; }],
       ["USDC counter", state => { state.usdcSpend.instantSpent = 1n; }],
