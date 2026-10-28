@@ -166,6 +166,7 @@ export function parseExpiredHashlessContinuationProposal(serialized: string, ori
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("continuation proposal must be an object");
   const value = parsed as Record<string, unknown>;
   exactKeys(value, ["schemaVersion", "recoveryKind", "authorization", "chainId", "source", "originalProposalHash", "historicalPrefixHash", "certificateHash", "sourceCurrentSnapshotHash", "observer", "caps", "derivations", "maxBroadcastAttempts", "reservation", "actions", "proposalHash"], "continuation proposal");
+  if (journal.liveJournal.entries.length > 10 && !("hashlessContinuation" in journal)) throw new Error("orphan continuation journal growth is missing its attached lineage");
   const expected = buildExpiredHashlessContinuationProposal({ original, journal, certificate, observer: value.observer as ContinuationObserverBinding, caps: value.caps as ContinuationActionCaps }, "parse");
   if (JSON.stringify(parsed) !== JSON.stringify(expected)) throw new Error("continuation proposal shape, type, commitment, or hash drift");
   const existing = (journal as OrdinaryScenarioJournal & { hashlessContinuation?: unknown }).hashlessContinuation;

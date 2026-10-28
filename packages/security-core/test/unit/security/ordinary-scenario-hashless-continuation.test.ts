@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decodeFunctionData, hashTypedData, parseAbi, type Address, type Hex } from "viem";
-import { queueMonitoringFingerprint } from "../../../src/queue/delay";
+import { decodeFunctionData, encodeFunctionData, hashTypedData, parseAbi, type Address, type Hex } from "viem";
+import { queueFingerprint, queueMonitoringFingerprint } from "../../../src/queue/delay";
 import { SAFE_TX_TYPES } from "../../../src/signers/types";
 import { sha256 } from "../../../scripts/plan-deployment";
 import { createOrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
@@ -50,6 +50,10 @@ const schedule = { review: "3600", execution: "960", confirmations: "180", deliv
 const observer = { kind: "https-webhook" as const, publicId: `temporary-test-receiver:${h("a")}`, endpointHash: h("a"), probeEvidenceHash: h("b"), independentFromProposer: true as const, readyAt: "1793210052", workflowScheduleSeconds: schedule, requiredThrough: "1793215452", expiresAt: "1793215452" };
 const caps = { fundingGasLimit: "740292", safeExecutionGasLimit: "2000000", publicDelayGasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000" };
 const exactIds = ["native-queue-ready-hashless-skip", "native-queue-ready-replacement", "native-queue-ready-replacement-execute", "usdc-base-x", "usdc-step-up-contract", "usdc-recycle-topup-step-up", "usdc-step-up-ecdsa", "usdc-direct-overspend-rejection", "usdc-replay-rejection", "usdc-unsupported-path-rejection", "usdc-recycle-topup-delayed", "usdc-queue-cancel", "usdc-queue-cancel-early-rejection", "usdc-queue-cancel-action", "usdc-queue-cancelled-execution-rejection", "usdc-queue-expiry", "usdc-queue-expiry-early-rejection", "usdc-queue-expiry-skip", "usdc-queue-expired-execution-rejection", "usdc-queue-execute", "usdc-queue-execute-early-rejection", "usdc-queue-ready-execute"];
+const delayedUsdcData = encodeFunctionData({ abi: parseAbi(["function transfer(address,uint256)"]), functionName: "transfer", args: [funder, 1_000_000n] });
+const canonicalHead = (queueNonce: bigint, to: Address, value: bigint, data: Hex) => queueFingerprint({ safe, delay, queueNonce, to, value, data, operation: 0 });
+const nativeHead2 = canonicalHead(2n, funder, 1n, "0x"), nativeHead3 = canonicalHead(3n, funder, 1n, "0x");
+const usdcHead4 = canonicalHead(4n, usdc, 0n, delayedUsdcData), usdcHead5 = canonicalHead(5n, usdc, 0n, delayedUsdcData), usdcHead6 = canonicalHead(6n, usdc, 0n, delayedUsdcData);
 const exactCatalog = [
   ["queue-expiry", [], [], "7/3/2", "7/3/3"], ["queue-proposal", ["primary-passkey", "safe-contract-secondary"], [exactIds[0]], "7/3/3", "8/4/3"], ["ready-delay-execution", [], [exactIds[1]], "8/4/3", "8/4/4"],
   ["base-transfer", ["primary-passkey"], ["usdc-funding", exactIds[2]], "8/4/4", "9/4/4"], ["step-up-transfer", ["primary-passkey", "safe-contract-secondary"], [exactIds[3]], "9/4/4", "10/4/4"], ["controlled-recipient-recycled-funding", ["funder"], [exactIds[4]], "10/4/4", "10/4/4"],
@@ -76,10 +80,11 @@ describe("expired hashless continuation proposal", function () {
     expect(proposal.actions[1]?.transaction?.data.slice(0, 10)).to.equal("0x468721a7");
     expect(proposal.actions[0]?.transaction?.data).to.equal("0xb19d4758");
     expect(proposal.actions[2]?.transaction?.data.slice(0, 10)).to.equal("0xee072baf");
-    const stateTuple = (action: typeof proposal.actions[number], side: "before" | "after") => { const value = action[side]; return `${value.safeNativeBalance}/${value.safeUsdcBalance}/${value.funderUsdcBalance}/${value.usdcBaseSpent}/${value.usdcInstantSpent}/${value.queueStatus}/${value.queueNonce}`; };
-    const s0 = "1/20000000/0/0/0/EXPIRED/2", s1 = "1/20000000/0/0/0/EXPIRED_SKIPPED/2", s2 = "1/20000000/0/0/0/QUEUED/3", s3 = "0/20000000/0/0/0/EXECUTED/3";
-    const u0 = "0/20000000/0/0/0/EXECUTED_CONDITIONAL/3", u1 = "0/10000000/10000000/10000000/10000000/EXECUTED_CONDITIONAL/3", u2 = "0/0/20000000/10000000/20000000/EXECUTED_CONDITIONAL/3", u3 = "0/10000000/10000000/10000000/20000000/EXECUTED_CONDITIONAL/3", u4 = "0/0/20000000/10000000/30000000/EXECUTED_CONDITIONAL/3", u5 = "0/1000000/19000000/10000000/30000000/EXECUTED_CONDITIONAL/3";
-    const u6 = "0/1000000/19000000/10000000/30000000/QUEUED_CONDITIONAL/4", u7 = "0/1000000/19000000/10000000/30000000/CANCELLED_CONDITIONAL/4", u8 = "0/1000000/19000000/10000000/30000000/QUEUED_CONDITIONAL/5", u9 = "0/1000000/19000000/10000000/30000000/EXPIRED_CONDITIONAL/5", u10 = "0/1000000/19000000/10000000/30000000/QUEUED_CONDITIONAL/6", u11 = "0/0/20000000/10000000/30000000/EXECUTED_CONDITIONAL/6";
+    const stateTuple = (action: typeof proposal.actions[number], side: "before" | "after") => { const value = action[side]; return `${value.safeNonce}/${value.delayQueueNonce}/${value.delayTxNonce}/${value.safeNativeBalance}/${value.safeUsdcBalance}/${value.funderUsdcBalance}/${value.nativeBaseSpent}/${value.nativeInstantSpent}/${value.usdcBaseSpent}/${value.usdcInstantSpent}/${value.queueStatus}/${value.queueNonce}/${value.queueFingerprint}`; };
+    const nativeSpend = "10000000000000/30000000000000";
+    const s0 = `7/3/2/1/20000000/0/${nativeSpend}/0/0/EXPIRED/2/${nativeHead2}`, s1 = `7/3/3/1/20000000/0/${nativeSpend}/0/0/EXPIRED_SKIPPED/2/${nativeHead2}`, s2 = `8/4/3/1/20000000/0/${nativeSpend}/0/0/QUEUED/3/${nativeHead3}`, s3 = `8/4/4/0/20000000/0/${nativeSpend}/0/0/EXECUTED/3/${nativeHead3}`;
+    const u0 = `8/4/4/0/20000000/0/${nativeSpend}/0/0/EXECUTED_CONDITIONAL/3/${nativeHead3}`, u1 = `9/4/4/0/10000000/10000000/${nativeSpend}/10000000/10000000/EXECUTED_CONDITIONAL/3/${nativeHead3}`, u2 = `10/4/4/0/0/20000000/${nativeSpend}/10000000/20000000/EXECUTED_CONDITIONAL/3/${nativeHead3}`, u3 = `10/4/4/0/10000000/10000000/${nativeSpend}/10000000/20000000/EXECUTED_CONDITIONAL/3/${nativeHead3}`, u4 = `11/4/4/0/0/20000000/${nativeSpend}/10000000/30000000/EXECUTED_CONDITIONAL/3/${nativeHead3}`, u5 = `11/4/4/0/1000000/19000000/${nativeSpend}/10000000/30000000/EXECUTED_CONDITIONAL/3/${nativeHead3}`;
+    const u6 = `12/5/4/0/1000000/19000000/${nativeSpend}/10000000/30000000/QUEUED_CONDITIONAL/4/${usdcHead4}`, u7 = `13/5/5/0/1000000/19000000/${nativeSpend}/10000000/30000000/CANCELLED_CONDITIONAL/4/${usdcHead4}`, u8 = `14/6/5/0/1000000/19000000/${nativeSpend}/10000000/30000000/QUEUED_CONDITIONAL/5/${usdcHead5}`, u9 = `14/6/6/0/1000000/19000000/${nativeSpend}/10000000/30000000/EXPIRED_CONDITIONAL/5/${usdcHead5}`, u10 = `15/7/6/0/1000000/19000000/${nativeSpend}/10000000/30000000/QUEUED_CONDITIONAL/6/${usdcHead6}`, u11 = `15/7/7/0/0/20000000/${nativeSpend}/10000000/30000000/EXECUTED_CONDITIONAL/6/${usdcHead6}`;
     const expectedStateSpine = [[s0, s1], [s1, s2], [s2, s3], [u0, u1], [u1, u2], [u2, u3], [u3, u4], [u4, u4], [u4, u4], [u4, u4], [u4, u5], [u5, u6], [u6, u6], [u6, u7], [u7, u7], [u7, u8], [u8, u8], [u8, u9], [u9, u9], [u9, u10], [u10, u10], [u10, u11]];
     expect(proposal.actions.map(action => [stateTuple(action, "before"), stateTuple(action, "after")])).to.deep.equal(expectedStateSpine);
   });
@@ -103,6 +108,8 @@ describe("expired hashless continuation proposal", function () {
     const expectedCalls = ["skipExpired", "execTransactionFromModule", "executeNextTx", "transfer", "transfer", "transfer", "transfer", "transfer", "transfer", "approve", "transfer", "execTransactionFromModule", "executeNextTx", "setTxNonce", "executeNextTx", "execTransactionFromModule", "executeNextTx", "skipExpired", "executeNextTx", "execTransactionFromModule", "executeNextTx", "executeNextTx"];
     const observed = proposal.actions.map(action => decodeFunctionData({ abi: action.transaction.to.toLowerCase() === delay.toLowerCase() ? delayAbi : tokenAbi, data: action.transaction.data }));
     expect(observed.map(call => call.functionName)).to.deep.equal(expectedCalls);
+    expect(observed[1]?.args).to.deep.equal([funder, 1n, "0x", 0]);
+    expect(observed[2]?.args).to.deep.equal([funder, 1n, "0x", 0]);
     const tokenCall = (index: number) => { const call = observed[index]!; if (call.functionName === "transfer" || call.functionName === "approve") return call; const nested = call.args?.[2]; return decodeFunctionData({ abi: tokenAbi, data: nested as Hex }); };
     for (const index of [3, 4, 6, 8]) { const call = tokenCall(index); expect(call.functionName).to.equal("transfer"); expect(call.args?.[0]).to.equal(funder); expect(call.args?.[1]).to.equal(10_000_000n); }
     expect(tokenCall(5).args).to.deep.equal([safe, 10_000_000n]);
@@ -155,6 +162,8 @@ describe("expired hashless continuation proposal", function () {
     expect(() => createExpiredHashlessContinuationProposal({ original: original(), journal, certificate, observer, caps })).to.throw(/existing|pristine|continuation/i);
     journal.liveJournal.entries.push({ ...journal.liveJournal.entries[0]!, id: "native-queue-ready-hashless-skip" });
     expect(parseExpiredHashlessContinuationProposal(JSON.stringify(proposal), original(), journal, certificate).proposalHash).to.equal(proposal.proposalHash);
+    delete (journal as any).hashlessContinuation;
+    expect(() => parseExpiredHashlessContinuationProposal(JSON.stringify(proposal), original(), journal, certificate)).to.throw(/orphan|lineage|continuation/i);
     (journal as any).hashlessContinuation = undefined;
     expect(() => parseExpiredHashlessContinuationProposal(JSON.stringify(proposal), original(), journal, certificate)).to.throw(/lineage|malformed/i);
   });
