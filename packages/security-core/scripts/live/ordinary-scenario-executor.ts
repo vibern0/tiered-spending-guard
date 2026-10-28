@@ -1101,14 +1101,15 @@ function decodeFinalOuterMaterialization(value: unknown): OrdinaryScenarioAction
   if (value === undefined) return undefined;
   const item = record(value, "final outer materialization");
   exactKeys(item, ["hash", "proposalHash", "actionCommitment", "outerNonce", "gas", "gasEstimate", "maxFeePerGas", "maxPriorityFeePerGas", "pinnedBlockNumber", "pinnedBlockHash", "approvedContinuationReservationWei", "remainingReservationWei"], "final outer materialization");
+  if (typeof item.outerNonce !== "number" || !Number.isSafeInteger(item.outerNonce) || item.outerNonce <= 809) throw new Error("final outer nonce must be a safe integer greater than 809");
   const facts = {
     proposalHash: hash(item.proposalHash, "final proposal hash"), actionCommitment: hash(item.actionCommitment, "final action commitment"),
-    outerNonce: Number(decimal(String(item.outerNonce), "final outer nonce")), gas: decimal(item.gas, "final gas").toString(), gasEstimate: decimal(item.gasEstimate, "final gas estimate").toString(),
+    outerNonce: item.outerNonce, gas: decimal(item.gas, "final gas").toString(), gasEstimate: decimal(item.gasEstimate, "final gas estimate").toString(),
     maxFeePerGas: decimal(item.maxFeePerGas, "final max fee").toString(), maxPriorityFeePerGas: decimal(item.maxPriorityFeePerGas, "final priority fee").toString(),
     pinnedBlockNumber: decimal(item.pinnedBlockNumber, "final pinned block").toString(), pinnedBlockHash: hash(item.pinnedBlockHash, "final pinned block hash"),
     approvedContinuationReservationWei: decimal(item.approvedContinuationReservationWei, "final approved reservation").toString(), remainingReservationWei: decimal(item.remainingReservationWei, "final remaining reservation").toString(),
   };
-  if (!Number.isSafeInteger(facts.outerNonce) || facts.outerNonce <= 809 || BigInt(facts.gas) <= 0n || BigInt(facts.gasEstimate) <= 0n || BigInt(facts.gasEstimate) > BigInt(facts.gas) || BigInt(facts.maxFeePerGas) <= 0n || BigInt(facts.maxPriorityFeePerGas) > BigInt(facts.maxFeePerGas)) throw new Error("final outer materialization bounds are invalid");
+  if (BigInt(facts.gas) <= 0n || BigInt(facts.gasEstimate) <= 0n || BigInt(facts.gasEstimate) > BigInt(facts.gas) || BigInt(facts.maxFeePerGas) <= 0n || BigInt(facts.maxPriorityFeePerGas) > BigInt(facts.maxFeePerGas)) throw new Error("final outer materialization bounds are invalid");
   const expected = publicHash(facts); if (!same(hash(item.hash, "final outer materialization hash"), expected)) throw new Error("final outer materialization hash mismatch");
   return { hash: expected, ...facts };
 }
@@ -1187,6 +1188,7 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (continuation.schemaVersion !== 1 || continuation.recoveryKind !== "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1" || continuation.historicalActionCount !== 19 || continuation.historicalLiveEntryCount !== 10 || commitments.length !== 22 || continuationActions.length !== 22 || commitments.some((entry, index) => entry.id !== continuationActions[index]!.id || entry.commitment !== continuationActions[index]!.commitment)) throw new Error("hashless continuation header or catalog mismatch");
     hashlessContinuation = { schemaVersion: 1, recoveryKind: "FIRST38_NATIVE_READY_HASHLESS_EXPIRED_V1", source: continuation.source as HashlessContinuationStorage["source"], historicalActionCount: 19, historicalLiveEntryCount: 10, historicalPrefixHash: hash(continuation.historicalPrefixHash, "hashless prefix hash"), originalProposalHash: hash(continuation.originalProposalHash, "hashless original proposal hash"), certificateHash: hash(continuation.certificateHash, "hashless certificate hash"), proposalHash: hash(continuation.proposalHash, "hashless proposal hash"), approvalHash: hash(continuation.approvalHash, "hashless approval hash"), actionCommitments: commitments, cumulativeContinuationReservationWei: decimal(continuation.cumulativeContinuationReservationWei, "hashless reservation").toString(), actions: continuationActions };
   }
+  if (repairContinuation !== undefined && hashlessContinuation !== undefined) throw new Error("hashless and repair continuation coexistence is unsupported");
   const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, repairContinuation, hashlessContinuation };
   if (hashlessContinuation && (actions.length !== 19 || entries.length < 10 || !same(hashHistoricalPrefix(journal), APPROVED_HASHLESS_PREFIX))) throw new Error("hashless continuation fixed historical prefix mismatch");
   if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario persisted journal identity mismatch");
