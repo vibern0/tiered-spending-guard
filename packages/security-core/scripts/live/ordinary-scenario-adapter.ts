@@ -164,6 +164,7 @@ export type OrdinaryScenarioAdapterInput = OrdinaryScenarioStateReaderInput & Re
   observerLedgerPath?: string;
   receiverAcknowledgementPath?: string;
   observerEndpointHash?: Hex;
+  receiverExpiresAt?: string;
   now?(): Date;
 }>;
 
@@ -282,7 +283,7 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
       let observerEvidenceHash: Hex | null = null;
       if (alertKind(action.kind)) {
         if (!input.observerLedgerPath || !input.receiverAcknowledgementPath || !input.observerEndpointHash) throw new Error("ordinary scenario activity evidence is not yet available");
-        observerEvidenceHash = loadObserverConfirmationEvidence({ ledgerPath: input.observerLedgerPath, acknowledgementPath: input.receiverAcknowledgementPath, endpointHash: input.observerEndpointHash, transactionHash: entry.receipt.transactionHash, now: input.now?.() ?? new Date() });
+        observerEvidenceHash = loadObserverConfirmationEvidence({ ledgerPath: input.observerLedgerPath, acknowledgementPath: input.receiverAcknowledgementPath, endpointHash: input.observerEndpointHash, ...(input.receiverExpiresAt ? { receiverExpiresAt: input.receiverExpiresAt } : {}), transactionHash: entry.receipt.transactionHash, now: input.now?.() ?? new Date() });
       }
       return { postState, effect, observerEvidenceHash };
     },

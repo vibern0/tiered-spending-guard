@@ -101,7 +101,72 @@ The repair continuation uses the same atomic ordinary journal and embedded live-
 
 The replacement assertion becomes public when the exact repair queue is included onchain. The independent observer may then retain the canonical `TransactionAdded.data` as part of its existing full-action alert/archive evidence so the queue fingerprint remains reproducible. That data must come from the verified canonical receipt; never copy it back into review artifacts, the coordinator/signing journal, or browser persistence, and never place unsubmitted or privately supplied authorizer bytes in observer output. The pre-publication no-raw-assertion boundary remains strict; no secrecy is claimed after canonical publication.
 
-Run these through `npm run scenario:repair -- <command>`. The closed command names are `creation-review`, `creation-submit`, `prepare-queue`, `tail-submit-one`, and `tail-resume-one`. Creation review accepts only the original report/artifact/package/proposal/approval identities, the terminal journal, and an optional output path. It constructs the fixed public replacement descriptor and factory quote internally, validates every terminal predecessor receipt through the archive client, and reads the pinned current state and rotation-aware topology itself; caller-supplied state, evidence, quote, endpoints, profiles, or verifier inputs are rejected. Creation submission additionally takes the saved creation identity and exact creation approval. Queue preparation takes the saved creation identity, original identities, terminal journal, prepare-only authorization, sanitized group output, and an optional approval wait no greater than 600000 ms; maintenance and one-wei recipient are fixed in code, and the later exact group approval arrives as one stdin JSON line containing only `path` and `hash`. Tail commands take the original and creation identities, journal, exact group identity, and observer ledger/receiver acknowledgement when the reviewed action has an alert. The group approval commits to queue nonce 6, its exact fingerprint, `CANONICAL_RECEIPT_CREATED_AT_ONLY`, cooldown 120, and expiry 600; concrete ready/expiry timestamps are derived only from the canonically verified repair-queue receipt and are checked before materialization and before outer signing. Each submitted tail action receives an exact-result simulation and fresh bounded gas estimate at both gates. Each invocation handles at most one reviewed action and rejects unknown or duplicate input. Review mode uses public artifacts only. Submission modes require their separate exact approval and explicit `LIVE_SUBMIT=YES`; resume mode rejects every private authority input and its signing/broadcast methods throw. These commands do not automatically advance to the next repair action. The live checklist remains incomplete until canonical Sepolia receipts, rotation-aware topology evidence, old-secondary rejection, receiver acknowledgements for alerting rows, cancellation, and frozen-state proofs have been independently reviewed.
+Run these through `npm run scenario:repair -- <command>`. The closed command names are `creation-review`, `creation-submit`, `prepare-queue`, `tail-submit-one`, and `tail-resume-one`. Creation review accepts only the original report/artifact/package/proposal/approval identities, the terminal journal, and an optional output path. It constructs the fixed public replacement descriptor and factory quote internally, validates every terminal predecessor receipt through the archive client, and reads the pinned current state and rotation-aware topology itself; caller-supplied state, evidence, quote, endpoints, profiles, or verifier inputs are rejected. Creation submission additionally takes the saved creation identity and exact creation approval. Queue preparation takes the saved creation identity, original identities, terminal journal, prepare-only authorization, sanitized group output, and an optional approval wait no greater than 600000 ms; maintenance and one-wei recipient are fixed in code, and the later exact group approval arrives as one stdin JSON line containing only `path` and `hash`. Tail commands take the original and creation identities, journal, exact group identity, and observer ledger/receiver acknowledgement when the reviewed action has an alert. The group approval commits to its verified predecessor's exact queue nonce and fingerprint: nonce 6 for the original terminal-38 route or nonce 7 for the completed hashless route, plus `CANONICAL_RECEIPT_CREATED_AT_ONLY`, cooldown 120, and expiry 600. Concrete ready/expiry timestamps are derived only from the canonically verified repair-queue receipt and are checked before materialization and before outer signing. Each submitted tail action receives an exact-result simulation and fresh bounded gas estimate at both gates. Each invocation handles at most one reviewed action and rejects unknown or duplicate input. Review mode uses public artifacts only. Submission modes require their separate exact approval and explicit `LIVE_SUBMIT=YES`; resume mode rejects every private authority input and its signing/broadcast methods throw. These commands do not automatically advance to the next repair action. The live checklist remains incomplete until canonical Sepolia receipts, rotation-aware topology evidence, old-secondary rejection, receiver acknowledgements for alerting rows, cancellation, and frozen-state proofs have been independently reviewed.
+
+## Interrupted FIRST38 hashless continuation
+
+The original FIRST38 package is permanently `INTERRUPTED_HASHLESS_AT_19_OF_38`: rows 1–18 have terminal evidence, row 19 remains the immutable `signed-simulated` nonce-809 record with no transaction hash or inferred failure cause, and the original USDC tail is superseded. The public certificate proves the separately observed EIP-155-protected legacy nonce-809 consumption and unchanged expired queue state. It does not authorize the 22-action continuation. `ordinary-scenario-hashless-report.ts` renders only verified persisted public evidence; it performs no RPC read and cannot close Task 0.
+
+Run public review directly from `packages/security-core` with the exact closed flags:
+
+```sh
+npx tsx scripts/live/ordinary-scenario-hashless-continuation-cli.ts review \
+  --source-journal /absolute/public/first38-journal.json \
+  --original-report /absolute/public/original-report.json \
+  --original-package-hash 0x... \
+  --original-artifact-hash 0x... \
+  --original-proposal-hash 0x... \
+  --source-artifact /absolute/public/hashless-state.json \
+  --source-artifact-hash 0x... \
+  --observer-startup /absolute/public/fresh-observer-startup.json \
+  --observer-probe /absolute/public/fresh-observer-probe.json
+```
+
+Review requires the two fixed public providers, the immutable `actions.slice(0,19)` and `liveJournal.entries.slice(0,10)`, a certificate with at least six confirmations, and a new independent observer whose remaining lifetime covers review, execution, six confirmations, delivery, acknowledgement, and keyless confirmation. Stop on the native window rollover at `1793145600`, any controlled-state drift, provider disagreement, or receiver lifetime shortfall. The emitted certificate and 22-action proposal are unsigned and have `authorization: "NONE"`.
+
+After separate exact proposal and capped financial approval, one action may be submitted with:
+
+```sh
+LIVE_SUBMIT=YES npx tsx scripts/live/ordinary-scenario-hashless-continuation-cli.ts submit-one \
+  --source-journal /absolute/public/first38-journal.json \
+  --journal /absolute/public/first38-journal.json \
+  --original-report /absolute/public/original-report.json \
+  --original-package-hash 0x... \
+  --original-artifact-hash 0x... \
+  --original-proposal-hash 0x... \
+  --certificate /absolute/public/recorded-certificate.json \
+  --certificate-hash 0x... \
+  --proposal /absolute/public/continuation-proposal.json \
+  --approval /absolute/public/continuation-approval.json \
+  --approval-hash 0x... \
+  --observer-ledger /absolute/public/observer-ledger.json \
+  --receiver-ack /absolute/public/receiver-ack.json
+```
+
+`--journal` must be the same path string as `--source-journal`. Each broadcast action receives one final materialization only, with nonce greater than 809 and frozen gas estimate, block, fees, and reservation before private signing. A new action requires the same fresh bound observer expiry; the shared confirmation validator receives that exact expiry rather than the historical ordinary receiver default. The original approval cannot authorize any continuation action.
+
+If one exact hash is already durable and pending, reconcile it without private authority or rebroadcast:
+
+```sh
+npx tsx scripts/live/ordinary-scenario-hashless-continuation-cli.ts resume-one \
+  --source-journal /absolute/public/first38-journal.json \
+  --journal /absolute/public/first38-journal.json \
+  --original-report /absolute/public/original-report.json \
+  --original-package-hash 0x... \
+  --original-artifact-hash 0x... \
+  --original-proposal-hash 0x... \
+  --certificate /absolute/public/recorded-certificate.json \
+  --certificate-hash 0x... \
+  --proposal /absolute/public/continuation-proposal.json \
+  --approval /absolute/public/continuation-approval.json \
+  --approval-hash 0x... \
+  --observer-ledger /absolute/public/observer-ledger.json \
+  --receiver-ack /absolute/public/receiver-ack.json
+```
+
+A timely delivery and official acknowledgement remain historical evidence after expiry, but expiry never permits a new write. `EXPIRED_SOURCE_REBASED_CONTINUATION_COMPLETE` requires all 22 exact terminal records, canonical receipts/evidence, and the ordered live catalog, ending at Safe/Delay `15/7/7`. Later repair is a separate approval lineage. Every repair command on this route additionally requires the complete flag set `--continuation-certificate`, `--continuation-certificate-hash`, `--continuation-proposal`, `--continuation-approval`, and `--continuation-approval-hash`; repair finishes at `19/9/9`. A ready delayed withdrawal is executed manually with its already reviewed exact `executeNextTx` tuple after cooldown and before expiry. There is no watcher, scheduler, or relayer authorization in this continuation.
+
+Task 0 remains open after continuation completion. Closure still requires the complete native and USDC X/Y, cancellation, expiry, ready execution, independent delivery/acknowledgement, repair/rotation, freeze, balances, topology, regression, and independent-review matrix. It also requires the root-owned full security gate and public artifact review. Do not start native Task 1 or describe the ordinary baseline as complete from this renderer or its focused tests.
 
 The temporary test receiver's public hash and successful metadata probe establish configuration only. Keep every action's alert row conditional until that exact live event is independently delivered and reconciled. Never package its private URL.
 

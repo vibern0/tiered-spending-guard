@@ -189,9 +189,13 @@ export function createHashlessEvidenceProvider(client: ReturnType<typeof createP
 
 function requiredEnvironment(environment: Readonly<Record<string, string | undefined>>, key: string): string { const value = environment[key]; if (!value) throw new Error(`submit-one requires ${key}`); return value; }
 
-type HashlessContinuationProductionSeams = Readonly<{ createStateReader?: typeof createOrdinaryScenarioStateReader }>;
+type HashlessContinuationProductionSeams = Readonly<{
+  createStateReader?: typeof createOrdinaryScenarioStateReader;
+  createHarness?: typeof createOrdinaryScenarioProductionHarness;
+  createExecutionContext?: typeof createOrdinaryScenarioExecutionContext;
+}>;
 export function createHashlessContinuationProductionDependencies(repository: string, argv: readonly string[], seams: HashlessContinuationProductionSeams = {}): HashlessContinuationCliDependencies {
-  const current = createPublicClient({ chain: sepolia, transport: http(PUBLIC_CURRENT_RPC) }); const archive = createPublicClient({ chain: sepolia, transport: http(PUBLIC_ARCHIVE_RPC) }); const harness = createOrdinaryScenarioProductionHarness(repository); const cli = parseHashlessContinuationCliArguments(argv);
+  const current = createPublicClient({ chain: sepolia, transport: http(PUBLIC_CURRENT_RPC) }); const archive = createPublicClient({ chain: sepolia, transport: http(PUBLIC_ARCHIVE_RPC) }); const harness = (seams.createHarness ?? createOrdinaryScenarioProductionHarness)(repository); const cli = parseHashlessContinuationCliArguments(argv);
   const observerReadiness = (inputs: HashlessContinuationPublicInputs, mode: "submit-one" | "resume-one") => async () => { if (mode === "submit-one") assertContinuationObserverFresh(inputs.continuation.observer, new Date()); return { ready: true, evidenceHash: inputs.continuation.observer.probeEvidenceHash }; };
   return {
     environment: process.env,
@@ -210,7 +214,7 @@ export function createHashlessContinuationProductionDependencies(repository: str
         return { primary };
       };
       const live = await harness.createLiveContext(mode, inputs.original.funder, async () => {});
-      return createOrdinaryScenarioExecutionContext({ repository, proposal: view, journal, currentClient: current, archiveClient: archive, observerReadiness: readiness, live, loadSigners, observerLedgerPath: cli.values.get("--observer-ledger"), receiverAcknowledgementPath: cli.values.get("--receiver-ack"), observerEndpointHash: inputs.continuation.observer.endpointHash });
+      return (seams.createExecutionContext ?? createOrdinaryScenarioExecutionContext)({ repository, proposal: view, journal, currentClient: current, archiveClient: archive, observerReadiness: readiness, live, loadSigners, observerLedgerPath: cli.values.get("--observer-ledger"), receiverAcknowledgementPath: cli.values.get("--receiver-ack"), observerEndpointHash: inputs.continuation.observer.endpointHash, receiverExpiresAt: new Date(Number(BigInt(inputs.continuation.observer.expiresAt)) * 1000).toISOString() });
     },
   };
 }
