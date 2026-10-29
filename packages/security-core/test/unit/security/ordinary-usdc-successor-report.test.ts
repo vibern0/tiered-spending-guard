@@ -196,7 +196,11 @@ describe("ordinary USDC successor persisted-evidence report", function () {
     expect(report.nativeRecovery).to.include({ status: "NATIVE_RECOVERY_3_OF_22", confirmedActionCount: 3, approvedActionCount: 19 });
     expect(report.supersededOriginalUsdc).to.include({ status: "SUPERSEDED_UNEXECUTED_COMMITMENTS", actionCount: 19 });
     expect(report.successor).to.include({ status: "USDC_SUCCESSOR_INCOMPLETE", actionCount: 19, terminalActionCount: 0 });
+    expect(report.successor.expectedTerminalCounters).to.deep.equal({ safeNonce: "15", delayQueueNonce: "7", delayTxNonce: "7" });
+    expect(report.successor).not.to.have.property("terminalCounters");
     expect(report.laterRepair).to.include({ status: "NOT_ATTACHED", predecessor: null });
+    expect(report.laterRepair.expectedTerminalCounters).to.deep.equal({ safeNonce: "19", delayQueueNonce: "9", delayTxNonce: "9" });
+    expect(report.laterRepair).not.to.have.property("terminalCounters");
     expect(report.task0).to.include({ status: "OPEN", nativeTasks1Through13: "GATED" });
     expect(report.provenance).to.deep.equal({ source: "VERIFIED_PERSISTED_PUBLIC_EVIDENCE", rpcReadsPerformedByRenderer: false, filesystemReadsPerformedByRenderer: false, signing: false, simulation: false, approvalConstruction: false, broadcast: false });
     expect(JSON.stringify(report.nativeRecovery)).not.to.include("COMPLETE");
@@ -206,6 +210,7 @@ describe("ordinary USDC successor persisted-evidence report", function () {
     const value = terminalize(await prepared());
     const report = renderUsdcSuccessorReport(value.source, value.context, value.journal) as any;
     expect(report.successor).to.include({ status: "USDC_SUCCESSOR_19_OF_19_TERMINAL", terminalActionCount: 19, successfulLiveEntryCount: 11, effectivePeriod: value.proposal.effectivePeriod });
+    expect(report.successor.expectedTerminalCounters).to.deep.equal({ safeNonce: "15", delayQueueNonce: "7", delayTxNonce: "7" });
     expect(report.successor.observer).to.deep.equal({ probeEvidenceHash: value.proposal.observer.probeEvidenceHash, requiredThrough: value.proposal.observer.requiredThrough, expiresAt: value.proposal.observer.expiresAt });
 
     const mutations: Array<[string, (journal: OrdinaryScenarioJournal) => void]> = [

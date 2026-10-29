@@ -84,6 +84,15 @@ export type OrdinaryScenarioMechanicalStateReaderInput = Omit<OrdinaryScenarioSt
   verifyProfileAtBlock(client: ViemPublicClient, blockNumber: bigint): Promise<void>;
 }>;
 
+export async function readAgreedCurrentFunderNonce(client: ViemPublicClient, address: Address): Promise<number> {
+  const [latest, pending] = await Promise.all([
+    client.getTransactionCount({ address, blockTag: "latest" } as never),
+    client.getTransactionCount({ address, blockTag: "pending" } as never),
+  ]);
+  if (latest !== pending) throw new Error("ordinary scenario current funder latest/pending nonce disagreement");
+  return Number(latest);
+}
+
 /** Non-authorizing mechanical core; the production wrapper above fixes Sepolia and public descriptor verification. */
 export function createOrdinaryScenarioMechanicalStateReader(rawInput: OrdinaryScenarioMechanicalStateReaderInput) {
   const input = normalizeJournalInput(rawInput);
@@ -125,13 +134,15 @@ export function createOrdinaryScenarioMechanicalStateReader(rawInput: OrdinarySc
     if (await client.getChainId() !== input.expectedChainId) throw new Error("ordinary scenario adapter chain mismatch");
     await input.verifyProfileAtBlock(client, selected.number);
     const read = (address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []) => client.readContract({ address, abi, functionName, args, blockNumber: selected.number } as never) as Promise<unknown>;
-    const [outerNonce, funderNativeBalance, safeNativeBalance, funderUsdcBalance, safeUsdcBalance, safeNonce, delayQueueNonce, delayTxNonce, nativeSpendRaw, usdcSpendRaw, observer, suggestedFees] = await Promise.all([
+    const [selectedOuterNonce, currentOuterNonce, funderNativeBalance, safeNativeBalance, funderUsdcBalance, safeUsdcBalance, safeNonce, delayQueueNonce, delayTxNonce, nativeSpendRaw, usdcSpendRaw, observer, suggestedFees] = await Promise.all([
       client.getTransactionCount({ address: input.proposal.funder, blockNumber: selected.number } as never),
+      evidenceBasis.kind === "current-head" ? readAgreedCurrentFunderNonce(client, input.proposal.funder) : undefined,
       client.getBalance({ address: input.proposal.funder, blockNumber: selected.number } as never), client.getBalance({ address: input.proposal.safe, blockNumber: selected.number } as never),
       read(input.proposal.usdc, ERC20_READ_ABI, "balanceOf", [input.proposal.funder]), read(input.proposal.usdc, ERC20_READ_ABI, "balanceOf", [input.proposal.safe]), read(input.proposal.safe, SAFE_READ_ABI, "nonce"),
       read(input.proposal.delay, DELAY_READ_ABI, "queueNonce"), read(input.proposal.delay, DELAY_READ_ABI, "txNonce"), read(input.proposal.guard, GUARD_READ_ABI, "spendState", [ZERO]), read(input.proposal.guard, GUARD_READ_ABI, "spendState", [input.proposal.usdc]),
       input.observerReadiness(), frozenFees ?? client.estimateFeesPerGas({ type: "eip1559" } as never),
     ]);
+    if (currentOuterNonce !== undefined && Number(selectedOuterNonce) !== currentOuterNonce) throw new Error("ordinary scenario selected-block and current funder nonce drift");
     if (!observer.ready || observer.evidenceHash.toLowerCase() !== input.proposal.observerEvidenceHash.toLowerCase()) throw new Error("ordinary scenario independent observer is not ready");
     const spend = (value: unknown) => { const tuple = value as readonly bigint[]; if (tuple.length !== 3) throw new Error("ordinary scenario spendState tuple mismatch"); return { window: BigInt(tuple[0]!), baseSpent: BigInt(tuple[1]!), instantSpent: BigInt(tuple[2]!) }; };
     let queue: CanonicalOrdinaryScenarioState["queue"];
@@ -155,7 +166,7 @@ export function createOrdinaryScenarioMechanicalStateReader(rawInput: OrdinarySc
     const fees = selectApprovedFees(suggestedFees as never, selected.baseFeePerGas ?? 0n, { maxFeePerGas: action.maxFeePerGasCap, maxPriorityFeePerGas: action.maxPriorityFeePerGasCap });
     const recheck = await client.getBlock({ blockNumber: selected.number } as never);
     if (!recheck.hash || recheck.hash.toLowerCase() !== selected.hash.toLowerCase()) throw new Error("ordinary scenario canonical block changed during state read");
-    return Object.freeze({ chainId: input.expectedChainId, blockNumber: selected.number, blockHash: selected.hash, blockTimestamp: selected.timestamp, evidenceBasis, planHash: input.proposal.planHash, topologyEvidenceHash: input.proposal.topologyEvidenceHash, publicIdentitiesHash: input.proposal.publicIdentitiesHash, observerReady: true, observerEvidenceHash: observer.evidenceHash, outerNonce: Number(outerNonce), funderNativeBalance, safeNativeBalance, funderUsdcBalance: BigInt(funderUsdcBalance as bigint), safeUsdcBalance: BigInt(safeUsdcBalance as bigint), safeNonce: BigInt(safeNonce as bigint), delayQueueNonce: BigInt(delayQueueNonce as bigint), delayTxNonce: BigInt(delayTxNonce as bigint), nativeSpend: spend(nativeSpendRaw), usdcSpend: spend(usdcSpendRaw), queue, dependencies, fees });
+    return Object.freeze({ chainId: input.expectedChainId, blockNumber: selected.number, blockHash: selected.hash, blockTimestamp: selected.timestamp, evidenceBasis, planHash: input.proposal.planHash, topologyEvidenceHash: input.proposal.topologyEvidenceHash, publicIdentitiesHash: input.proposal.publicIdentitiesHash, observerReady: true, observerEvidenceHash: observer.evidenceHash, outerNonce: Number(selectedOuterNonce), funderNativeBalance, safeNativeBalance, funderUsdcBalance: BigInt(funderUsdcBalance as bigint), safeUsdcBalance: BigInt(safeUsdcBalance as bigint), safeNonce: BigInt(safeNonce as bigint), delayQueueNonce: BigInt(delayQueueNonce as bigint), delayTxNonce: BigInt(delayTxNonce as bigint), nativeSpend: spend(nativeSpendRaw), usdcSpend: spend(usdcSpendRaw), queue, dependencies, fees });
   };
 }
 

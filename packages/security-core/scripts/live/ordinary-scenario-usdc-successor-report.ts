@@ -144,7 +144,7 @@ function renderRepair(source: UsdcSuccessorSource, context: UsdcSuccessorReportC
   const repair = journal.repairContinuation;
   if (!repair) {
     if (evidence !== undefined) throw new Error("USDC successor report rejects unused repair evidence without an attached repair");
-    return freeze({ status: "NOT_ATTACHED", predecessor: null, terminalCounters: { safeNonce: "19", delayQueueNonce: "9", delayTxNonce: "9" } });
+    return freeze({ status: "NOT_ATTACHED", predecessor: null, expectedTerminalCounters: { safeNonce: "19", delayQueueNonce: "9", delayTxNonce: "9" } });
   }
   if (!successorComplete) throw new Error("USDC successor report mixed repair lineage requires the complete 19-action successor");
   if (!evidence) throw new Error("USDC successor report attached repair requires exact public repair evidence context");
@@ -198,7 +198,7 @@ function renderRepair(source: UsdcSuccessorSource, context: UsdcSuccessorReportC
       if (entry.id !== expected.record.id || entry.status !== "pending" || !expected.record.transactionHash || !same(entry.transactionHash, expected.record.transactionHash) || entry.receipt !== undefined) throw new Error("USDC successor report repair pending live catalog mismatch");
     } else assertRepairReceipt(entry, expected.record, expected.artifact);
   }
-  return freeze({ status: complete ? "REPAIR_TERMINAL_EVIDENCE_RECORDED" : "REPAIR_INCOMPLETE", predecessor: predecessor.kind, actionCount: repair.actions.length, terminalCounters: { safeNonce: "19", delayQueueNonce: "9", delayTxNonce: "9" } });
+  return freeze({ status: complete ? "REPAIR_TERMINAL_EVIDENCE_RECORDED" : "REPAIR_INCOMPLETE", predecessor: predecessor.kind, actionCount: repair.actions.length, expectedTerminalCounters: { safeNonce: "19", delayQueueNonce: "9", delayTxNonce: "9" } });
 }
 
 /** Project already-persisted public evidence. Performs no filesystem, RPC, signing, simulation, approval construction, or broadcast work. */
@@ -213,7 +213,7 @@ export function renderUsdcSuccessorReport(source: UsdcSuccessorSource, context: 
     original: { status: "INTERRUPTED_HASHLESS_AT_19_OF_38", terminalRowCount: 18, immutableRow19: { row: 19, id: source.recovery.source.stoppedRow.id, status: "signed-simulated", outerNonce: 809, transactionHash: null, failureCause: "UNKNOWN", executionEvidence: null } },
     nativeRecovery: { status: "NATIVE_RECOVERY_3_OF_22", confirmedActionCount: 3, approvedActionCount: 19, proposalHash: source.recovery.proposalHash, certificateHash: source.recovery.certificateHash, approvalHash: source.recoveryApproval.approvalHash },
     supersededOriginalUsdc: { status: "SUPERSEDED_UNEXECUTED_COMMITMENTS", actionCount: 19, actionIds: source.recovery.actions.slice(3).map(action => action.id), actions: source.recovery.actions.slice(3).map(action => ({ id: action.id, commitment: action.commitment })) },
-    successor: { status: progress.complete ? "USDC_SUCCESSOR_19_OF_19_TERMINAL" : "USDC_SUCCESSOR_INCOMPLETE", terminalActionCount: progress.terminalCount, successfulLiveEntryCount: progress.successfulCount, actionCount: 19, actionIds: context.proposal.actions.map(action => action.id), effectivePeriod: context.proposal.effectivePeriod, terminalCounters: { safeNonce: "15", delayQueueNonce: "7", delayTxNonce: "7" }, observer: { probeEvidenceHash: context.proposal.observer.probeEvidenceHash, requiredThrough: context.proposal.observer.requiredThrough, expiresAt: context.proposal.observer.expiresAt }, actions: progress.actions },
+    successor: { status: progress.complete ? "USDC_SUCCESSOR_19_OF_19_TERMINAL" : "USDC_SUCCESSOR_INCOMPLETE", terminalActionCount: progress.terminalCount, successfulLiveEntryCount: progress.successfulCount, actionCount: 19, actionIds: context.proposal.actions.map(action => action.id), effectivePeriod: context.proposal.effectivePeriod, expectedTerminalCounters: { safeNonce: "15", delayQueueNonce: "7", delayTxNonce: "7" }, observer: { probeEvidenceHash: context.proposal.observer.probeEvidenceHash, requiredThrough: context.proposal.observer.requiredThrough, expiresAt: context.proposal.observer.expiresAt }, actions: progress.actions },
     laterRepair: repair,
     task0: { status: "OPEN", nativeTasks1Through13: "GATED", requiredEvidence: ["successor-live-receipts-and-effects", "observer-delivery-and-acknowledgement", "repair-and-rotation", "freeze", "root-security-check", "whole-change-independent-review"] },
     claims: { hardwarePasskeyUxVerified: false, browserPasskeyUxVerified: false, nativeSafe4337Complete: false, audited: false, pullRequestGreen: false, mainnetReady: false, productionReady: false },

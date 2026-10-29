@@ -207,6 +207,23 @@ describe("ordinary USDC successor CLI", function () {
     } finally { prepared.cleanup(); }
   });
 
+  it("stops a fresh pending-nonce disagreement before action persistence or any private callback", async function () {
+    const prepared = await prepare(); let materializations = 0, privateLoads = 0, signs = 0, broadcasts = 0;
+    try {
+      await expect(runUsdcSuccessorCli(prepared.submitArgs, {
+        environment: { LIVE_SUBMIT: "YES" }, providers: prepared.providers, now: () => new Date("2026-10-29T00:00:50Z"), publicPreflight: async () => undefined,
+        createExecutionContext: async () => ({
+          readState: async () => { throw new Error("current funder latest/pending nonce disagreement"); },
+          materialize: async () => { materializations++; privateLoads++; throw new Error("must not materialize"); },
+          live: { funder: prepared.fixture.source.original.funder, chainId: async () => 11_155_111, nonce: async () => 901, balance: async () => 10n ** 18n, sign: async () => { signs++; throw new Error("must not sign"); }, broadcast: async () => { broadcasts++; throw new Error("must not broadcast"); }, receipt: async () => undefined },
+        } as never),
+      })).to.be.rejectedWith("latest/pending nonce disagreement");
+      const persisted = JSON.parse(readFileSync(prepared.sourceJournal, "utf8"));
+      expect(persisted.usdcSuccessor.actions[0].status).to.equal("approved");
+      expect({ materializations, privateLoads, signs, broadcasts }).to.deep.equal({ materializations: 0, privateLoads: 0, signs: 0, broadcasts: 0 });
+    } finally { prepared.cleanup(); }
+  });
+
   it("resume-one rejects private environment and the entrypoint emits only a static failure", async function () {
     const prepared = await prepare(); const canary = "UPSTREAM_SECRET_https://secret.invalid/private-key"; let stderr = ""; let stdout = ""; let exitCode = 0;
     try {

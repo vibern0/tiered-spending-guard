@@ -69,6 +69,25 @@ describe("ordinary USDC successor proposal", function () {
     expect(() => createUsdcSuccessorProposal({ source: fixture.source, certificate: fixture.certificate, observer, caps })).to.throw(/snapshot|changed|source/i);
   });
 
+  it("independently reduces the decoded expected-success catalog into its principal and gas caps", async function () {
+    const value = await proposal();
+    let safeOutflow = 0n, inwardRecycling = 0n, gasReservation = 0n;
+    for (const action of value.actions.filter(candidate => candidate.expectedOutcome === "success")) {
+      const safeDelta = BigInt(action.before.safeUsdcBalance) - BigInt(action.after.safeUsdcBalance);
+      const funderDelta = BigInt(action.after.funderUsdcBalance) - BigInt(action.before.funderUsdcBalance);
+      if (safeDelta > 0n) {
+        const decoded = decodeFunctionData({ abi: tokenAbi, data: action.kind === "ready-delay-execution" ? action.queue!.data : action.safeTransaction!.data });
+        expect(decoded.functionName).to.equal("transfer"); expect(decoded.args?.[1]).to.equal(safeDelta); safeOutflow += safeDelta;
+      }
+      if (funderDelta < 0n) {
+        const decoded = decodeFunctionData({ abi: tokenAbi, data: action.transaction.data });
+        expect(decoded.functionName).to.equal("transfer"); expect(decoded.args?.[1]).to.equal(-funderDelta); inwardRecycling += -funderDelta;
+      }
+      gasReservation += BigInt(action.gasLimitCap) * BigInt(action.maxFeePerGasCap);
+    }
+    expect({ safeOutflow, inwardRecycling, gasReservation }).to.deep.equal({ safeOutflow: 31_000_000n, inwardRecycling: 11_000_000n, gasReservation: 16_080_584_000_000n });
+  });
+
   it("strictly parses only the regenerated closed proposal", async function () {
     const value = await proposal();
     expect(parseUsdcSuccessorProposal(JSON.stringify(value), fixture.source, fixture.certificate).proposalHash).to.equal(value.proposalHash);
