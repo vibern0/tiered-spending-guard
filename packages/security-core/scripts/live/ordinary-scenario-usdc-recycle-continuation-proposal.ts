@@ -40,21 +40,25 @@ export const USDC_RECYCLE_CONTINUATION_GROUPS = Object.freeze([
   Object.freeze({ start: 15 as const, end: 17 as const, budgetSeconds: "1500" as const }),
 ]);
 
-const OLD_IDS = Object.freeze([
-  "usdc-successor-recycle-topup-step-up", "usdc-successor-step-up-ecdsa", "usdc-successor-direct-overspend-rejection",
-  "usdc-successor-replay-rejection", "usdc-successor-unsupported-path-rejection", "usdc-successor-recycle-topup-delayed",
-  "usdc-successor-queue-cancel", "usdc-successor-queue-cancel-early-rejection", "usdc-successor-queue-cancel-action",
-  "usdc-successor-queue-cancelled-execution-rejection", "usdc-successor-queue-expiry", "usdc-successor-queue-expiry-early-rejection",
-  "usdc-successor-queue-expiry-skip", "usdc-successor-queue-expired-execution-rejection", "usdc-successor-queue-execute",
-  "usdc-successor-queue-execute-early-rejection", "usdc-successor-queue-ready-execute",
+const CATALOG = Object.freeze([
+  Object.freeze({ oldId: "usdc-successor-recycle-topup-step-up", newId: "usdc-recycle-continuation-recycle-topup-step-up", dependencies: Object.freeze(["usdc-successor-step-up-contract"]) }),
+  Object.freeze({ oldId: "usdc-successor-step-up-ecdsa", newId: "usdc-recycle-continuation-step-up-ecdsa", dependencies: Object.freeze(["usdc-recycle-continuation-recycle-topup-step-up"]) }),
+  Object.freeze({ oldId: "usdc-successor-direct-overspend-rejection", newId: "usdc-recycle-continuation-direct-overspend-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-step-up-ecdsa"]) }),
+  Object.freeze({ oldId: "usdc-successor-replay-rejection", newId: "usdc-recycle-continuation-replay-rejection", dependencies: Object.freeze(["usdc-successor-base-x"]) }),
+  Object.freeze({ oldId: "usdc-successor-unsupported-path-rejection", newId: "usdc-recycle-continuation-unsupported-path-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-step-up-ecdsa"]) }),
+  Object.freeze({ oldId: "usdc-successor-recycle-topup-delayed", newId: "usdc-recycle-continuation-recycle-topup-delayed", dependencies: Object.freeze(["usdc-recycle-continuation-step-up-ecdsa"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-cancel", newId: "usdc-recycle-continuation-queue-cancel", dependencies: Object.freeze(["usdc-recycle-continuation-recycle-topup-delayed"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-cancel-early-rejection", newId: "usdc-recycle-continuation-queue-cancel-early-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-queue-cancel"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-cancel-action", newId: "usdc-recycle-continuation-queue-cancel-action", dependencies: Object.freeze(["usdc-recycle-continuation-queue-cancel"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-cancelled-execution-rejection", newId: "usdc-recycle-continuation-queue-cancelled-execution-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-queue-cancel-action"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-expiry", newId: "usdc-recycle-continuation-queue-expiry", dependencies: Object.freeze(["usdc-recycle-continuation-queue-cancel-action"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-expiry-early-rejection", newId: "usdc-recycle-continuation-queue-expiry-early-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-queue-expiry"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-expiry-skip", newId: "usdc-recycle-continuation-queue-expiry-skip", dependencies: Object.freeze(["usdc-recycle-continuation-queue-expiry"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-expired-execution-rejection", newId: "usdc-recycle-continuation-queue-expired-execution-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-queue-expiry-skip"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-execute", newId: "usdc-recycle-continuation-queue-execute", dependencies: Object.freeze(["usdc-recycle-continuation-queue-expiry-skip"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-execute-early-rejection", newId: "usdc-recycle-continuation-queue-execute-early-rejection", dependencies: Object.freeze(["usdc-recycle-continuation-queue-execute"]) }),
+  Object.freeze({ oldId: "usdc-successor-queue-ready-execute", newId: "usdc-recycle-continuation-queue-ready-execute", dependencies: Object.freeze(["usdc-recycle-continuation-queue-execute-early-rejection"]) }),
 ] as const);
-const IDS = Object.freeze(OLD_IDS.map(id => id.replace(/^usdc-successor-/, "usdc-recycle-continuation-")));
-const DEPENDENCIES = Object.freeze([
-  Object.freeze(["usdc-successor-step-up-contract"]), Object.freeze([IDS[0]!]), Object.freeze([IDS[1]!]), Object.freeze(["usdc-successor-base-x"]),
-  Object.freeze([IDS[1]!]), Object.freeze([IDS[1]!]), Object.freeze([IDS[5]!]), Object.freeze([IDS[6]!]), Object.freeze([IDS[6]!]),
-  Object.freeze([IDS[8]!]), Object.freeze([IDS[8]!]), Object.freeze([IDS[10]!]), Object.freeze([IDS[10]!]), Object.freeze([IDS[12]!]),
-  Object.freeze([IDS[12]!]), Object.freeze([IDS[14]!]), Object.freeze([IDS[15]!]),
-]);
 
 type CurrentCheckpoint = VerifiedUsdcRecycleContinuationCertificate["currentCheckpoint"];
 type Schedule = typeof USDC_RECYCLE_CONTINUATION_SCHEDULE;
@@ -105,6 +109,7 @@ export type UsdcRecycleContinuationProposal = Readonly<{
 
 declare const approvalBrand: unique symbol;
 export type UsdcRecycleContinuationApproval = Readonly<{ approvalHash: Hex; readonly [approvalBrand]: true }>;
+declare const storageBrand: unique symbol;
 export type UsdcRecycleContinuationStorage = Readonly<{
   schemaVersion: 1;
   scope: typeof SCOPE;
@@ -120,7 +125,8 @@ export type UsdcRecycleContinuationStorage = Readonly<{
   maximumReservationWei: string;
   aggregateKnownChargeWei: string;
   maxBroadcastAttempts: 1;
-  actions: Array<Readonly<{ id: string; commitment: Hex; status: "approved" }> | OrdinaryScenarioActionRecord>;
+  actions: readonly (Readonly<{ id: string; commitment: Hex; status: "approved" }> | Readonly<OrdinaryScenarioActionRecord>)[];
+  readonly [storageBrand]: true;
 }>;
 
 type ProposalInput = Readonly<{ source: UsdcRecycleContinuationSource; certificate: VerifiedUsdcRecycleContinuationCertificate; observer: ContinuationObserverBinding; caps: ContinuationActionCaps }>;
@@ -194,8 +200,9 @@ function safeHash(source: UsdcRecycleContinuationSource, action: ExpiredHashless
 
 function rebuildActions(source: UsdcRecycleContinuationSource, checkpoint: CurrentCheckpoint, minimumOuterNonce: number): readonly ExpiredHashlessContinuationAction[] {
   const old = source.priorProposal.actions.slice(2);
-  if (old.length !== 17 || old.some((action, index) => action.id !== OLD_IDS[index])) throw new Error("USDC recycle continuation literal old-row-3-through-19 descriptor source mismatch");
+  if (old.length !== CATALOG.length || old.some((action, index) => action.id !== CATALOG[index]!.oldId)) throw new Error("USDC recycle continuation literal old-row-3-through-19 descriptor source mismatch");
   const actions = old.map((sourceAction, index) => {
+    const catalog = CATALOG[index]!;
     const recomputedSafeHash = safeHash(source, sourceAction);
     if (sourceAction.safeTransaction && (!sourceAction.safeTxHash || recomputedSafeHash !== sourceAction.safeTxHash)) throw new Error("USDC recycle continuation Safe transaction hash mismatch");
     if (sourceAction.queue) {
@@ -204,7 +211,7 @@ function rebuildActions(source: UsdcRecycleContinuationSource, checkpoint: Curre
     }
     const cloned = structuredClone(sourceAction) as ExpiredHashlessContinuationAction;
     const { commitment: _oldCommitment, ...oldDescriptor } = cloned;
-    const descriptor = { ...oldDescriptor, id: IDS[index]!, dependsOn: [...DEPENDENCIES[index]!] };
+    const descriptor = { ...oldDescriptor, id: catalog.newId, dependsOn: [...catalog.dependencies] };
     return freeze({ ...descriptor, commitment: publicHash({ ...descriptor, currentCheckpoint: checkpoint, minimumOuterNonce }) }) as ExpiredHashlessContinuationAction;
   });
   if (actions.some((action, index) => action.commitment === old[index]!.commitment || action.id === old[index]!.id)) throw new Error("USDC recycle continuation action identity was not freshly bound");
@@ -288,7 +295,7 @@ export function attachUsdcRecycleContinuation(journal: OrdinaryScenarioJournal, 
   if ("usdcRecycleContinuation" in journal) throw new Error("journal already has a USDC recycle continuation attachment");
   if (journal !== context.source.prior.journal || !same(hashUsdcRecycleContinuationSource(context.source), proposal.sourceHash)) throw new Error("USDC recycle continuation journal source changed before attachment");
   if (!journal.usdcSuccessor || journal.liveJournal.entries.length !== 15) throw new Error("USDC recycle continuation attachment requires the exact stopped predecessor checkpoint");
-  const storage: UsdcRecycleContinuationStorage = freeze({ schemaVersion: 1, scope: SCOPE, sourceHash: proposal.sourceHash, certificateHash: proposal.certificateHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, currentCheckpoint: proposal.currentCheckpoint, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, actionCommitments: proposal.actions.map(({ id, commitment }) => freeze({ id, commitment })), maximumReservationWei: proposal.reservation.continuationMaximumReservationWei, aggregateKnownChargeWei: proposal.reservation.aggregateKnownChargeWei, maxBroadcastAttempts: 1, actions: proposal.actions.map(({ id, commitment }) => ({ id, commitment, status: "approved" as const })) });
+  const storage = freeze({ schemaVersion: 1, scope: SCOPE, sourceHash: proposal.sourceHash, certificateHash: proposal.certificateHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, currentCheckpoint: proposal.currentCheckpoint, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, actionCommitments: proposal.actions.map(({ id, commitment }) => freeze({ id, commitment })), maximumReservationWei: proposal.reservation.continuationMaximumReservationWei, aggregateKnownChargeWei: proposal.reservation.aggregateKnownChargeWei, maxBroadcastAttempts: 1, actions: proposal.actions.map(({ id, commitment }) => freeze({ id, commitment, status: "approved" as const })) }) as UsdcRecycleContinuationStorage;
   (journal as OrdinaryScenarioJournal & { usdcRecycleContinuation: UsdcRecycleContinuationStorage }).usdcRecycleContinuation = storage;
   return journal as OrdinaryScenarioJournal & { usdcRecycleContinuation: UsdcRecycleContinuationStorage };
 }

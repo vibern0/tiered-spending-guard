@@ -24,19 +24,45 @@ import {
 const h = (byte: string): Hex => `0x${byte.repeat(64)}` as Hex;
 const authorityEvidenceHash = "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b" as Hex;
 const caps = { fundingGasLimit: "740292", safeExecutionGasLimit: "2000000", publicDelayGasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000" } as const;
-const suffixes = [
-  "recycle-topup-step-up", "step-up-ecdsa", "direct-overspend-rejection", "replay-rejection", "unsupported-path-rejection",
-  "recycle-topup-delayed", "queue-cancel", "queue-cancel-early-rejection", "queue-cancel-action", "queue-cancelled-execution-rejection",
-  "queue-expiry", "queue-expiry-early-rejection", "queue-expiry-skip", "queue-expired-execution-rejection", "queue-execute",
-  "queue-execute-early-rejection", "queue-ready-execute",
+const expectedIds = [
+  "usdc-recycle-continuation-recycle-topup-step-up",
+  "usdc-recycle-continuation-step-up-ecdsa",
+  "usdc-recycle-continuation-direct-overspend-rejection",
+  "usdc-recycle-continuation-replay-rejection",
+  "usdc-recycle-continuation-unsupported-path-rejection",
+  "usdc-recycle-continuation-recycle-topup-delayed",
+  "usdc-recycle-continuation-queue-cancel",
+  "usdc-recycle-continuation-queue-cancel-early-rejection",
+  "usdc-recycle-continuation-queue-cancel-action",
+  "usdc-recycle-continuation-queue-cancelled-execution-rejection",
+  "usdc-recycle-continuation-queue-expiry",
+  "usdc-recycle-continuation-queue-expiry-early-rejection",
+  "usdc-recycle-continuation-queue-expiry-skip",
+  "usdc-recycle-continuation-queue-expired-execution-rejection",
+  "usdc-recycle-continuation-queue-execute",
+  "usdc-recycle-continuation-queue-execute-early-rejection",
+  "usdc-recycle-continuation-queue-ready-execute",
 ] as const;
-const expectedIds = suffixes.map(value => `usdc-recycle-continuation-${value}`);
 const expectedKinds = ["controlled-recipient-recycled-funding", "step-up-transfer", "expected-direct-rejection", "expected-replay-rejection", "expected-unsupported-rejection", "controlled-recipient-recycled-funding", "queue-proposal", "expected-early-rejection", "queue-cancellation", "expected-cancelled-rejection", "queue-proposal", "expected-early-rejection", "queue-expiry", "expected-expired-rejection", "queue-proposal", "expected-early-rejection", "ready-delay-execution"];
 const expectedRoles = [["funder"], ["primary-passkey", "legacy-ecdsa-secondary"], ["primary-passkey", "safe-contract-secondary"], ["replay previously reviewed signed envelope only in later executor"], ["primary-passkey", "safe-contract-secondary"], ["funder"], ["primary-passkey", "safe-contract-secondary"], [], ["primary-passkey", "safe-contract-secondary"], [], ["primary-passkey", "safe-contract-secondary"], [], [], [], ["primary-passkey", "safe-contract-secondary"], [], []];
 const expectedDependencies = [
-  ["usdc-successor-step-up-contract"], [expectedIds[0]], [expectedIds[1]], ["usdc-successor-base-x"], [expectedIds[1]], [expectedIds[1]],
-  [expectedIds[5]], [expectedIds[6]], [expectedIds[6]], [expectedIds[8]], [expectedIds[8]], [expectedIds[10]], [expectedIds[10]],
-  [expectedIds[12]], [expectedIds[12]], [expectedIds[14]], [expectedIds[15]],
+  ["usdc-successor-step-up-contract"],
+  ["usdc-recycle-continuation-recycle-topup-step-up"],
+  ["usdc-recycle-continuation-step-up-ecdsa"],
+  ["usdc-successor-base-x"],
+  ["usdc-recycle-continuation-step-up-ecdsa"],
+  ["usdc-recycle-continuation-step-up-ecdsa"],
+  ["usdc-recycle-continuation-recycle-topup-delayed"],
+  ["usdc-recycle-continuation-queue-cancel"],
+  ["usdc-recycle-continuation-queue-cancel"],
+  ["usdc-recycle-continuation-queue-cancel-action"],
+  ["usdc-recycle-continuation-queue-cancel-action"],
+  ["usdc-recycle-continuation-queue-expiry"],
+  ["usdc-recycle-continuation-queue-expiry"],
+  ["usdc-recycle-continuation-queue-expiry-skip"],
+  ["usdc-recycle-continuation-queue-expiry-skip"],
+  ["usdc-recycle-continuation-queue-execute"],
+  ["usdc-recycle-continuation-queue-execute-early-rejection"],
 ];
 const tokenAbi = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ type: "address", name: "to" }, { type: "uint256", name: "amount" }], outputs: [{ type: "bool" }] }, { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address", name: "to" }, { type: "uint256", name: "amount" }], outputs: [{ type: "bool" }] }] as const;
 
@@ -192,6 +218,11 @@ describe("ordinary USDC recycle continuation proposal", function () {
     expect(journal.usdcRecycleContinuation.minimumOuterNonce).to.equal(870);
     expect(journal.usdcRecycleContinuation.actions).to.have.length(17);
     expect(journal.usdcRecycleContinuation.actions.every(action => action.status === "approved")).to.equal(true);
+    expect(Object.isFrozen(journal.usdcRecycleContinuation)).to.equal(true);
+    expect(Object.isFrozen(journal.usdcRecycleContinuation.actions)).to.equal(true);
+    expect(Object.isFrozen(journal.usdcRecycleContinuation.actions[0])).to.equal(true);
+    expect(() => (journal.usdcRecycleContinuation.actions as any[]).push(journal.usdcRecycleContinuation.actions[0])).to.throw();
+    expect(() => { (journal.usdcRecycleContinuation.actions[0] as any).status = "confirmed"; }).to.throw();
     expect(() => attachUsdcRecycleContinuation(journal, proposal, approval)).to.throw(/already|attached/i);
   });
 
