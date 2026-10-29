@@ -177,6 +177,12 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     expect(() => verifyRepairPredecessor(recovered.source.original, orphan, recovered.evidence, lineage)).to.throw(/header|lineage|canonical/i);
     const badCost = structuredClone(recovered.journal); (badCost.usdcSuccessor!.actions.find(action => action.status === "confirmed") as any).ourReceiptGasCost = "1";
     expect(() => verifyRepairPredecessor(recovered.source.original, badCost, recovered.evidence, lineage)).to.throw(/receipt gas|accounting/i);
+    const badNativePrincipal = structuredClone(recovered.journal); (badNativePrincipal.hashlessContinuation!.actions[2] as any).ourPrincipalDelta = "2";
+    expect(() => verifyRepairPredecessor(recovered.source.original, badNativePrincipal, recovered.evidence, lineage)).to.throw(/principal accounting/i);
+    const badNativeOuterValue = structuredClone(recovered.journal); (badNativeOuterValue.hashlessContinuation!.actions[2] as any).outerValue = "1"; const matchingLive = badNativeOuterValue.liveJournal.entries.find(entry => entry.id === "native-queue-ready-replacement-execute")!; matchingLive.reserved = BigInt(matchingLive.reserved) + 1n;
+    expect(() => verifyRepairPredecessor(recovered.source.original, badNativeOuterValue, recovered.evidence, lineage)).to.throw(/principal accounting/i);
+    const badNativeReservation = structuredClone(recovered.journal); const nativeLive = badNativeReservation.liveJournal.entries.find(entry => entry.id === "native-queue-ready-replacement-execute")!; nativeLive.reserved = BigInt(nativeLive.reserved) + 1n;
+    expect(() => verifyRepairPredecessor(recovered.source.original, badNativeReservation, recovered.evidence, lineage)).to.throw(/live receipt gas accounting/i);
     expect(() => verifyRepairPredecessor(recovered.source.original, recovered.journal, recovered.evidence, { ...lineage, approval: { approvalHash: recovered.approval.approvalHash } as any })).to.throw(/opaque|authorization/i);
     expect(() => verifyRepairPredecessor(recovered.source.original, recovered.journal, recovered.evidence.slice(1), lineage)).to.throw(/evidence|41/i);
     const confirmed = [...recovered.journal.actions, ...recovered.journal.hashlessContinuation!.actions.slice(0, 3), ...recovered.journal.usdcSuccessor!.actions].filter((record): record is any => record.status === "confirmed");

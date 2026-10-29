@@ -177,6 +177,36 @@ const successfulReceiptGas = (
   return sum + receiptCost;
 }, 0n);
 
+const ORIGINAL_PRINCIPAL_FACTS = Object.freeze([
+  ["native-funding", -30_000_000_000_001n, 30_000_000_000_001n],
+  ["usdc-funding", 0n, 0n],
+  ["native-base-x", 10_000_000_000_000n, 0n],
+  ["native-step-up-contract", 10_000_000_000_000n, 0n],
+  ["native-step-up-ecdsa", 10_000_000_000_000n, 0n],
+  ["native-queue-cancel", 0n, 0n],
+  ["native-queue-cancel-action", 0n, 0n],
+  ["native-queue-expiry", 0n, 0n],
+  ["native-queue-expiry-skip", 0n, 0n],
+  ["native-queue-execute", 0n, 0n],
+] as const);
+const RECOVERY_NATIVE_PRINCIPAL_FACTS = Object.freeze([
+  ["native-queue-ready-hashless-skip", 0n, 0n],
+  ["native-queue-ready-replacement", 0n, 0n],
+  ["native-queue-ready-replacement-execute", 1n, 0n],
+] as const);
+const canonicalPrincipal = (
+  records: readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[],
+  expected: readonly (readonly [string, bigint, bigint])[],
+  label: string,
+): bigint => {
+  if (records.length !== expected.length) throw new Error(`${label} principal accounting mismatch`);
+  return records.reduce((total, record, index) => {
+    const [id, delta, outerValue] = expected[index]!;
+    if (record.id !== id || record.ourPrincipalDelta === undefined || record.outerValue === undefined || BigInt(record.ourPrincipalDelta) !== delta || BigInt(record.outerValue) !== outerValue) throw new Error(`${label} principal accounting mismatch`);
+    return total + (delta < 0n ? -delta : delta);
+  }, 0n);
+};
+
 const spendBinding = (value: UsdcSuccessorRawSpend) => Object.freeze({ window: value.window.toString(), baseSpent: value.baseSpent.toString(), instantSpent: value.instantSpent.toString() });
 
 export function verifyRepairPredecessor(
@@ -233,10 +263,11 @@ export function verifyRepairPredecessor(
     const historicalGas = successfulReceiptGas(historicalRecords, predecessorLiveEntries, 0, "repair USDC successor historical");
     const nativeGas = successfulReceiptGas(nativeRecords, predecessorLiveEntries, historicalRecords.length, "repair USDC successor native");
     const successorGas = successfulReceiptGas(confirmedSuccessor, predecessorLiveEntries, historicalRecords.length + nativeRecords.length, "repair USDC successor");
+    const priorPrincipal = canonicalPrincipal(historicalRecords, ORIGINAL_PRINCIPAL_FACTS, "repair USDC successor historical") + canonicalPrincipal(nativeRecords, RECOVERY_NATIVE_PRINCIPAL_FACTS, "repair USDC successor native");
     const priorActual = BigInt(proposal.baselineActualCostWei) + historicalGas + nativeGas;
-    if (BigInt(lineage.successor.reservation.priorActualGasCostWei) !== priorActual || BigInt(lineage.successor.reservation.priorPrincipalWei) !== 60_000_000_000_002n) throw new Error("repair USDC successor prior accounting lineage changed");
+    if (priorPrincipal !== 60_000_000_000_002n || BigInt(lineage.successor.reservation.priorActualGasCostWei) !== priorActual || BigInt(lineage.successor.reservation.priorPrincipalWei) !== priorPrincipal) throw new Error("repair USDC successor prior accounting lineage changed");
     if (confirmedSuccessor.some(record => BigInt(record.ourPrincipalDelta ?? "0") !== 0n || BigInt(record.outerValue ?? "0") !== 0n)) throw new Error("repair USDC successor principal accounting mismatch");
-    const cumulative = priorActual + BigInt(lineage.successor.reservation.priorPrincipalWei) + successorGas;
+    const cumulative = priorActual + priorPrincipal + successorGas;
     if (cumulative > PHASE_OUTLAY_LIMIT) throw new Error("repair USDC successor cumulative phase cost exceeds ceiling");
     const rawNativeSpend = spendBinding(lineage.certificate.rawNativeSpend), rawUsdcSpend = spendBinding(lineage.certificate.rawUsdcSpend), effectivePeriod = lineage.certificate.effectivePeriod;
     if (lineage.successor.effectivePeriod !== effectivePeriod.toString() || rawNativeSpend.window === effectivePeriod.toString() || rawUsdcSpend.window !== "0") throw new Error("repair USDC successor raw/effective period binding mismatch");
