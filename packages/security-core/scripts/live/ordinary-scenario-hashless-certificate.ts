@@ -217,6 +217,12 @@ function revalidateSourceJournal(journal: OrdinaryScenarioJournal): FileSnapshot
   return snapshot;
 }
 
+/** Re-check the stable read-only source snapshot without exposing its filesystem metadata. */
+export function assertHashlessSourceJournalReadOnlySnapshot(journal: OrdinaryScenarioJournal): void {
+  revalidateSourceJournal(journal);
+  assertSourceRow(journal);
+}
+
 type Artifact = Readonly<{ selected: HashlessCanonicalBlock; tip: HashlessCanonicalBlock; transactionHash: Hex }>;
 function decodeArtifact(serialized: string, expectedSha256: Hex): Artifact {
   if (!HASH.test(expectedSha256)) throw new Error("hashless artifact SHA-256 is malformed");
