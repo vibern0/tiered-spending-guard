@@ -1,6 +1,6 @@
 # Ordinary USDC Period Successor Design
 
-**Status:** proposed; implementation and new financial approval pending.
+**Status:** approved by the user on 2026-10-29. Reviewed pre-approval bytes SHA-256: `3dd566a468700e94aaabd906b720bd7b6f93ca0f936eb1752cd44a85168cde17`. The standing-authorization amendment below supersedes earlier requirements to ask again before each in-scope successor execution.
 
 **Goal:** Finish the untouched ordinary-Safe USDC baseline on the same Safe in a newly reviewed spending period. Preserve completed native evidence. Keep native ERC-4337 Tasks 1–13 gated.
 
@@ -105,3 +105,11 @@ Implementation requires an approved design, then a focused task plan. Use reques
 Adversarial coverage must include mutated 19/10 and three-native prefixes; any started USDC slot; wrong/extra/reordered source live entries; forged capabilities; old approval/period/signatures; stale native raw versus effective-period confusion; new USDC rollover; duplicate ID/queue-head ambiguity; old replay source; cost/reservation mutation; pending/hashless retries; observer future/expiry/window failures; keyless after-cutoff reconciliation; all three repair predecessor cases; and actual awaited CLI writer exclusion. Use real Safe/guard integrations where policy/crypto behavior matters. Pure callback tests alone cannot establish the live path.
 
 Builder may choose bounded filenames, private helpers, and test organization that reuse the existing modules. Builder may not widen the source states, action catalog, epoch count, runtime/dependency set, financial authority, or retry rules. Missing canonical data or unsupported predecessor stops before private loading. This document authorizes no implementation, private loading, signing, or broadcast.
+
+## 2026-10-29 user authorization amendment
+
+User instruction: “i approve the reviewed successor, but if it fails, create a new successor and execute right away, so it does not expire”. This directly approves implementation and prompt execution of a verified successor, including prompt replacement of a failed or expiring successor, within the same reviewed test scope and remaining aggregate caps. It supersedes the earlier implementation/financial-approval pauses; do not ask again for an unchanged bounded replacement.
+
+Before any signing, still generate a concrete unsigned artifact, independently review its exact commitments, and persist its exact approval hash. Its approval must truthfully cite this standing bounded instruction, not claim the user reviewed a future hash. Preserve the actual authority evidence and every predecessor/failed artifact. Combined successor attempts share the remaining `16080584000000`-wei gas allowance and 31 gross test-USDC outflow allowance; replacements do not replenish either. The `0.05 ETH` whole-phase ceiling remains. Same Safe, existing test identities, recipients, assets, limits, delay, topology, and test semantics only. Later repair remains outside this successor authority.
+
+An expired observer/proposal with no attempt may be replaced after fresh public verification. A known pending hash must reconcile first. A materialized/hashless attempt cannot be reset or retried: classify canonical nonce/envelope/effect evidence, invalidate any old usable envelope where required, and construct a separately recorded closed continuation from actual state. Never reuse a signature, infer failure from missing RPC data, duplicate a completed transfer, or invent a receipt. Implement/review any newly required exact source case when observed; do not build an arbitrary transaction/recovery engine in anticipation. If no safe continuation fits the authorized scope and remaining aggregate caps, report that concrete limit instead of widening authority.
