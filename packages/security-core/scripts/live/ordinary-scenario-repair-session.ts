@@ -47,6 +47,7 @@ import {
   type HashlessContinuationPublicInputs,
 } from "./ordinary-scenario-hashless-continuation-cli";
 import { createUsdcSuccessorProductionDependencies, loadUsdcSuccessorPublicInputs, parseUsdcSuccessorCliArguments, type UsdcSuccessorPublicInputs } from "./ordinary-scenario-usdc-successor-cli";
+import { createUsdcRecycleContinuationProductionDependencies, loadUsdcRecycleContinuationPublicInputs, parseUsdcRecycleContinuationCliArguments, type UsdcRecycleContinuationPublicInputs } from "./ordinary-scenario-usdc-recycle-continuation-cli";
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const SAFE_ABI = [{ type: "function", name: "execTransaction", stateMutability: "payable", inputs: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" }, { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "signatures", type: "bytes" }], outputs: [{ type: "bool" }] }] as const;
 const ERC1271_ABI = [{ type: "function", name: "isValidSignature", stateMutability: "view", inputs: [{ type: "bytes32", name: "hash" }, { type: "bytes", name: "signature" }], outputs: [{ type: "bytes4" }] }] as const;
@@ -197,6 +198,7 @@ export type RepairCommandDependencies = Readonly<{
   awaitApprovalHandoff(maxWaitMs: number): Promise<Readonly<{ raw: string; hash: Hex }>>;
   loadHashlessLineage?(argv: readonly string[]): Promise<HashlessContinuationPublicInputs>;
   loadUsdcSuccessorLineage?(argv: readonly string[]): Promise<UsdcSuccessorPublicInputs>;
+  loadUsdcRecycleContinuationLineage?(argv: readonly string[]): Promise<UsdcRecycleContinuationPublicInputs>;
 }>;
 
 const productionRepairCommandDependencies = (): RepairCommandDependencies => Object.freeze({
@@ -219,16 +221,21 @@ const productionRepairCommandDependencies = (): RepairCommandDependencies => Obj
     const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const production = createUsdcSuccessorProductionDependencies(repository, argv);
     return loadUsdcSuccessorPublicInputs(parseUsdcSuccessorCliArguments(argv), production.providers);
   },
+  loadUsdcRecycleContinuationLineage: async argv => {
+    const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const production = createUsdcRecycleContinuationProductionDependencies(repository, argv);
+    return loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(argv), production.providers);
+  },
 });
 
 const REPAIR_LINEAGE_FLAGS = ["--continuation-certificate", "--continuation-certificate-hash", "--continuation-proposal", "--continuation-approval", "--continuation-approval-hash"] as const;
 const REPAIR_USDC_SUCCESSOR_FLAGS = ["--recovery-certificate", "--recovery-certificate-hash", "--recovery-proposal", "--recovery-approval", "--recovery-approval-hash", "--primary-bundle-manifest", "--successor-certificate", "--successor-certificate-hash", "--successor-proposal", "--successor-approval", "--successor-approval-hash"] as const;
-const repairKnownWithLineage = (base: readonly string[]) => new Set([...base, ...REPAIR_LINEAGE_FLAGS, ...REPAIR_USDC_SUCCESSOR_FLAGS]);
+const REPAIR_USDC_RECYCLE_FLAGS = ["--source-manifest", "--source-step-up-ledger", "--source-step-up-ack", "--recycle-certificate", "--recycle-certificate-hash", "--recycle-proposal", "--recycle-approval", "--recycle-approval-hash"] as const;
+const repairKnownWithLineage = (base: readonly string[]) => new Set([...base, ...REPAIR_LINEAGE_FLAGS, ...REPAIR_USDC_SUCCESSOR_FLAGS, ...REPAIR_USDC_RECYCLE_FLAGS]);
 type LoadedRepairLineage = Readonly<{ original: ReturnType<typeof createOrdinaryScenarioProposal>; lineage: RepairPredecessorLineage; observer: import("./ordinary-scenario-hashless-continuation").ContinuationObserverBinding }>;
 async function loadRepairLineage(values: ReadonlyMap<string, string>, dependencies: RepairCommandDependencies, observerMode: "fresh" | "historical-resume" = "fresh"): Promise<LoadedRepairLineage | undefined> {
-  const hashlessPresent = REPAIR_LINEAGE_FLAGS.filter(flag => values.has(flag)), usdcPresent = REPAIR_USDC_SUCCESSOR_FLAGS.filter(flag => values.has(flag));
-  if (hashlessPresent.length && usdcPresent.length) throw new Error("repair lineage flags cannot mix predecessor routes");
-  if (hashlessPresent.length === 0 && usdcPresent.length === 0) return undefined;
+  const hashlessPresent = REPAIR_LINEAGE_FLAGS.filter(flag => values.has(flag)), usdcPresent = REPAIR_USDC_SUCCESSOR_FLAGS.filter(flag => values.has(flag)), recyclePresent = REPAIR_USDC_RECYCLE_FLAGS.filter(flag => values.has(flag));
+  if (hashlessPresent.length && (usdcPresent.length || recyclePresent.length)) throw new Error("repair lineage flags cannot mix predecessor routes");
+  if (hashlessPresent.length === 0 && usdcPresent.length === 0 && recyclePresent.length === 0) return undefined;
   const requiredValue = (flag: string) => { const value = values.get(flag); if (!value) throw new Error(`repair lineage requires ${flag}`); return value; };
   if (hashlessPresent.length) {
     if (hashlessPresent.length !== REPAIR_LINEAGE_FLAGS.length || !dependencies.loadHashlessLineage) throw new Error("repair hashless lineage requires the complete shared public loader inputs");
@@ -236,6 +243,13 @@ async function loadRepairLineage(values: ReadonlyMap<string, string>, dependenci
     const loaded = await dependencies.loadHashlessLineage(argv); if (!loaded.approval) throw new Error("repair hashless lineage requires the exact separate continuation approval");
     if (observerMode === "fresh") assertContinuationObserverFresh(loaded.continuation.observer, dependencies.now());
     return Object.freeze({ original: loaded.original, lineage: { kind: "expired-hashless-continuation-v1", continuation: loaded.continuation, approval: loaded.approval }, observer: loaded.continuation.observer });
+  }
+  if (recyclePresent.length) {
+    if (usdcPresent.length !== REPAIR_USDC_SUCCESSOR_FLAGS.length || recyclePresent.length !== REPAIR_USDC_RECYCLE_FLAGS.length || !dependencies.loadUsdcRecycleContinuationLineage) throw new Error("repair USDC recycle lineage requires the complete shared public loader inputs");
+    const argv = ["submit-one", "--source-journal", requiredValue("--journal"), "--original-report", requiredValue("--report"), "--original-package-hash", requiredValue("--package-hash"), "--original-artifact-hash", requiredValue("--artifact-hash"), "--original-proposal-hash", requiredValue("--proposal-hash"), ...[...REPAIR_USDC_SUCCESSOR_FLAGS, ...REPAIR_USDC_RECYCLE_FLAGS].flatMap(flag => [flag, requiredValue(flag)]), "--journal", requiredValue("--journal")];
+    const loaded = await dependencies.loadUsdcRecycleContinuationLineage(argv); if (!loaded.approval) throw new Error("repair USDC recycle lineage requires the exact separate continuation approval");
+    if (observerMode === "fresh") assertContinuationObserverFresh(loaded.continuation.observer, dependencies.now());
+    return Object.freeze({ original: loaded.source.prior.original, lineage: { kind: "usdc-recycle-continuation-v1", source: loaded.source, certificate: loaded.certificate, continuation: loaded.continuation, approval: loaded.approval }, observer: loaded.continuation.observer });
   }
   if (usdcPresent.length !== REPAIR_USDC_SUCCESSOR_FLAGS.length || !dependencies.loadUsdcSuccessorLineage) throw new Error("repair USDC successor lineage requires the complete shared public loader inputs");
   const argv = ["submit-one", "--source-journal", requiredValue("--journal"), "--original-report", requiredValue("--report"), "--original-package-hash", requiredValue("--package-hash"), "--original-artifact-hash", requiredValue("--artifact-hash"), "--original-proposal-hash", requiredValue("--proposal-hash"), "--recovery-certificate", requiredValue("--recovery-certificate"), "--recovery-certificate-hash", requiredValue("--recovery-certificate-hash"), "--recovery-proposal", requiredValue("--recovery-proposal"), "--recovery-approval", requiredValue("--recovery-approval"), "--recovery-approval-hash", requiredValue("--recovery-approval-hash"), "--primary-bundle-manifest", requiredValue("--primary-bundle-manifest"), "--successor-certificate", requiredValue("--successor-certificate"), "--successor-certificate-hash", requiredValue("--successor-certificate-hash"), "--successor-proposal", requiredValue("--successor-proposal"), "--successor-approval", requiredValue("--successor-approval"), "--successor-approval-hash", requiredValue("--successor-approval-hash"), "--journal", requiredValue("--journal")];
