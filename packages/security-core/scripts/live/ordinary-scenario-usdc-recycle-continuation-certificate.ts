@@ -17,6 +17,10 @@ import {
   type VerifiedUsdcSuccessorCertificate,
 } from "./ordinary-scenario-usdc-successor-certificate";
 import {
+  assertExpiredHashlessContinuationAuthorization,
+  assertExpiredHashlessContinuationLineage,
+} from "./ordinary-scenario-hashless-continuation";
+import {
   assertUsdcSuccessorAuthorization,
   getUsdcSuccessorApprovalPublicValue,
   type UsdcSuccessorApproval,
@@ -168,6 +172,8 @@ function assertSourceSnapshot(journal: OrdinaryScenarioJournal, mode: "initial" 
 }
 
 function assertOpaqueAuthority(source: UsdcRecycleContinuationSource): Readonly<Record<string, unknown>> {
+  assertExpiredHashlessContinuationLineage(source.prior.original, source.prior.recovery);
+  assertExpiredHashlessContinuationAuthorization(source.prior.recovery, source.prior.recoveryApproval);
   if (!isVerifiedUsdcSuccessorCertificate(source.priorCertificate)) throw new Error("USDC recycle prior certificate is not opaque and verified");
   assertUsdcSuccessorAuthorization(source.priorProposal, source.priorApproval);
   if (!same(source.priorCertificate.certificateHash, PRIOR_CERTIFICATE_HASH) || !same(source.priorProposal.proposalHash, PRIOR_PROPOSAL_HASH) || !same(source.priorApproval.approvalHash, PRIOR_APPROVAL_HASH)) throw new Error("USDC recycle prior authority hashes mismatch");
@@ -178,13 +184,9 @@ function assertOpaqueAuthority(source: UsdcRecycleContinuationSource): Readonly<
 function sourceHashValue(source: UsdcRecycleContinuationSource, approvalBody: Readonly<Record<string, unknown>>): unknown {
   return {
     journal: fixedJournalValue(source.prior.journal),
-    priorAuthority: {
-      originalProposalHash: source.prior.original.proposalHash,
-      originalApprovalHash: source.prior.original.approvalHash,
-      recoveryProposalHash: source.prior.recovery.proposalHash,
-      recoveryCertificateHash: source.prior.recovery.certificateHash,
-      recoveryApprovalHash: source.prior.recoveryApproval.approvalHash,
-    },
+    original: source.prior.original,
+    recovery: source.prior.recovery,
+    recoveryApproval: source.prior.recoveryApproval,
     priorCertificate: source.priorCertificate,
     priorProposal: source.priorProposal,
     priorApproval: approvalBody,

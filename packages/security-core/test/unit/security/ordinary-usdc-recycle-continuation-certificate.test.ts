@@ -37,6 +37,12 @@ describe("ordinary USDC recycle continuation certificate", function () {
     expect(certificate.aggregateKnownChargeWei).to.equal(124_953_955_544n);
     expect(hashUsdcRecycleContinuationSource(source)).to.equal(certificate.sourceHash);
     expect(() => hashUsdcRecycleContinuationSource({ ...source, priorApproval: { ...source.priorApproval } as any })).to.throw(/opaque|approval|source/i);
+    const alteredOriginal = { ...source, prior: { ...source.prior, original: { ...source.prior.original, recipient: `0x${"1".repeat(40)}` } } } as any;
+    const alteredRecovery = { ...source, prior: { ...source.prior, recovery: { ...source.prior.recovery, observer: { ...source.prior.recovery.observer, publicId: "forged" } } } } as any;
+    const alteredRecoveryApproval = { ...source, prior: { ...source.prior, recoveryApproval: { ...source.prior.recoveryApproval } } } as any;
+    expect(() => hashUsdcRecycleContinuationSource(alteredOriginal)).to.throw(/original|lineage|source|opaque/i);
+    expect(() => hashUsdcRecycleContinuationSource(alteredRecovery)).to.throw(/recovery|lineage|source|opaque/i);
+    expect(() => hashUsdcRecycleContinuationSource(alteredRecoveryApproval)).to.throw(/approval|authorization|source|opaque/i);
   });
 
   it("rejects source locks, temporary files, symlinks, changed bytes, extra state, and secret-shaped fixtures", async function () {
