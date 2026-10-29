@@ -25,7 +25,7 @@ import { policyHash } from "../../../src/topology/build";
 import { createRepairProductionAdapter } from "../../../scripts/live/ordinary-scenario-repair-adapter";
 import { createRepairCommandRuntime, runRepairCommand } from "../../../scripts/live/ordinary-scenario-repair-session";
 import { PRODUCTION_REPAIR_EXECUTION_DOMAIN } from "../../../scripts/live/ordinary-scenario-repair";
-import { PRODUCTION_ORDINARY_SCENARIO_DOMAIN } from "../../../scripts/live/ordinary-scenario-executor";
+import { createOrdinaryScenarioStore, PRODUCTION_ORDINARY_SCENARIO_DOMAIN } from "../../../scripts/live/ordinary-scenario-executor";
 import { reconstructReviewedPlan } from "../../../scripts/live/ordinary-scenario-review-cli";
 import { successorReceiptInclusion } from "../../support/usdc-successor-fixture";
 import { attachUsdcRecycleContinuation } from "../../../scripts/live/ordinary-scenario-usdc-recycle-continuation-proposal";
@@ -330,6 +330,26 @@ describe("ordinary USDC recycle continuation CLI", function () {
       repairState.rotated = true;
       const post = await adapter!.readStateAt("post-rotation", inputs.continuation.observer.probeEvidenceHash, BigInt(creation.preRotationBlockNumber), creation.preRotationBlockHash);
       expect(post).to.include({ safeNonce: 16n, delayQueueNonce: 8n, delayTxNonce: 8n, safeContractSecondary: PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate });
+      let expiredRepositoryCalls = 0;
+      const expiredRuntime = createRepairCommandRuntime({ environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN, repository: () => { expiredRepositoryCalls++; throw new Error("expired admission reached repository"); }, createHarness: () => { throw new Error("expired admission reached harness"); }, createAdapter: input => createRepairProductionAdapter(input), loadCreationQuote: () => quote, submit: async () => { throw new Error("expired admission reached submit"); }, now: () => new Date((Number(BigInt(inputs.continuation.observer.expiresAt)) + 1) * 1000), awaitApprovalHandoff: async () => { throw new Error("expired admission reached authority"); }, loadUsdcRecycleContinuationLineage: argv => loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(argv), prepared.providers) });
+      await expect(runRepairCommand(["creation-review", ...args], expiredRuntime)).to.be.rejectedWith(/observer.*schedule|freshness|no longer/i);
+      expect(expiredRepositoryCalls).to.equal(0);
+
+      repairState.rotated = false;
+      const pendingHash = `0x${"e1".padStart(64, "0")}` as Hex;
+      const identity = { proposalHash: inputs.source.prior.original.proposalHash, approvalHash: journal.approvalHash, funder: inputs.source.prior.original.funder };
+      const pendingStore = createOrdinaryScenarioStore(prepared.tracked.path, identity, () => { throw new Error("attached repair journal required"); });
+      const pendingJournal = pendingStore.load();
+      (pendingJournal.repairContinuation!.actions[0] as any).status = "pending"; (pendingJournal.repairContinuation!.actions[0] as any).transactionHash = pendingHash;
+      pendingJournal.liveJournal.entries.push({ id: "repair-signer-create", intentHash: `0x${"e2".padStart(64, "0")}`, transactionHash: pendingHash, nonce: 930, reserved: 740_292_000_000n, status: "pending" });
+      pendingStore.save(pendingJournal); pendingStore.close?.();
+      const creationPath = join(prepared.directory, "repair-creation.json"); writeFileSync(creationPath, `${JSON.stringify(creation)}\n`);
+      let recovered = 0, liveContexts = 0, financialCallbacks = 0;
+      const resumeHarness = { ...productionHarness, current: { ...harness.current, getTransaction: async ({ hash }: { hash: Hex }) => { recovered++; expect(hash).to.equal(pendingHash); return { hash, from: creation.funder, to: creation.factory, value: 0n, input: creation.creationCalldata, nonce: 930, gas: 740_292n, type: "eip1559", chainId: 11_155_111, maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1_000_000n }; } }, createLiveContext: async () => { liveContexts++; return { funder: creation.funder, chainId: async () => 11_155_111, nonce: async () => 930, balance: async () => 0n, sign: async () => { financialCallbacks++; throw new Error("historical resume must not sign"); }, broadcast: async () => { financialCallbacks++; throw new Error("historical resume must not broadcast"); }, receipt: async () => undefined, persist: async () => undefined }; } } as any;
+      const resumeRuntime = createRepairCommandRuntime({ environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN, repository: () => repository, createHarness: () => resumeHarness, createAdapter: input => createRepairProductionAdapter(input), loadCreationQuote: () => quote, submit: async (_intent, liveJournal) => liveJournal.entries.find(entry => entry.transactionHash === pendingHash)!, now: () => new Date((Number(BigInt(inputs.continuation.observer.expiresAt)) + 100) * 1000), awaitApprovalHandoff: async () => { throw new Error("historical resume must not await authority"); }, loadUsdcRecycleContinuationLineage: argv => loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(argv), prepared.providers) });
+      const resumeArgs = ["--creation", creationPath, "--creation-hash", creation.proposalHash, ...args, "--group", join(prepared.directory, "unused-group.json"), "--group-hash", `0x${"e3".padStart(64, "0")}`, "--observer-ledger", join(prepared.directory, "unused-ledger.json"), "--receiver-ack", join(prepared.directory, "unused-ack.json")];
+      expect(await runRepairCommand(["tail-resume-one", ...resumeArgs], resumeRuntime)).to.deep.equal({ status: "PENDING", actionId: "repair-signer-create" });
+      expect({ recovered, liveContexts, financialCallbacks }).to.deep.equal({ recovered: 1, liveContexts: 1, financialCallbacks: 0 });
       expect(counters).to.deep.equal({ codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 });
     } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
   });

@@ -243,11 +243,19 @@ export function createUsdcRecycleContinuationProposal(input: ProposalInput): Usd
   return buildProposal(input, "create");
 }
 
-function assertAttached(value: unknown, proposal: UsdcRecycleContinuationProposal): void {
+export function assertAttachedUsdcRecycleContinuation(value: unknown, proposal: UsdcRecycleContinuationProposal): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("attached USDC recycle continuation storage is malformed");
   const storage = value as Partial<UsdcRecycleContinuationStorage>;
   if (storage.schemaVersion !== 1 || storage.scope !== SCOPE || storage.sourceHash !== proposal.sourceHash || storage.certificateHash !== proposal.certificateHash || storage.proposalHash !== proposal.proposalHash || storage.minimumOuterNonce !== proposal.minimumOuterNonce || JSON.stringify(storage.currentCheckpoint) !== JSON.stringify(proposal.currentCheckpoint) || storage.effectivePeriod !== proposal.effectivePeriod || storage.deadline !== proposal.deadline || storage.maximumReservationWei !== proposal.reservation.continuationMaximumReservationWei || storage.aggregateKnownChargeWei !== proposal.reservation.aggregateKnownChargeWei || storage.maxBroadcastAttempts !== 1 || !Array.isArray(storage.actionCommitments) || !Array.isArray(storage.actions) || storage.actions.length !== 17 || storage.actionCommitments.length !== 17) throw new Error("attached USDC recycle continuation header or action lineage mismatch");
   for (let index = 0; index < 17; index++) if (storage.actionCommitments[index]?.id !== proposal.actions[index]!.id || storage.actionCommitments[index]?.commitment !== proposal.actions[index]!.commitment || storage.actions[index]?.id !== proposal.actions[index]!.id || storage.actions[index]?.commitment !== proposal.actions[index]!.commitment) throw new Error("attached USDC recycle continuation catalog drifted");
+}
+
+export function hashAttachedUsdcRecycleContinuationHeader(storage: UsdcRecycleContinuationStorage): Hex {
+  return publicHash({ schemaVersion: storage.schemaVersion, scope: storage.scope, sourceHash: storage.sourceHash, certificateHash: storage.certificateHash, proposalHash: storage.proposalHash, approvalHash: storage.approvalHash, currentCheckpoint: storage.currentCheckpoint, minimumOuterNonce: storage.minimumOuterNonce, effectivePeriod: storage.effectivePeriod, deadline: storage.deadline, actionCommitments: storage.actionCommitments, maximumReservationWei: storage.maximumReservationWei, aggregateKnownChargeWei: storage.aggregateKnownChargeWei, maxBroadcastAttempts: storage.maxBroadcastAttempts });
+}
+
+export function hashApprovedUsdcRecycleContinuationHeader(proposal: UsdcRecycleContinuationProposal, approval: UsdcRecycleContinuationApproval): Hex {
+  return publicHash({ schemaVersion: 1, scope: SCOPE, sourceHash: proposal.sourceHash, certificateHash: proposal.certificateHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, currentCheckpoint: proposal.currentCheckpoint, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, actionCommitments: proposal.actions.map(({ id, commitment }) => ({ id, commitment })), maximumReservationWei: proposal.reservation.continuationMaximumReservationWei, aggregateKnownChargeWei: proposal.reservation.aggregateKnownChargeWei, maxBroadcastAttempts: 1 });
 }
 
 export function parseUsdcRecycleContinuationProposal(serialized: string, source: UsdcRecycleContinuationSource, certificate: VerifiedUsdcRecycleContinuationCertificate): UsdcRecycleContinuationProposal {
@@ -259,7 +267,7 @@ export function parseUsdcRecycleContinuationProposal(serialized: string, source:
   const expected = buildProposal({ source, certificate, observer: (parsed as any).observer, caps: (parsed as any).caps }, "parse");
   if (JSON.stringify(parsed) !== JSON.stringify(expected)) throw new Error("USDC recycle continuation proposal shape, catalog, commitment, checkpoint, budget, or hash drift");
   const attached = (source.prior.journal as OrdinaryScenarioJournal & { usdcRecycleContinuation?: unknown }).usdcRecycleContinuation;
-  if (attached !== undefined) assertAttached(attached, expected);
+  if (attached !== undefined) assertAttachedUsdcRecycleContinuation(attached, expected);
   return expected;
 }
 

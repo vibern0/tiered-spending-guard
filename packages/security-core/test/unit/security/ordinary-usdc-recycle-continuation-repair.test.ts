@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { type Hex } from "viem";
 import {
@@ -69,6 +69,46 @@ describe("closed recycle continuation repair predecessor", () => {
     expect(() => verifyRepairPredecessor(fixture.source.prior.original, oldRow, fixture.evidence, fixture.lineage as never)).to.throw(/old|stopped|source|canonical/i);
   });
 
+  it("rejects every security-relevant persisted recycle header mutation", async () => {
+    const fixture = await closedRecyclePredecessor();
+    const mutations: Array<[string, (header: any) => void]> = [
+      ["source", header => { header.sourceHash = hash(0xc01); }],
+      ["certificate", header => { header.certificateHash = hash(0xc02); }],
+      ["proposal", header => { header.proposalHash = hash(0xc03); }],
+      ["approval", header => { header.approvalHash = hash(0xc04); }],
+      ["checkpoint block", header => { header.currentCheckpoint.blockHash = hash(0xc05); }],
+      ["checkpoint state", header => { header.currentCheckpoint.stateHash = hash(0xc06); }],
+      ["minimum nonce", header => { header.minimumOuterNonce += 1; header.currentCheckpoint.snapshotNonce += 1; header.currentCheckpoint.latestNonce += 1; header.currentCheckpoint.pendingNonce += 1; }],
+      ["period", header => { header.effectivePeriod = (BigInt(header.effectivePeriod) + 86_400n).toString(); header.deadline = (BigInt(header.deadline) + 86_400n).toString(); }],
+      ["deadline", header => { header.deadline = (BigInt(header.deadline) + 1n).toString(); }],
+      ["maximum reservation", header => { header.maximumReservationWei = (BigInt(header.maximumReservationWei) + 1n).toString(); }],
+      ["869 aggregate charge", header => { header.aggregateKnownChargeWei = (BigInt(header.aggregateKnownChargeWei) + 1n).toString(); }],
+      ["broadcast attempts", header => { header.maxBroadcastAttempts = 2; }],
+      ["commitment", header => { header.actionCommitments[0].commitment = hash(0xc07); }],
+    ];
+    for (const [name, mutate] of mutations) {
+      const journal = structuredClone(fixture.journal) as any; mutate(journal.usdcRecycleContinuation);
+      expect(() => verifyRepairPredecessor(fixture.source.prior.original, journal, fixture.evidence, fixture.lineage as never), name).to.throw(/header|canonical|lineage|catalog|checkpoint|period|deadline|reservation|charge/i);
+    }
+  });
+
+  it("rejects mutated forged mixed accounting inclusion and old-authority lineage", async () => {
+    const fixture = await closedRecyclePredecessor();
+    const cases: Array<[string, (journal: any, lineage: any) => void]> = [
+      ["mutated source", journal => { journal.actions[0].commitment = hash(0xe01); }],
+      ["mixed native source", journal => { [journal.hashlessContinuation.actions[0], journal.hashlessContinuation.actions[1]] = [journal.hashlessContinuation.actions[1], journal.hashlessContinuation.actions[0]]; }],
+      ["wrong receipt gas", journal => { const row = journal.usdcRecycleContinuation.actions.find((entry: any) => entry.status === "confirmed"); row.receipt.gasUsed = (BigInt(row.receipt.gasUsed) + 1n).toString(); }],
+      ["wrong live total", journal => { journal.liveJournal.entries[15].reserved = BigInt(journal.liveJournal.entries[15].reserved) + 1n; }],
+      ["missing receipt inclusion", journal => { const row = journal.usdcRecycleContinuation.actions.find((entry: any) => entry.status === "confirmed"); delete row.receiptInclusion; }],
+      ["old approval", journal => { journal.usdcSuccessor.approvalHash = hash(0xe02); }],
+      ["forged certificate brand", (_journal, lineage) => { lineage.certificate = structuredClone(lineage.certificate); }],
+    ];
+    for (const [name, mutate] of cases) {
+      const journal = structuredClone(fixture.journal) as any, lineage = { ...fixture.lineage } as any; mutate(journal, lineage);
+      expect(() => verifyRepairPredecessor(fixture.source.prior.original, journal, fixture.evidence, lineage), name).to.throw(/source|lineage|canonical|gas|receipt|inclusion|approval|opaque|evidence|prefix/i);
+    }
+  });
+
   it("binds the repair spine to the recycle terminal dependency", async () => {
     const fixture = await closedRecyclePredecessor();
     const state = { chainId: 11155111, blockNumber: 12_020_000n, blockHash: hash(0xa01), blockTimestamp: 1_793_233_000n, safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, safeContractSecondary: fixture.source.prior.original.safeContractSecondary, candidateRuntimeCodeHash: hash(0), candidateBindingHash: hash(0), policyHash: "0x5b19fb0f9dcc35db4d45ec227f01348985431d74a2092d887bc7b4f26ade4a82" as Hex, frozen: false as const, nativeWindow: 1_793_145_600n, nativeBaseSpent: 10_000_000_000_000n, nativeInstantSpent: 30_000_000_000_000n, usdcWindow: 1_793_232_000n, usdcBaseSpent: 10_000_000n, usdcInstantSpent: 20_000_000n, nativeBalance: 0n, usdcBalance: 20_000_000n, topologyEvidenceHash: hash(0xa02), observerReady: true };
@@ -81,7 +121,7 @@ describe("closed recycle continuation repair predecessor", () => {
     const fixture = await closedRecyclePredecessor();
     const predecessor = verifyRepairPredecessor(fixture.source.prior.original, fixture.journal, fixture.evidence, fixture.lineage as never);
     const journal = structuredClone(fixture.journal);
-    journal.repairContinuation = { schemaVersion: 1, predecessor: { kind: predecessor.kind, actionCount: predecessor.actionCount, prefixHash: predecessor.prefixHash, certificateHash: predecessor.certificateHash, continuationProposalHash: predecessor.continuationProposalHash, continuationApprovalHash: predecessor.continuationApprovalHash, observerIdentityHash: predecessor.observerIdentityHash, observerEvidenceHash: predecessor.observerEvidenceHash, effectivePeriod: predecessor.effectivePeriod!.toString(), rawNativeSpend: predecessor.rawNativeSpend!, rawUsdcSpend: predecessor.rawUsdcSpend! } as never, prefixHash: predecessor.prefixHash, originalActionCount: 41, cumulativeActualCostWei: predecessor.cumulativeActualCostWei.toString(), creationProposalHash: hash(0xb01), actions: [] };
+    journal.repairContinuation = { schemaVersion: 1, predecessor: { kind: predecessor.kind, actionCount: predecessor.actionCount, prefixHash: predecessor.prefixHash, certificateHash: predecessor.certificateHash, continuationProposalHash: predecessor.continuationProposalHash, continuationApprovalHash: predecessor.continuationApprovalHash, observerIdentityHash: predecessor.observerIdentityHash, observerEvidenceHash: predecessor.observerEvidenceHash, continuationHeaderHash: predecessor.continuationHeaderHash, effectivePeriod: predecessor.effectivePeriod!.toString(), rawNativeSpend: predecessor.rawNativeSpend!, rawUsdcSpend: predecessor.rawUsdcSpend! } as never, prefixHash: predecessor.prefixHash, originalActionCount: 41, cumulativeActualCostWei: predecessor.cumulativeActualCostWei.toString(), creationProposalHash: hash(0xb01), actions: [] };
     const directory = mkdtempSync(join(tmpdir(), "recycle-repair-reopen-")); const path = join(directory, "journal.json");
     const identity = { proposalHash: journal.proposalHash, approvalHash: journal.approvalHash, funder: journal.funder };
     const store = createOrdinaryScenarioStore(path, identity, () => journal);
@@ -91,6 +131,26 @@ describe("closed recycle continuation repair predecessor", () => {
       expect(reopened.repairContinuation!.predecessor!.kind).to.equal("usdc-recycle-continuation-v1");
       expect(reopened.liveJournal.entries.slice(0, 15).map(entry => entry.id)).to.deep.equal(journal.liveJournal.entries.slice(0, 15).map(entry => entry.id));
       expect(reopened.usdcSuccessor!.actions[2]!.status).to.equal("signed-simulated");
+      const canonical = readFileSync(path, "utf8");
+      const mutations: Array<[string, (header: any) => void]> = [
+        ["source", header => { header.sourceHash = hash(0xd01); }],
+        ["certificate", header => { header.certificateHash = hash(0xd02); }],
+        ["proposal", header => { header.proposalHash = hash(0xd03); }],
+        ["approval", header => { header.approvalHash = hash(0xd04); }],
+        ["checkpoint block", header => { header.currentCheckpoint.blockHash = hash(0xd05); }],
+        ["checkpoint state", header => { header.currentCheckpoint.stateHash = hash(0xd06); }],
+        ["minimum nonce", header => { header.minimumOuterNonce += 1; header.currentCheckpoint.snapshotNonce += 1; header.currentCheckpoint.latestNonce += 1; header.currentCheckpoint.pendingNonce += 1; }],
+        ["period", header => { header.effectivePeriod = (BigInt(header.effectivePeriod) + 86_400n).toString(); header.deadline = (BigInt(header.deadline) + 86_400n).toString(); }],
+        ["deadline", header => { header.deadline = (BigInt(header.deadline) + 1n).toString(); }],
+        ["maximum reservation", header => { header.maximumReservationWei = (BigInt(header.maximumReservationWei) + 1n).toString(); }],
+        ["869 aggregate charge", header => { header.aggregateKnownChargeWei = (BigInt(header.aggregateKnownChargeWei) + 1n).toString(); }],
+        ["broadcast attempts", header => { header.maxBroadcastAttempts = 2; }],
+        ["commitment", header => { header.actionCommitments[0].commitment = hash(0xd07); }],
+      ];
+      for (const [name, mutate] of mutations) {
+        const raw = JSON.parse(canonical); mutate(raw.usdcRecycleContinuation); const mutatedPath = join(directory, `${name.replace(/ /g, "-")}.json`); writeFileSync(mutatedPath, `${JSON.stringify(raw)}\n`);
+        expect(() => createOrdinaryScenarioStore(mutatedPath, identity, () => { throw new Error("mutated persisted repair journal must not initialize"); }), name).to.throw(/lineage|header|coexistence|deadline|binding|catalog/i);
+      }
     } finally { store.close?.(); rmSync(directory, { recursive: true, force: true }); }
   });
 
