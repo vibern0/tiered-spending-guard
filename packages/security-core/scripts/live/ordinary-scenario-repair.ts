@@ -13,7 +13,7 @@ import { queueFingerprint, queueMonitoringFingerprint, type DelayQueueItem } fro
 import { SAFE_TX_TYPES } from "../../src/signers/types";
 import { passkeySignerBindingHash } from "../../src/topology/evidence";
 import { PHASE_OUTLAY_LIMIT, type LiveJournal } from "./submission";
-import type { OrdinaryScenarioJournal, OrdinaryScenarioProposal } from "./ordinary-scenario-executor";
+import { assertUsdcSuccessorReceiptInclusion, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal } from "./ordinary-scenario-executor";
 import {
   assertExpiredHashlessContinuationAuthorization,
   assertExpiredHashlessContinuationLineage,
@@ -252,7 +252,7 @@ export function verifyRepairPredecessor(
     for (let index = 0; index < 22; index++) { const record = recoveryRecords[index]!, action = lineage.source.recovery.actions[index]!, commitment = attachedRecovery.actionCommitments[index]; if (record.id !== action.id || !same(record.commitment, action.commitment) || commitment?.id !== action.id || !same(commitment.commitment, action.commitment)) throw new Error("repair USDC successor native recovery catalog changed"); if (index < 3) { if (record.status !== "confirmed" || !record.transactionHash || !record.receipt || !record.evidenceHash) throw new Error("repair USDC successor native prefix is incomplete"); } else if (record.status !== "approved" || Object.keys(record).sort().join(",") !== "commitment,id,status") throw new Error("repair USDC successor superseded old USDC tail must remain untouched"); }
     assertEvidence(recoveryRecords.slice(0, 3), evidence, 19);
     const successorRecords = attachedSuccessor.actions as readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[];
-    for (let index = 0; index < 19; index++) { const record = successorRecords[index]!, action = lineage.successor.actions[index]!, commitment = attachedSuccessor.actionCommitments[index], expected = action.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed"; if (record.id !== action.id || !same(record.commitment, action.commitment) || commitment?.id !== action.id || !same(commitment.commitment, action.commitment) || record.status !== expected || !record.evidenceHash || (expected === "confirmed" && (!record.transactionHash || !record.receipt))) throw new Error("repair USDC successor terminal catalog is incomplete or changed"); }
+    for (let index = 0; index < 19; index++) { const record = successorRecords[index]!, action = lineage.successor.actions[index]!, commitment = attachedSuccessor.actionCommitments[index], expected = action.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed"; if (record.id !== action.id || !same(record.commitment, action.commitment) || commitment?.id !== action.id || !same(commitment.commitment, action.commitment) || record.status !== expected || !record.evidenceHash || (expected === "confirmed" && (!record.transactionHash || !record.receipt))) throw new Error("repair USDC successor terminal catalog is incomplete or changed"); if (expected === "confirmed") assertUsdcSuccessorReceiptInclusion(record, lineage.successor.effectivePeriod, lineage.successor.deadline); }
     assertEvidence(successorRecords, evidence, 22);
     const historicalRecords = journal.actions.slice(0, 18).filter((record): record is import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord => record.status === "confirmed");
     const nativeRecords = recoveryRecords.slice(0, 3);

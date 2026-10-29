@@ -24,7 +24,7 @@ import {
   type UsdcSuccessorReportContext,
   type UsdcSuccessorRepairReportEvidence,
 } from "../../../scripts/live/ordinary-scenario-usdc-successor-report";
-import { createUsdcSuccessorFixture, successorSnapshot } from "../../support/usdc-successor-fixture";
+import { createUsdcSuccessorFixture, successorReceiptInclusion, successorSnapshot } from "../../support/usdc-successor-fixture";
 
 const hash = (suffix: string) => `0x${suffix.padStart(64, "0")}` as Hex;
 const rawHash = (value: string) => `0x${createHash("sha256").update(value).digest("hex")}` as Hex;
@@ -90,6 +90,7 @@ function terminalize(value: Awaited<ReturnType<typeof prepared>>) {
       ...(confirmed ? {
         transactionHash,
         receipt,
+        receiptInclusion: successorReceiptInclusion(receipt, value.proposal.effectivePeriod, 60n + BigInt(index)),
         outerValue: "0",
         ourReceiptGasCost: (gasUsed * effectiveGasPrice).toString(),
         ourPrincipalDelta: "0",
@@ -191,7 +192,7 @@ describe("ordinary USDC successor persisted-evidence report", function () {
     value.cleanup();
     const report = renderUsdcSuccessorReport(value.source, value.context, value.journal) as any;
     expect(report.original).to.deep.include({ status: "INTERRUPTED_HASHLESS_AT_19_OF_38", terminalRowCount: 18 });
-    expect(report.original.immutableRow19).to.include({ status: "signed-simulated", outerNonce: 809, transactionHash: null, failureCause: null });
+    expect(report.original.immutableRow19).to.include({ status: "signed-simulated", outerNonce: 809, transactionHash: null, failureCause: "UNKNOWN" });
     expect(report.nativeRecovery).to.include({ status: "NATIVE_RECOVERY_3_OF_22", confirmedActionCount: 3, approvedActionCount: 19 });
     expect(report.supersededOriginalUsdc).to.include({ status: "SUPERSEDED_UNEXECUTED_COMMITMENTS", actionCount: 19 });
     expect(report.successor).to.include({ status: "USDC_SUCCESSOR_INCOMPLETE", actionCount: 19, terminalActionCount: 0 });
@@ -212,6 +213,9 @@ describe("ordinary USDC successor persisted-evidence report", function () {
       ["old tail", journal => { journal.hashlessContinuation!.actions[3] = { ...(journal.hashlessContinuation!.actions[3] as any), status: "confirmed" }; }],
       ["evidence", journal => { delete (journal.usdcSuccessor!.actions[0] as any).evidenceHash; }],
       ["receipt", journal => { delete (journal.usdcSuccessor!.actions[0] as any).receipt; }],
+      ["receipt inclusion absent", journal => { delete (journal.usdcSuccessor!.actions[0] as any).receiptInclusion; }],
+      ["receipt inclusion changed", journal => { (journal.usdcSuccessor!.actions[0] as any).receiptInclusion.blockHash = hash("bad"); }],
+      ["later receipt inclusion outside period", journal => { (journal.usdcSuccessor!.actions[18] as any).receiptInclusion.blockTimestamp = journal.usdcSuccessor!.deadline; (journal.usdcSuccessor!.actions[18] as any).receiptInclusion.effectivePeriod = journal.usdcSuccessor!.deadline; }],
       ["cost", journal => { (journal.usdcSuccessor!.actions[0] as any).ourReceiptGasCost = "1"; }],
       ["principal", journal => { (journal.usdcSuccessor!.actions[0] as any).ourPrincipalDelta = "1"; }],
       ["period", journal => { (journal.usdcSuccessor!.actions[0] as any).establishedWindow = "1793145600"; }],

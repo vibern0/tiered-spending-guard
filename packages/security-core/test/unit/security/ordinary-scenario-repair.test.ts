@@ -40,7 +40,7 @@ import { ActivityLedger, FileActivityStore } from "../../../src/monitoring/ledge
 import type { ActivityAlert } from "../../../src/monitoring/notifier";
 import { sha256 } from "../../../scripts/plan-deployment";
 import { attachUsdcSuccessor, createUsdcSuccessorProposal, loadUsdcSuccessorApproval } from "../../../scripts/live/ordinary-scenario-usdc-successor-proposal";
-import { createUsdcSuccessorFixture, successorSnapshot } from "../../support/usdc-successor-fixture";
+import { createUsdcSuccessorFixture, successorReceiptInclusion, successorSnapshot } from "../../support/usdc-successor-fixture";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
 const hash = (suffix: string) => `0x${suffix.padStart(64, "0")}` as Hex;
@@ -136,7 +136,7 @@ async function closedUsdcSuccessorPredecessor() {
     return {
       id: action.id, commitment: action.commitment, status: confirmed ? "confirmed" as const : "rejection-proved" as const,
       evidenceHash: hash((0xd00 + index).toString(16)),
-      ...(confirmed ? { transactionHash, receipt, outerValue: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(), ourPrincipalDelta: "0" } : {}),
+      ...(confirmed ? { transactionHash, receipt, receiptInclusion: successorReceiptInclusion(receipt, successor.effectivePeriod, 60n + BigInt(index)), outerValue: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(), ourPrincipalDelta: "0" } : {}),
     };
   });
   journal.usdcSuccessor.actions.splice(0, journal.usdcSuccessor.actions.length, ...records);
@@ -175,6 +175,12 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     expect(() => verifyRepairPredecessor(recovered.source.original, mutatedOld, recovered.evidence, lineage)).to.throw(/untouched|lineage|canonical/i);
     const orphan = structuredClone(recovered.journal); orphan.usdcSuccessor!.sourceHash = hash("bad");
     expect(() => verifyRepairPredecessor(recovered.source.original, orphan, recovered.evidence, lineage)).to.throw(/header|lineage|canonical/i);
+    const absentInclusion = structuredClone(recovered.journal); delete (absentInclusion.usdcSuccessor!.actions.find(action => action.status === "confirmed") as any).receiptInclusion;
+    expect(() => verifyRepairPredecessor(recovered.source.original, absentInclusion, recovered.evidence, lineage)).to.throw(/receipt inclusion/i);
+    const changedInclusion = structuredClone(recovered.journal); (changedInclusion.usdcSuccessor!.actions.find(action => action.status === "confirmed") as any).receiptInclusion.blockHash = hash("bad");
+    expect(() => verifyRepairPredecessor(recovered.source.original, changedInclusion, recovered.evidence, lineage)).to.throw(/receipt inclusion/i);
+    const lateInclusion = structuredClone(recovered.journal); const later = lateInclusion.usdcSuccessor!.actions.at(-1) as any; later.receiptInclusion.blockTimestamp = recovered.successor.deadline; later.receiptInclusion.effectivePeriod = recovered.successor.deadline;
+    expect(() => verifyRepairPredecessor(recovered.source.original, lateInclusion, recovered.evidence, lineage)).to.throw(/receipt inclusion.*outside|effective period/i);
     const badCost = structuredClone(recovered.journal); (badCost.usdcSuccessor!.actions.find(action => action.status === "confirmed") as any).ourReceiptGasCost = "1";
     expect(() => verifyRepairPredecessor(recovered.source.original, badCost, recovered.evidence, lineage)).to.throw(/receipt gas|accounting/i);
     const badNativePrincipal = structuredClone(recovered.journal); (badNativePrincipal.hashlessContinuation!.actions[2] as any).ourPrincipalDelta = "2";

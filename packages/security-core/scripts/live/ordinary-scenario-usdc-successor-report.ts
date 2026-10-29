@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Hex } from "viem";
 import { sha256 } from "../plan-deployment";
 import { assertExpiredHashlessContinuationAuthorization, assertExpiredHashlessContinuationLineage } from "./ordinary-scenario-hashless-continuation";
-import type { OrdinaryScenarioActionRecord, OrdinaryScenarioJournal } from "./ordinary-scenario-executor";
+import { assertUsdcSuccessorReceiptInclusion, type OrdinaryScenarioActionRecord, type OrdinaryScenarioJournal } from "./ordinary-scenario-executor";
 import {
   REPAIR_ACTION_IDS,
   assertRepairApproval,
@@ -88,6 +88,7 @@ function validateSuccessor(context: UsdcSuccessorReportContext, journal: Ordinar
       if (record.status === "confirmed") {
         const receipt = record.receipt;
         if (!record.transactionHash || !receipt || receipt.status !== "success" || !same(record.transactionHash, receipt.transactionHash) || !HASH.test(receipt.blockHash) || BigInt(receipt.blockNumber) <= 0n || BigInt(receipt.gasUsed) <= 0n || BigInt(receipt.gasUsed) > BigInt(action.gasLimitCap) || BigInt(receipt.effectiveGasPrice) < 0n || BigInt(receipt.effectiveGasPrice) > BigInt(action.maxFeePerGasCap) || BigInt(record.ourReceiptGasCost ?? "-1") !== BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) || BigInt(record.ourPrincipalDelta ?? "-1") !== 0n || BigInt(record.outerValue ?? "-1") !== 0n) throw new Error(`USDC successor report canonical receipt, cost, or principal accounting mismatch at action ${index + 1}`);
+        assertUsdcSuccessorReceiptInclusion(record, proposal.effectivePeriod, proposal.deadline);
         if (index === 0 ? record.establishedWindow !== proposal.effectivePeriod : record.establishedWindow !== undefined) throw new Error("USDC successor report receipt effective-period binding mismatch");
         expectedLive.push({ record, status: "success" }); successfulCount++;
       } else if (record.transactionHash !== undefined || record.receipt !== undefined) throw new Error(`USDC successor report rejection evidence unexpectedly carries a transaction at action ${index + 1}`);
@@ -209,7 +210,7 @@ export function renderUsdcSuccessorReport(source: UsdcSuccessorSource, context: 
     schemaVersion: 1,
     scope: "ORDINARY_USDC_PERIOD_SUCCESSOR_EVIDENCE_REPORT_V1",
     provenance: { source: "VERIFIED_PERSISTED_PUBLIC_EVIDENCE", rpcReadsPerformedByRenderer: false, filesystemReadsPerformedByRenderer: false, signing: false, simulation: false, approvalConstruction: false, broadcast: false },
-    original: { status: "INTERRUPTED_HASHLESS_AT_19_OF_38", terminalRowCount: 18, immutableRow19: { row: 19, id: source.recovery.source.stoppedRow.id, status: "signed-simulated", outerNonce: 809, transactionHash: null, failureCause: null, executionEvidence: null } },
+    original: { status: "INTERRUPTED_HASHLESS_AT_19_OF_38", terminalRowCount: 18, immutableRow19: { row: 19, id: source.recovery.source.stoppedRow.id, status: "signed-simulated", outerNonce: 809, transactionHash: null, failureCause: "UNKNOWN", executionEvidence: null } },
     nativeRecovery: { status: "NATIVE_RECOVERY_3_OF_22", confirmedActionCount: 3, approvedActionCount: 19, proposalHash: source.recovery.proposalHash, certificateHash: source.recovery.certificateHash, approvalHash: source.recoveryApproval.approvalHash },
     supersededOriginalUsdc: { status: "SUPERSEDED_UNEXECUTED_COMMITMENTS", actionCount: 19, actionIds: source.recovery.actions.slice(3).map(action => action.id), actions: source.recovery.actions.slice(3).map(action => ({ id: action.id, commitment: action.commitment })) },
     successor: { status: progress.complete ? "USDC_SUCCESSOR_19_OF_19_TERMINAL" : "USDC_SUCCESSOR_INCOMPLETE", terminalActionCount: progress.terminalCount, successfulLiveEntryCount: progress.successfulCount, actionCount: 19, actionIds: context.proposal.actions.map(action => action.id), effectivePeriod: context.proposal.effectivePeriod, terminalCounters: { safeNonce: "15", delayQueueNonce: "7", delayTxNonce: "7" }, observer: { probeEvidenceHash: context.proposal.observer.probeEvidenceHash, requiredThrough: context.proposal.observer.requiredThrough, expiresAt: context.proposal.observer.expiresAt }, actions: progress.actions },

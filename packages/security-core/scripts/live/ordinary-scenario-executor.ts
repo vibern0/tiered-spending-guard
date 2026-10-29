@@ -251,6 +251,13 @@ type ApprovalBinding = Readonly<{ proposal: OrdinaryScenarioProposal; actions: r
 const approvalBindings = new WeakMap<object, ApprovalBinding>();
 
 export type OrdinaryScenarioActionStatus = "materialized" | "signed-simulated" | "outer-pending" | "confirmed" | "rejection-proved" | "reverted" | "stopped";
+export type SuccessorReceiptInclusion = Readonly<{
+  transactionHash: Hex;
+  blockNumber: string;
+  blockHash: Hex;
+  blockTimestamp: string;
+  effectivePeriod: string;
+}>;
 export type OrdinaryScenarioActionRecord = {
   id: string;
   commitment: Hex;
@@ -286,6 +293,7 @@ export type OrdinaryScenarioActionRecord = {
   outerDataHash?: Hex;
   evidenceHash?: Hex;
   receipt?: LiveReceipt;
+  receiptInclusion?: SuccessorReceiptInclusion;
   queueCreatedAt?: string;
   establishedWindow?: string;
   funderNativeBefore?: string;
@@ -1011,6 +1019,15 @@ function assertReceiptPostStateBinding(action: OrdinaryScenarioActionScope, rece
   if (basis.kind !== "receipt-poststate" || basis.actionId !== action.id || !same(basis.transactionHash, receipt.transactionHash) || basis.blockNumber !== receipt.blockNumber || !same(basis.blockHash, receipt.blockHash)) throw new Error("ordinary scenario confirmation requires exact receipt-poststate evidence basis");
 }
 
+/** Validates persisted successor receipt inclusion without reading RPC or manufacturing evidence. */
+export function assertUsdcSuccessorReceiptInclusion(record: OrdinaryScenarioActionRecord, approvedEffectivePeriod: string, deadline: string): SuccessorReceiptInclusion {
+  const receipt = record.receipt, inclusion = record.receiptInclusion;
+  if (!record.transactionHash || !receipt || receipt.status !== "success" || !inclusion || !same(record.transactionHash, receipt.transactionHash) || !same(inclusion.transactionHash, receipt.transactionHash) || inclusion.blockNumber !== receipt.blockNumber.toString() || !same(inclusion.blockHash, receipt.blockHash)) throw new Error("USDC successor receipt inclusion is absent or not bound to the canonical receipt");
+  const timestamp = BigInt(inclusion.blockTimestamp), derivedPeriod = BigInt(inclusion.effectivePeriod), effectivePeriod = BigInt(approvedEffectivePeriod), exclusiveDeadline = BigInt(deadline);
+  if (exclusiveDeadline !== effectivePeriod + PERIOD_SECONDS || derivedPeriod !== effectivePeriod || timestamp < effectivePeriod || timestamp >= exclusiveDeadline) throw new Error("USDC successor receipt inclusion is outside the approved effective period");
+  return inclusion;
+}
+
 async function resumePending(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext, recordEntry: OrdinaryScenarioActionRecord, boundary: ExecutionBoundary = {}): Promise<OrdinaryScenarioExecutionResult> {
   if (!recordEntry.transactionHash || !recordEntry.intentHash || recordEntry.outerNonce === undefined || !recordEntry.gas || !recordEntry.maxFeePerGas || !recordEntry.maxPriorityFeePerGas || !recordEntry.outerDataHash || !recordEntry.outerValue) throw new Error("ordinary scenario pending record is incomplete");
   const intent = await context.recoverPending(action, recordEntry);
@@ -1028,9 +1045,12 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
     const anchor = BigInt(proposal.periodAnchor);
     if (receiptPostState.blockTimestamp < anchor) throw new Error("ordinary scenario successor receipt predates period anchor");
     const actualPeriod = anchor + ((receiptPostState.blockTimestamp - anchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
-    if (actualPeriod !== boundary.effectivePeriod) {
+    recordEntry.receiptInclusion = { transactionHash: entry.receipt.transactionHash, blockNumber: entry.receipt.blockNumber.toString(), blockHash: entry.receipt.blockHash, blockTimestamp: receiptPostState.blockTimestamp.toString(), effectivePeriod: actualPeriod.toString() };
+    store.save(journal);
+    try { assertUsdcSuccessorReceiptInclusion(recordEntry, boundary.effectivePeriod.toString(), (boundary.effectivePeriod + PERIOD_SECONDS).toString()); }
+    catch {
       recordEntry.status = "stopped";
-      recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, poststateBasis: receiptPostState.evidenceBasis, actualPeriod: actualPeriod.toString(), approvedPeriod: boundary.effectivePeriod.toString() });
+      recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, receiptInclusion: recordEntry.receiptInclusion, poststateBasis: receiptPostState.evidenceBasis, approvedPeriod: boundary.effectivePeriod.toString() });
       store.save(journal);
       throw new Error("ordinary scenario successor receipt was included outside the approved effective period; actual receipt was preserved and execution stopped");
     }
@@ -1264,6 +1284,13 @@ function decodeReceipt(value: unknown): LiveReceipt | undefined {
   return { transactionHash: hash(receipt.transactionHash, "receipt transaction hash"), status: receipt.status === "success" || receipt.status === "reverted" ? receipt.status : (() => { throw new Error("scenario receipt status mismatch"); })(), gasUsed: decimal(receipt.gasUsed, "receipt gas used"), effectiveGasPrice: decimal(receipt.effectiveGasPrice, "receipt effective gas price"), blockNumber: decimal(receipt.blockNumber, "receipt block number"), blockHash: hash(receipt.blockHash, "receipt block hash") };
 }
 
+function decodeSuccessorReceiptInclusion(value: unknown): SuccessorReceiptInclusion | undefined {
+  if (value === undefined) return undefined;
+  const inclusion = record(value, "USDC successor receipt inclusion");
+  exactKeys(inclusion, ["transactionHash", "blockNumber", "blockHash", "blockTimestamp", "effectivePeriod"], "USDC successor receipt inclusion");
+  return { transactionHash: hash(inclusion.transactionHash, "USDC successor inclusion transaction hash"), blockNumber: decimal(inclusion.blockNumber, "USDC successor inclusion block number").toString(), blockHash: hash(inclusion.blockHash, "USDC successor inclusion block hash"), blockTimestamp: decimal(inclusion.blockTimestamp, "USDC successor inclusion block timestamp").toString(), effectivePeriod: decimal(inclusion.effectivePeriod, "USDC successor inclusion effective period").toString() };
+}
+
 function decodeFinalOuterMaterialization(value: unknown): OrdinaryScenarioActionRecord["finalOuterMaterialization"] {
   if (value === undefined) return undefined;
   const item = record(value, "final outer materialization");
@@ -1377,7 +1404,7 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
       if (rawItem.status === "approved") { exactKeys(rawItem, ["id", "commitment", "status"], `USDC successor action ${index}`); return { id: text(rawItem.id, "USDC successor action id"), commitment: hash(rawItem.commitment, "USDC successor action commitment"), status: "approved" as const }; }
       const item = rawItem as unknown as OrdinaryScenarioActionRecord;
       if (!item.id.startsWith("usdc-successor-") || !HASH.test(String(item.commitment)) || !["materialized", "signed-simulated", "outer-pending", "confirmed", "rejection-proved", "reverted", "stopped"].includes(item.status)) throw new Error("USDC successor action identity or status mismatch");
-      const allowed = new Set(["id", "commitment", "status", "materializationHash", "finalOuterMaterialization", "prestateHash", "outerNonce", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerTo", "outerValue", "outerDataHash", "evidenceHash", "receipt", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta", "externalFunderDeltaClassification"]);
+      const allowed = new Set(["id", "commitment", "status", "materializationHash", "finalOuterMaterialization", "prestateHash", "outerNonce", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerTo", "outerValue", "outerDataHash", "evidenceHash", "receipt", "receiptInclusion", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta", "externalFunderDeltaClassification"]);
       if (Object.keys(item).some(key => !allowed.has(key))) throw new Error("USDC successor action has unknown fields");
       for (const key of ["materializationHash", "prestateHash", "requestHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerDataHash", "evidenceHash"] as const) if (item[key] !== undefined) hash(item[key], `USDC successor action ${key}`);
       if (item.signatureBundleHash !== undefined && item.signatureBundleHash !== null) hash(item.signatureBundleHash, "USDC successor signature bundle hash");
@@ -1387,6 +1414,7 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
       if (item.outerTo !== undefined) address(item.outerTo, "USDC successor outer target");
       if (item.externalFunderDeltaClassification !== undefined && item.externalFunderDeltaClassification !== "unrelated/shared-funder activity") throw new Error("USDC successor external funder classification mismatch");
       if (item.receipt) item.receipt = decodeReceipt(item.receipt);
+      if (item.receiptInclusion) item.receiptInclusion = decodeSuccessorReceiptInclusion(item.receiptInclusion);
       if (item.finalOuterMaterialization !== undefined) item.finalOuterMaterialization = decodeFinalOuterMaterialization(item.finalOuterMaterialization);
       return item;
     });
@@ -1446,8 +1474,9 @@ export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ p
   const assertActionProgress = (prior: { id: string; commitment: Hex; status: string } & Record<string, unknown>, next: { id: string; commitment: Hex; status: string } & Record<string, unknown>, label: string): void => {
     const successorLateStop = label === "USDC successor" && prior.status === "outer-pending" && next.status === "stopped";
     if (prior.id !== next.id || prior.commitment !== next.commitment || (!actionTransitions[prior.status]?.has(next.status) && !successorLateStop)) throw new Error(`${label} action removal, reordering, identity drift, or status regression`);
-    assertFixedFields(prior, next, new Set(["status", "receipt"]), label);
+    assertFixedFields(prior, next, new Set(["status", "receipt", ...(label === "USDC successor" ? ["receiptInclusion"] : [])]), label);
     if (prior.receipt !== undefined && publicHash(prior.receipt) !== publicHash(next.receipt)) throw new Error(`${label} receipt changed or was deleted`);
+    if (label === "USDC successor" && prior.receiptInclusion !== undefined && publicHash(prior.receiptInclusion) !== publicHash(next.receiptInclusion)) throw new Error("USDC successor receipt inclusion changed or was deleted");
   };
   const assertMonotonic = (prior: OrdinaryScenarioJournal, next: OrdinaryScenarioJournal): void => {
     if (next.actions.length < prior.actions.length) throw new Error("ordinary scenario action history was truncated");

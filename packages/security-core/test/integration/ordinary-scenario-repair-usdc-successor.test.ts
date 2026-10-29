@@ -8,7 +8,7 @@ import { createRepairMechanicalAdapter } from "../../scripts/live/ordinary-scena
 import { createRepairCommandRuntime } from "../../scripts/live/ordinary-scenario-repair-session";
 import { PRODUCTION_REPAIR_EXECUTION_DOMAIN, REPAIR_BINDING_HASH, assertRepairActionState, bindRepairCreationApproval, createRepairGroupProposal, loadRepairApproval, recordRepairCreationConfirmation, type RepairCanonicalState } from "../../scripts/live/ordinary-scenario-repair";
 import { createOrdinaryScenarioStore, type OrdinaryScenarioJournal } from "../../scripts/live/ordinary-scenario-executor";
-import { createUsdcSuccessorPublicExecutionFixture } from "../support/usdc-successor-fixture";
+import { createUsdcSuccessorPublicExecutionFixture, successorReceiptInclusion } from "../support/usdc-successor-fixture";
 
 const hash = (suffix: string): Hex => `0x${suffix.padStart(64, "0")}` as Hex;
 const publicHash = (value: string): Hex => `0x${createHash("sha256").update(value).digest("hex")}` as Hex;
@@ -25,7 +25,7 @@ describe("USDC successor repair production composition", function () {
       const journal = structuredClone(attachUsdcSuccessor(inputs.source.journal, inputs.successor, inputs.approval)) as OrdinaryScenarioJournal;
       const successorRecords = inputs.successor.actions.map((action, index) => {
         const confirmed = action.expectedOutcome === "success", transactionHash = hash((index + 1).toString(16).padStart(2, "0")), receipt = { transactionHash, status: "success" as const, gasUsed: 100n + BigInt(index), effectiveGasPrice: 7n, blockNumber: 12_017_000n + BigInt(index), blockHash: hash((index + 40).toString(16).padStart(2, "0")) };
-        return { id: action.id, commitment: action.commitment, status: confirmed ? "confirmed" as const : "rejection-proved" as const, evidenceHash: hash((index + 80).toString(16).padStart(2, "0")), ...(confirmed ? { intentHash: hash((index + 120).toString(16).padStart(2, "0")), transactionHash, receipt, outerValue: "0", ourPrincipalDelta: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString() } : {}) };
+        return { id: action.id, commitment: action.commitment, status: confirmed ? "confirmed" as const : "rejection-proved" as const, evidenceHash: hash((index + 80).toString(16).padStart(2, "0")), ...(confirmed ? { intentHash: hash((index + 120).toString(16).padStart(2, "0")), transactionHash, receipt, receiptInclusion: successorReceiptInclusion(receipt, inputs.successor.effectivePeriod, 60n + BigInt(index)), outerValue: "0", ourPrincipalDelta: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString() } : {}) };
       });
       journal.usdcSuccessor!.actions.splice(0, journal.usdcSuccessor!.actions.length, ...successorRecords);
       journal.liveJournal.entries.push(...successorRecords.filter(record => record.status === "confirmed").map((record, index) => ({ id: record.id, intentHash: record.intentHash!, transactionHash: record.transactionHash!, nonce: 900 + index, reserved: BigInt(record.ourReceiptGasCost!), status: "success" as const, receipt: record.receipt! })));
