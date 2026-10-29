@@ -5,11 +5,18 @@ import { keccak256, recoverTransactionAddress, type Address, type Hex } from "vi
 import { reconstructCanonicalLegacyTransaction } from "../../scripts/live/ordinary-scenario-hashless-continuation-cli";
 import {
   loadUsdcRecycleContinuationSourceJournalReadOnly,
+  verifyUsdcRecycleContinuationCertificate,
   type UsdcRecycleContinuationPrimaryEvidence,
   type UsdcRecycleContinuationSource,
 } from "../../scripts/live/ordinary-scenario-usdc-recycle-continuation-certificate";
 import { reverifyUsdcSuccessorCertificate, type UsdcSuccessorCanonicalState, type UsdcSuccessorEvidenceProvider } from "../../scripts/live/ordinary-scenario-usdc-successor-certificate";
 import { loadUsdcSuccessorApproval, parseUsdcSuccessorProposal } from "../../scripts/live/ordinary-scenario-usdc-successor-proposal";
+import { sha256 } from "../../scripts/plan-deployment";
+import {
+  attachUsdcRecycleContinuation,
+  createUsdcRecycleContinuationProposal,
+  loadUsdcRecycleContinuationApproval,
+} from "../../scripts/live/ordinary-scenario-usdc-recycle-continuation-proposal";
 import { canonicalUsdcSuccessorState, cleanupUsdcSuccessorFixtures, createUsdcSuccessorSource, usdcSuccessorFixture } from "./usdc-successor-fixture";
 
 const fixtureDirectory = join(__dirname, "../fixtures");
@@ -206,4 +213,41 @@ export async function recycleProvider(index: 0 | 1, source: UsdcRecycleContinuat
 
 export async function recycleProviders(source: UsdcRecycleContinuationSource, left: ProviderMutation = {}, right: ProviderMutation = {}) {
   return [await recycleProvider(0, source, left), await recycleProvider(1, source, right)] as const;
+}
+
+export async function createApprovedUsdcRecycleContinuation(nonce = 870) {
+  const source = await createUsdcRecycleContinuationSource();
+  const certificate = await verifyUsdcRecycleContinuationCertificate(source, recycleFixture.primary, await recycleProviders(source, { snapshotNonce: nonce }, { snapshotNonce: nonce }));
+  const proposal = createUsdcRecycleContinuationProposal({
+    source,
+    certificate,
+    observer: structuredClone(source.priorProposal.observer),
+    caps: { fundingGasLimit: "740292", safeExecutionGasLimit: "2000000", publicDelayGasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000" },
+  });
+  const document = {
+    schemaVersion: 1,
+    scope: "ordinary-usdc-recycle-continuation-v1",
+    authorization: "STANDING_BOUNDED_SUCCESSOR_AUTHORIZATION",
+    authorityEvidenceHash: "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b",
+    proposalHash: proposal.proposalHash,
+    sourceHash: proposal.sourceHash,
+    certificateHash: proposal.certificateHash,
+    snapshot: proposal.snapshot,
+    currentCheckpoint: proposal.currentCheckpoint,
+    minimumOuterNonce: proposal.minimumOuterNonce,
+    effectivePeriod: proposal.effectivePeriod,
+    deadline: proposal.deadline,
+    observer: proposal.observer,
+    schedule: proposal.schedule,
+    groups: proposal.groups,
+    caps: proposal.caps,
+    reservation: proposal.reservation,
+    repairAuthority: "NONE",
+    sharedBudgetCharges: proposal.sharedBudgetCharges,
+    maxBroadcastAttempts: 1,
+    approvedActions: proposal.actions.map(({ id, commitment }) => ({ id, commitment })),
+  };
+  const approval = loadUsdcRecycleContinuationApproval(proposal, JSON.stringify(document), sha256(document) as Hex);
+  const journal = attachUsdcRecycleContinuation(source.prior.journal, proposal, approval);
+  return { source, certificate, proposal, approval, journal };
 }
