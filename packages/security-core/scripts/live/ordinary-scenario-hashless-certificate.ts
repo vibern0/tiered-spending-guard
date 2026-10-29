@@ -215,6 +215,10 @@ export function adoptHashlessSourceJournalReadOnlySnapshot(path: string, journal
   const absolute = resolve(path), read = readStableSource(absolute); let parsed: unknown;
   try { parsed = JSON.parse(read.raw); } catch { throw new Error("hashless descendant source journal must be JSON"); }
   if (JSON.stringify(parsed) !== JSON.stringify(journal)) throw new Error("hashless descendant source journal does not match its stable file");
+  // Kept as a runtime import because the recycle codec's authority lineage already depends on
+  // this historical module. The codec still executes here before any descendant snapshot exists.
+  const { assertUsdcRecycleContinuationSourceJournalAdoptable } = require("./ordinary-scenario-usdc-recycle-continuation-certificate") as typeof import("./ordinary-scenario-usdc-recycle-continuation-certificate");
+  assertUsdcRecycleContinuationSourceJournalAdoptable(absolute, journal);
   const prefixHash = hashHistoricalPrefix(journal);
   if (!same(prefixHash, EXPECTED_PREFIX_HASH)) throw new Error("hashless descendant source historical prefix mismatch");
   const bytesSha256 = rawSha256(read.raw);

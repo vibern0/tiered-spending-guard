@@ -1,8 +1,10 @@
 import { expect } from "chai";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Hex } from "viem";
+import { createPublicClient, custom, encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
+import { sepolia } from "viem/chains";
 import {
   USDC_RECYCLE_CONTINUATION_COMMANDS,
   createUsdcRecycleContinuationProductionDependencies,
@@ -18,6 +20,8 @@ import { createAuthorizedUsdcRecycleContinuation, recycleFixture, recycleProvide
 import { canonicalUsdcSuccessorState, oldUsdcRecoveryProvider, usdcSuccessorFixture } from "../../support/usdc-successor-fixture";
 import type { UsdcSuccessorEvidenceProvider, UsdcSuccessorSource } from "../../../scripts/live/ordinary-scenario-usdc-successor-certificate";
 import { loadUsdcSuccessorPublicInputs, parseUsdcSuccessorCliArguments } from "../../../scripts/live/ordinary-scenario-usdc-successor-cli";
+import { buildOrdinaryReviewPolicyDraft, readOrdinaryReviewConfig } from "../../../scripts/live/ordinary-review-profile";
+import { policyHash } from "../../../src/topology/build";
 
 const fixtureDirectory = join(__dirname, "../../fixtures");
 
@@ -64,12 +68,94 @@ async function preparePublicCli() {
   return { authorized, tracked, directory, reviewArgs, oldArgs, submitArgs, resumeArgs, providers, cleanup: () => { rmSync(directory, { recursive: true, force: true }); cleanupUsdcRecycleContinuationFixtures(); } };
 }
 
+function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof preparePublicCli>>, counters: { codeFailures: number; signs: number; broadcasts: number; simulations: number }) {
+  const runtimes = (JSON.parse(readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-runtimes.public.json"), "utf8")) as { runtimes: Record<string, { bytecode: Hex }> }).runtimes;
+  const runtime = (address: Address) => runtimes[address.toLowerCase()]?.bytecode;
+  const original = prepared.authorized.source.prior.original, action = prepared.authorized.proposal.actions[0]!, before = action.before;
+  const config = readOrdinaryReviewConfig(join(__dirname, "../../../config/sepolia.ordinary-review.json"));
+  const reviewedPolicy = { ...buildOrdinaryReviewPolicyDraft(config, 673n), safe: original.safe };
+  const bindings = JSON.parse(readFileSync(join(__dirname, "../../../../../.superpowers/sdd/2026-10-19-native-safe-4337/safe-creation-2026-10-27/public-passkey-bindings.json"), "utf8"));
+  const safeProxyArtifact = JSON.parse(readFileSync(join(__dirname, "../../../node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json"), "utf8"));
+  const maintenance = "0x3d20c6c361bdb1970827c9450beec0e3cd78e654" as Address, safeSingleton = "0xff51a5898e281db6dfc7855790607438df2ca44b" as Address;
+  const zero = "0x0000000000000000000000000000000000000000" as Address, sentinel = "0x0000000000000000000000000000000000000001" as Address;
+  const queueAction = prepared.authorized.source.prior.recovery.actions.find(candidate => candidate.kind === "queue-proposal" && candidate.queue?.fingerprint === before.queueFingerprint)!;
+  const queueRecord = prepared.authorized.source.prior.journal.hashlessContinuation!.actions.find(candidate => candidate.id === queueAction.id)! as any;
+  const blocks = new Map<bigint, Hex>([[BigInt(prepared.authorized.certificate.snapshot.blockNumber), prepared.authorized.certificate.snapshot.blockHash]]);
+  for (const section of [prepared.authorized.source.prior.journal.hashlessContinuation!.actions, prepared.authorized.source.prior.journal.usdcSuccessor!.actions]) for (const row of section as any[]) if (row.receipt) blocks.set(BigInt(row.receipt.blockNumber), row.receipt.blockHash);
+  const dependencyReceipt = (prepared.authorized.source.prior.journal.usdcSuccessor!.actions.find(candidate => candidate.id === action.dependsOn[0]) as any).receipt;
+  const makeClient = () => {
+    let failPinned = true, creationCalls = 0;
+    const client: any = {
+      getBytecode: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => { if (blockNumber !== undefined && failPinned) { failPinned = false; counters.codeFailures++; throw Object.assign(new Error("historical state unavailable"), { code: -32001 }); } return runtime(address); },
+      getChainId: async () => sepolia.id,
+      getTransactionCount: async ({ blockNumber }: { blockNumber?: bigint }) => blockNumber !== undefined && blockNumber <= 11_986_637n ? 673 : prepared.authorized.proposal.minimumOuterNonce,
+      getBlock: async ({ blockNumber }: { blockNumber?: bigint } = {}) => { const number = blockNumber === undefined ? BigInt(prepared.authorized.certificate.snapshot.blockNumber) : BigInt(blockNumber); const hash = number === BigInt(dependencyReceipt.blockNumber) ? dependencyReceipt.blockHash : blocks.get(number) ?? prepared.authorized.certificate.snapshot.blockHash; return { number, hash, timestamp: BigInt(prepared.authorized.certificate.snapshot.timestamp), baseFeePerGas: 0n }; },
+      getBalance: async ({ address }: { address: Address }) => address.toLowerCase() === original.safe.toLowerCase() ? BigInt(before.safeNativeBalance) : 10n ** 18n,
+      estimateFeesPerGas: async () => ({ maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+      estimateGas: async () => 100_000n,
+      getStorageAt: async ({ slot }: { slot: Hex }) => slot.toLowerCase() === "0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5" ? `0x${"0".repeat(64)}` : `0x${"0".repeat(24)}${original.guard.slice(2).toLowerCase()}`,
+      call: async (input: { to?: Address }) => { if (!input.to) { const addresses = ["0xc3ba1567fb0e5961e9e4fd72f88b2ac3318360a3", original.guard, original.delay, maintenance, original.safe] as Address[]; return { data: runtime(addresses[creationCalls++ % 5]!) }; } counters.simulations++; return { data: encodeAbiParameters([{ type: "bool" }], [true]) }; },
+      readContract: async ({ address, functionName, args = [] }: { address: Address; functionName: string; args?: readonly unknown[] }) => {
+        const lower = address.toLowerCase(), token = String(args[0] ?? "").toLowerCase();
+        if (functionName === "getSigner") return BigInt(String(args[0])) === BigInt(bindings.primary.x) ? original.primarySigner : original.safeContractSecondary;
+        if (functionName === "proxyCreationCode") return safeProxyArtifact.bytecode as Hex;
+        if (functionName === "config") return [original.safe, original.primarySigner, original.ecdsaSecondary, original.delay, 86_400n, 0n];
+        if (functionName === "safeContractSecondary") return [original.safeContractSecondary, 0, true];
+        if (functionName === "ecdsaSecondary") return [original.ecdsaSecondary, 1, true];
+        if (functionName === "maintenance") return maintenance;
+        if (functionName === "maintenanceAddress") return maintenance;
+        if (functionName === "safe") return original.safe;
+        if (functionName === "delay") return original.delay;
+        if (["owner", "avatar", "target"].includes(functionName)) return original.safe;
+        if (functionName === "txCooldown") return 120n;
+        if (functionName === "txExpiration") return 600n;
+        if (functionName === "masterCopy") return safeSingleton;
+        if (functionName === "VERSION") return "1.5.0";
+        if (functionName === "getOwners") return [original.primarySigner];
+        if (functionName === "getThreshold") return 1n;
+        if (functionName === "getModulesPaginated") return [[lower === original.safe.toLowerCase() ? original.delay : original.safe], sentinel];
+        if (functionName === "policyHash") return policyHash(reviewedPolicy);
+        if (functionName === "getConfiguredTokens") return [zero, original.usdc];
+        if (functionName === "assetPolicy") return token === zero ? [10_000_000_000_000n, 30_000_000_000_000n, 10_000_000_000_000n, 30_000_000_000_000n] : [10_000_000n, 30_000_000n, 10_000_000n, 30_000_000n];
+        if (functionName === "getPolicyRecipients") return [original.funder];
+        if (functionName === "spendState") return token === zero ? [1_793_145_600n, BigInt(before.nativeBaseSpent), BigInt(before.nativeInstantSpent)] : [BigInt(prepared.authorized.proposal.effectivePeriod), BigInt(before.usdcBaseSpent), BigInt(before.usdcInstantSpent)];
+        if (functionName === "balanceOf") return token === original.safe.toLowerCase() ? BigInt(before.safeUsdcBalance) : BigInt(before.funderUsdcBalance);
+        if (functionName === "nonce") return BigInt(before.safeNonce);
+        if (functionName === "queueNonce") return BigInt(before.delayQueueNonce);
+        if (functionName === "txNonce") return BigInt(before.delayTxNonce);
+        if (functionName === "getTxHash") return before.queueFingerprint;
+        if (functionName === "getTxCreatedAt") return BigInt(queueRecord.queueCreatedAt);
+        throw new Error(`unhandled read ${functionName} at ${address}`);
+      },
+      getTransaction: async () => { throw new Error("no pending hash exists at the controlled signing boundary"); },
+    };
+    return client;
+  };
+  const current = makeClient(), archive = makeClient();
+  return { current, archive, reconstructedProfile: async () => { throw new Error("unused harness reconstruction"); }, observerReadiness: async () => ({ ready: true, evidenceHash: prepared.authorized.proposal.observer.probeEvidenceHash }), loadClosedPasskey: async () => { throw new Error("funding action does not load a passkey"); }, loadClosedProofSigner: async () => { throw new Error("funding action does not load a proof signer"); }, createLiveContext: async () => ({ funder: original.funder, chainId: async () => sepolia.id, nonce: async () => prepared.authorized.proposal.minimumOuterNonce, balance: async () => 10n ** 18n, sign: async () => { counters.signs++; throw new Error("controlled fixture has no Sepolia funder key"); }, broadcast: async () => { counters.broadcasts++; throw new Error("must not broadcast without the reviewed funder signature"); }, receipt: async (hash: Hex) => { const prior = prepared.authorized.source.prior.journal.liveJournal.entries.find(entry => entry.transactionHash === hash)?.receipt; return prior && { ...prior, gasUsed: BigInt(prior.gasUsed), effectiveGasPrice: BigInt(prior.effectiveGasPrice), blockNumber: BigInt(prior.blockNumber) }; } }) } as any;
+}
+
 describe("ordinary USDC recycle continuation CLI", function () {
   this.timeout(30_000);
   it("exposes only review, submit-one, and resume-one with a closed parser", function () {
     expect(USDC_RECYCLE_CONTINUATION_COMMANDS).to.deep.equal(["review", "submit-one", "resume-one"]);
     expect(parseUsdcRecycleContinuationCliArguments(["review", "--source-journal", "/public/source"])).to.include({ command: "review" });
     expect(() => parseUsdcRecycleContinuationCliArguments(["review", "--rpc", "https://override.invalid"])).to.throw(/malformed|flag/i);
+  });
+
+  it("pins the vetted public runtime fixture without credential-shaped content", function () {
+    const raw = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-runtimes.public.json"), "utf8");
+    expect(createHash("sha256").update(raw).digest("hex")).to.equal("d7862bf4affbda4baa0848b999b5d6770a965acc08b6c383e71ed7e1104ab115");
+    const fixture = JSON.parse(raw) as { runtimes: Record<string, { runtimeHash: Hex; bytecode: Hex }> };
+    expect(Object.keys(fixture.runtimes)).to.have.length(12);
+    for (const entry of Object.values(fixture.runtimes)) expect(entry.runtimeHash).to.equal(keccak256(entry.bytecode));
+    expect(raw).not.to.match(/private[_ -]?key|mnemonic|seed phrase|secret[_ -]?key/i);
+  });
+
+  it("pins the vetted Zodiac Delay source bytes without credential-shaped content", function () {
+    const raw = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8");
+    expect(createHash("sha256").update(raw).digest("hex")).to.equal("ad367f67b4c8b691d93417ecd740eeefc9abfff50a789469ba5899c0b5aa9201");
+    expect(raw).not.to.match(/private[_ -]?key|mnemonic|seed phrase|secret[_ -]?key/i);
   });
 
   it("retries one explicit-block getCode -32001 once with identical arguments and 250ms wait", async function () {
@@ -90,10 +176,12 @@ describe("ordinary USDC recycle continuation CLI", function () {
     expect(await wrapped.getBlock()).to.equal("unchanged");
   });
 
-  it("applies the same single eth_getCode budget to viem's getBytecode action", async function () {
-    let calls = 0; const waits: number[] = [];
-    const client = withOnePinnedGetCodeRetry({ getBytecode: async (_parameters: unknown) => { calls++; if (calls === 1) throw Object.assign(new Error("eth_getCode unavailable"), { code: -32001 }); return "0x6000"; } }, async milliseconds => { waits.push(milliseconds); });
-    expect(await client.getBytecode({ blockNumber: 99n })).to.equal("0x6000"); expect(calls).to.equal(2); expect(waits).to.deep.equal([250]);
+  it("applies the same single eth_getCode budget to viem's wrapped custom-RPC failure", async function () {
+    const calls: Array<{ method: string; params?: unknown }> = []; const waits: number[] = [];
+    const publicClient = createPublicClient({ chain: sepolia, transport: custom({ request: async request => { calls.push(request); if (calls.length === 1) throw { code: -32001, message: "historical state unavailable" }; return "0x6000"; } }) });
+    const client = withOnePinnedGetCodeRetry(publicClient, async milliseconds => { waits.push(milliseconds); });
+    expect(await client.getBytecode({ address: "0x0000000000000000000000000000000000000001", blockNumber: 99n })).to.equal("0x6000");
+    expect(calls).to.have.length(2); expect(calls[0]).to.deep.equal(calls[1]); expect(calls[0]?.method).to.equal("eth_getCode"); expect(waits).to.deep.equal([250]);
   });
 
   it("consumes the retry budget per provider and never retries non-pinned or later failures", async function () {
@@ -150,6 +238,8 @@ describe("ordinary USDC recycle continuation CLI", function () {
       const decoded = loadUsdcRecycleContinuationSourceJournalReadOnly(prepared.tracked.path, "pinned");
       const mutated = structuredClone(decoded) as any; mutated.unreviewedSibling = { authority: true };
       expect(() => adoptHashlessSourceJournalReadOnlySnapshot(prepared.tracked.path, mutated)).to.throw(/does not match its stable file/);
+      writeFileSync(prepared.tracked.path, `${JSON.stringify(mutated)}\n`);
+      expect(() => adoptHashlessSourceJournalReadOnlySnapshot(prepared.tracked.path, mutated)).to.throw(/shape mismatch/);
     } finally { prepared.cleanup(); }
   });
 
@@ -162,6 +252,25 @@ describe("ordinary USDC recycle continuation CLI", function () {
       await expect(runUsdcRecycleContinuationCli(prepared.submitArgs, dependencies() as never)).to.be.rejectedWith("DEFAULT_BOUNDARY_2");
       expect(contexts).to.equal(2);
     } finally { prepared.cleanup(); }
+  });
+
+  it("runs the actual default reader and context to one fail-closed funder-signing boundary", async function () {
+    const prepared = await preparePublicCli();
+    const counters = { codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 };
+    const delaySource = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8"), savedFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(delaySource, { status: 200 })) as typeof fetch;
+    const dependencies = (argv: readonly string[], environment: Record<string, string>) => {
+      const harness = createDefaultCompositionHarness(prepared, counters);
+      const production = createUsdcRecycleContinuationProductionDependencies(join(__dirname, "../../../../.."), argv, { createHarness: () => harness, wait: async () => undefined });
+      return { ...production, environment, providers: prepared.providers, now: prepared.providers.now };
+    };
+    try {
+      await expect(runUsdcRecycleContinuationCli(prepared.submitArgs, dependencies(prepared.submitArgs, { LIVE_SUBMIT: "YES" }))).to.be.rejectedWith("local transaction signing failed");
+      expect(counters).to.deep.equal({ codeFailures: 2, signs: 1, broadcasts: 0, simulations: 1 });
+      const after = JSON.parse(readFileSync(prepared.tracked.path, "utf8"));
+      expect(after.usdcRecycleContinuation.actions[0].status).to.equal("signed-simulated"); expect(after.usdcRecycleContinuation.actions[0].finalOuterMaterialization).to.be.an("object");
+      expect(after.usdcSuccessor.actions[2].status).to.equal("signed-simulated"); expect(after.liveJournal.entries).to.have.length(15);
+    } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
   });
 
   it("rejects resume credentials and cannot select the stopped old row without one new pending hash", async function () {

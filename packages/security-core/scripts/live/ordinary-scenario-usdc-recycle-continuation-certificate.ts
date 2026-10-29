@@ -162,6 +162,14 @@ export function loadUsdcRecycleContinuationSourceJournalReadOnly(path: string, m
   return journal;
 }
 
+/** Closed descendant codec used when the historical loader adopts this exact stable file. */
+export function assertUsdcRecycleContinuationSourceJournalAdoptable(path: string, journal: OrdinaryScenarioJournal): void {
+  const read = readStableSource(resolve(path));
+  const decoded = decodeJournal(read.raw, "pinned");
+  assertFixedJournal(decoded, "pinned");
+  if (JSON.stringify(decoded) !== JSON.stringify(journal)) throw new Error("USDC recycle source journal does not match its stable decoded file");
+}
+
 function assertSourceSnapshot(journal: OrdinaryScenarioJournal, mode: "initial" | "pinned"): void {
   const snapshot = sourceSnapshots.get(journal);
   if (!snapshot || (mode === "initial" && snapshot.mode !== "initial")) throw new Error(`USDC recycle source lacks a ${mode} read-only filesystem snapshot`);
