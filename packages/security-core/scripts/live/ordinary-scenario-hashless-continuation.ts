@@ -20,6 +20,7 @@ const USDC_IDS = Object.freeze([
   "usdc-queue-cancel-action", "usdc-queue-cancelled-execution-rejection", "usdc-queue-expiry", "usdc-queue-expiry-early-rejection",
   "usdc-queue-expiry-skip", "usdc-queue-expired-execution-rejection", "usdc-queue-execute", "usdc-queue-execute-early-rejection", "usdc-queue-ready-execute",
 ] as const);
+const USDC_SUCCESSOR_IDS = Object.freeze(USDC_IDS.map(id => id.replace(/^usdc-/, "usdc-successor-")));
 
 export type ContinuationWorkflowSchedule = Readonly<{ review: string; execution: string; confirmations: string; delivery: string; acknowledgement: string; keylessConfirmation: string }>;
 export type ContinuationObserverBinding = Readonly<{ kind: "https-webhook"; publicId: string; endpointHash: Hex; startupEvidenceHash: Hex; probeEvidenceHash: Hex; independentFromProposer: true; readyAt: string; workflowScheduleSeconds: ContinuationWorkflowSchedule; requiredThrough: string; expiresAt: string }>;
@@ -101,10 +102,10 @@ function nativeActions(original: OrdinaryScenarioProposal, caps: ContinuationAct
   ];
 }
 
-function rebaseUsdc(original: OrdinaryScenarioProposal, caps: ContinuationActionCaps, replacementFingerprint: Hex): ExpiredHashlessContinuationAction[] {
+function buildClosedUsdcActions(original: OrdinaryScenarioProposal, caps: ContinuationActionCaps, replacementFingerprint: Hex, successor: boolean): ExpiredHashlessContinuationAction[] {
   const queueMap = new Map<string, Readonly<{ queueNonce: string; fingerprint: Hex; monitoringFingerprint: Hex; to: Address; value: string; data: Hex; operation: 0 }>>();
   const fingerprintMap = new Map<string, Hex>([["0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67", replacementFingerprint]]);
-  return original.actions.slice(19).map(source => {
+  return original.actions.slice(19).map((source, sourceIndex) => {
     let queue: ExpiredHashlessContinuationAction["queue"];
     if (source.queue) {
       const key = `${source.queue.to.toLowerCase()}:${source.queue.value}:${source.queue.data.toLowerCase()}`;
@@ -125,10 +126,22 @@ function rebaseUsdc(original: OrdinaryScenarioProposal, caps: ContinuationAction
     const safe = source.safeTransaction ? freeze({ to: transaction.to, value: transaction.value.toString(), data: transaction.data, operation: 0 as const, safeTxGas: "0" as const, baseGas: "0" as const, gasPrice: "0" as const, gasToken: source.safeTransaction.gasToken, refundReceiver: source.safeTransaction.refundReceiver, nonce: (source.safeTransaction.safeNonce + 1n).toString() }) : undefined;
     const shift = (state: typeof source.before): ContinuationState => freeze({ safeNonce: (BigInt(state.safeNonce) + 1n).toString(), delayQueueNonce: (BigInt(state.delayQueueNonce) + 1n).toString(), delayTxNonce: (BigInt(state.delayTxNonce) + 1n).toString(), safeNativeBalance: "0", safeUsdcBalance: state.safeUsdcBalance, funderUsdcBalance: state.funderUsdcBalance, nativeBaseSpent: state.nativeBaseSpent, nativeInstantSpent: state.nativeInstantSpent, usdcBaseSpent: state.usdcBaseSpent, usdcInstantSpent: state.usdcInstantSpent, queueStatus: state.queueStatus, queueNonce: state.queueNonce === null ? null : (BigInt(state.queueNonce) + 1n).toString(), queueFingerprint: state.queueFingerprint === null ? null : fingerprintMap.get(state.queueFingerprint.toLowerCase()) ?? (() => { throw new Error(`${source.id} stale queue fingerprint cannot be rebased`); })() });
     const serializedTransaction = { to: transaction.to, value: transaction.value.toString(), data: transaction.data, operation: 0 as const };
-    const dependsOn = source.id === "usdc-base-x" ? source.dependsOn.map(id => id === "native-queue-ready-execute" ? "native-queue-ready-replacement-execute" : id) : [...source.dependsOn];
+    const dependsOn = source.dependsOn.map(id => {
+      if (id === "native-queue-ready-execute") return "native-queue-ready-replacement-execute";
+      const usdcIndex = USDC_IDS.indexOf(id as typeof USDC_IDS[number]);
+      return successor && usdcIndex >= 0 ? USDC_SUCCESSOR_IDS[usdcIndex]! : id;
+    });
     const gasLimitCap = source.kind === "controlled-recipient-recycled-funding" ? caps.fundingGasLimit : safe ? caps.safeExecutionGasLimit : caps.publicDelayGasLimit;
-    return action({ id: source.id, kind: source.kind, asset: "USDC", expectedOutcome: source.expectedOutcome, signerRoles: [...source.signerRoles], dependsOn, transaction: serializedTransaction, safeTransaction: safe, safeTxHash: safe ? safeTxHash(original.chainId, original.safe, safe) : undefined, queue, before: shift(source.before), after: shift(source.after), gasLimitCap, maxFeePerGasCap: caps.maxFeePerGas, maxPriorityFeePerGasCap: caps.maxPriorityFeePerGas });
+    return action({ id: successor ? USDC_SUCCESSOR_IDS[sourceIndex]! : source.id, kind: source.kind, asset: "USDC", expectedOutcome: source.expectedOutcome, signerRoles: [...source.signerRoles], dependsOn, transaction: serializedTransaction, safeTransaction: safe, safeTxHash: safe ? safeTxHash(original.chainId, original.safe, safe) : undefined, queue, before: shift(source.before), after: shift(source.after), gasLimitCap, maxFeePerGasCap: caps.maxFeePerGas, maxPriorityFeePerGasCap: caps.maxPriorityFeePerGas });
   });
+}
+
+/** Exact closed USDC successor catalog, derived only from the opaque completed recovery proposal. */
+export function buildClosedUsdcSuccessorActions(original: OrdinaryScenarioProposal, recovery: ExpiredHashlessContinuationProposal, caps: ContinuationActionCaps): readonly ExpiredHashlessContinuationAction[] {
+  assertExpiredHashlessContinuationLineage(original, recovery);
+  const replacementFingerprint = recovery.actions[1]?.queue?.fingerprint;
+  if (!replacementFingerprint) throw new Error("closed USDC successor recovery fingerprint is unavailable");
+  return freeze(buildClosedUsdcActions(original, validateCaps(caps), replacementFingerprint, true));
 }
 
 type ProposalInput = Readonly<{ original: OrdinaryScenarioProposal; journal: OrdinaryScenarioJournal; certificate: VerifiedHashlessStateCertificate; observer: ContinuationObserverBinding; caps: ContinuationActionCaps }>;
@@ -139,7 +152,7 @@ function buildExpiredHashlessContinuationProposal(input: ProposalInput, mode: "c
   if (!same(hashHistoricalPrefix(input.journal), APPROVED_HISTORICAL_PREFIX_HASH) || input.journal.actions.length !== 19 || input.journal.liveJournal.entries.length < 10 || (mode === "create" && input.journal.liveJournal.entries.length !== 10)) throw new Error("continuation historical journal prefix mismatch");
   const observer = validateObserver(input.observer, input.certificate, input.original), caps = validateCaps(input.caps);
   const native = nativeActions(input.original, caps, input.certificate.currentSnapshot.funderUsdcBalance); const replacementFingerprint = native[1]!.queue!.fingerprint;
-  const actions = freeze([...native, ...rebaseUsdc(input.original, caps, replacementFingerprint)]);
+  const actions = freeze([...native, ...buildClosedUsdcActions(input.original, caps, replacementFingerprint, false)]);
   if (actions.length !== 22) throw new Error("continuation must contain exactly 22 actions");
   const originalActualGasCost = BigInt(input.original.baselineActualCostWei) + input.journal.actions.reduce((sum, row) => sum + BigInt(row.ourReceiptGasCost ?? "0"), 0n);
   const originalPrincipal = 60_000_000_000_001n;
