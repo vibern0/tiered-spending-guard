@@ -1,161 +1,21 @@
 import { expect } from "chai";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import type { Address, Hex } from "viem";
-import { createOrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
+import { writeFileSync } from "node:fs";
+import type { Hex } from "viem";
 import { sha256 } from "../../../scripts/plan-deployment";
-import {
-  loadHashlessSourceJournalReadOnly,
-  reverifyHashlessStateCertificate,
-  type HashlessControlledState,
-  type HashlessEvidenceProvider,
-} from "../../../scripts/live/ordinary-scenario-hashless-certificate";
-import {
-  loadExpiredHashlessContinuationApproval,
-  parseExpiredHashlessContinuationProposal,
-} from "../../../scripts/live/ordinary-scenario-hashless-continuation";
+import { loadHashlessSourceJournalReadOnly } from "../../../scripts/live/ordinary-scenario-hashless-certificate";
 import {
   hashUsdcSuccessorSource,
   isVerifiedUsdcSuccessorCertificate,
   reverifyUsdcSuccessorCertificate,
   serializeUsdcSuccessorCertificate,
   verifyUsdcSuccessorCertificate,
-  type UsdcSuccessorCanonicalState,
-  type UsdcSuccessorEvidenceProvider,
   type UsdcSuccessorPrimaryEvidence,
   type UsdcSuccessorSource,
 } from "../../../scripts/live/ordinary-scenario-usdc-successor-certificate";
-
-const fixture = JSON.parse(readFileSync(join(__dirname, "../../fixtures/ordinary-usdc-successor-source.public.json"), "utf8")) as {
-  sourceJournal: string;
-  recoveryCertificate: string;
-  recoveryProposal: string;
-  recoveryApproval: string;
-  primary: UsdcSuccessorPrimaryEvidence;
-};
-const review = readFileSync(join(__dirname, "../../fixtures/ordinary-scenario-review.public.json"), "utf8");
-const recoveryCertificateHash = "0x43742e96deb6855d1b2e86b268080892c700f453ffd36da4284de3ec2d252efc" as Hex;
-const recoveryApprovalHash = "0x644bf0b6e9cd4710683717511db665684ff31a86107198282d2364c9816dee26" as Hex;
-const funder = "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc" as Address;
-const safe = "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6" as Address;
-const delay = "0xB8E143098CcCb9935228022173c2c987DF5FD53a" as Address;
-const usdc = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
-const h = (byte: string): Hex => `0x${byte.repeat(64)}` as Hex;
-
-const oldSelected = { number: 12_013_857n, hash: "0x197add23b0385bce509adab0a3f3234b58b71e63d0ebccad9aa2e99ba5f44e20" as Hex, timestamp: 1_793_209_056n };
-const oldCertified = { number: 12_013_934n, hash: "0x05d0f3b8f503bfee60455adc88c717e330aa2bafaffb6badca3b5c8215f3948e" as Hex, timestamp: 1_793_209_980n };
-const oldCurrent = { number: 12_015_137n, hash: "0x5780a696dd3173c1e9c428047eb6bc9d0da9785bce47652659998fee64d8bac2" as Hex, timestamp: 1_793_224_428n };
-const oldTxBlock = { number: 12_013_885n, hash: "0x1cd3daf4cef11721feb5d564c0768f42e88d1d14c6c909e64b7cd5532b6f158b" as Hex, timestamp: 1_793_209_392n };
-const oldTxHash = "0x83923abf9c1224125296a3485f8cc0a910e7f729ea5d5a73d6f01bf1cdbfe1f5" as Hex;
-const oldState = (): HashlessControlledState => ({
-  chainId: 11_155_111, safe, delay, usdc, safeNonce: 7n, delayQueueNonce: 3n, delayTxNonce: 2n,
-  queue: { queueNonce: 2n, to: funder, value: 1n, data: "0x", operation: 0, createdAt: 1_793_208_888n, expiresAt: 1_793_209_608n },
-  safeNativeBalance: 1n, safeUsdcBalance: 20_000_000n, funderUsdcBalance: 0n, effectiveGuardWindow: 1_793_145_600n,
-  nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n },
-  usdcSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
-});
-function oldProvider(): HashlessEvidenceProvider {
-  const tx = { type: "legacy" as const, chainId: 11_155_111, gasPrice: 100_000n, v: 22_310_258n, hash: oldTxHash, recoveredSender: funder, nonce: 809, to: "0xadb8f835e565ac7e71d2df6cfbd0fc003fa22c27" as Address, value: 0n, inputHash: "0x25491caa28455d896a7211a1c4532ab1e72412bdb15293292e2e37e5f9406c63" as Hex, gas: 1_820_162n, blockNumber: oldTxBlock.number, blockHash: oldTxBlock.hash };
-  return {
-    readLatestBlock: async () => ({ number: oldCurrent.number + 5n, hash: h("9"), timestamp: oldCurrent.timestamp + 60n }),
-    readBlock: async number => number === oldSelected.number ? oldSelected : number === oldCertified.number ? oldCertified : number === oldCurrent.number ? oldCurrent : number === oldTxBlock.number ? oldTxBlock : undefined,
-    readTransaction: async hash => hash === oldTxHash ? tx : undefined,
-    readReceipt: async hash => hash === oldTxHash ? { transactionHash: hash, status: "success", blockNumber: oldTxBlock.number, blockHash: oldTxBlock.hash } : undefined,
-    readTransactionCount: async (_address, block) => block === oldSelected.number ? 809 : block === oldCertified.number ? 811 : 823,
-    readControlledState: async () => structuredClone(oldState()),
-  };
-}
-
-const cleanup: string[] = [];
-function trackedJournal(raw = fixture.sourceJournal) {
-  const dir = mkdtempSync(join(tmpdir(), "usdc-successor-source-")); cleanup.push(dir);
-  const path = join(dir, "journal.json"); writeFileSync(path, raw);
-  return { path, journal: loadHashlessSourceJournalReadOnly(path) };
-}
-
-async function source(raw = fixture.sourceJournal): Promise<UsdcSuccessorSource> {
-  const original = createOrdinaryScenarioProposal(review, { expectedPackageHash: "0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571", expectedArtifactBytesHash: "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831" });
-  const { journal } = trackedJournal(raw);
-  const recoveryCertificate = await reverifyHashlessStateCertificate(fixture.recoveryCertificate, recoveryCertificateHash, journal, [oldProvider(), oldProvider()]);
-  const recovery = parseExpiredHashlessContinuationProposal(fixture.recoveryProposal, original, journal, recoveryCertificate);
-  const recoveryApproval = loadExpiredHashlessContinuationApproval(recovery, fixture.recoveryApproval, recoveryApprovalHash);
-  return { original, recovery, recoveryApproval, journal };
-}
-
-const snapshot = { number: 12_016_005n, hash: h("a"), timestamp: 1_793_232_050n };
-const tips = [{ number: 12_016_010n, hash: h("b"), timestamp: 1_793_232_110n }, { number: 12_016_012n, hash: h("c"), timestamp: 1_793_232_134n }] as const;
-const receiptHashes = [
-  "0x0b80a651b416e815930f1664558c29bee5525f496b1410291d40295f85eb11f7",
-  "0x5dc85b25ee465159478ddb989dfb7818b9423a7f146510494f8108c3edb0aa3e",
-  "0xd99c42d02e46371d4e94cb4ebdb85fd0a5d7127e0fe0399346590e9a9fac10fe",
-] as const satisfies readonly Hex[];
-
-function canonicalState(original: UsdcSuccessorSource["original"]): UsdcSuccessorCanonicalState {
-  return {
-    blockNumber: snapshot.number, blockHash: snapshot.hash, chainId: 11_155_111,
-    identityHash: original.publicIdentitiesHash, topologyHash: original.topologyEvidenceHash,
-    policyHash: "0x5b19fb0f9dcc35db4d45ec227f01348985431d74a2092d887bc7b4f26ade4a82",
-    safe: original.safe, guard: original.guard, delay: original.delay, funder: original.funder, usdc: original.usdc, recipient: original.recipient,
-    primarySigner: original.primarySigner, safeContractSecondary: original.safeContractSecondary, ecdsaSecondary: original.ecdsaSecondary,
-    safeNonce: 8n, delayQueueNonce: 4n, delayTxNonce: 4n, queue: null,
-    safeNativeBalance: 0n, safeUsdcBalance: 20_000_000n, funderUsdcBalance: 0n,
-    nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n },
-    usdcSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
-  };
-}
-
-function recoveryPostState(src: UsdcSuccessorSource, index: number, block: Readonly<{ number: bigint; hash: Hex; timestamp: bigint }>): UsdcSuccessorCanonicalState {
-  const state = { ...canonicalState(src.original), blockNumber: block.number, blockHash: block.hash };
-  if (index === 0) return { ...state, safeNonce: 7n, delayQueueNonce: 3n, delayTxNonce: 3n, safeNativeBalance: 1n };
-  if (index === 1) {
-    const action = src.recovery.actions[1]!; const queue = action.queue!;
-    return { ...state, safeNonce: 8n, delayQueueNonce: 4n, delayTxNonce: 3n, safeNativeBalance: 1n, queue: { queueNonce: BigInt(queue.queueNonce), fingerprint: queue.fingerprint, createdAt: block.timestamp, to: queue.to, value: BigInt(queue.value), data: queue.data, operation: queue.operation } };
-  }
-  return state;
-}
-
-type ProviderMutation = Readonly<{ tip?: typeof tips[number]; snapshot?: Partial<typeof snapshot>; state?: Partial<UsdcSuccessorCanonicalState>; receiptState?: Readonly<{ hash: Hex; patch: Partial<UsdcSuccessorCanonicalState> }>; missingBlock?: boolean; reorgHash?: Hex; receipt?: Readonly<{ hash: Hex; patch: Record<string, unknown> }>; transaction?: Readonly<{ hash: Hex; patch: Record<string, unknown> }>; transactionMissing?: Hex; latestNonce?: number; pendingNonce?: number }>;
-function provider(index: 0 | 1, src: UsdcSuccessorSource, mutation: ProviderMutation = {}): UsdcSuccessorEvidenceProvider {
-  const records = src.journal.hashlessContinuation!.actions.slice(0, 3) as any[];
-  const state = { ...canonicalState(src.original), ...mutation.state } as UsdcSuccessorCanonicalState;
-  const blocks = new Map<bigint, any>([[snapshot.number, { ...snapshot, ...mutation.snapshot }]]);
-  for (const record of records) blocks.set(BigInt(record.receipt.blockNumber), { number: BigInt(record.receipt.blockNumber), hash: record.receipt.blockHash, timestamp: 1_793_230_000n + BigInt(records.indexOf(record) * 500) });
-  return {
-    readLatestBlock: async () => mutation.tip ?? tips[index],
-    readBlock: async number => {
-      if (mutation.missingBlock && number === snapshot.number) return undefined;
-      const block = blocks.get(number); if (!block) return undefined;
-      if (mutation.reorgHash && number === snapshot.number) return { ...block, hash: mutation.reorgHash };
-      return block;
-    },
-    readTransaction: async hash => {
-      if (mutation.transactionMissing === hash) return undefined;
-      const record = records.find(item => item.transactionHash === hash); if (!record) return undefined;
-      const value = { hash, from: funder, nonce: record.outerNonce, to: record.outerTo, value: BigInt(record.outerValue), inputHash: record.outerDataHash, gas: BigInt(record.gas), type: "eip1559", chainId: 11_155_111, maxFeePerGas: BigInt(record.maxFeePerGas), maxPriorityFeePerGas: BigInt(record.maxPriorityFeePerGas), blockNumber: BigInt(record.receipt.blockNumber), blockHash: record.receipt.blockHash };
-      return mutation.transaction?.hash === hash ? { ...value, ...mutation.transaction.patch } as any : value;
-    },
-    readReceipt: async hash => {
-      const record = records.find(item => item.transactionHash === hash); if (!record) return undefined;
-      const value = { transactionHash: hash, status: record.receipt.status, blockNumber: BigInt(record.receipt.blockNumber), blockHash: record.receipt.blockHash, gasUsed: BigInt(record.receipt.gasUsed), effectiveGasPrice: BigInt(record.receipt.effectiveGasPrice) };
-      return mutation.receipt?.hash === hash ? { ...value, ...mutation.receipt.patch } as any : value;
-    },
-    readTransactionCount: async (_address, block) => block === snapshot.number ? 831 : block === "latest" ? (mutation.latestNonce ?? 831) : (mutation.pendingNonce ?? 831),
-    readControlledState: async blockNumber => {
-      const index = records.findIndex(item => blockNumber === BigInt(item.receipt.blockNumber));
-      const block = blocks.get(blockNumber);
-      const receiptState = index >= 0 && block ? recoveryPostState(src, index, block) : state;
-      if (mutation.receiptState) {
-        const record = records.find(item => item.transactionHash === mutation.receiptState!.hash);
-        if (record && blockNumber === BigInt(record.receipt.blockNumber)) return { ...structuredClone(receiptState), ...mutation.receiptState.patch };
-      }
-      return structuredClone(receiptState);
-    },
-  };
-}
+import { canonicalUsdcSuccessorState as canonicalState, cleanupUsdcSuccessorFixtures, createUsdcSuccessorSource as source, fixtureHash as h, successorReceiptHashes as receiptHashes, successorSnapshot as snapshot, trackedUsdcSuccessorJournal as trackedJournal, usdcSuccessorFixture as fixture, usdcSuccessorProvider as provider } from "../../support/usdc-successor-fixture";
 
 describe("ordinary USDC successor certificate", function () {
-  afterEach(() => { for (const dir of cleanup.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+  afterEach(cleanupUsdcSuccessorFixtures);
 
   it("exact_19_10_plus3_source brands only the immutable approved predecessor", async function () {
     const src = await source();

@@ -73,7 +73,10 @@ function validateObserver(observer: ContinuationObserverBinding, certificate: Ve
 type ProposalInput = Readonly<{ source: UsdcSuccessorSource; certificate: VerifiedUsdcSuccessorCertificate; observer: ContinuationObserverBinding; caps: ContinuationActionCaps }>;
 function buildProposal(input: ProposalInput, mode: "create" | "parse"): UsdcSuccessorProposal {
   assertSourceAndCertificate(input.source, input.certificate);
-  if (mode === "create" && "usdcSuccessor" in input.source.journal) throw new Error("journal already has a USDC successor attachment");
+  if (mode === "create") {
+    exactKeys(input.source.journal as unknown as Record<string, unknown>, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "actions", "liveJournal", "hashlessContinuation"], "clean USDC successor source journal");
+    if (input.source.journal.liveJournal.entries.length !== 13) throw new Error("USDC successor creation requires the exact clean 13-entry checkpoint with no later progress");
+  }
   const effectivePeriod = input.certificate.effectivePeriod;
   const deadline = effectivePeriod + 86_400n;
   const caps = validateCaps(input.caps);

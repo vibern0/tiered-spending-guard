@@ -3,6 +3,7 @@ import { decodeFunctionData, hashTypedData, type Hex } from "viem";
 import { SAFE_TX_TYPES } from "../../../src/signers/types";
 import { queueFingerprint, queueMonitoringFingerprint } from "../../../src/queue/delay";
 import { sha256 } from "../../../scripts/plan-deployment";
+import { reverifyUsdcSuccessorCertificate, serializeUsdcSuccessorCertificate } from "../../../scripts/live/ordinary-scenario-usdc-successor-certificate";
 import {
   USDC_SUCCESSOR_GROUPS,
   USDC_SUCCESSOR_SCHEDULE,
@@ -13,7 +14,7 @@ import {
   loadUsdcSuccessorApproval,
   parseUsdcSuccessorProposal,
 } from "../../../scripts/live/ordinary-scenario-usdc-successor-proposal";
-import { createUsdcSuccessorFixture, successorSnapshot } from "../../support/usdc-successor-fixture";
+import { createUsdcSuccessorFixture, createUsdcSuccessorSource, successorSnapshot, usdcSuccessorFixture, usdcSuccessorProvider } from "../../support/usdc-successor-fixture";
 
 const h = (byte: string): Hex => `0x${byte.repeat(64)}` as Hex;
 const authorityEvidenceHash = "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b" as Hex;
@@ -72,6 +73,17 @@ describe("ordinary USDC successor proposal", function () {
     const value = await proposal();
     expect(parseUsdcSuccessorProposal(JSON.stringify(value), fixture.source, fixture.certificate).proposalHash).to.equal(value.proposalHash);
     for (const mutate of [(body: any) => { body.actions[0].id = "usdc-base-x"; }, (body: any) => { body.actions[0].safeTxHash = h("4"); }, (body: any) => { body.actions.reverse(); }, (body: any) => { body.actions.push(body.actions[0]); }]) { const body = JSON.parse(JSON.stringify(value)); mutate(body); expect(() => parseUsdcSuccessorProposal(JSON.stringify(body), fixture.source, fixture.certificate)).to.throw(/shape|drift|catalog|proposal/i); }
+  });
+
+  it("rejects a pinned reverified source with a tracked fourteenth live entry during creation", async function () {
+    const cleanProposal = await proposal();
+    const serializedCertificate = serializeUsdcSuccessorCertificate(fixture.certificate);
+    const value = JSON.parse(usdcSuccessorFixture.sourceJournal);
+    value.liveJournal.entries.push({ ...value.liveJournal.entries[12], id: "later-success" });
+    const progressed = await createUsdcSuccessorSource(`${JSON.stringify(value)}\n`);
+    const certificate = await reverifyUsdcSuccessorCertificate(serializedCertificate, fixture.certificate.certificateHash, progressed, usdcSuccessorFixture.primary, [usdcSuccessorProvider(0, progressed), usdcSuccessorProvider(1, progressed)]);
+    expect(() => createUsdcSuccessorProposal({ source: progressed, certificate, observer, caps })).to.throw(/clean|13|later|progress/i);
+    expect(parseUsdcSuccessorProposal(JSON.stringify(cleanProposal), progressed, certificate).proposalHash).to.equal(cleanProposal.proposalHash);
   });
 
   it("loads one content-bound standing approval and rejects old, cloned, and forged authority", async function () {
