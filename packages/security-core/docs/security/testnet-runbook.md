@@ -166,6 +166,66 @@ npx tsx scripts/live/ordinary-scenario-hashless-continuation-cli.ts resume-one \
 
 A timely delivery and official acknowledgement remain historical evidence after expiry, but expiry never permits a new write. `EXPIRED_SOURCE_REBASED_CONTINUATION_COMPLETE` requires all 22 exact terminal records, canonical receipts/evidence, and the ordered live catalog, ending at Safe/Delay `15/7/7`. Later repair is a separate approval lineage. Every repair command on this route additionally requires the complete flag set `--continuation-certificate`, `--continuation-certificate-hash`, `--continuation-proposal`, `--continuation-approval`, and `--continuation-approval-hash`; repair finishes at `19/9/9`. A ready delayed withdrawal is executed manually with its already reviewed exact `executeNextTx` tuple after cooldown and before expiry. There is no watcher, scheduler, or relayer authorization in this continuation.
 
+## Ordinary USDC period successor
+
+The old 22-action recovery stays permanently incomplete: its first three native actions are confirmed and its remaining 19 `usdc-*` records stay untouched three-field `approved` records. The same-Safe successor uses the distinct literal `usdc-successor-*` catalog for those 19 USDC semantics. Its renderer reports the original interruption, native recovery `3/22`, superseded old tail, successor progress `0..19/19`, later repair, and Task 0 separately. It preserves the original row-19 failure cause as unknown and makes no hardware, browser, native ERC-4337, audit, pull-request, mainnet, or production-readiness claim.
+
+Generate the concrete unsigned artifact from `packages/security-core` with the exact Task-4 review flags:
+
+```sh
+npx tsx scripts/live/ordinary-scenario-usdc-successor-cli.ts review \
+  --source-journal /absolute/public/first38-journal.json \
+  --original-report /absolute/public/original-report.json \
+  --original-package-hash 0x... \
+  --original-artifact-hash 0x... \
+  --original-proposal-hash 0x... \
+  --recovery-certificate /absolute/public/recovery-certificate.json \
+  --recovery-certificate-hash 0x... \
+  --recovery-proposal /absolute/public/recovery-proposal.json \
+  --recovery-approval /absolute/public/recovery-approval.json \
+  --recovery-approval-hash 0x... \
+  --primary-bundle-manifest /absolute/public/native-recovery-primary/manifest.json \
+  --observer-startup /absolute/public/successor-observer-startup.json \
+  --observer-probe /absolute/public/successor-observer-probe.json
+```
+
+This command uses the two fixed public providers, selects `min(latestA, latestB)-5`, requires equal block hash/timestamp/controlled state and at least six confirmations, and re-reads the selected block hash after all reads. The effective period comes only from that agreed canonical timestamp and must be later than `1793145600`. The raw native tuple remains separately fixed at `(1793145600,10000000000000,30000000000000)`; no native operation refreshes it. The first successful USDC base receipt establishes the approved effective window, followed by counters `10/10`, `10/20`, and `10/30`. The existing 733-read, approximately 94-second root diagnostic is diagnostic evidence only; it is neither this fresh live proposal nor an approval.
+
+The artifact receives an independent exact review before a machine approval is persisted. The approval truthfully cites the user's standing 2026-10-29 bounded successor instruction; it does not claim the user reviewed a future hash, and unchanged in-scope replacements require no repeated human pause. The same Safe, identities, topology, asset, recipient, limits, delays, and 19 test semantics remain fixed. All replacements share, rather than replenish, `16080584000000` wei of successor gas allowance, `31000000` units of Safe USDC outflow, and the distinct `11000000` units of inward recycled USDC. The whole phase remains at or below `0.05 ETH`. Later repair has separate financial authority.
+
+Review admission requires at least 11,640 seconds until both the exclusive period deadline and receiver expiry. Initial execution requires at least 8,040 seconds. Scenario budgets are actions 1–7: 2,400 seconds; 8–12: 1,500; 13–16: 1,800; and 17–19: 1,500. Before a scenario, require its allowance plus all later allowances and the 840-second reconciliation margin; a queue proposal additionally requires its entire current-scenario allowance plus that margin. Use the smaller remaining horizon from root UTC, canonical chain time, and receiver lifetime. The 120-second ready wait and 720-second expiry wait are never shortened. The eight rejection rows are canonical read-only `eth_call` proofs, not broadcasts; an early-rejection proof is pinned to the queue-creation block even if collected later in wall-clock time. The other eleven rows are the only possible broadcasts.
+
+After the exact reviewed machine approval exists, submit at most one action per invocation:
+
+```sh
+LIVE_SUBMIT=YES npx tsx scripts/live/ordinary-scenario-usdc-successor-cli.ts submit-one \
+  --source-journal /absolute/public/first38-journal.json \
+  --journal /absolute/public/first38-journal.json \
+  --original-report /absolute/public/original-report.json \
+  --original-package-hash 0x... \
+  --original-artifact-hash 0x... \
+  --original-proposal-hash 0x... \
+  --recovery-certificate /absolute/public/recovery-certificate.json \
+  --recovery-certificate-hash 0x... \
+  --recovery-proposal /absolute/public/recovery-proposal.json \
+  --recovery-approval /absolute/public/recovery-approval.json \
+  --recovery-approval-hash 0x... \
+  --primary-bundle-manifest /absolute/public/native-recovery-primary/manifest.json \
+  --successor-certificate /absolute/public/successor-certificate.json \
+  --successor-certificate-hash 0x... \
+  --successor-proposal /absolute/public/successor-proposal.json \
+  --successor-approval /absolute/public/successor-approval.json \
+  --successor-approval-hash 0x... \
+  --observer-ledger /absolute/public/successor-observer-ledger.json \
+  --receiver-ack /absolute/public/successor-receiver-ack.json
+```
+
+`--journal` must be the same path string as `--source-journal`. Each broadcast action has one final materialization and one broadcast attempt with a frozen outer nonce, quote, estimate, block, fees, and reservation. Its locally computed transaction hash is durable before broadcast. A pending hash blocks new work; reconcile only that exact hash with `resume-one` and the same execution flags, without `LIVE_SUBMIT`, private inputs, signing, or rebroadcast. There is no reset, rematerialization, re-signing, fee/nonce refresh, or hashless retry. A late receipt is recorded with its actual effect and stops the successor when inclusion falls outside the approved period; it is never relabelled as successful period evidence.
+
+Every new alert uses the fresh unmodified watcher, full scans, six confirmations, actual successful delivery, and exact official receiver acknowledgement. The frozen five-file native primary bundle and manifest hash `0x96059e1e945b9201e84457f74b98d147c4a6b2d9bc93a2ce8978d4a2425295c6` remain historical evidence only. Timely historical acknowledgement survives later expiry; failed official lookup permits read-only reconciliation only.
+
+After all 19 successor actions are terminal, repair commands must provide the complete unmixed successor lineage flags: `--recovery-certificate`, `--recovery-certificate-hash`, `--recovery-proposal`, `--recovery-approval`, `--recovery-approval-hash`, `--primary-bundle-manifest`, `--successor-certificate`, `--successor-certificate-hash`, `--successor-proposal`, `--successor-approval`, and `--successor-approval-hash`. Do not combine them with the older five `--continuation-*` flags. Successor standing authority proves predecessor lineage only and grants no repair approval, signing, or spending authority.
+
 Task 0 remains open after continuation completion. Closure still requires the complete native and USDC X/Y, cancellation, expiry, ready execution, independent delivery/acknowledgement, repair/rotation, freeze, balances, topology, regression, and independent-review matrix. It also requires the root-owned full security gate and public artifact review. Do not start native Task 1 or describe the ordinary baseline as complete from this renderer or its focused tests.
 
 The temporary test receiver's public hash and successful metadata probe establish configuration only. Keep every action's alert row conditional until that exact live event is independently delivered and reconciled. Never package its private URL.
