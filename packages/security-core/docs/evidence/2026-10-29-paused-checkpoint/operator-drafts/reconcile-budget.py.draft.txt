@@ -1,0 +1,60 @@
+# Root-only local accounting projection. Never writes execution journal or grants authority.
+import datetime, hashlib, json, os
+from pathlib import Path
+c=Path('.superpowers/sdd/2026-10-29-usdc-recycle-continuation')
+jp=Path('.superpowers/sdd/2026-10-19-native-safe-4337/first38-live-journal-2026-10-28.json')
+source_raw=(c/'source-journal.public.json').read_bytes()
+assert '0x'+hashlib.sha256(source_raw).hexdigest()=='0x3d860cf927ccbdd6cfe45864aa42cd60577f8e7745db046e061613e6d3242dae'
+s=json.loads(source_raw); raw=jp.read_bytes();j=json.loads(raw)
+assert set(j)<=set(s)|{'usdcRecycleContinuation'} and set(s)<=set(j)
+assert all(j[k]==v for k,v in s.items() if k!='liveJournal')
+assert all(j['liveJournal'][k]==v for k,v in s['liveJournal'].items() if k!='entries')
+assert j['liveJournal']['entries'][:15]==s['liveJournal']['entries'] and len(s['liveJournal']['entries'])==15
+basis=json.loads((c/'aggregate-budget-source.json').read_text())
+oldp=json.loads((c/'source-prior-proposal.public.json').read_text())
+oldgas=sum(int(e['receipt']['gasUsed'])*int(e['receipt']['effectiveGasPrice']) for e in s['liveJournal']['entries'][13:])
+assert oldgas==168855544==int(basis['oldConfirmedGasWei'])
+invalidation=json.loads((c/'source-nonce869.public.json').read_text())
+# Fixed canonical invalidation charge is independently verified by the certificate, not this helper.
+charged869=124785100000
+assert charged869==int(basis['conservativelyChargedNonce869GasWei'])
+rows=j.get('usdcRecycleContinuation',{}).get('actions',[])
+extra=j['liveJournal']['entries'][15:]
+proposal_path=c/'fresh-recycle-proposal.json'
+p=json.loads(proposal_path.read_text()) if proposal_path.exists() else None
+assert p is not None or (not rows and not extra)
+actions={a['id']:a for a in p['actions']} if p else {}
+assert len(actions) in [0,17] and len(extra)<=9
+assert len({e['id'] for e in extra})==len(extra)
+assert len({e['transactionHash'] for e in extra})==len(extra)
+newgas=0; newout=0; inward=0; pending_reserved=0; attempts=[]
+for e in extra:
+    a=actions[e['id']];assert e['id'].startswith('usdc-recycle-continuation-')
+    row=next(r for r in rows if r['id']==e['id'])
+    assert row['commitment']==a['commitment'] and row['transactionHash']==e['transactionHash']
+    receipt=e.get('receipt');cost=0
+    if receipt:
+        assert receipt['transactionHash']==e['transactionHash']
+        cost=int(receipt['gasUsed'])*int(receipt['effectiveGasPrice']);newgas+=cost
+        if receipt['status']=='success':
+            # Charge successful physical intent even if late/non-matrix; never net inward.
+            newout+=max(0,int(a['before']['safeUsdcBalance'])-int(a['after']['safeUsdcBalance']))
+            inward+=max(0,int(a['after']['safeUsdcBalance'])-int(a['before']['safeUsdcBalance']))
+    else:pending_reserved+=int(e['reserved'])
+    attempts.append({'id':e['id'],'transactionHash':e['transactionHash'],'status':e['status'],'gasCostWei':str(cost),'receiptReconciled':bool(receipt),'matrixConfirmed':row['status']=='confirmed'})
+known=oldgas+charged869;totalgas=known+newgas
+assert known==124953955544==int(basis['knownChargedGasWei'])
+assert newgas+pending_reserved<=12080584000000
+assert totalgas+pending_reserved<=16080584000000
+assert newout<=11000000 and inward<=11000000
+prior=int(oldp['reservation']['priorActualGasCostWei'])+int(oldp['reservation']['priorPrincipalWei'])
+assert prior==131036172317442
+assert prior+totalgas+pending_reserved<=50000000000000000
+out={'scope':'ROOT_SHARED_SUCCESSOR_ACCOUNTING_NOT_AUTHORITY','recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'sourceBytesSha256':'0x'+hashlib.sha256(source_raw).hexdigest(),'currentJournalBytesSha256':'0x'+hashlib.sha256(raw).hexdigest(),'originalAggregateSuccessorGasWei':'16080584000000','oldConfirmedGasWei':str(oldgas),'conservativelyChargedNonce869GasWei':str(charged869),'newActualGasWei':str(newgas),'aggregateChargedGasWei':str(totalgas),'pendingGasReservationWei':str(pending_reserved),'remainingAggregateGasWei':str(16080584000000-totalgas-pending_reserved),'oldGrossUsdcOutflowUnits':'20000000','newGrossUsdcOutflowUnits':str(newout),'remainingGrossUsdcOutflowUnits':str(11000000-newout),'newRecycledInwardUsdcUnits':str(inward),'remainingRecycledInwardUsdcUnits':str(11000000-inward),'cumulativePhaseOutlayAndPendingWei':str(prior+totalgas+pending_reserved),'newAttempts':attempts,'pendingHashes':[a['transactionHash'] for a in attempts if not a['matrixConfirmed']],'laterRepairAuthorized':False,'invalidationCause':'UNKNOWN','invalidationActor':'UNKNOWN','chargeDoesNotRatifyObservedTransaction':True}
+prev=c/'aggregate-budget-current.json'
+if prev.exists():
+    before=json.loads(prev.read_text())
+    assert totalgas>=int(before['aggregateChargedGasWei']) and newout>=int(before['newGrossUsdcOutflowUnits']) and inward>=int(before['newRecycledInwardUsdcUnits'])
+    assert all(any(a['id']==b['id'] and a['transactionHash']==b['transactionHash'] for a in attempts) for b in before['newAttempts'])
+tmp=c/'aggregate-budget-current.json.new';tmp.write_text(json.dumps(out,indent=2)+'\n');os.replace(tmp,prev)
+print(json.dumps({k:out[k] for k in ['aggregateChargedGasWei','remainingAggregateGasWei','newGrossUsdcOutflowUnits','newRecycledInwardUsdcUnits','pendingHashes']}))

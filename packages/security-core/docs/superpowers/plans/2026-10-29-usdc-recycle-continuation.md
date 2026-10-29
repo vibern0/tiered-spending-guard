@@ -1,5 +1,7 @@
 # USDC Recycle Continuation Implementation Plan
 
+**PAUSED — 2026-10-29, user request.** [Checkpoint and resume steps](../../evidence/2026-10-29-paused-checkpoint.md). Tasks 1–4 accepted; Task 5 implemented through `d572920` with fix re-review pending; Task 6 not started. Fresh closeout security gate failed on two coverage tests (610 normal tests and 4 invariants passed). No new 17-action approval or live attempt exists. Preserve unchecked rows until review/evidence gates pass; no autonomous execution.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish remaining17 USDC semantics; preserve stopped row; execute reviewed replacement under standing caps.

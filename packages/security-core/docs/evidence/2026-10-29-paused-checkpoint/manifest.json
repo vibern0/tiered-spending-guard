@@ -1,0 +1,405 @@
+{
+  "scope": "PAUSED_PUBLIC_CHECKPOINT_ARCHIVE_NOT_AUTHORITY",
+  "date": "2026-10-29",
+  "productCodeHead": "d572920258ef4f18ad35c81bba65118c311deea4",
+  "task5Review": "FIX_ROUND_1_COMMITTED_REREVIEW_PENDING",
+  "task6": "NOT_STARTED",
+  "financialContinuation": "NOT_APPROVED_OR_EXECUTED",
+  "entries": [
+    {
+      "file": "reviews/builder-check.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/builder-check.md",
+      "bytes": 14343,
+      "sha256": "0x4d02f82fee94b39022423e2aaadca2166c1a32e4589af599ca51ae97eb09c6a4"
+    },
+    {
+      "file": "reviews/plan-independent.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/plan-independent.md",
+      "bytes": 7972,
+      "sha256": "0x326d10cfe053e437d113de4d472cba93aecead1e5ce6d2be880dab2fb8e10f9c"
+    },
+    {
+      "file": "reviews/progress.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/progress.md",
+      "bytes": 25066,
+      "sha256": "0x7f59cae3bc6162061f50848a02f278ba4014e8b524f51a3820eee89787c4d90d"
+    },
+    {
+      "file": "reviews/task-1-brief.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-1-brief.md",
+      "bytes": 11250,
+      "sha256": "0x8cb5677c51644f42641234bee0281893e91b2d5d8fabac67af3194428de4ac94"
+    },
+    {
+      "file": "reviews/task-1-report.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-1-report.md",
+      "bytes": 4895,
+      "sha256": "0x1ee475de2a7e43afbb9661cc42b86080cc28896d404c09be6e6e40c94eb588a6"
+    },
+    {
+      "file": "reviews/task-1-review.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-1-review.md",
+      "bytes": 4710,
+      "sha256": "0x46e47e83928f713704838b7874334320b486d884093244ceadf5fc05fb9e45b3"
+    },
+    {
+      "file": "reviews/task-1-rereview-1.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-1-rereview-1.md",
+      "bytes": 1757,
+      "sha256": "0xffce64a7724a441b105a3fc8eaeeef64c184dcb34adc972d2875aae84a2ba416"
+    },
+    {
+      "file": "reviews/task-2-brief.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-2-brief.md",
+      "bytes": 8957,
+      "sha256": "0x4cdda1eaf80fbc1c2cf6043b8fd784231adef07cb5a32b2dcf4eb5ec15da0e78"
+    },
+    {
+      "file": "reviews/task-2-review.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-2-review.md",
+      "bytes": 6209,
+      "sha256": "0xa56be2d1b9cc08d4ee722131466cdfee80d08e72ab2793e745805357c207a04c"
+    },
+    {
+      "file": "reviews/task-2-rereview-1.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-2-rereview-1.md",
+      "bytes": 2093,
+      "sha256": "0x5a313ae55139cc9c18f26162648871b013ff4f3d622ac1af832353ab3108d082"
+    },
+    {
+      "file": "reviews/task-3-brief.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-3-brief.md",
+      "bytes": 9502,
+      "sha256": "0x16037942ae74559f1b9c42a0083bdfa1fcdcb0f8f4c3c8be0c311b63fd26e42b"
+    },
+    {
+      "file": "reviews/task-3-report.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-3-report.md",
+      "bytes": 8154,
+      "sha256": "0x31c2e872ad22d8d0624558f285790262e2e1ef1fc5f2e176f339223c1cebb461"
+    },
+    {
+      "file": "reviews/task-3-review.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-3-review.md",
+      "bytes": 3554,
+      "sha256": "0xa74d5f51eb7b53bd71316cae215619c0bd571260d5291bba94ae87df933b1ca9"
+    },
+    {
+      "file": "reviews/task-3-rereview-1.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-3-rereview-1.md",
+      "bytes": 2137,
+      "sha256": "0xb30a8d6498095928b26d4f7e83ffb33009c7fd429b839f69c83e628ddba3cf04"
+    },
+    {
+      "file": "reviews/task-4-brief.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-4-brief.md",
+      "bytes": 13523,
+      "sha256": "0x884c1cc9c88ebdb2b57cda8da1f7dcd0482350165583c5e033f8dc4b1a228021"
+    },
+    {
+      "file": "reviews/task-4-report.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-4-report.md",
+      "bytes": 7416,
+      "sha256": "0x7b0a2ed1c51a08528d22e7dbbca6803cdc3e23f29648cdf2e94aba2a3cc7e0d3"
+    },
+    {
+      "file": "reviews/task-4-review.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-4-review.md",
+      "bytes": 4052,
+      "sha256": "0xb9a20f11856a2f01014d68dec5e2297ad9d18d9af2a4961e0d8e146ad77bdf16"
+    },
+    {
+      "file": "reviews/task-5-brief.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-5-brief.md",
+      "bytes": 9035,
+      "sha256": "0x2c1368ec2e7f4c1d9aa4dc5818b967420a3644d17c2bc328a6fbf1dd3ac25a18"
+    },
+    {
+      "file": "reviews/task-5-report.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-5-report.md",
+      "bytes": 7193,
+      "sha256": "0x5ed750379ac5bd0daa0de3dedff5e4dc08bdae3d6283833aee79d56c1d1f70f7"
+    },
+    {
+      "file": "reviews/task-6-brief.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/task-6-brief.md",
+      "bytes": 8745,
+      "sha256": "0x650dc672612ae2045a1726c8cc22dde1b0473e30ede491f0be29eda4bb001c39"
+    },
+    {
+      "file": "reviews/task-2-report.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/child/task-2-report.md",
+      "bytes": 5993,
+      "sha256": "0xa562ae180c53bb418364f0aac3b48a3d668fd2e54fa70d4052caf329896541bb"
+    },
+    {
+      "file": "reviews/task-5-review.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/child/task-5-review.md",
+      "bytes": 5160,
+      "sha256": "0x349bf84807760627f1a52b900d88c65a4f281a0bca9ebb95acb694431ff87d68"
+    },
+    {
+      "file": "public-source/aggregate-budget-current.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/aggregate-budget-current.json",
+      "bytes": 1080,
+      "sha256": "0x00edb795dcccdf06ed09ac0892e0866cc1b3d549e923784fcd6c813ff1b3ea8a"
+    },
+    {
+      "file": "public-source/aggregate-budget-source.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/aggregate-budget-source.json",
+      "bytes": 876,
+      "sha256": "0xaecca80529d147090c08b1e261b13f5fac010c797997d1ff5642a02faf332cab"
+    },
+    {
+      "file": "public-source/authority-evidence.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/authority-evidence.json",
+      "bytes": 623,
+      "sha256": "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b"
+    },
+    {
+      "file": "public-source/nonce869-service-provenance.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/nonce869-service-provenance.json",
+      "bytes": 1571,
+      "sha256": "0x8c198aec8b49c87b082499c196349298ecd216ab2863d619feadacbb7e172256"
+    },
+    {
+      "file": "public-source/nonce869-local-provenance.md",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/nonce869-local-provenance.md",
+      "bytes": 11457,
+      "sha256": "0x38cf48b6eaef954fab9d6bd2124fcbace0dcac0975f7915c0d3941fdb8d52392",
+      "sourceBytes": 11459,
+      "sourceSha256": "0xb460908f825a446e1d33790af4235d780b659c3c5c3fcac1f4d7ee46e75a3946",
+      "archivalTransform": "Trailing whitespace removed; source bytes retained locally."
+    },
+    {
+      "file": "public-source/fixture-capture-origin-check.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/fixture-capture-origin-check.json",
+      "bytes": 450,
+      "sha256": "0x0bc1eb23c1ff76af8af221711264da395c862f7564eb2a3aefe25499444b002d"
+    },
+    {
+      "file": "public-source/source-manifest.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-manifest.json",
+      "bytes": 2005,
+      "sha256": "0x56cfa322797b3a4b151150b4ec0fe56573557e8734bc5ef3f5f001327489fe12"
+    },
+    {
+      "file": "public-source/source-primary-manifest.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-primary-manifest.public.json",
+      "bytes": 587,
+      "sha256": "0xe1978a45917c1f0caab4574e4a61460493a1c9a10a979f96860ab2ae5c23ec7b"
+    },
+    {
+      "file": "public-source/source-step-up-ledger.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-step-up-ledger.public.json",
+      "bytes": 1114,
+      "sha256": "0x2582059e3f914c16fbf1de029658da992dd0b9e1444384eab11dc0bc4dc92eb9"
+    },
+    {
+      "file": "public-source/source-step-up-ack.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-step-up-ack.public.json",
+      "bytes": 538,
+      "sha256": "0x230b8576b3056ac8480f3e60cf0170e5aed35914195e3426f4c3d3d4a5ffd43d"
+    },
+    {
+      "file": "public-source/source-nonce869.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-nonce869.public.json",
+      "bytes": 1303,
+      "sha256": "0x344220211726cf4febf830c388e5af05b75b68f34a3c115aeb813ebcdcd08b2d"
+    },
+    {
+      "file": "public-source/source-prior-certificate.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-prior-certificate.public.json",
+      "bytes": 2373,
+      "sha256": "0x2caf8945d41e3008d19cdd3169787bb160a31e95c8cf8ab5976c2467f39c00de"
+    },
+    {
+      "file": "public-source/source-prior-proposal.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-prior-proposal.public.json",
+      "bytes": 55082,
+      "sha256": "0x4159f07b27186ac7934fdb79e066acb338c23dda723d7a05b1f185408837bc65"
+    },
+    {
+      "file": "public-source/source-prior-approval.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-prior-approval.public.json",
+      "bytes": 5705,
+      "sha256": "0x4f54fd6d62c50857f4c1a3fd66268b46a639c63b803f94fefcf7eae786322794"
+    },
+    {
+      "file": "public-inputs/copied-public-inputs-manifest.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/public-inputs/copied-public-inputs-manifest.json",
+      "bytes": 553,
+      "sha256": "0x5ea3db869616045f77b62a489fa592345d7a58c7a2714fac43beae4b9991bad1"
+    },
+    {
+      "file": "public-inputs/recovery-approval.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/public-inputs/recovery-approval.public.json",
+      "bytes": 5199,
+      "sha256": "0xb29bb7d019ba681b6566239ce730c5bedf2f79c7cc5d108aaeb67fe5f404ca4d"
+    },
+    {
+      "file": "public-inputs/recovery-certificate.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/public-inputs/recovery-certificate.public.json",
+      "bytes": 3142,
+      "sha256": "0x971030cbed433c7a197758486bac6db7a01e2a78c8b5e86a41b35e324647e1fb"
+    },
+    {
+      "file": "public-inputs/recovery-proposal.public.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/public-inputs/recovery-proposal.public.json",
+      "bytes": 63334,
+      "sha256": "0x0cab403ec56e4e95f4c5feb6cf219b813d18b6efe714f32c193ab3253a23c56a"
+    },
+    {
+      "file": "operator-drafts/reconcile-budget.py.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/reconcile-budget.py",
+      "bytes": 5262,
+      "sha256": "0x9e7b0806ae61603666169c7d5da8d8896250196ac63b83df9e07d4d6c60705a7"
+    },
+    {
+      "file": "operator-drafts/check-existing-observer.cjs.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/check-existing-observer.cjs",
+      "bytes": 3036,
+      "sha256": "0x695b59dc2e0e47953ef1c7ae7c1cfd24a6af76e8045137b32c920231e8c85795"
+    },
+    {
+      "file": "operator-drafts/recycle-observe.cjs.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/recycle-observe.cjs",
+      "bytes": 7741,
+      "sha256": "0x8aeb5e020308b0e11e935c3c77931016e621a5db1522b23bb5ce47aeb203028d"
+    },
+    {
+      "file": "operator-drafts/wait-confirmed.cjs.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/wait-confirmed.cjs",
+      "bytes": 4178,
+      "sha256": "0x1c07302876f3e722a4e7fa5bc221e9ec5b5f89ff1d78b9c2f1bb9d40279a63e5"
+    },
+    {
+      "file": "operator-drafts/run-code-gate.py.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/run-code-gate.py",
+      "bytes": 1685,
+      "sha256": "0x72a5768795356cd283357b01ab252b0ae2cb423733bdbd75a593aeeb1ccde91e"
+    },
+    {
+      "file": "operator-drafts/root-public-review.ts.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-public-review.ts",
+      "bytes": 8090,
+      "sha256": "0xa63cafbc2c94e1e5ec513d923614afd91500c01a0d161ebf7ea52990ef3975fd"
+    },
+    {
+      "file": "operator-drafts/run-approved.ts.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/run-approved.ts",
+      "bytes": 3019,
+      "sha256": "0x13fc3bf00ce2250767614d038063ff1ffd4aedb1f29d99210a5fc8ceca911863"
+    },
+    {
+      "file": "operator-drafts/mint-standing-approval.ts.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/mint-standing-approval.ts",
+      "bytes": 5685,
+      "sha256": "0x4918f675ba609fbca645f50e032d3a0ef1cbacf0a71b9016385e87a5464ad8e2"
+    },
+    {
+      "file": "operator-drafts/invoke-one.py.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/invoke-one.py",
+      "bytes": 6010,
+      "sha256": "0x55ac64d351c3e208e39c877ced528117e680ee12b892abef26cd877a8acecb15"
+    },
+    {
+      "file": "operator-drafts/root-rpc-pacer.cjs.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-rpc-pacer.cjs",
+      "bytes": 1194,
+      "sha256": "0xa758b3243c26acb399df69486df5765d0944d5d478a9caa79974ed811e19ed26"
+    },
+    {
+      "file": "operator-drafts/root-live-sequence.md.draft.txt",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-live-sequence.md",
+      "bytes": 2605,
+      "sha256": "0x8fd6b4d220eaa39abeedcd7e6aac19f7e6744615d88ddba42c95ad3222339590"
+    },
+    {
+      "file": "verification/root-security-check-d572920.log.gz",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-security-check-d572920.log",
+      "bytes": 32924,
+      "sha256": "0x3ff01dd461b7e9783ba089240e6628fd002130956070c43fd6d2f4343746a0f6",
+      "encoding": "gzip; decompress to reproduce original bytes",
+      "sourceBytes": 112741,
+      "sourceSha256": "0x732b90e7c78aa9e9a54338b1a8296c1220d4a4780d6fb7e098d8175ac4331e91"
+    },
+    {
+      "file": "verification/root-restore-normal-artifacts-d572920.log.gz",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-restore-normal-artifacts-d572920.log",
+      "bytes": 354,
+      "sha256": "0xb2a5292c8fe23257f5fc87e6e39bd451ecf09430ccdcb550173c02189a6280de",
+      "encoding": "gzip; decompress to reproduce original bytes",
+      "sourceBytes": 770,
+      "sourceSha256": "0x36ecbd61a60d0f3287bd95d143e26babdde3f633f075569aa8eb0402c000a717"
+    },
+    {
+      "file": "verification/root-code-gate-d572920.json",
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-code-gate-d572920.json",
+      "bytes": 1163,
+      "sha256": "0xa8801a4ca26e12f6533aeff0f83aacb42959023f250bd7638457f5fb76cfecde"
+    },
+    {
+      "file": "verification/backend-test.log.gz",
+      "sourceLocalPath": "/tmp/vault-pause-backend-2026-10-29.log",
+      "bytes": 235,
+      "sha256": "0xeb58b46fedebfbcadc1dfc0365cd6f7d6e2007945f99bc06a698f2299e44a6e9",
+      "encoding": "gzip; decompress to reproduce original bytes",
+      "sourceBytes": 306,
+      "sourceSha256": "0x39dda4f0fc2f7723092440caddb8fcba2a2a064dc2ea7726a42a6106cfadbe14"
+    },
+    {
+      "file": "verification.json",
+      "sourceLocalPath": "Generated factual closeout metadata",
+      "bytes": 3666,
+      "sha256": "0x66d98c1a9b67a7f7a47eac5026afb7804d1ca6dd339689b7a23bdf4be65bbf3d"
+    },
+    {
+      "file": "recorded-action-inventory.json",
+      "sourceLocalPath": "Generated allowlisted metadata from frozen authoritative journal",
+      "bytes": 22044,
+      "sha256": "0xeab1c1369a1abe1a600bcd825b359d02ed9e08ab3c4ad938e9a83b8745ae0d32"
+    }
+  ],
+  "retainedLocalEvidence": [
+    {
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-operation-diagnostic.public.json",
+      "bytes": 103393,
+      "sha256": "0x565e41b423321d931745ec1f08862758cb40fef7c77dd70d3aacd1425504ba7a",
+      "storage": "RETAINED_LOCAL_IGNORED_NOT_PUBLISHED",
+      "reason": "Raw RPC/diagnostic capture retained locally; vetted committed fixtures and public metadata are published separately."
+    },
+    {
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/nonce-invalidation-classification.public.json",
+      "bytes": 11548,
+      "sha256": "0x52cc9b1c4833abaf153f21985015e5cb4c77d1c493b5c7a6b6518de3d9ef571f",
+      "storage": "RETAINED_LOCAL_IGNORED_NOT_PUBLISHED",
+      "reason": "Raw RPC/diagnostic capture retained locally; vetted committed fixtures and public metadata are published separately."
+    },
+    {
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/source-canonical-capture.public.json",
+      "bytes": 645364,
+      "sha256": "0x4f2b2cc8b1e33eaa35c842fe5be65c2343c5e2d5c5b951904b04de5fe4839946",
+      "storage": "RETAINED_LOCAL_IGNORED_NOT_PUBLISHED",
+      "reason": "Raw RPC/diagnostic capture retained locally; vetted committed fixtures and public metadata are published separately."
+    },
+    {
+      "sourceLocalPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/prior-public-rpc-proof.public.json",
+      "bytes": 4912614,
+      "sha256": "0xce5bf49e84e1c450e68847f11975972e5016b7100bddcb69192f41f50a879313",
+      "storage": "RETAINED_LOCAL_IGNORED_NOT_PUBLISHED",
+      "reason": "Raw RPC/diagnostic capture retained locally; vetted committed fixtures and public metadata are published separately."
+    },
+    {
+      "sourceLocalPath": ".superpowers/sdd/2026-10-19-native-safe-4337/first38-live-journal-2026-10-28.json",
+      "bytes": 56828,
+      "sha256": "0x3d860cf927ccbdd6cfe45864aa42cd60577f8e7745db046e061613e6d3242dae",
+      "storage": "AUTHORITATIVE_LOCAL_JOURNAL_PRESERVED",
+      "committedPublicByteCopy": "packages/security-core/test/fixtures/ordinary-usdc-recycle-continuation-source.public.json",
+      "warning": "Public fixture is not an operational journal or execution authority."
+    }
+  ],
+  "privateData": "Excluded; no private config, credentials, receiver token/URL, assertion material or raw signed transaction archives copied.",
+  "operatorDrafts": "Historical non-executable snapshots only; unreviewed and not authorized for execution.",
+  "allPriorDirectionsSubordinateTo": "User explicitly paused work; no autonomous continuation."
+}

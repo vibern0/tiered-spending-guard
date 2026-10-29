@@ -1,0 +1,14 @@
+# Root execution checklist — not authority
+
+- Finish Tasks1–6 code and scoped reviews; fresh whole-change review/fixwave; clean tracked checkout.
+- Run security:check and always restore normal Solidity artifacts; bind exact tested HEAD/log hashes. Prior backend18PASS retained only if unchanged. Do not claim full tsc green.
+- Verify current source freeze/canonical DIFFERENT869/freshN>=870 and same receiver's existing delivery retrievability. No duplicate token/probe/POST.
+- Run actual production unsigned review; save full readonly RPC proof/certificate/proposal, verify physical source unchanged, exact17/9broadcasts/8proofs, source31m total accounting/11mremaining, charged869, originalgasallowance and phaseceiling, D/receiver margins.
+- Freeze exact artifact/operational scripts/public inputs/test bindings; independent exact-artifact ACCEPT. Mint exact machine approval from recorded standing human authority; never claim human reviewed futurehash. No repair authority.
+- One selected action per invocation. Fund signer only for successful financial action, required inner signer credentials only when catalog demands. No EOA/app changes.
+- For a new durable hash: bounded two-provider six-confirmation read; exact keyless resume to persist receipt inclusion BEFORE external observer. Pending due absent observer is expected. Run stockwatcher/official receiver reconciliation only for exact approved known hash while D/receiver active; then keyless final confirmation. No new private load or rebroadcast during reconciliation.
+- Update shared accounting after every known receipt/pending result, including failures/late receipts: old2+869charge+new actual/pending, gross outflow and inward separate. No reset/netting/refund credit.
+- Read-only rejection proofs use canonical prescribed block/basis. Queue expiry waits actual120+600sec, ready execution actual120sec; elapsed chain time may already satisfy waits, never shorten.
+- First failure stops that attempt. Reconcile all known hashes; preserve signed-simulated/hashless attempts forever. New case only under same remaining caps with new concrete canonical source/certificate/proposal/approval/review. Standing authority removes another human pause, not security checks.
+- Complete old2+new17 semantic USDC matrix only with exact24live/canonical receipts/alerts/period/poststate. Commit publicprimaryevidence/report/checkpoints honestly; Task0/native1–13/browser/hardware/audit/merge gates remain open as applicable.
+- Later financial repair first requires separate exact review/approval; standing USDC successor approval grants NONE.

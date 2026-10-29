@@ -1,0 +1,14 @@
+# Root-only local final gate; no financial config or RPC. Always restores normal artifacts.
+import pathlib,subprocess,json,hashlib,re,os,sys
+c=pathlib.Path('.superpowers/sdd/2026-10-29-usdc-recycle-continuation');h=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip();results=[]
+assert subprocess.check_output(['git','status','--porcelain'],text=True)==''
+env={k:v for k,v in os.environ.items() if not k.startswith(('LIVE_','VAULT_','BACKEND_','MONITOR_')) and k not in ['PRIVATE_KEY','NODE_OPTIONS']}
+for phase,cmd in [('security-check',['npm','--prefix','packages/security-core','run','security:check']),('restore-normal-artifacts',['npm','--prefix','packages/security-core','run','build'])]:
+    p=c/('root-'+phase+'-'+h[:7]+'.log')
+    with p.open('x') as f: code=subprocess.call(cmd,stdout=f,stderr=subprocess.STDOUT,env=env)
+    s=p.read_text();results.append({'phase':phase,'exitCode':code,'logPath':str(p),'logSha256':'0x'+hashlib.sha256(p.read_bytes()).hexdigest(),'passingCounts':re.findall(r'(\d+) passing',s),'failingCounts':re.findall(r'(\d+) failing',s),'keyOutput':[line.strip() for line in s.splitlines() if 'Slither gate passed' in line or 'Compiled 51 Solidity' in line]})
+    print(json.dumps(results[-1]),flush=True)
+assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==h
+assert subprocess.check_output(['git','status','--porcelain'],text=True)==''
+out={'scope':'ROOT_RECYCLE_CONTINUATION_CODE_GATE','head':h,'results':results,'signing':False,'broadcast':False};(c/('root-code-gate-'+h[:7]+'.json')).write_text(json.dumps(out,indent=2)+'\n')
+sys.exit(0 if len(results)==2 and all(r['exitCode']==0 for r in results) else 1)

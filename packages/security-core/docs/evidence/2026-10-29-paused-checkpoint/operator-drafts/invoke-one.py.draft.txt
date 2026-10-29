@@ -1,0 +1,52 @@
+# Root operator dispatcher: invokes exactly one existing approved CLI action; no retries.
+import os, json, pathlib, subprocess, sys, hashlib, time
+root=pathlib.Path.cwd(); child=root/'.superpowers/sdd/2026-10-29-usdc-recycle-continuation'; parent=root/'.superpowers/sdd/2026-10-19-native-safe-4337'
+mode, expected=sys.argv[1:]
+assert mode in ['submit-one','resume-one']
+p=json.loads((child/'fresh-recycle-proposal.json').read_text()); approval=json.loads((child/'exact-standing-approval-summary.json').read_text())
+assert approval['proposalHash']==p['proposalHash'] and approval['authorization']=='STANDING_BOUNDED_SUCCESSOR_AUTHORIZATION' and approval['repairAuthority']=='NONE'
+review=(child/'live-artifact-independent.md').read_text(); assert '## Verdict: ACCEPT' in review
+assert '0x'+hashlib.sha256(review.encode()).hexdigest()==approval['reviewSha256']
+binding=json.loads((child/'execution-code-binding.json').read_text())
+assert binding['scope']=='ROOT_REVIEWED_RECYCLE_CODE_BINDING_NOT_NEW_FINANCIAL_AUTHORITY'
+assert '0x'+hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()==binding['dispatcherSha256']
+assert binding['proposalHash']==p['proposalHash'] and binding['approvalHash']==approval['approvalHash']
+assert binding['originalTestedCodeHead']==approval['testedCodeHead']
+for item in binding['operationalFiles']:
+    assert '0x'+hashlib.sha256((child/item['file']).read_bytes()).hexdigest()==item['sha256']
+for item in binding['publicInputFiles']:
+    assert '0x'+hashlib.sha256((root/item['file']).read_bytes()).hexdigest()==item['sha256']
+for proof in ['gate','review']:
+    assert '0x'+hashlib.sha256((child/binding[proof+'File']).read_bytes()).hexdigest()==binding[proof+'Sha256']
+assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==binding['testedCodeHead']
+assert subprocess.check_output(['git','status','--porcelain'],text=True)==''
+journal=parent/'first38-live-journal-2026-10-28.json'; j=json.loads(journal.read_text())
+rows=j.get('usdcRecycleContinuation',{}).get('actions',[])
+if mode=='resume-one':
+    selected=[a for a in rows if a['status']=='outer-pending']; assert len(selected)==1 and selected[0]['id']==expected
+else:
+    assert not any(a['status']=='outer-pending' for a in rows)
+    selected=next((a for a in rows if a['status'] not in ['confirmed','rejection-proved']),p['actions'][0])
+    assert selected['id']==expected and selected.get('status','approved')=='approved'
+a=next(x for x in p['actions'] if x['id']==expected)
+args=[mode,'--source-journal',str(journal),'--original-report',str(root/'packages/security-core/test/fixtures/ordinary-scenario-review.public.json'),'--original-package-hash','0x08568eb5edbd050dcd4a21eceedaff48e2d0be8b9acac54e28d024cec795e571','--original-artifact-hash','0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831','--original-proposal-hash','0x22770c7944ee289543c10090b3483bdcd87f0d2c193887df4f32916c5782e45f','--recovery-certificate',str(child/'public-inputs/recovery-certificate.public.json'),'--recovery-certificate-hash','0x43742e96deb6855d1b2e86b268080892c700f453ffd36da4284de3ec2d252efc','--recovery-proposal',str(child/'public-inputs/recovery-proposal.public.json'),'--recovery-approval',str(child/'public-inputs/recovery-approval.public.json'),'--recovery-approval-hash','0x644bf0b6e9cd4710683717511db665684ff31a86107198282d2364c9816dee26','--primary-bundle-manifest',str(root/'packages/security-core/docs/evidence/2026-10-28-native-recovery-primary/manifest.json'),'--successor-certificate',str(child/'source-prior-certificate.public.json'),'--successor-certificate-hash','0x909f9d5b36c3a8d4dcc099eb6519c1079f7f400e522d17b752ff3f4e37794b1a','--successor-proposal',str(child/'source-prior-proposal.public.json'),'--successor-approval',str(child/'source-prior-approval.public.json'),'--successor-approval-hash','0x6855653735904925cff3a09765788cee295a92ec3111f0044148c7a19ca376e7','--source-manifest',str(child/'source-primary-manifest.public.json'),'--source-step-up-ledger',str(child/'source-step-up-ledger.public.json'),'--source-step-up-ack',str(child/'source-step-up-ack.public.json'),'--recycle-certificate',str(child/'fresh-recycle-certificate.json'),'--recycle-certificate-hash',p['certificateHash'],'--recycle-proposal',str(child/'fresh-recycle-proposal.json'),'--recycle-approval',str(child/'exact-standing-approval.json'),'--recycle-approval-hash',approval['approvalHash'],'--journal',str(journal)]
+group=expected
+if group.endswith('queue-cancel-action'): group=group[:-7]
+if group.endswith('queue-expiry-skip'): group=group[:-5]
+if group.endswith('queue-ready-execute'): group=group.replace('queue-ready-execute','queue-execute')
+ledger=child/'live-observer/ledgers'/(group+'.json'); ack=child/'live-observer/acks'/(expected+'.json')
+if ledger.exists(): args+=['--observer-ledger',str(ledger)]
+if ack.exists(): args+=['--receiver-ack',str(ack)]
+env={k:v for k,v in os.environ.items() if not k.startswith(('LIVE_','VAULT_','BACKEND_','MONITOR_')) and k not in ['PRIVATE_KEY','NODE_OPTIONS']}
+accounting=subprocess.run(['python3',str(child/'reconcile-budget.py')],env=env,capture_output=True)
+assert accounting.returncode==0
+env['NODE_OPTIONS']='--require='+str(child/'root-rpc-pacer.cjs')
+if mode=='submit-one':
+    assert time.time()<int(p['deadline']); env['LIVE_SUBMIT']='YES'
+    private=pathlib.Path('/Users/bernardo/.local/share/recent-tx-safe-guard/sepolia')
+    if a['expectedOutcome']=='success': env['LIVE_FUNDING_KEY_FILE']=str(private/'funding-key')
+    if 'primary-passkey' in a['signerRoles']: env['LIVE_PRIMARY_CREDENTIAL_FILE']=str(private/'primary-passkey.json')
+    if 'safe-contract-secondary' in a['signerRoles']: env['LIVE_SECONDARY_CREDENTIAL_FILE']=str(private/'secondary-passkey.json')
+    if 'legacy-ecdsa-secondary' in a['signerRoles']: env['LIVE_ECDSA_KEY_FILE']=str(private/'ecdsa-secondary-key')
+cmd=[str(root/'packages/security-core/node_modules/.bin/tsx'),str(child/'run-approved.ts')]+args
+raise SystemExit(subprocess.call(cmd,env=env))

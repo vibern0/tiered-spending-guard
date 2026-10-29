@@ -1,0 +1,41 @@
+{
+  "scope": "READONLY_PUBLIC_SERVICE_STATE_MATCH_NOT_NEW_AUTHORITY",
+  "checkedAt": "2026-10-29T14:15:24.017326+00:00",
+  "sourceFile": "/Users/bernardo/.codex/worktrees/16d3/SorteCerta/packages/contracts/experiments/claim-lab/soak-results.json",
+  "sourceBytesSha256": "0x5761688d58581f3a903f44b6950c998b15f87e1d0cde375fc2fa932d04999088",
+  "serviceThreadTitle": "Support unlimited participants",
+  "serviceState": {
+    "status": "running",
+    "startedAt": "2026-10-28T16:04:38.978Z",
+    "stopAt": "2026-10-29T16:04:38.978Z",
+    "updatedAt": "2026-10-29T14:15:18.414Z"
+  },
+  "matches": [
+    {
+      "label": "cycle-2-close",
+      "hash": "0x83923abf9c1224125296a3485f8cc0a910e7f729ea5d5a73d6f01bf1cdbfe1f5",
+      "sender": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+      "nonce": 809,
+      "status": "confirmed",
+      "feeWei": "124785100000",
+      "gasUsed": "1247851",
+      "submittedAt": "2026-10-28T17:43:00.902Z",
+      "confirmedAt": "2026-10-28T17:43:14.370Z"
+    },
+    {
+      "label": "cycle-40-close",
+      "hash": "0xa81d6df9e9720da44c096b713fdf389fa28ae41aee2224d7f492560ee864781e",
+      "sender": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+      "nonce": 869,
+      "status": "confirmed",
+      "feeWei": "124785100000",
+      "gasUsed": "1247851",
+      "submittedAt": "2026-10-29T12:05:37.609Z",
+      "confirmedAt": "2026-10-29T12:05:49.473Z"
+    }
+  ],
+  "expectedCanonicalTransactionHash": "0xa81d6df9e9720da44c096b713fdf389fa28ae41aee2224d7f492560ee864781e",
+  "exactHashMatch": true,
+  "signing": false,
+  "broadcast": false
+}

@@ -1,0 +1,22 @@
+{
+  "scope": "SHARED_SUCCESSOR_REMAINING_CAPS_NO_RESET",
+  "recordedAt": "2026-10-29T12:22:59.324182+00:00",
+  "originalAggregateSuccessorGasWei": "16080584000000",
+  "oldConfirmedGasWei": "168855544",
+  "conservativelyChargedNonce869GasWei": "124785100000",
+  "knownChargedGasWei": "124953955544",
+  "remainingAggregateGasWei": "15955630044456",
+  "newSuffixMaximumReservationWei": "12080584000000",
+  "originalGrossUsdcUnits": "31000000",
+  "oldGrossUsdcOutflowUnits": "20000000",
+  "remainingGrossUsdcOutflowUnits": "11000000",
+  "remainingRecycledInwardUsdcUnits": "11000000",
+  "phaseCeilingWei": "50000000000000000",
+  "maximumPhaseOutlayWithSuffixWei": "143241710272986",
+  "laterRepairAuthorized": false,
+  "newAttempts": [],
+  "pendingHashes": [],
+  "invalidationCause": "UNKNOWN",
+  "invalidationActor": "UNKNOWN",
+  "chargeDoesNotRatifyObservedTransaction": true
+}

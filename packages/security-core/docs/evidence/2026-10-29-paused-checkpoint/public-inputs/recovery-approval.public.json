@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "scope": "first38-native-ready-hashless-expired-v1",
+  "authorization": "EXPLICIT_GROUP_APPROVAL",
+  "proposalHash": "0x3a92e6d8a383f015f16c1e35746ad84ea31915208c1cc36e9e724a02fcd9f857",
+  "certificateHash": "0x43742e96deb6855d1b2e86b268080892c700f453ffd36da4284de3ec2d252efc",
+  "observer": {
+    "kind": "https-webhook",
+    "publicId": "temporary-test-receiver:0x9da61bdac05edece5a0238565f067efe55528087f341f1c21436ba5cbc16e420",
+    "endpointHash": "0x9da61bdac05edece5a0238565f067efe55528087f341f1c21436ba5cbc16e420",
+    "startupEvidenceHash": "0x35e73967cdd5e4e9879734058c3405a0d485954b72156af1a25c88552674b3ff",
+    "probeEvidenceHash": "0xadad2e5a0976d2c6ce559195dd57c36a6fe13c7f80ed1edbfc395af40cc291a6",
+    "independentFromProposer": true,
+    "readyAt": "1793224493",
+    "workflowScheduleSeconds": {
+      "review": "3600",
+      "execution": "960",
+      "confirmations": "180",
+      "delivery": "60",
+      "acknowledgement": "300",
+      "keylessConfirmation": "300"
+    },
+    "requiredThrough": "1793229893",
+    "expiresAt": "1793309889"
+  },
+  "caps": {
+    "fundingGasLimit": "740292",
+    "safeExecutionGasLimit": "2000000",
+    "publicDelayGasLimit": "300000",
+    "maxFeePerGas": "1000000",
+    "maxPriorityFeePerGas": "1000000"
+  },
+  "reservation": {
+    "phaseLimitWei": "50000000000000000",
+    "originalActualGasCostWei": "71036145657700",
+    "originalPrincipalWei": "60000000000001",
+    "continuationMaximumReservationWei": "18680584000001",
+    "maximumRemainingReservationWei": "49868963854342299",
+    "maximumCumulativeOutlayWei": "149716729657702"
+  },
+  "derivations": {
+    "outerEoaNonce": "CURRENT_GREATER_THAN_809_ONLY",
+    "fees": "FROZEN_AT_OR_BELOW_ACTION_CAPS_AND_CANONICAL_BASEFEE",
+    "gas": "POSITIVE_ESTIMATE_AT_OR_BELOW_ACTION_CAP",
+    "queueTiming": "CANONICAL_RECEIPT_CREATED_AT_ONLY",
+    "safeNonce": "FIXED",
+    "delayQueueNonce": "FIXED",
+    "delayTxNonce": "FIXED"
+  },
+  "maxBroadcastAttempts": 1,
+  "approvedActions": [
+    {
+      "id": "native-queue-ready-hashless-skip",
+      "commitment": "0xba11f45c1d5167dfcf85b9f7d12cdfb43803c1ea4cf676fccaed0c8dd8770673"
+    },
+    {
+      "id": "native-queue-ready-replacement",
+      "commitment": "0x0c73c3df829273a9d67c3ac1d269293a1b33bac9445783c903fadf34e2f31d1f"
+    },
+    {
+      "id": "native-queue-ready-replacement-execute",
+      "commitment": "0x71493582b6c8b81b4e39754b330cd9ecea381a612ef135e8609c61cb16744de3"
+    },
+    {
+      "id": "usdc-base-x",
+      "commitment": "0x1ee94c6f9f2793ab2d6d7c67df98b3ac8ca73d6a5317861c3eb8c5eda8b5e261"
+    },
+    {
+      "id": "usdc-step-up-contract",
+      "commitment": "0x9104baf07395b2be51f694563d0b5695ab5c4d9c2ef4897a9641950a0b4e89a1"
+    },
+    {
+      "id": "usdc-recycle-topup-step-up",
+      "commitment": "0x6dda0cf48681241305308e98b565e5808da4956e561076e087e31eca96188a9e"
+    },
+    {
+      "id": "usdc-step-up-ecdsa",
+      "commitment": "0xfcc8ad19e3a715b8f22aa48e58f9f8f75ace1954479ca462a45a761b71beb1da"
+    },
+    {
+      "id": "usdc-direct-overspend-rejection",
+      "commitment": "0xcc13bb6e49083de2af1813a5ebadbc97e4eb0f4c2a991c739f50fb15207d9396"
+    },
+    {
+      "id": "usdc-replay-rejection",
+      "commitment": "0x7eb649dbc2760df631769ef168492dbef743d32e9a94c9924c19138f05cd2d43"
+    },
+    {
+      "id": "usdc-unsupported-path-rejection",
+      "commitment": "0xf158308245e3c39d0f0d83c8fb5607b26d1b2620f12d72a522d1e0c3c0336c76"
+    },
+    {
+      "id": "usdc-recycle-topup-delayed",
+      "commitment": "0x3723c6348bc6074a8d8a66ccbfd3b9855f3da5af944ac578cdb4ff8e37b9b1cd"
+    },
+    {
+      "id": "usdc-queue-cancel",
+      "commitment": "0x3f0269bb38c363dc279643530667a70509cf8b30777abd77a4b892e91d6a7bbe"
+    },
+    {
+      "id": "usdc-queue-cancel-early-rejection",
+      "commitment": "0xa73653e1b35558a742d4bc90d7514f8e38880ddafb64330937121686c5a71263"
+    },
+    {
+      "id": "usdc-queue-cancel-action",
+      "commitment": "0xbdba9697abd9e93c709bef99628dc9fc3957cae67bb236e38275c648b08a2b9d"
+    },
+    {
+      "id": "usdc-queue-cancelled-execution-rejection",
+      "commitment": "0x66bcc412393860f2d7561fa2bf0b36be8087ad9722a73ab8875e6273ce080218"
+    },
+    {
+      "id": "usdc-queue-expiry",
+      "commitment": "0x2df60db415b17dc5d509e09f889d74abfc0ab7a44d322333d6caa0e9190e1040"
+    },
+    {
+      "id": "usdc-queue-expiry-early-rejection",
+      "commitment": "0xb2ac8147462fdff4ea598b7fdd3ccd0ae93ed2f252fa4138e54d888c316e41df"
+    },
+    {
+      "id": "usdc-queue-expiry-skip",
+      "commitment": "0xe771199e2c76d7cae11caafdac5012afd160636e7112362f4f8eff1b29d54b75"
+    },
+    {
+      "id": "usdc-queue-expired-execution-rejection",
+      "commitment": "0xfe094510ee3d620367d6db61971dd41492771d6cd316a47a0f8a9dbf1744feeb"
+    },
+    {
+      "id": "usdc-queue-execute",
+      "commitment": "0x2b3abf1f99c2bf79b935b794d65b656103b0088fe6f88512f7a4cc91bd10ac06"
+    },
+    {
+      "id": "usdc-queue-execute-early-rejection",
+      "commitment": "0xee63870eeeb6cde1b0aa4b05d0de4ac5203ca71cef13a872ee70c88bfeb47d5f"
+    },
+    {
+      "id": "usdc-queue-ready-execute",
+      "commitment": "0xec74202bf7dedc8c401cae6a484ff8ba191ae479a519b83d20a2d6ea1016bbc9"
+    }
+  ]
+}

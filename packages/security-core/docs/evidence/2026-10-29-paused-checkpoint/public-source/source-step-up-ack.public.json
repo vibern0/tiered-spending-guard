@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "endpointHash": "0x4485b6eb9a055cfabb7ce818b9e977430ffd9095d340f748fc6ca4e06bcfa6f1",
+  "transactionHash": "0x1fd9630830d96ba5fe3e1d40634f861c8149a3d9f2aa675e81f1359dbcf935b2",
+  "payloadSha256": "0x0540bfc84132997b0d73cbce914995d1c89fcbe77ebfc2e63c8e082a294c1f3b",
+  "receiverRequestId": "7d425b1c-c193-4c05-9efd-25fa81db299b",
+  "receiverRecordedAt": "2026-10-29T12:00:31Z",
+  "retrievedAt": "2026-10-29T12:00:31.749Z",
+  "retrievalProvenance": "official-receiver-api",
+  "expiresAt": "2026-10-30T11:26:17Z"
+}

@@ -1,0 +1,17 @@
+{
+  "scope": "EXACT_PRIOR_APPROVED_PUBLIC_INPUT_COPIES_NOT_NEW_AUTHORITY",
+  "files": {
+    "recovery-certificate.public.json": {
+      "sha256": "0x971030cbed433c7a197758486bac6db7a01e2a78c8b5e86a41b35e324647e1fb",
+      "bytes": 3142
+    },
+    "recovery-proposal.public.json": {
+      "sha256": "0x0cab403ec56e4e95f4c5feb6cf219b813d18b6efe714f32c193ab3253a23c56a",
+      "bytes": 63334
+    },
+    "recovery-approval.public.json": {
+      "sha256": "0xb29bb7d019ba681b6566239ce730c5bedf2f79c7cc5d108aaeb67fe5f404ca4d",
+      "bytes": 5199
+    }
+  }
+}

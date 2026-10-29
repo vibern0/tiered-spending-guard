@@ -1,0 +1,37 @@
+{
+  "scope": "ROOT_RECYCLE_CONTINUATION_CODE_GATE",
+  "head": "d572920258ef4f18ad35c81bba65118c311deea4",
+  "results": [
+    {
+      "phase": "security-check",
+      "exitCode": 1,
+      "logPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-security-check-d572920.log",
+      "logSha256": "0x732b90e7c78aa9e9a54338b1a8296c1220d4a4780d6fb7e098d8175ac4331e91",
+      "passingCounts": [
+        "610",
+        "4",
+        "606"
+      ],
+      "failingCounts": [
+        "2"
+      ],
+      "keyOutput": [
+        "Compiled 51 Solidity files successfully (evm target: cancun).",
+        "Compiled 51 Solidity files successfully (evm target: cancun)."
+      ]
+    },
+    {
+      "phase": "restore-normal-artifacts",
+      "exitCode": 0,
+      "logPath": ".superpowers/sdd/2026-10-29-usdc-recycle-continuation/root-restore-normal-artifacts-d572920.log",
+      "logSha256": "0x36ecbd61a60d0f3287bd95d143e26babdde3f633f075569aa8eb0402c000a717",
+      "passingCounts": [],
+      "failingCounts": [],
+      "keyOutput": [
+        "Compiled 51 Solidity files successfully (evm target: cancun)."
+      ]
+    }
+  ],
+  "signing": false,
+  "broadcast": false
+}

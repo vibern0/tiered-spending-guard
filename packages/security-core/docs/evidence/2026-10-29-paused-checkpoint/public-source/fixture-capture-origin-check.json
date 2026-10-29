@@ -1,0 +1,11 @@
+{
+  "scope": "ROOT_EXACT_PRIOR_CAPTURE_ORIGIN_CHECK_NOT_CURRENT_AUTHORITY",
+  "sourceCaptureSha256": "0xce5bf49e84e1c450e68847f11975972e5016b7100bddcb69192f41f50a879313",
+  "delayFixtureSha256": "0xad367f67b4c8b691d93417ecd740eeefc9abfff50a789469ba5899c0b5aa9201",
+  "fixtureBytes": 404484,
+  "matchingPriorCaptureBodies": 2,
+  "priorCaptureBodyByteEquality": true,
+  "currentLiveProofStillRequired": true,
+  "signing": false,
+  "broadcast": false
+}

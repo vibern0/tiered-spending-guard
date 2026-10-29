@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "scope": "ordinary-usdc-period-successor-v1",
+  "authorization": "STANDING_BOUNDED_SUCCESSOR_AUTHORIZATION",
+  "authorityEvidenceHash": "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b",
+  "proposalHash": "0xb2886755d8f1fc601b84a18139f25822e655089364291c2546ecdd5ba8eb2917",
+  "sourceHash": "0x3c2177fe2d88581d430c80db7e9d605275b816c4a39a12b454be18540ddb85eb",
+  "certificateHash": "0x909f9d5b36c3a8d4dcc099eb6519c1079f7f400e522d17b752ff3f4e37794b1a",
+  "snapshot": {
+    "blockNumber": "12019201",
+    "blockHash": "0xd7fceb0b7f4bbb2164db7a23d2452944889035f25307a69bfb93845ebafbc251",
+    "timestamp": "1793273232"
+  },
+  "effectivePeriod": "1793232000",
+  "deadline": "1793318400",
+  "observer": {
+    "kind": "https-webhook",
+    "publicId": "temporary-test-receiver:0x4485b6eb9a055cfabb7ce818b9e977430ffd9095d340f748fc6ca4e06bcfa6f1",
+    "endpointHash": "0x4485b6eb9a055cfabb7ce818b9e977430ffd9095d340f748fc6ca4e06bcfa6f1",
+    "startupEvidenceHash": "0xfda9675c3103b48449b0e26c21384c83f2e97f9ffeb261f5194160c833594127",
+    "probeEvidenceHash": "0x3c9829aa06fadc300dba012e6b0cf9cb1cf2e708c3497875b7039aa415a3a137",
+    "independentFromProposer": true,
+    "readyAt": "1793273276",
+    "workflowScheduleSeconds": {
+      "review": "3600",
+      "execution": "7200",
+      "confirmations": "180",
+      "delivery": "60",
+      "acknowledgement": "300",
+      "keylessConfirmation": "300"
+    },
+    "requiredThrough": "1793284916",
+    "expiresAt": "1793359577"
+  },
+  "schedule": {
+    "review": "3600",
+    "execution": "7200",
+    "confirmations": "180",
+    "delivery": "60",
+    "acknowledgement": "300",
+    "keylessConfirmation": "300",
+    "reviewAdmission": "11640",
+    "initialExecutionAdmission": "8040",
+    "reconciliationMargin": "840"
+  },
+  "groups": [
+    {
+      "start": 1,
+      "end": 7,
+      "budgetSeconds": "2400"
+    },
+    {
+      "start": 8,
+      "end": 12,
+      "budgetSeconds": "1500"
+    },
+    {
+      "start": 13,
+      "end": 16,
+      "budgetSeconds": "1800"
+    },
+    {
+      "start": 17,
+      "end": 19,
+      "budgetSeconds": "1500"
+    }
+  ],
+  "caps": {
+    "fundingGasLimit": "740292",
+    "safeExecutionGasLimit": "2000000",
+    "publicDelayGasLimit": "300000",
+    "maxFeePerGas": "1000000",
+    "maxPriorityFeePerGas": "1000000"
+  },
+  "reservation": {
+    "phaseLimitWei": "50000000000000000",
+    "priorActualGasCostWei": "71036172317440",
+    "priorPrincipalWei": "60000000000002",
+    "successorMaximumReservationWei": "16080584000000",
+    "aggregateSuccessorAllowanceWei": "16080584000000",
+    "maximumCumulativeOutlayWei": "147116756317442",
+    "grossUsdcAllowance": "31000000",
+    "recycledUsdcAllowance": "11000000"
+  },
+  "maxBroadcastAttempts": 1,
+  "approvedActions": [
+    {
+      "id": "usdc-successor-base-x",
+      "commitment": "0x7983d7f17fac5a06c19220e260e8630e5fec09cddbcc9d82cec9d165101f23b8"
+    },
+    {
+      "id": "usdc-successor-step-up-contract",
+      "commitment": "0xf13d2ffec0f8d987797ef3b0eca4c6c7f2367e3b540ff4a9429a3034605cd701"
+    },
+    {
+      "id": "usdc-successor-recycle-topup-step-up",
+      "commitment": "0xd0fa84f2463996fe8a5cbdb176dbe0a11cc9f35a5f8c8cbe101d70900ad1d406"
+    },
+    {
+      "id": "usdc-successor-step-up-ecdsa",
+      "commitment": "0x400d7d4dbe7c716fc90b0bc761976ba8fbbb1dcf528530ca778c9ce06025a555"
+    },
+    {
+      "id": "usdc-successor-direct-overspend-rejection",
+      "commitment": "0xf47472d1e41f7b80bcdb476dfea88e24992c88c02edd213cef6c6af86300ce26"
+    },
+    {
+      "id": "usdc-successor-replay-rejection",
+      "commitment": "0x2859a123f322b7f79d8f3e0373fc0bdb27906c84de660e7fefa5416c76504cd2"
+    },
+    {
+      "id": "usdc-successor-unsupported-path-rejection",
+      "commitment": "0x1cd7ecbd93220108eb9f362abe98e19041b92ae253ab91ee0a1ef5c1594d5296"
+    },
+    {
+      "id": "usdc-successor-recycle-topup-delayed",
+      "commitment": "0x327cdf7ada0ff97e871a4ff60c70d4bba12cbde421e46fae69c711e4ff54f1ff"
+    },
+    {
+      "id": "usdc-successor-queue-cancel",
+      "commitment": "0x3aeec5bc34919aab0f784ea3743e435120af1fd5dc579b6f0b732de440a187de"
+    },
+    {
+      "id": "usdc-successor-queue-cancel-early-rejection",
+      "commitment": "0x2de178d0f4182134100d14b73bd04d624b80618352c979fbbec0e3760717effb"
+    },
+    {
+      "id": "usdc-successor-queue-cancel-action",
+      "commitment": "0xa3e12ca8012da9943ca7f090335ecdea3af9895b0cdde904077d2ae4efa91a65"
+    },
+    {
+      "id": "usdc-successor-queue-cancelled-execution-rejection",
+      "commitment": "0x844b2803966fda44e022c64e4e1c4d7422cc459c364a42ef4f431bf9d696a461"
+    },
+    {
+      "id": "usdc-successor-queue-expiry",
+      "commitment": "0x08dcfb84fa88053f4401fcd143686160d50ca60c7bd8bcb337a9201081076199"
+    },
+    {
+      "id": "usdc-successor-queue-expiry-early-rejection",
+      "commitment": "0x5c083655aed9eee4b923e7ba8d08ebe1136be7263ff6468ef8eb57d21af6f26f"
+    },
+    {
+      "id": "usdc-successor-queue-expiry-skip",
+      "commitment": "0xe5b369ebb248c943169c6d4bf2b22f89ceace7788e0fe2e712caab4bbb6bcfd7"
+    },
+    {
+      "id": "usdc-successor-queue-expired-execution-rejection",
+      "commitment": "0xfa49ca231a9f8e51d0f9762d42d4899101ee921b47d923e14d4ba20e746f2c64"
+    },
+    {
+      "id": "usdc-successor-queue-execute",
+      "commitment": "0x2b50b529975b19ba0b9bd4d543bb609169218a93b0cf04b950b730c2b1411702"
+    },
+    {
+      "id": "usdc-successor-queue-execute-early-rejection",
+      "commitment": "0x5dec4fe4e6adda32966dbe7ace0dc797b407b8fca6befac56ea5f017769d6a5f"
+    },
+    {
+      "id": "usdc-successor-queue-ready-execute",
+      "commitment": "0x960f6cb0120816f3c206060b837ab73205309cd35a3df14719f4431a70c99206"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "scope": "PUBLIC_FROZEN_RECYCLE_CONTINUATION_SOURCE_NOT_AUTHORITY",
+  "files": [
+    {
+      "file": "source-journal.public.json",
+      "bytes": 56828,
+      "sha256": "0x3d860cf927ccbdd6cfe45864aa42cd60577f8e7745db046e061613e6d3242dae"
+    },
+    {
+      "file": "source-operation-diagnostic.public.json",
+      "bytes": 103393,
+      "sha256": "0x565e41b423321d931745ec1f08862758cb40fef7c77dd70d3aacd1425504ba7a"
+    },
+    {
+      "file": "nonce-invalidation-classification.public.json",
+      "bytes": 11548,
+      "sha256": "0x52cc9b1c4833abaf153f21985015e5cb4c77d1c493b5c7a6b6518de3d9ef571f"
+    },
+    {
+      "file": "source-canonical-capture.public.json",
+      "bytes": 645364,
+      "sha256": "0x4f2b2cc8b1e33eaa35c842fe5be65c2343c5e2d5c5b951904b04de5fe4839946"
+    },
+    {
+      "file": "source-step-up-ledger.public.json",
+      "bytes": 1114,
+      "sha256": "0x2582059e3f914c16fbf1de029658da992dd0b9e1444384eab11dc0bc4dc92eb9"
+    },
+    {
+      "file": "source-step-up-ack.public.json",
+      "bytes": 538,
+      "sha256": "0x230b8576b3056ac8480f3e60cf0170e5aed35914195e3426f4c3d3d4a5ffd43d"
+    },
+    {
+      "file": "authority-evidence.json",
+      "bytes": 623,
+      "sha256": "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b"
+    },
+    {
+      "file": "source-prior-certificate.public.json",
+      "bytes": 2373,
+      "sha256": "0x2caf8945d41e3008d19cdd3169787bb160a31e95c8cf8ab5976c2467f39c00de"
+    },
+    {
+      "file": "source-prior-proposal.public.json",
+      "bytes": 55082,
+      "sha256": "0x4159f07b27186ac7934fdb79e066acb338c23dda723d7a05b1f185408837bc65"
+    },
+    {
+      "file": "source-prior-approval.public.json",
+      "bytes": 5705,
+      "sha256": "0x4f54fd6d62c50857f4c1a3fd66268b46a639c63b803f94fefcf7eae786322794"
+    },
+    {
+      "file": "source-nonce869.public.json",
+      "bytes": 1303,
+      "sha256": "0x344220211726cf4febf830c388e5af05b75b68f34a3c115aeb813ebcdcd08b2d"
+    }
+  ],
+  "signing": false,
+  "broadcast": false
+}

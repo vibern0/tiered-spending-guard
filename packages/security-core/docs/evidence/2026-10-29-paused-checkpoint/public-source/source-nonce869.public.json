@@ -1,0 +1,36 @@
+{
+  "scope": "CANONICAL_PUBLIC_LEGACY_NONCE869_RECYCLE_INVALIDATION",
+  "transaction": {
+    "type": "legacy",
+    "chainId": 11155111,
+    "nonce": 869,
+    "gasPrice": "100000",
+    "gas": "1820162",
+    "to": "0xadb8f835e565ac7e71d2df6cfbd0fc003fa22c27",
+    "value": "0",
+    "input": "0xa0eb5570",
+    "r": "0x7c68830d786b47618591d4253af4ba93242c7f699ab48abafdb1bc61bb09938d",
+    "s": "0x754802ed770314f97bfad3930e8349cf2061caa2bb3558e316eafcfbd91af2ba",
+    "v": "22310258",
+    "hash": "0xa81d6df9e9720da44c096b713fdf389fa28ae41aee2224d7f492560ee864781e",
+    "blockHash": "0xe00b2c4b73f45e9eea3a2476c8399ccad6b9c00273e92bc19a73868b0db4fdac",
+    "blockNumber": "12019394",
+    "transactionIndex": 16,
+    "from": "0xad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc",
+    "blockTimestamp": "1793275548",
+    "typeHex": "0x0"
+  },
+  "receipt": {
+    "transactionHash": "0xa81d6df9e9720da44c096b713fdf389fa28ae41aee2224d7f492560ee864781e",
+    "blockNumber": "12019394",
+    "blockHash": "0xe00b2c4b73f45e9eea3a2476c8399ccad6b9c00273e92bc19a73868b0db4fdac",
+    "status": "success",
+    "gasUsed": "1247851",
+    "effectiveGasPrice": "100000"
+  },
+  "block": {
+    "number": "12019394",
+    "hash": "0xe00b2c4b73f45e9eea3a2476c8399ccad6b9c00273e92bc19a73868b0db4fdac",
+    "timestamp": "1793275548"
+  }
+}

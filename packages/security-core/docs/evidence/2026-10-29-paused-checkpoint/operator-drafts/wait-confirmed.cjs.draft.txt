@@ -1,0 +1,39 @@
+// Root-only bounded dual-provider canonical read. No journal writes or new authority.
+const fs=require('node:fs'),path=require('node:path');
+const{createPublicClient,http}=require('node:module').createRequire(path.resolve('packages/security-core/package.json'))('viem');
+(async()=>{
+ for(const k of Object.keys(process.env))if(k.startsWith('LIVE_')||k.startsWith('VAULT_')||k.startsWith('BACKEND_')||k==='PRIVATE_KEY'||k==='NODE_OPTIONS')throw Error();
+ const id=process.argv[2],cdir='.superpowers/sdd/2026-10-29-usdc-recycle-continuation',jdir='.superpowers/sdd/2026-10-19-native-safe-4337';
+ if(process.argv.length!==3)throw Error();
+ const p=JSON.parse(fs.readFileSync(cdir+'/fresh-recycle-proposal.json','utf8')),approval=JSON.parse(fs.readFileSync(cdir+'/exact-standing-approval-summary.json','utf8'));
+ const desc=p.actions.find(x=>x.id===id);if(!desc||approval.proposalHash!==p.proposalHash||approval.authorization!=='STANDING_BOUNDED_SUCCESSOR_AUTHORIZATION')throw Error();
+ const j=JSON.parse(fs.readFileSync(jdir+'/first38-live-journal-2026-10-28.json','utf8')),a=j.usdcRecycleContinuation?.actions.find(x=>x.id===id);
+ if(a?.status!=='outer-pending'||!a.transactionHash||a.commitment!==desc.commitment||j.usdcRecycleContinuation.proposalHash!==p.proposalHash||j.usdcRecycleContinuation.approvalHash!==approval.approvalHash)throw Error();
+ const urls=['https://ethereum-sepolia-rpc.publicnode.com','https://sepolia.gateway.tenderly.co'];
+ const clients=urls.map(url=>createPublicClient({transport:http(url,{timeout:20000,retryCount:0})}));
+ const end=Date.now()+180000,normalize=x=>JSON.parse(JSON.stringify(x,(_,v)=>typeof v==='bigint'?v.toString():v));
+ const project=r=>normalize({transactionHash:r.transactionHash,status:r.status,blockNumber:r.blockNumber,blockHash:r.blockHash,gasUsed:r.gasUsed,effectiveGasPrice:r.effectiveGasPrice});
+ while(Date.now()<end){
+  const views=await Promise.all(clients.map(async(client,index)=>{
+   if(await client.getChainId()!==11155111)throw Error();
+   let receipt;try{receipt=await client.getTransactionReceipt({hash:a.transactionHash});}catch(error){if(error?.name!=='TransactionReceiptNotFoundError')throw Error();return null;}
+   const head=await client.getBlockNumber(),block=await client.getBlock({blockNumber:receipt.blockNumber});
+   if(block.hash!==receipt.blockHash||receipt.transactionHash.toLowerCase()!==a.transactionHash.toLowerCase())throw Error();
+   return {provider:index,head,receipt,block};
+  }));
+  if(views.every(Boolean)){
+   const [left,right]=views;
+   if(JSON.stringify(project(left.receipt))!==JSON.stringify(project(right.receipt))||left.block.hash!==right.block.hash||left.block.timestamp!==right.block.timestamp)throw Error();
+   if(left.head>=left.receipt.blockNumber+5n&&right.head>=right.receipt.blockNumber+5n){
+    const rereads=await Promise.all(clients.map(client=>client.getBlock({blockNumber:left.receipt.blockNumber})));
+    if(rereads.some(block=>block.hash!==left.receipt.blockHash||block.timestamp!==left.block.timestamp))throw Error();
+    const result=normalize({scope:'ROOT_KNOWN_HASH_DUAL_CANONICAL_RECEIPT_NOT_AUTHORITY',checkedAt:new Date().toISOString(),actionId:id,commitment:desc.commitment,proposalHash:p.proposalHash,approvalHash:approval.approvalHash,transactionHash:a.transactionHash,providers:urls,views:views.map(v=>({provider:v.provider,head:v.head,receipt:v.receipt,block:{number:v.block.number,hash:v.block.hash,timestamp:v.block.timestamp}})),signing:false,broadcast:false});
+    const dir=cdir+'/live-receipts';fs.mkdirSync(dir,{recursive:true});const file=dir+'/'+id+'-'+Date.now()+'.json';fs.writeFileSync(file,JSON.stringify(result,null,2)+'\n',{flag:'wx'});
+    console.log(JSON.stringify({status:left.receipt.status==='success'?'SIX_CONFIRMATIONS':'CANONICAL_REVERT',actionId:id,transactionHash:a.transactionHash,blockNumber:left.receipt.blockNumber.toString(),proof:file,signing:false,broadcast:false}));
+    if(left.receipt.status!=='success')process.exitCode=1;return;
+   }
+  }
+  await new Promise(resolve=>setTimeout(resolve,5000));
+ }
+ throw Error();
+})().catch(()=>{console.error('bounded dual-provider confirmation read failed');process.exitCode=1;});

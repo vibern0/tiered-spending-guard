@@ -1,0 +1,85 @@
+{
+  "scope": "PAUSED_CHECKPOINT_LOCAL_VERIFICATION_NOT_FINANCIAL_AUTHORITY",
+  "checkedAt": "2026-10-29T14:30:23Z",
+  "testedProductHead": "d572920258ef4f18ad35c81bba65118c311deea4",
+  "overallSecurityGate": "FAIL",
+  "signing": false,
+  "broadcast": false,
+  "runs": [
+    {
+      "command": "npm --prefix packages/security-core run security:check",
+      "exitCode": 1,
+      "regularTests": {
+        "passing": 610,
+        "pending": 0,
+        "failing": 0
+      },
+      "invariants": {
+        "passing": 4,
+        "failing": 0
+      },
+      "coverage": {
+        "passing": 606,
+        "pending": 2,
+        "failing": 2
+      },
+      "log": "verification/root-security-check-d572920.log.gz",
+      "logSha256": "0x732b90e7c78aa9e9a54338b1a8296c1220d4a4780d6fb7e098d8175ac4331e91",
+      "notReached": [
+        "slither",
+        "rehearse",
+        "final git diff --check"
+      ],
+      "logEncoding": "gzip; logSha256 binds uncompressed original"
+    },
+    {
+      "command": "npm --prefix packages/security-core run build",
+      "exitCode": 0,
+      "compiledSolidityFiles": 51,
+      "normalArtifactsRestored": true,
+      "warnings": "Two pre-existing Solidity mutability suggestions; see raw log.",
+      "log": "verification/root-restore-normal-artifacts-d572920.log.gz",
+      "logSha256": "0x36ecbd61a60d0f3287bd95d143e26babdde3f633f075569aa8eb0402c000a717",
+      "logEncoding": "gzip; logSha256 binds uncompressed original"
+    },
+    {
+      "command": "npm --prefix apps/backend test",
+      "exitCode": 0,
+      "testFilesPassing": 8,
+      "testsPassing": 18,
+      "log": "verification/backend-test.log.gz",
+      "logSha256": "0x39dda4f0fc2f7723092440caddb8fcba2a2a064dc2ea7726a42a6106cfadbe14",
+      "logEncoding": "gzip; logSha256 binds uncompressed original"
+    }
+  ],
+  "coverageFailures": [
+    {
+      "test": "ordinary USDC recycle continuation CLI / runs the actual default reader and context to one fail-closed funder-signing boundary",
+      "file": "packages/security-core/test/unit/security/ordinary-usdc-recycle-continuation-cli.test.ts",
+      "observed": "Expected local transaction signing failed; instead reviewed package decoded review does not match plan"
+    },
+    {
+      "test": "ordinary USDC recycle continuation CLI / composes the actual recycle loader, production repair adapter, and atomic store",
+      "file": "packages/security-core/test/unit/security/ordinary-usdc-recycle-continuation-cli.test.ts",
+      "observed": "reviewed package decoded review does not match plan",
+      "stack": [
+        "scripts/live/vault-runner.ts:112",
+        "scripts/live/safe-creation-adapter.ts:25",
+        "scripts/live/ordinary-scenario-review-cli.ts:133",
+        "test/unit/security/ordinary-usdc-recycle-continuation-cli.test.ts:315",
+        "scripts/live/ordinary-scenario-repair-session.ts:279",
+        "test/unit/security/ordinary-usdc-recycle-continuation-cli.test.ts:322"
+      ]
+    }
+  ],
+  "diagnosisStatus": "NOT_DIAGNOSED_OR_FIXED; coverage instrumentation/profile artifact mismatch is a hypothesis only; do not weaken production identity checks or silently skip the tests.",
+  "resumeRequired": [
+    "Investigate and reproduce both coverage failures before claiming green",
+    "Complete Task 5 fix re-review",
+    "Implement and review Task 6",
+    "Fresh whole-change review and complete security gate after all fixes",
+    "Separate exact artifact/live approval gates"
+  ],
+  "wholeRepositoryTypeScript": "NOT_CLAIMED_GREEN; earlier unrelated diagnostics remain",
+  "checkpointMeaning": "User-requested paused snapshot publication; not green-gated feature completion or Task 0 closure"
+}

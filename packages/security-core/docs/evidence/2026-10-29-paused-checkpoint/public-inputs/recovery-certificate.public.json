@@ -1,0 +1,56 @@
+{
+  "kind": "VERIFIED_HASHLESS_STATE_CERTIFICATE",
+  "source": {
+    "interruptionRevision": "1e24c636b665b8d44f5755e0e30fd6d485939d35",
+    "laterCorrectedRevision": "e11a893fd36913411e7f7c4598832e96bdf368b7",
+    "failureCause": "UNKNOWN",
+    "historicalExecutorSha256": "0x3c1112c780b54752109239f617b037eacb5e127c726923005ebd58c22ae816fb",
+    "historicalCliAdapterSha256": "0x4f9e7f4cda5da2a4d659bd9ed48f2c9a41f413a126967a24f1a0fb0e8ff6d94d",
+    "historicalSubmissionSha256": "0xd80b7ef9b27d3c848026956fd90da5c0dba80a9c499e6ca3fe08cba6e8488d2b",
+    "descriptorSha256": "0xe72746e38c34a75d3e4fba829a085c0fa15590a6f0948b2391fa4661b568e831",
+    "approvalBytesSha256": "0x90b370004c0bffec9d082bbae70a901b92251a2c1c3ebae5d055f2f967accd14",
+    "approvalHash": "0x9f4af3d3a6142dd901019a7acd5dc10c69af23c89a884cb018c201b095e4e4a1",
+    "originalJournalBytesSha256": "0x6cd8213656cb5efb2b5bfafbab7192be93462f2d290f81916fb6eb9eaa657c74",
+    "failedCommandLogSha256": "0xbde7946063b9d9dcb2bf0b3a8ab567f730071545f565b4d29675670bf9a00631",
+    "failedCommandExitSha256": "0x4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "publicStateArtifactSha256": "0xfc9c71e506c6941496501178fc2b826575ede10839fc61fbda838bb747a8f339",
+    "nonceInvalidationProofSha256": "0xefbde290c5fa6a39008c6f1a3c66fb72c5b24f1ce0b7fc036bc9df1b46fcfcd3",
+    "approvedRecoverySpecSha256": "0xfd877315cb3db6f634a4e318e26e8651206054c409131dfdd607d14960733be1",
+    "controlFlow": "validate signed envelope -> derive hash -> append live entry -> await atomic persistence -> broadcast"
+  },
+  "artifactSha256": "0xfc9c71e506c6941496501178fc2b826575ede10839fc61fbda838bb747a8f339",
+  "historicalPrefixHash": "0x299d8cf298cf0a905046e4fbe569c44c2329b54207e159db551d41fee1dbb83d",
+  "materializationBlock": {
+    "number": "12013857",
+    "hash": "0x197add23b0385bce509adab0a3f3234b58b71e63d0ebccad9aa2e99ba5f44e20",
+    "timestamp": "1793209056"
+  },
+  "certificateBlock": {
+    "number": "12013934",
+    "hash": "0x05d0f3b8f503bfee60455adc88c717e330aa2bafaffb6badca3b5c8215f3948e",
+    "timestamp": "1793209980"
+  },
+  "controlledStateHash": "0xd6ab3079dec5ff381bcf20c60303bb31b788b5c95992b34de003ca0230b949c3",
+  "currentSnapshot": {
+    "block": {
+      "number": "12015137",
+      "hash": "0x5780a696dd3173c1e9c428047eb6bc9d0da9785bce47652659998fee64d8bac2",
+      "timestamp": "1793224428"
+    },
+    "controlledStateHash": "0xd6ab3079dec5ff381bcf20c60303bb31b788b5c95992b34de003ca0230b949c3",
+    "funderUsdcBalance": "0",
+    "funderNonce": 823,
+    "latestNonce": 823,
+    "pendingNonce": 823,
+    "sharedFunderActivity": "UNRELATED_CONFIRMED_OR_PENDING_ACTIVITY"
+  },
+  "classification": "EXPIRED_UNEXECUTED",
+  "nonce809": {
+    "kind": "NONCE_809_INVALIDATED",
+    "transactionHash": "0x83923abf9c1224125296a3485f8cc0a910e7f729ea5d5a73d6f01bf1cdbfe1f5",
+    "recoveredSender": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+    "confirmations": "50",
+    "envelopeDifferenceHash": "0x082cb43ea5190735a79ad640a5dd109bac224a16319ebd746342b28f4a73c709"
+  },
+  "certificateHash": "0x43742e96deb6855d1b2e86b268080892c700f453ffd36da4284de3ec2d252efc"
+}

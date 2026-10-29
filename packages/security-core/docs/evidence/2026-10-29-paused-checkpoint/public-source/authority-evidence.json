@@ -1,0 +1,11 @@
+{
+  "scope": "HUMAN_STANDING_BOUNDED_USDC_SUCCESSOR_AUTHORIZATION",
+  "recordedAt": "2026-10-29T09:13:35.698063+00:00",
+  "instruction": "i approve the reviewed successor, but if it fails, create a new successor and execute right away, so it does not expire",
+  "reviewedDesignSha256": "0x3dd566a468700e94aaabd906b720bd7b6f93ca0f936eb1752cd44a85168cde17",
+  "aggregateSuccessorGasCapWei": "16080584000000",
+  "aggregateGrossUsdcUnits": "31000000",
+  "phaseCeilingWei": "50000000000000000",
+  "laterRepairAuthorized": false,
+  "renewal": "Same scope and remaining aggregate caps only; no ambiguous pending/hashless retry"
+}
