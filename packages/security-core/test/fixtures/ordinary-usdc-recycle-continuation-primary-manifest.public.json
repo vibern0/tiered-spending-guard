@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "scope": "USDC_RECYCLE_SOURCE_PRIMARY_V1",
+  "files": [
+    {
+      "file": "source-journal.public.json",
+      "bytes": 56828,
+      "sha256": "0x3d860cf927ccbdd6cfe45864aa42cd60577f8e7745db046e061613e6d3242dae"
+    },
+    {
+      "file": "source-step-up-ledger.public.json",
+      "bytes": 1114,
+      "sha256": "0x2582059e3f914c16fbf1de029658da992dd0b9e1444384eab11dc0bc4dc92eb9"
+    },
+    {
+      "file": "source-step-up-ack.public.json",
+      "bytes": 538,
+      "sha256": "0x230b8576b3056ac8480f3e60cf0170e5aed35914195e3426f4c3d3d4a5ffd43d"
+    }
+  ]
+}

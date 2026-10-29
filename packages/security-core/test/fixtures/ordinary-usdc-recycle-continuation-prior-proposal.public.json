@@ -1,0 +1,1292 @@
+{
+  "schemaVersion": 1,
+  "scope": "ordinary-usdc-period-successor-v1",
+  "authorization": "NONE",
+  "chainId": 11155111,
+  "authorityEvidenceHash": "0xc7dca18faa9a9bf1cb2028c8bb77a5ccf8b0577145a408dd301d043be09bad3b",
+  "sourceHash": "0x3c2177fe2d88581d430c80db7e9d605275b816c4a39a12b454be18540ddb85eb",
+  "certificateHash": "0x909f9d5b36c3a8d4dcc099eb6519c1079f7f400e522d17b752ff3f4e37794b1a",
+  "snapshot": {
+    "blockNumber": "12019201",
+    "blockHash": "0xd7fceb0b7f4bbb2164db7a23d2452944889035f25307a69bfb93845ebafbc251",
+    "timestamp": "1793273232"
+  },
+  "effectivePeriod": "1793232000",
+  "deadline": "1793318400",
+  "observer": {
+    "kind": "https-webhook",
+    "publicId": "temporary-test-receiver:0x4485b6eb9a055cfabb7ce818b9e977430ffd9095d340f748fc6ca4e06bcfa6f1",
+    "endpointHash": "0x4485b6eb9a055cfabb7ce818b9e977430ffd9095d340f748fc6ca4e06bcfa6f1",
+    "startupEvidenceHash": "0xfda9675c3103b48449b0e26c21384c83f2e97f9ffeb261f5194160c833594127",
+    "probeEvidenceHash": "0x3c9829aa06fadc300dba012e6b0cf9cb1cf2e708c3497875b7039aa415a3a137",
+    "independentFromProposer": true,
+    "readyAt": "1793273276",
+    "workflowScheduleSeconds": {
+      "review": "3600",
+      "execution": "7200",
+      "confirmations": "180",
+      "delivery": "60",
+      "acknowledgement": "300",
+      "keylessConfirmation": "300"
+    },
+    "requiredThrough": "1793284916",
+    "expiresAt": "1793359577"
+  },
+  "schedule": {
+    "review": "3600",
+    "execution": "7200",
+    "confirmations": "180",
+    "delivery": "60",
+    "acknowledgement": "300",
+    "keylessConfirmation": "300",
+    "reviewAdmission": "11640",
+    "initialExecutionAdmission": "8040",
+    "reconciliationMargin": "840"
+  },
+  "groups": [
+    {
+      "start": 1,
+      "end": 7,
+      "budgetSeconds": "2400"
+    },
+    {
+      "start": 8,
+      "end": 12,
+      "budgetSeconds": "1500"
+    },
+    {
+      "start": 13,
+      "end": 16,
+      "budgetSeconds": "1800"
+    },
+    {
+      "start": 17,
+      "end": 19,
+      "budgetSeconds": "1500"
+    }
+  ],
+  "caps": {
+    "fundingGasLimit": "740292",
+    "safeExecutionGasLimit": "2000000",
+    "publicDelayGasLimit": "300000",
+    "maxFeePerGas": "1000000",
+    "maxPriorityFeePerGas": "1000000"
+  },
+  "reservation": {
+    "phaseLimitWei": "50000000000000000",
+    "priorActualGasCostWei": "71036172317440",
+    "priorPrincipalWei": "60000000000002",
+    "successorMaximumReservationWei": "16080584000000",
+    "aggregateSuccessorAllowanceWei": "16080584000000",
+    "maximumCumulativeOutlayWei": "147116756317442",
+    "grossUsdcAllowance": "31000000",
+    "recycledUsdcAllowance": "11000000"
+  },
+  "maxBroadcastAttempts": 1,
+  "actions": [
+    {
+      "id": "usdc-successor-base-x",
+      "kind": "base-transfer",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey"
+      ],
+      "dependsOn": [
+        "usdc-funding",
+        "native-queue-ready-replacement-execute"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "8"
+      },
+      "safeTxHash": "0x5f224b0e10443bae24f87d74f0d9611766241c26827e1be9f05b050627255dc3",
+      "before": {
+        "safeNonce": "8",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "20000000",
+        "funderUsdcBalance": "0",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "0",
+        "usdcInstantSpent": "0",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "9",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "10000000",
+        "funderUsdcBalance": "10000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "10000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x7983d7f17fac5a06c19220e260e8630e5fec09cddbcc9d82cec9d165101f23b8"
+    },
+    {
+      "id": "usdc-successor-step-up-contract",
+      "kind": "step-up-transfer",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-base-x"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "9"
+      },
+      "safeTxHash": "0xe569d230abb7560eac3eb81c291bf59771c55a84d633c716a7bd788b3dea4107",
+      "before": {
+        "safeNonce": "9",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "10000000",
+        "funderUsdcBalance": "10000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "10000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "10",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "20000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0xf13d2ffec0f8d987797ef3b0eca4c6c7f2367e3b540ff4a9429a3034605cd701"
+    },
+    {
+      "id": "usdc-successor-recycle-topup-step-up",
+      "kind": "controlled-recipient-recycled-funding",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "dependsOn": [
+        "usdc-successor-step-up-contract"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a60000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "10",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "20000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "10",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "10000000",
+        "funderUsdcBalance": "10000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "20000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "740292",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0xd0fa84f2463996fe8a5cbdb176dbe0a11cc9f35a5f8c8cbe101d70900ad1d406"
+    },
+    {
+      "id": "usdc-successor-step-up-ecdsa",
+      "kind": "step-up-transfer",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "legacy-ecdsa-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-recycle-topup-step-up"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "10"
+      },
+      "safeTxHash": "0xb78b71bd0d8fc59b61af068b144ebeaf8f925415caba3ed62bdd840f50bcd859",
+      "before": {
+        "safeNonce": "10",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "10000000",
+        "funderUsdcBalance": "10000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "20000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x400d7d4dbe7c716fc90b0bc761976ba8fbbb1dcf528530ca778c9ce06025a555"
+    },
+    {
+      "id": "usdc-successor-direct-overspend-rejection",
+      "kind": "expected-direct-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-step-up-ecdsa"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "11"
+      },
+      "safeTxHash": "0x0f6db6293c2f7bfe8b20545a533d683c0acece92967b3df8187d98e1345b6a7c",
+      "before": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0xf47472d1e41f7b80bcdb476dfea88e24992c88c02edd213cef6c6af86300ce26"
+    },
+    {
+      "id": "usdc-successor-replay-rejection",
+      "kind": "expected-replay-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "replay previously reviewed signed envelope only in later executor"
+      ],
+      "dependsOn": [
+        "usdc-successor-base-x"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000989680",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "8"
+      },
+      "safeTxHash": "0x5f224b0e10443bae24f87d74f0d9611766241c26827e1be9f05b050627255dc3",
+      "before": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x2859a123f322b7f79d8f3e0373fc0bdb27906c84de660e7fefa5416c76504cd2"
+    },
+    {
+      "id": "usdc-successor-unsupported-path-rejection",
+      "kind": "expected-unsupported-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-step-up-ecdsa"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0x095ea7b3000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0x095ea7b3000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "11"
+      },
+      "safeTxHash": "0x8085650e63210088097a5649936de46fb66fd60c7b2605876a3f2a5b439f16b6",
+      "before": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x1cd7ecbd93220108eb9f362abe98e19041b92ae253ab91ee0a1ef5c1594d5296"
+    },
+    {
+      "id": "usdc-successor-recycle-topup-delayed",
+      "kind": "controlled-recipient-recycled-funding",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "funder"
+      ],
+      "dependsOn": [
+        "usdc-successor-step-up-ecdsa"
+      ],
+      "transaction": {
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000d751a1479f49d63dc61e0081b0b4d8c60623d9a600000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "gasLimitCap": "740292",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x327cdf7ada0ff97e871a4ff60c70d4bba12cbde421e46fae69c711e4ff54f1ff"
+    },
+    {
+      "id": "usdc-successor-queue-cancel",
+      "kind": "queue-proposal",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-recycle-topup-delayed"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "11"
+      },
+      "safeTxHash": "0xd8fcc017481cca9de5435f84315de6b0f07c2aadc712a43b33f8cf247ca48722",
+      "queue": {
+        "queueNonce": "4",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "11",
+        "delayQueueNonce": "4",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "3",
+        "queueFingerprint": "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67"
+      },
+      "after": {
+        "safeNonce": "12",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x3aeec5bc34919aab0f784ea3743e435120af1fd5dc579b6f0b732de440a187de"
+    },
+    {
+      "id": "usdc-successor-queue-cancel-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-cancel"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "4",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "12",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "12",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x2de178d0f4182134100d14b73bd04d624b80618352c979fbbec0e3760717effb"
+    },
+    {
+      "id": "usdc-successor-queue-cancel-action",
+      "kind": "queue-cancellation",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-queue-cancel"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x46ba23070000000000000000000000000000000000000000000000000000000000000005",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x46ba23070000000000000000000000000000000000000000000000000000000000000005",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "12"
+      },
+      "safeTxHash": "0xea55125c233f726f7d64823f78057f33ce1322e1939793224e2e821434c6ed4e",
+      "before": {
+        "safeNonce": "12",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "4",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "13",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "CANCELLED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0xa3e12ca8012da9943ca7f090335ecdea3af9895b0cdde904077d2ae4efa91a65"
+    },
+    {
+      "id": "usdc-successor-queue-cancelled-execution-rejection",
+      "kind": "expected-cancelled-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-cancel-action"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "4",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0xf77a10e6e6064450d355423316083d150cf8438d8fe38381b3edd5d9f696dd46",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "13",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "CANCELLED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "13",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "CANCELLED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x844b2803966fda44e022c64e4e1c4d7422cc459c364a42ef4f431bf9d696a461"
+    },
+    {
+      "id": "usdc-successor-queue-expiry",
+      "kind": "queue-proposal",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-queue-cancel-action"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "13"
+      },
+      "safeTxHash": "0xd6e64106a0b3923a54af5535a9219f67b52f55e8ad07018a5fd193cfa941048b",
+      "queue": {
+        "queueNonce": "5",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "13",
+        "delayQueueNonce": "5",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "CANCELLED_CONDITIONAL",
+        "queueNonce": "4",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x08dcfb84fa88053f4401fcd143686160d50ca60c7bd8bcb337a9201081076199"
+    },
+    {
+      "id": "usdc-successor-queue-expiry-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-expiry"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "5",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x5c083655aed9eee4b923e7ba8d08ebe1136be7263ff6468ef8eb57d21af6f26f"
+    },
+    {
+      "id": "usdc-successor-queue-expiry-skip",
+      "kind": "queue-expiry",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-expiry"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xb19d4758",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "5",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "5",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXPIRED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0xe5b369ebb248c943169c6d4bf2b22f89ceace7788e0fe2e712caab4bbb6bcfd7"
+    },
+    {
+      "id": "usdc-successor-queue-expired-execution-rejection",
+      "kind": "expected-expired-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-expiry-skip"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "5",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x9865a4653e14dc02774338e4958dbac0e354003a9e39cbb4c2cc06da8061d928",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXPIRED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXPIRED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0xfa49ca231a9f8e51d0f9762d42d4899101ee921b47d923e14d4ba20e746f2c64"
+    },
+    {
+      "id": "usdc-successor-queue-execute",
+      "kind": "queue-proposal",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [
+        "primary-passkey",
+        "safe-contract-secondary"
+      ],
+      "dependsOn": [
+        "usdc-successor-queue-expiry-skip"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "safeTransaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0x468721a70000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0,
+        "safeTxGas": "0",
+        "baseGas": "0",
+        "gasPrice": "0",
+        "gasToken": "0x0000000000000000000000000000000000000000",
+        "refundReceiver": "0x0000000000000000000000000000000000000000",
+        "nonce": "14"
+      },
+      "safeTxHash": "0x37224aa1976a07d4be3e4e93adfd00e82f922e42d283af6afc9c5bfeb790d9a4",
+      "queue": {
+        "queueNonce": "6",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x5efdbe7f028c2029f9fb079edc6c844593bf6c84dbfb9e5a29188e9873272784",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "14",
+        "delayQueueNonce": "6",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXPIRED_CONDITIONAL",
+        "queueNonce": "5",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "15",
+        "delayQueueNonce": "7",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "6",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "2000000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x2b50b529975b19ba0b9bd4d543bb609169218a93b0cf04b950b730c2b1411702"
+    },
+    {
+      "id": "usdc-successor-queue-execute-early-rejection",
+      "kind": "expected-early-rejection",
+      "asset": "USDC",
+      "expectedOutcome": "rejection",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-execute"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "6",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x5efdbe7f028c2029f9fb079edc6c844593bf6c84dbfb9e5a29188e9873272784",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "15",
+        "delayQueueNonce": "7",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "6",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "15",
+        "delayQueueNonce": "7",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "6",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x5dec4fe4e6adda32966dbe7ace0dc797b407b8fca6befac56ea5f017769d6a5f"
+    },
+    {
+      "id": "usdc-successor-queue-ready-execute",
+      "kind": "ready-delay-execution",
+      "asset": "USDC",
+      "expectedOutcome": "success",
+      "signerRoles": [],
+      "dependsOn": [
+        "usdc-successor-queue-execute-early-rejection"
+      ],
+      "transaction": {
+        "to": "0xB8E143098CcCb9935228022173c2c987DF5FD53a",
+        "value": "0",
+        "data": "0xee072baf0000000000000000000000001c7d4b196cb0c7b01d743fbc6116a902379c72380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000",
+        "operation": 0
+      },
+      "queue": {
+        "queueNonce": "6",
+        "fingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4",
+        "monitoringFingerprint": "0x5efdbe7f028c2029f9fb079edc6c844593bf6c84dbfb9e5a29188e9873272784",
+        "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000ad4d5cd2ec5becdb9608bad4c36f0dbe8b2492bc00000000000000000000000000000000000000000000000000000000000f4240",
+        "operation": 0
+      },
+      "before": {
+        "safeNonce": "15",
+        "delayQueueNonce": "7",
+        "delayTxNonce": "6",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "1000000",
+        "funderUsdcBalance": "19000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "QUEUED_CONDITIONAL",
+        "queueNonce": "6",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "after": {
+        "safeNonce": "15",
+        "delayQueueNonce": "7",
+        "delayTxNonce": "7",
+        "safeNativeBalance": "0",
+        "safeUsdcBalance": "0",
+        "funderUsdcBalance": "20000000",
+        "nativeBaseSpent": "10000000000000",
+        "nativeInstantSpent": "30000000000000",
+        "usdcBaseSpent": "10000000",
+        "usdcInstantSpent": "30000000",
+        "queueStatus": "EXECUTED_CONDITIONAL",
+        "queueNonce": "6",
+        "queueFingerprint": "0xaad5b7c5072c9618dd2fe7a29854410b070d5e93a63fb1d8fc80f58724f156a4"
+      },
+      "gasLimitCap": "300000",
+      "maxFeePerGasCap": "1000000",
+      "maxPriorityFeePerGasCap": "1000000",
+      "commitment": "0x960f6cb0120816f3c206060b837ab73205309cd35a3df14719f4431a70c99206"
+    }
+  ],
+  "proposalHash": "0xb2886755d8f1fc601b84a18139f25822e655089364291c2546ecdd5ba8eb2917"
+}

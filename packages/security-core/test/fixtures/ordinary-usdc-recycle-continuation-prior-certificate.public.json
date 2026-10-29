@@ -1,0 +1,61 @@
+{
+  "kind": "VERIFIED_USDC_SUCCESSOR_CERTIFICATE",
+  "sourceHash": "0x3c2177fe2d88581d430c80db7e9d605275b816c4a39a12b454be18540ddb85eb",
+  "primaryEvidenceHash": "0x967ede130b9ea4514d74f66c7c6a289c408434cfbdaa22a0a797ac15e85c9f90",
+  "snapshot": {
+    "block": {
+      "number": "12019201",
+      "hash": "0xd7fceb0b7f4bbb2164db7a23d2452944889035f25307a69bfb93845ebafbc251",
+      "timestamp": "1793273232"
+    },
+    "controlledStateHash": "0xa40b1d70456c73eebf9e111678a5a30efb5ec81ec7c6843218418735bc17c8b6",
+    "funderNonce": 866,
+    "latestNonce": 866,
+    "pendingNonce": 866
+  },
+  "effectivePeriod": "1793232000",
+  "rawNativeSpend": {
+    "window": "1793145600",
+    "baseSpent": "10000000000000",
+    "instantSpent": "30000000000000"
+  },
+  "rawUsdcSpend": {
+    "window": "0",
+    "baseSpent": "0",
+    "instantSpent": "0"
+  },
+  "recoveryReceipts": [
+    {
+      "id": "native-queue-ready-hashless-skip",
+      "transactionHash": "0x0b80a651b416e815930f1664558c29bee5525f496b1410291d40295f85eb11f7",
+      "blockNumber": "12015599",
+      "blockHash": "0xa55ddf8f2857776bcc156fbfe25eb9b6d583cfade4f30f1bebb52552fdd3f2bd",
+      "gasUsed": "40110",
+      "effectiveGasPrice": "17",
+      "gasCost": "681870",
+      "postStateHash": "0xc638881c9e7d90863c78897ff26ccc17976c2cb2f81856c6d8acd3b762939b4d"
+    },
+    {
+      "id": "native-queue-ready-replacement",
+      "transactionHash": "0x5dc85b25ee465159478ddb989dfb7818b9423a7f146510494f8108c3edb0aa3e",
+      "blockNumber": "12015643",
+      "blockHash": "0x932ea24867fb1064d8543d6ff5b3cfd0a9a576380126e1c55a5f70f6a3f1c3d8",
+      "gasUsed": "1434077",
+      "effectiveGasPrice": "17",
+      "gasCost": "24379309",
+      "postStateHash": "0x4120a2838cfc849d1b48367d4f18733c0a8fd1af3be402565f4a404f8a2ff86c"
+    },
+    {
+      "id": "native-queue-ready-replacement-execute",
+      "transactionHash": "0xd99c42d02e46371d4e94cb4ebdb85fd0a5d7127e0fe0399346590e9a9fac10fe",
+      "blockNumber": "12015659",
+      "blockHash": "0xacfb1490e125160df2c04ef33404175c690497a58bfc20d92967bf6ba9c59f9e",
+      "gasUsed": "94033",
+      "effectiveGasPrice": "17",
+      "gasCost": "1598561",
+      "postStateHash": "0x007e521d2deff021de0fce98513b3054ddda4f7131ba7a8cd2045e30ca87e473"
+    }
+  ],
+  "recoveryGasCostWei": "26659740",
+  "certificateHash": "0x909f9d5b36c3a8d4dcc099eb6519c1079f7f400e522d17b752ff3f4e37794b1a"
+}

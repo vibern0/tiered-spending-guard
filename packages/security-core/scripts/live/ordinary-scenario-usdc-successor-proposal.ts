@@ -34,6 +34,7 @@ export type UsdcSuccessorStorage = Readonly<{ schemaVersion: 1; scope: typeof SC
 
 const proposals = new WeakSet<object>();
 const approvals = new WeakMap<object, UsdcSuccessorProposal>();
+const approvalPublicValues = new WeakMap<object, Readonly<Record<string, unknown>>>();
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
 const freeze = <T>(value: T): T => { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value as Record<string, unknown>)) freeze(child); } return value; };
 const exactKeys = (value: Record<string, unknown>, expected: readonly string[], label: string): void => { const actual = Object.keys(value).sort(), wanted = [...expected].sort(); if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) throw new Error(`${label} shape mismatch`); };
@@ -128,10 +129,18 @@ export function loadUsdcSuccessorApproval(proposal: UsdcSuccessorProposal, seria
   value.approvedActions.forEach((raw, index) => { if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("USDC successor approved action shape mismatch"); exactKeys(raw as Record<string, unknown>, ["id", "commitment"], "USDC successor approved action"); const action = proposal.actions[index]!; if ((raw as any).id !== action.id || !same(hash((raw as any).commitment, "approved action commitment"), action.commitment)) throw new Error("USDC successor approved action mismatch"); });
   const approval = freeze({ approvalHash }) as UsdcSuccessorApproval;
   approvals.set(approval, proposal);
+  approvalPublicValues.set(approval, freeze(structuredClone(value)));
   return approval;
 }
 
 export function assertUsdcSuccessorAuthorization(proposal: UsdcSuccessorProposal, approval: UsdcSuccessorApproval): void { if (!proposals.has(proposal) || approvals.get(approval) !== proposal) throw new Error("USDC successor authorization is not opaque and exactly bound"); }
+
+/** Return a defensive, immutable public snapshot for an already-verified opaque approval. */
+export function getUsdcSuccessorApprovalPublicValue(approval: UsdcSuccessorApproval): Readonly<Record<string, unknown>> {
+  const proposal = approvals.get(approval), value = approvalPublicValues.get(approval);
+  if (!proposal || !proposals.has(proposal) || !value || value.proposalHash !== proposal.proposalHash || value.certificateHash !== proposal.certificateHash || value.sourceHash !== proposal.sourceHash || value.approvalHash !== undefined || !same(publicHash(value), approval.approvalHash)) throw new Error("USDC successor approval is not a genuine opaque verified approval");
+  return freeze(structuredClone(value));
+}
 
 export function attachUsdcSuccessor(journal: OrdinaryScenarioJournal, proposal: UsdcSuccessorProposal, approval: UsdcSuccessorApproval): OrdinaryScenarioJournal & { usdcSuccessor: UsdcSuccessorStorage } {
   assertUsdcSuccessorAuthorization(proposal, approval);

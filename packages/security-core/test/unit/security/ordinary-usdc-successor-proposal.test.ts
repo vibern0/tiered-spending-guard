@@ -11,6 +11,7 @@ import {
   assertUsdcSuccessorAuthorization,
   attachUsdcSuccessor,
   createUsdcSuccessorProposal,
+  getUsdcSuccessorApprovalPublicValue,
   loadUsdcSuccessorApproval,
   parseUsdcSuccessorProposal,
 } from "../../../scripts/live/ordinary-scenario-usdc-successor-proposal";
@@ -112,6 +113,19 @@ describe("ordinary USDC successor proposal", function () {
     const second = createUsdcSuccessorProposal({ source: fixture.source, certificate: fixture.certificate, observer: { ...observer, startupEvidenceHash: h("5") }, caps }); expect(() => assertUsdcSuccessorAuthorization(second, approval)).to.throw(/opaque|bound/i);
     expect(() => assertUsdcSuccessorAuthorization(value, fixture.source.recoveryApproval as any)).to.throw(/opaque|bound/i);
     for (const mutate of [(body: any) => { body.authorization = "EXPLICIT_GROUP_APPROVAL"; }, (body: any) => { body.authorityEvidenceHash = h("6"); }, (body: any) => { body.snapshot.timestamp = "1793232051"; }, (body: any) => { body.maxBroadcastAttempts = 2; }, (body: any) => { body.approvedActions[0].commitment = h("7"); }, (body: any) => { body.humanReviewedProposalHash = value.proposalHash; }]) { const body = structuredClone(document) as any; mutate(body); expect(() => loadUsdcSuccessorApproval(value, JSON.stringify(body), sha256(body) as Hex)).to.throw(/shape|binding|authority|attempt|action/i); }
+  });
+
+  it("retains an immutable public approval body only for the genuine opaque approval", async function () {
+    const value = await proposal(); const document = approvalDocument(value);
+    const approval = loadUsdcSuccessorApproval(value, JSON.stringify(document), sha256(document) as Hex);
+    const first = getUsdcSuccessorApprovalPublicValue(approval) as any;
+    expect(first).to.deep.equal(document);
+    expect(Object.isFrozen(first)).to.equal(true);
+    expect(() => { first.authorization = "NONE"; }).to.throw();
+    const second = getUsdcSuccessorApprovalPublicValue(approval);
+    expect(second).to.deep.equal(document);
+    expect(second).not.to.equal(first);
+    expect(() => getUsdcSuccessorApprovalPublicValue({ ...approval } as any)).to.throw(/opaque|approval/i);
   });
 
   it("attaches one exact frozen sibling without mutating predecessor lineage", async function () {
