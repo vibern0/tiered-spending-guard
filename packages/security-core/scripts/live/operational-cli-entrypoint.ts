@@ -3,12 +3,13 @@ export type OperationalCliOutput = Readonly<{
   setExitCode(value: 1): void;
 }>;
 
-export type OperationalCliFailure = "ordinary-scenario-executor" | "ordinary-scenario-repair" | "ordinary-scenario-hashless-continuation";
+export type OperationalCliFailure = "ordinary-scenario-executor" | "ordinary-scenario-repair" | "ordinary-scenario-hashless-continuation" | "ordinary-usdc-successor";
 
 const FAILURE_DIAGNOSTICS: Readonly<Record<OperationalCliFailure, string>> = Object.freeze({
   "ordinary-scenario-executor": "[ORDINARY_SCENARIO_EXECUTOR_FAILED] ordinary scenario executor failed",
   "ordinary-scenario-repair": "[ORDINARY_SCENARIO_REPAIR_FAILED] ordinary scenario repair failed",
   "ordinary-scenario-hashless-continuation": "[ORDINARY_SCENARIO_HASHLESS_CONTINUATION_FAILED] ordinary scenario hashless continuation failed",
+  "ordinary-usdc-successor": "[ORDINARY_USDC_SUCCESSOR_FAILED] ordinary USDC successor failed",
 });
 
 const processOutput: OperationalCliOutput = Object.freeze({

@@ -187,7 +187,7 @@ function readStableSource(path: string): Readonly<{ raw: string; stat: BigIntSta
 function decodeSourceJournal(raw: string): OrdinaryScenarioJournal {
   let parsed: unknown; try { parsed = JSON.parse(raw); } catch { throw new Error("hashless source journal must be JSON"); }
   const value = record(parsed, "hashless source journal");
-  const optional = ["hashlessContinuation", "repairContinuation"].filter(key => value[key] !== undefined);
+  const optional = ["hashlessContinuation", "repairContinuation", "usdcSuccessor"].filter(key => value[key] !== undefined);
   exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...optional], "hashless source journal");
   const live = record(value.liveJournal, "hashless source live journal");
   exactKeys(live, ["chainId", "funder", "entries"], "hashless source live journal");

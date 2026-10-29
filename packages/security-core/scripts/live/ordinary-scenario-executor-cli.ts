@@ -128,6 +128,25 @@ export function createOrdinaryScenarioProductionHarness(repository: string): Ord
   };
 }
 
+/** Shared lazy signer factory for the fixed ordinary Safe identities. No credential is read until materialization requests its exact role. */
+export function createOrdinaryScenarioClosedSignerLoader(repository: string, harness: OrdinaryScenarioProductionHarness, proposal: ReturnType<typeof createOrdinaryScenarioProposal>) {
+  return async (action: Parameters<OrdinaryScenarioExecutionContext["materialize"]>[0]) => {
+    const primary = await harness.loadClosedPasskey("primary", proposal.primarySigner);
+    if (action.signerRoles.includes("safe-contract-secondary")) return { primary, secondary: await harness.loadClosedPasskey("original-secondary", proposal.safeContractSecondary) };
+    if (action.signerRoles.includes("legacy-ecdsa-secondary")) {
+      const { loadFundingKey } = await import("./secrets");
+      const key = loadFundingKey(requiredEnvironment(process.env, "LIVE_ECDSA_KEY_FILE"), repository); const account = privateKeyToAccount(key);
+      if (account.address.toLowerCase() !== proposal.ecdsaSecondary.toLowerCase()) throw new Error("ECDSA credential does not match reviewed public identity");
+      const tx = action.safeTransaction;
+      if (!tx) throw new Error("ECDSA action lacks reviewed Safe request");
+      const frozenRequest = { chainId: 11155111, safe: proposal.safe, safeTxHash: tx.safeTxHash, typedData: { domain: { chainId: 11155111, verifyingContract: proposal.safe }, types: { SafeTx: (await import("../../src/signers/types")).SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation as 0 | 1, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } } };
+      const provider = createFrozenSafeSignerProvider({ account: account.address, request: frozenRequest, signTypedData: request => account.signTypedData(request.typedData as never) });
+      return { primary, secondary: createEip1193SecondarySigner({ provider, account: account.address }) };
+    }
+    return { primary };
+  };
+}
+
 function createDefaultDependencies(options: OrdinaryScenarioCliOptions, repository: string): OrdinaryScenarioCliDependencies {
   const harness = createOrdinaryScenarioProductionHarness(repository); const { current, archive } = harness;
   const readiness = (proposal: ReturnType<typeof createOrdinaryScenarioProposal>) => async () => harness.observerReadiness(proposal.observerEvidenceHash);
@@ -140,23 +159,7 @@ function createDefaultDependencies(options: OrdinaryScenarioCliOptions, reposito
       return { ready: true, detail: "canonical public topology/state verified; signed gas proof remains NOT_RUN" };
     },
     createContext: async (mode, proposal, journal) => {
-      const loadSigners = async (action: Parameters<OrdinaryScenarioExecutionContext["materialize"]>[0]) => {
-        const primary = await harness.loadClosedPasskey("primary", proposal.primarySigner);
-        if (action.signerRoles.includes("safe-contract-secondary")) {
-          return { primary, secondary: await harness.loadClosedPasskey("original-secondary", proposal.safeContractSecondary) };
-        }
-        if (action.signerRoles.includes("legacy-ecdsa-secondary")) {
-          const { loadFundingKey } = await import("./secrets");
-          const key = loadFundingKey(requiredEnvironment(process.env, "LIVE_ECDSA_KEY_FILE"), repository); const account = privateKeyToAccount(key);
-          if (account.address.toLowerCase() !== proposal.ecdsaSecondary.toLowerCase()) throw new Error("ECDSA credential does not match reviewed public identity");
-          const tx = action.safeTransaction;
-          const frozenRequest = tx && { chainId: 11155111, safe: proposal.safe, safeTxHash: tx.safeTxHash, typedData: { domain: { chainId: 11155111, verifyingContract: proposal.safe }, types: { SafeTx: (await import("../../src/signers/types")).SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation as 0 | 1, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } } };
-          if (!frozenRequest) throw new Error("ECDSA action lacks reviewed Safe request");
-          const provider = createFrozenSafeSignerProvider({ account: account.address, request: frozenRequest, signTypedData: request => account.signTypedData(request.typedData as never) });
-          return { primary, secondary: createEip1193SecondarySigner({ provider, account: account.address }) };
-        }
-        return { primary };
-      };
+      const loadSigners = createOrdinaryScenarioClosedSignerLoader(repository, harness, proposal);
       const live = await harness.createLiveContext(mode, proposal.funder, async () => {});
       return createOrdinaryScenarioExecutionContext({ repository, proposal, journal, currentClient: current, archiveClient: archive, observerReadiness: readiness(proposal), live, loadSigners, observerLedgerPath: options.observerLedgerPath, receiverAcknowledgementPath: options.receiverAcknowledgementPath, observerEndpointHash: ENDPOINT_HASH });
     },

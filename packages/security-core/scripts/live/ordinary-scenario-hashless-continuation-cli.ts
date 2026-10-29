@@ -1,13 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createPublicClient, erc20Abi, http, keccak256, parseAbi, recoverTransactionAddress, serializeTransaction, type Address, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { PUBLIC_ARCHIVE_RPC, PUBLIC_CURRENT_RPC } from "./ordinary-scenario-review-cli";
-import { createOrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
+import { createOrdinaryScenarioClosedSignerLoader, createOrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
 import { createExpiredHashlessContinuationExecutionView, selectExpiredHashlessContinuationSubmissionAction } from "./ordinary-scenario-executor";
-import { createFrozenSafeSignerProvider, createOrdinaryScenarioExecutionContext, createOrdinaryScenarioStateReader, reconstructCanonicalType2Transaction } from "./ordinary-scenario-adapter";
-import { createEip1193SecondarySigner } from "../../src/signers/eip1193";
+import { createOrdinaryScenarioExecutionContext, createOrdinaryScenarioStateReader, reconstructCanonicalType2Transaction } from "./ordinary-scenario-adapter";
 import {
   createOrdinaryScenarioProposal,
   createOrdinaryScenarioStore,
@@ -149,7 +147,7 @@ const GUARD_ABI = parseAbi(["function spendState(address) view returns (uint256,
 const FIXED = Object.freeze({ funder: "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc" as Address, safe: "0xd751a1479f49d63DC61E0081B0b4d8c60623D9a6" as Address, delay: "0xB8E143098CcCb9935228022173c2c987DF5FD53a" as Address, guard: "0x91392B9aE9daBa21a1fba3d92fae9fE47a4B48cA" as Address, usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address, queueFingerprint: "0xbc952941d43eba0cc5b9f3f0e3b98e7984a10e085ab43d623e15224af13f4e67" as Hex });
 const CANONICAL_LEGACY_V = 22_310_258n;
 
-function reconstructCanonicalLegacyTransaction(source: Readonly<{ chainId: number; nonce: number; gas: bigint; gasPrice: bigint; to: Address; value: bigint; data: Hex; r: Hex; s: Hex; v: bigint; hash: Hex }>): Hex {
+export function reconstructCanonicalLegacyTransaction(source: Readonly<{ chainId: number; nonce: number; gas: bigint; gasPrice: bigint; to: Address; value: bigint; data: Hex; r: Hex; s: Hex; v: bigint; hash: Hex }>): Hex {
   const parity = source.v - (2n * BigInt(source.chainId) + 35n); if (parity !== 0n && parity !== 1n) throw new Error("canonical legacy transaction EIP-155 v mismatch");
   const serialized = serializeTransaction({ type: "legacy", chainId: source.chainId, nonce: source.nonce, gas: source.gas, gasPrice: source.gasPrice, to: source.to, value: source.value, data: source.data }, { r: source.r, s: source.s, v: 27n + parity });
   if (keccak256(serialized).toLowerCase() !== source.hash.toLowerCase()) throw new Error("canonical legacy transaction hash mismatch"); return serialized;
@@ -187,8 +185,6 @@ export function createHashlessEvidenceProvider(client: ReturnType<typeof createP
   });
 }
 
-function requiredEnvironment(environment: Readonly<Record<string, string | undefined>>, key: string): string { const value = environment[key]; if (!value) throw new Error(`submit-one requires ${key}`); return value; }
-
 type HashlessContinuationProductionSeams = Readonly<{
   createStateReader?: typeof createOrdinaryScenarioStateReader;
   createHarness?: typeof createOrdinaryScenarioProductionHarness;
@@ -207,12 +203,7 @@ export function createHashlessContinuationProductionDependencies(repository: str
     },
     createExecutionContext: async (mode, inputs, journal) => {
       const view = createExpiredHashlessContinuationExecutionView(inputs.original, inputs.continuation, inputs.approval); const readiness = observerReadiness(inputs, mode);
-      const loadSigners = async (action: Parameters<OrdinaryScenarioExecutionContext["materialize"]>[0]) => {
-        const primary = await harness.loadClosedPasskey("primary", inputs.original.primarySigner);
-        if (action.signerRoles.includes("safe-contract-secondary")) return { primary, secondary: await harness.loadClosedPasskey("original-secondary", inputs.original.safeContractSecondary) };
-        if (action.signerRoles.includes("legacy-ecdsa-secondary")) { const { loadFundingKey } = await import("./secrets"); const account = privateKeyToAccount(loadFundingKey(requiredEnvironment(process.env, "LIVE_ECDSA_KEY_FILE"), repository)); if (account.address.toLowerCase() !== inputs.original.ecdsaSecondary.toLowerCase()) throw new Error("ECDSA credential does not match reviewed identity"); const tx = action.safeTransaction; if (!tx) throw new Error("ECDSA action lacks reviewed Safe request"); const frozenRequest = { chainId: 11155111, safe: inputs.original.safe, safeTxHash: tx.safeTxHash, typedData: { domain: { chainId: 11155111, verifyingContract: inputs.original.safe }, types: { SafeTx: (await import("../../src/signers/types")).SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to: tx.to, value: tx.value, data: tx.data, operation: tx.operation, safeTxGas: tx.safeTxGas, baseGas: tx.baseGas, gasPrice: tx.gasPrice, gasToken: tx.gasToken, refundReceiver: tx.refundReceiver, nonce: tx.safeNonce } } }; return { primary, secondary: createEip1193SecondarySigner({ provider: createFrozenSafeSignerProvider({ account: account.address, request: frozenRequest, signTypedData: request => account.signTypedData(request.typedData as never) }), account: account.address }) }; }
-        return { primary };
-      };
+      const loadSigners = createOrdinaryScenarioClosedSignerLoader(repository, harness, inputs.original);
       const live = await harness.createLiveContext(mode, inputs.original.funder, async () => {});
       return (seams.createExecutionContext ?? createOrdinaryScenarioExecutionContext)({ repository, proposal: view, journal, currentClient: current, archiveClient: archive, observerReadiness: readiness, live, loadSigners, observerLedgerPath: cli.values.get("--observer-ledger"), receiverAcknowledgementPath: cli.values.get("--receiver-ack"), observerEndpointHash: inputs.continuation.observer.endpointHash, receiverReadyAt: new Date(Number(BigInt(inputs.continuation.observer.readyAt)) * 1000).toISOString(), receiverExpiresAt: new Date(Number(BigInt(inputs.continuation.observer.expiresAt)) * 1000).toISOString() });
     },
