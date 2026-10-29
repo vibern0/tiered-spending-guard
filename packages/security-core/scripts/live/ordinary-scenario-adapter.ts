@@ -5,7 +5,7 @@ import { publicAlertPayloadHash } from "../../src/monitoring/notifier";
 import { deriveDelayLifecycle } from "../../src/monitoring/delay-events";
 import { assertSameSignerRequest, snapshotSafeSignerRequest, type Eip1193Provider, type SafeSignerRequest } from "../../src/signers/types";
 import { decodeEventLog, decodeFunctionData, encodeAbiParameters, encodeFunctionData, hashTypedData, parseAbi, keccak256, serializeTransaction, type Address, type Hex } from "viem";
-import type { LiveContext, LiveReceipt } from "./submission";
+import type { JournalEntry, LiveContext, LiveReceipt } from "./submission";
 import { resolveOrdinaryScenarioExecutionProposal, type CanonicalOrdinaryScenarioState, type ConfirmationEffect, type OrdinaryScenarioActionRecord, type OrdinaryScenarioActionScope, type OrdinaryScenarioExecutionContext, type OrdinaryScenarioExecutionView, type OrdinaryScenarioJournal, type OrdinaryScenarioProposal, type PreparedOrdinaryAction, type SignedSimulationEvidence } from "./ordinary-scenario-executor";
 import { reconstructReviewedPlan, verifyReconstructedPlanAtBlock } from "./ordinary-scenario-review-cli";
 import { selectApprovedFees } from "./ordinary-review-profile";
@@ -212,6 +212,13 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
     if (!transaction.to || transaction.type !== "eip1559" || transaction.chainId !== input.expectedChainId) throw new Error("ordinary scenario canonical recovery transaction is unavailable");
     return { id: action.id, to: transaction.to, value: transaction.value, data: transaction.input, nonce: transaction.nonce, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas!, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas! };
   };
+  const inspectReceiptPostState = async (action: OrdinaryScenarioActionScope, entry: JournalEntry, record: OrdinaryScenarioActionRecord): Promise<CanonicalOrdinaryScenarioState> => {
+    if (!entry.receipt) throw new Error("ordinary scenario receipt inspection requires a mined receipt");
+    const [canonicalReceipt, canonicalTransaction] = await Promise.all([archive.getTransactionReceipt({ hash: entry.receipt.transactionHash } as never), archive.getTransaction({ hash: entry.receipt.transactionHash } as never)]);
+    if (canonicalReceipt.status !== "success" || canonicalReceipt.blockNumber !== entry.receipt.blockNumber || canonicalReceipt.blockHash.toLowerCase() !== entry.receipt.blockHash.toLowerCase()) throw new Error("ordinary scenario canonical confirmation receipt mismatch");
+    if (!record.outerTo || record.outerValue === undefined || !record.outerDataHash || !canonicalTransaction.to || canonicalTransaction.to.toLowerCase() !== record.outerTo.toLowerCase() || canonicalTransaction.value.toString() !== record.outerValue || keccak256(canonicalTransaction.input).toLowerCase() !== record.outerDataHash.toLowerCase() || canonicalTransaction.nonce !== record.outerNonce || canonicalTransaction.gas.toString() !== record.gas || canonicalTransaction.maxFeePerGas?.toString() !== record.maxFeePerGas || canonicalTransaction.maxPriorityFeePerGas?.toString() !== record.maxPriorityFeePerGas) throw new Error("ordinary scenario canonical confirmation transaction mismatch");
+    return stateReader(action, "pre-private", { actionId: action.id, transactionHash: entry.receipt.transactionHash, blockNumber: entry.receipt.blockNumber, blockHash: entry.receipt.blockHash });
+  };
   return Object.freeze({
     readState: stateReader,
     materialize,
@@ -241,12 +248,13 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
       return { liveIntent, requestHash: action.safeTxHash!, signerRolesHash: sha256(action.signerRoles) as Hex, signedCalldataHash: keccak256(liveIntent.data), signatureBundleHash: source.signatureBundleHash ?? null, transientSignedCalldata: liveIntent.data, replaySource: { actionId: source.id, safeTxHash: action.safeTxHash!, safeNonce: action.safeTransaction.safeNonce }, transientSignedOuterTransaction: raw };
     },
     verifyContractSignature: async (signer, safeTxHash, signature, blockNumber) => String(await archive.readContract({ address: signer, abi: ERC1271_ABI, functionName: "isValidSignature", args: [safeTxHash, signature], blockNumber } as never)) as Hex,
+    inspectReceiptPostState,
     confirm: async (action, entry, record) => {
       if (!entry.receipt) throw new Error("ordinary scenario confirmation receipt is missing");
       const [canonicalReceipt, canonicalTransaction] = await Promise.all([archive.getTransactionReceipt({ hash: entry.receipt.transactionHash } as never), archive.getTransaction({ hash: entry.receipt.transactionHash } as never)]);
       if (canonicalReceipt.status !== "success" || canonicalReceipt.blockNumber !== entry.receipt.blockNumber || canonicalReceipt.blockHash.toLowerCase() !== entry.receipt.blockHash.toLowerCase()) throw new Error("ordinary scenario canonical confirmation receipt mismatch");
       if (!record.outerTo || record.outerValue === undefined || !record.outerDataHash || !canonicalTransaction.to || canonicalTransaction.to.toLowerCase() !== record.outerTo.toLowerCase() || canonicalTransaction.value.toString() !== record.outerValue || keccak256(canonicalTransaction.input).toLowerCase() !== record.outerDataHash.toLowerCase() || canonicalTransaction.nonce !== record.outerNonce || canonicalTransaction.gas.toString() !== record.gas || canonicalTransaction.maxFeePerGas?.toString() !== record.maxFeePerGas || canonicalTransaction.maxPriorityFeePerGas?.toString() !== record.maxPriorityFeePerGas) throw new Error("ordinary scenario canonical confirmation transaction mismatch");
-      const postState = await stateReader(action, "pre-private", { actionId: action.id, transactionHash: entry.receipt.transactionHash, blockNumber: entry.receipt.blockNumber, blockHash: entry.receipt.blockHash });
+      const postState = await inspectReceiptPostState(action, entry, record);
       let effect: ConfirmationEffect;
       if (action.id === "native-funding") effect = { kind: "native-funding", to: input.proposal.safe, amount: action.publicTransaction!.value };
       else if (action.kind === "funding" || action.kind === "controlled-recipient-recycled-funding") {

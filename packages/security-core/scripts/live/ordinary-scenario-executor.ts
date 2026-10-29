@@ -464,6 +464,7 @@ export type OrdinaryScenarioExecutionContext = Readonly<{
   recoverPending(action: OrdinaryScenarioActionScope, record: OrdinaryScenarioActionRecord): Promise<LiveIntent>;
   recoverReplay(action: OrdinaryScenarioActionScope, source: OrdinaryScenarioActionRecord, state: CanonicalOrdinaryScenarioState): Promise<PreparedOrdinaryAction>;
   verifyContractSignature(signer: Address, safeTxHash: Hex, signature: Hex, blockNumber: bigint): Promise<Hex>;
+  inspectReceiptPostState?(action: OrdinaryScenarioActionScope, entry: JournalEntry, record: OrdinaryScenarioActionRecord): Promise<CanonicalOrdinaryScenarioState>;
   confirm(action: OrdinaryScenarioActionScope, entry: JournalEntry, record: OrdinaryScenarioActionRecord): Promise<ConfirmationEvidence>;
   now?(): Date;
   live: Omit<LiveContext, "verify" | "persist">;
@@ -1004,6 +1005,12 @@ function nextAction(binding: ApprovalBinding, journal: OrdinaryScenarioJournal):
   return undefined;
 }
 
+function assertReceiptPostStateBinding(action: OrdinaryScenarioActionScope, receipt: NonNullable<JournalEntry["receipt"]>, postState: CanonicalOrdinaryScenarioState): void {
+  if (postState.blockNumber !== receipt.blockNumber || !same(postState.blockHash, receipt.blockHash)) throw new Error("ordinary scenario poststate is not pinned to canonical receipt");
+  const basis = postState.evidenceBasis;
+  if (basis.kind !== "receipt-poststate" || basis.actionId !== action.id || !same(basis.transactionHash, receipt.transactionHash) || basis.blockNumber !== receipt.blockNumber || !same(basis.blockHash, receipt.blockHash)) throw new Error("ordinary scenario confirmation requires exact receipt-poststate evidence basis");
+}
+
 async function resumePending(action: OrdinaryScenarioActionScope, proposal: OrdinaryScenarioProposal, journal: OrdinaryScenarioJournal, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext, recordEntry: OrdinaryScenarioActionRecord, boundary: ExecutionBoundary = {}): Promise<OrdinaryScenarioExecutionResult> {
   if (!recordEntry.transactionHash || !recordEntry.intentHash || recordEntry.outerNonce === undefined || !recordEntry.gas || !recordEntry.maxFeePerGas || !recordEntry.maxPriorityFeePerGas || !recordEntry.outerDataHash || !recordEntry.outerValue) throw new Error("ordinary scenario pending record is incomplete");
   const intent = await context.recoverPending(action, recordEntry);
@@ -1014,22 +1021,27 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   recordEntry.receipt = entry.receipt;
   if (entry.status === "reverted") { recordEntry.status = "reverted"; recordEntry.evidenceHash = publicHash(entry.receipt); store.save(journal); return { status: "REVERTED", actionId: action.id }; }
   if (!entry.receipt) throw new Error("ordinary scenario successful receipt is missing");
-  const confirmation = await context.confirm(action, entry, recordEntry);
   if (boundary.effectivePeriod !== undefined) {
+    if (!context.inspectReceiptPostState) throw new Error("ordinary scenario successor receipt inspection boundary is unavailable");
+    const receiptPostState = await context.inspectReceiptPostState(action, entry, recordEntry);
+    assertReceiptPostStateBinding(action, entry.receipt, receiptPostState);
     const anchor = BigInt(proposal.periodAnchor);
-    const actualPeriod = anchor + ((confirmation.postState.blockTimestamp - anchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
+    if (receiptPostState.blockTimestamp < anchor) throw new Error("ordinary scenario successor receipt predates period anchor");
+    const actualPeriod = anchor + ((receiptPostState.blockTimestamp - anchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
     if (actualPeriod !== boundary.effectivePeriod) {
       recordEntry.status = "stopped";
-      recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, actualPeriod: actualPeriod.toString(), approvedPeriod: boundary.effectivePeriod.toString() });
+      recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, poststateBasis: receiptPostState.evidenceBasis, actualPeriod: actualPeriod.toString(), approvedPeriod: boundary.effectivePeriod.toString() });
       store.save(journal);
       throw new Error("ordinary scenario successor receipt was included outside the approved effective period; actual receipt was preserved and execution stopped");
     }
+  }
+  const confirmation = await context.confirm(action, entry, recordEntry);
+  if (boundary.effectivePeriod !== undefined) {
     if (JSON.stringify(publicValue(confirmation.postState.nativeSpend)) !== JSON.stringify(publicValue(boundary.rawNativeSpend)) || confirmation.postState.usdcSpend.window !== boundary.effectivePeriod) throw new Error("ordinary scenario successor receipt raw spend period drift");
   }
   assertControlledState(confirmation.postState, action.after, "post-receipt"); expectedEffect(action, proposal, confirmation.effect);
-  if (confirmation.postState.blockNumber !== entry.receipt.blockNumber || !same(confirmation.postState.blockHash, entry.receipt.blockHash)) throw new Error("ordinary scenario poststate is not pinned to canonical receipt");
+  assertReceiptPostStateBinding(action, entry.receipt, confirmation.postState);
   const poststateBasis = confirmation.postState.evidenceBasis;
-  if (poststateBasis.kind !== "receipt-poststate" || poststateBasis.actionId !== action.id || !same(poststateBasis.transactionHash, entry.receipt.transactionHash) || poststateBasis.blockNumber !== entry.receipt.blockNumber || !same(poststateBasis.blockHash, entry.receipt.blockHash)) throw new Error("ordinary scenario confirmation requires exact receipt-poststate evidence basis");
   const alertProducing = action.kind === "step-up-transfer" || action.kind === "queue-proposal" || action.kind === "queue-cancellation" || action.kind === "queue-expiry" || action.kind === "ready-delay-execution";
   if (alertProducing ? confirmation.observerEvidenceHash === null || !HASH.test(confirmation.observerEvidenceHash) : confirmation.observerEvidenceHash !== null) throw new Error("ordinary scenario confirmation observer evidence mismatch");
   if (action.kind === "queue-proposal") {

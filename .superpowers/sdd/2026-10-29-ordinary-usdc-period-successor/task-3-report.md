@@ -91,3 +91,67 @@ git diff --check
 - The source hash is intentionally fixed to the accepted public checkpoint. Pinned history permits a validated later suffix, while current-store validation accepts only the exact ordered successor suffix and rejects mixed, orphaned, or reordered entries.
 - The actual receipt can arrive after the approved period even when broadcast occurred before deadline. The executor preserves that chain fact and stops; it does not reinterpret the receipt as approved successor progress.
 - No material implementation concern remains after self-review and the final full suite.
+
+## Fix round 1
+
+Status: DONE. All three Important findings in `task-3-independent.md` were accepted and addressed.
+
+### Receipt-period ordering
+
+The execution context now exposes the narrow optional `inspectReceiptPostState` callback. The production mechanical adapter implements it by re-reading the exact canonical successful receipt and exact outer transaction envelope, then reading controlled poststate at that receipt's block. For a successor receipt, the executor requires this boundary, validates the receipt-poststate evidence basis, and derives the actual period before calling full effect/matrix/observer confirmation.
+
+A late receipt is written to the action, the live entry remains canonical success, and the action is durably transitioned from `outer-pending` to `stopped` with receipt-period evidence. This happens even when the alert observer acknowledgement is absent or throws. The executor never calls full confirmation in that late branch. An in-period receipt continues through the unchanged full confirmation checks.
+
+RED command:
+
+```text
+npx hardhat test test/unit/security/ordinary-usdc-successor-executor.test.ts --grep "late alert"
+```
+
+RED output:
+
+```text
+0 passing
+1 failing
+expected rejection matching the late-period stop, got "observer acknowledgement is absent"
+```
+
+GREEN output for the same command: `1 passing`. The regression uses the real filesystem store, an alert-producing later queue action, a canonical receipt-block poststate, a throwing observer confirmation, and a close/reopen assertion for the terminal stopped receipt.
+
+### Real Delay lifecycle integration
+
+The honest Hardhat 31337 integration now runs the actual base transfer, three actual guarded queue proposals, actual Safe-authorized cancellation, actual post-expiry `skipExpired`, and actual post-cooldown `executeNextTx`. It uses the shared mechanical adapter for every calldata/signature materialization, two real Safe WebAuthn contracts for the delayed queue path, the frozen EIP-1193 ECDSA extension for cancellation, the real Safe and `TieredSpendingGuard`, ERC-20 USDC, and Zodiac Delay. Assertions bind the successful receipts, queue/transaction nonce progression `0 -> 1 -> 2 -> 3`, and final recipient USDC balance.
+
+The first integration RED exposed an invalid below-Y delayed fixture through `InvalidDelayedAction()`. After correcting the delayed amount, the second RED exposed the cancellation's missing reviewed ECDSA extension through `MissingEcdsaSecondaryExtension()`. The final honest fixture uses 31 units and the actual ECDSA secondary boundary.
+
+GREEN command and output:
+
+```text
+npx hardhat test test/integration/ordinary-usdc-successor-adapter.test.ts
+1 passing
+```
+
+### Later exact-ID evidence
+
+The successor executor test now advances exact attached progress to action indexes 3, 5, 8, 10, and 18 and checks the next head each time. It drives a later cancellation head through exact successor dependency and queue-receipt lookup, drives the replay rejection to its exact successor source record, and rejects a forged confirmed `usdc-*` record in the superseded recovery tail. The closed production mappings already handled these cases; this finding required direct adversarial evidence rather than a production mapping change.
+
+Final affected command:
+
+```text
+npx hardhat test \
+  test/unit/security/ordinary-usdc-successor-executor.test.ts \
+  test/integration/ordinary-usdc-successor-adapter.test.ts \
+  test/unit/security/ordinary-scenario-executor.test.ts \
+  test/unit/security/ordinary-scenario-adapter.test.ts \
+  test/unit/security/ordinary-scenario-hashless-executor.test.ts \
+  test/integration/ordinary-scenario-adapter.test.ts \
+  test/integration/ordinary-scenario-hashless-adapter.test.ts
+```
+
+Final affected output: `74 passing (3s)`. `git diff --check` passed. Per the fix-round instruction, the unchanged 536-test full suite was not repeated; the focused set covers the modified executor, adapter, filesystem store, successor paths, predecessor/hashless compatibility, and actual cryptographic/contract mechanics.
+
+### Fix-round interfaces and concerns
+
+- Task 4 contexts for successor execution must compose `inspectReceiptPostState`; the shared production adapter already supplies the exact canonical implementation.
+- The narrow inspection result grants no success authority. It only binds the mined receipt, outer envelope, receipt block, and actual period. Effect, matrix, queue, accounting, and observer evidence remain in full confirmation for in-period receipts.
+- No new Solidity, dependency, arbitrary action surface, RPC use, live signer, broadcaster, operational approval, or authoritative journal write was added.

@@ -45,16 +45,31 @@ describe("ordinary USDC successor executor", function () {
     return { ...fixture, proposal, approval, journal };
   }
 
-  function currentState(f: Awaited<ReturnType<typeof prepared>>, patch: Partial<CanonicalOrdinaryScenarioState> = {}): CanonicalOrdinaryScenarioState {
-    const action = createUsdcSuccessorExecutionView(f.source, f.proposal, f.approval).proposal.actions.slice(-19)[0]!; const controlled = action.before;
+  function completedRecord(f: Awaited<ReturnType<typeof prepared>>, index: number): OrdinaryScenarioActionRecord {
+    const action = f.proposal.actions[index]!;
+    const transactionHash = sha256({ action: action.id, index, kind: "successor-test-transaction" }) as Hex;
+    const facts = { proposalHash: f.proposal.proposalHash, actionCommitment: action.commitment, outerNonce: 900 + index, gas: action.gasLimitCap.toString(), gasEstimate: "1", maxFeePerGas: "1", maxPriorityFeePerGas: "1", pinnedBlockNumber: successorSnapshot.number.toString(), pinnedBlockHash: successorSnapshot.hash, approvedContinuationReservationWei: f.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: f.proposal.reservation.successorMaximumReservationWei };
+    return { id: action.id, commitment: action.commitment, status: action.expectedOutcome === "success" ? "confirmed" : "rejection-proved", finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts }, ...(action.expectedOutcome === "success" ? { transactionHash } : {}), ...(action.kind === "queue-proposal" ? { queueCreatedAt: (successorSnapshot.timestamp - 300n).toString() } : {}), evidenceHash: sha256({ action: action.id, outcome: action.expectedOutcome }) as Hex };
+  }
+
+  function advancedJournal(f: Awaited<ReturnType<typeof prepared>>, index: number): typeof f.journal {
+    const journal = structuredClone(f.journal);
+    for (let cursor = 0; cursor < index; cursor++) journal.usdcSuccessor!.actions[cursor] = completedRecord(f, cursor);
+    return journal;
+  }
+
+  function currentState(f: Awaited<ReturnType<typeof prepared>>, patch: Partial<CanonicalOrdinaryScenarioState> = {}, actionIndex = 0, journal = f.journal): CanonicalOrdinaryScenarioState {
+    const action = createUsdcSuccessorExecutionView(f.source, f.proposal, f.approval).proposal.actions.slice(-19)[actionIndex]!; const controlled = action.before;
     const dependencies = action.dependsOn.map(id => {
-      const record = [...f.journal.actions, ...f.journal.hashlessContinuation!.actions].find(entry => entry.id === id && entry.status === "confirmed") as any;
+      const record = [...journal.actions, ...journal.hashlessContinuation!.actions, ...journal.usdcSuccessor!.actions].find(entry => entry.id === id && entry.status === "confirmed") as any;
       if (!record?.evidenceHash) throw new Error(`fixture dependency ${id} missing`);
       return { actionId: id, transactionHash: record.transactionHash, blockHash: record.receipt?.blockHash, evidenceHash: record.evidenceHash };
     });
-    const reviewedQueue = controlled.queueFingerprint === null ? undefined : f.source.recovery.actions.find(candidate => candidate.kind === "queue-proposal" && candidate.queue?.queueNonce === controlled.queueNonce && candidate.queue.fingerprint === controlled.queueFingerprint)?.queue; const queueRecord = f.journal.hashlessContinuation!.actions.find(entry => entry.id === "native-queue-ready-replacement" && entry.status === "confirmed") as any;
-    const queue = reviewedQueue ? { queueNonce: BigInt(reviewedQueue.queueNonce), fingerprint: reviewedQueue.fingerprint, createdAt: BigInt(queueRecord.queueCreatedAt), status: "executed" as const, to: reviewedQueue.to, value: BigInt(reviewedQueue.value), data: reviewedQueue.data, operation: 0 as const } : undefined;
-    return { chainId: 11_155_111, blockNumber: successorSnapshot.number, blockHash: successorSnapshot.hash, blockTimestamp: successorSnapshot.timestamp, evidenceBasis: { kind: "current-head" }, planHash: f.source.original.planHash, topologyEvidenceHash: f.source.original.topologyEvidenceHash, publicIdentitiesHash: f.source.original.publicIdentitiesHash, observerReady: true, observerEvidenceHash: f.proposal.observer.probeEvidenceHash, outerNonce: 900, funderNativeBalance: 10n ** 18n, safeNativeBalance: BigInt(controlled.safeNativeBalance), funderUsdcBalance: BigInt(controlled.funderUsdcBalance), safeUsdcBalance: BigInt(controlled.safeUsdcBalance), safeNonce: BigInt(controlled.safeNonce), delayQueueNonce: BigInt(controlled.delayQueueNonce), delayTxNonce: BigInt(controlled.delayTxNonce), nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, usdcSpend: { window: 0n, baseSpent: BigInt(controlled.usdcBaseSpent), instantSpent: BigInt(controlled.usdcInstantSpent) }, queue, dependencies, fees: { maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, ...patch };
+    const reviewedAction = controlled.queueFingerprint === null ? undefined : [...f.proposal.actions, ...f.source.recovery.actions].find(candidate => candidate.kind === "queue-proposal" && candidate.queue?.queueNonce.toString() === controlled.queueNonce && candidate.queue.fingerprint === controlled.queueFingerprint); const reviewedQueue = reviewedAction?.queue; const queueRecord = reviewedAction && [...journal.hashlessContinuation!.actions, ...journal.usdcSuccessor!.actions].find(entry => entry.id === reviewedAction.id && entry.status === "confirmed") as any;
+    const queueStatus = controlled.queueStatus === "QUEUED_CONDITIONAL" ? "queued" : controlled.queueStatus === "EXPIRED_CONDITIONAL" ? "expired" : "executed";
+    const queue = reviewedQueue ? { queueNonce: BigInt(reviewedQueue.queueNonce), fingerprint: reviewedQueue.fingerprint, createdAt: BigInt(queueRecord.queueCreatedAt), status: queueStatus as "queued" | "expired" | "executed", to: reviewedQueue.to, value: BigInt(reviewedQueue.value), data: reviewedQueue.data, operation: 0 as const } : undefined;
+    const usdcWindow = controlled.usdcBaseSpent === "0" && controlled.usdcInstantSpent === "0" ? 0n : BigInt(f.proposal.effectivePeriod);
+    return { chainId: 11_155_111, blockNumber: successorSnapshot.number, blockHash: successorSnapshot.hash, blockTimestamp: successorSnapshot.timestamp, evidenceBasis: { kind: "current-head" }, planHash: f.source.original.planHash, topologyEvidenceHash: f.source.original.topologyEvidenceHash, publicIdentitiesHash: f.source.original.publicIdentitiesHash, observerReady: true, observerEvidenceHash: f.proposal.observer.probeEvidenceHash, outerNonce: 900, funderNativeBalance: 10n ** 18n, safeNativeBalance: BigInt(controlled.safeNativeBalance), funderUsdcBalance: BigInt(controlled.funderUsdcBalance), safeUsdcBalance: BigInt(controlled.safeUsdcBalance), safeNonce: BigInt(controlled.safeNonce), delayQueueNonce: BigInt(controlled.delayQueueNonce), delayTxNonce: BigInt(controlled.delayTxNonce), nativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, usdcSpend: { window: usdcWindow, baseSpent: BigInt(controlled.usdcBaseSpent), instantSpent: BigInt(controlled.usdcInstantSpent) }, queue, dependencies, fees: { maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, ...patch };
   }
 
   it("creates one closed successor-only view and selects no superseded USDC slot", async function () {
@@ -65,6 +80,27 @@ describe("ordinary USDC successor executor", function () {
     expect(view.proposal.actions.slice(-19).every(action => action.id.startsWith("usdc-successor-"))).to.equal(true);
     expect(selectUsdcSuccessorSubmissionAction(f.source, f.proposal, f.approval, f.journal).id).to.equal("usdc-successor-base-x");
     expect(() => createUsdcSuccessorExecutionView(f.source, f.proposal, { ...f.approval } as never)).to.throw(/opaque|bound|authorization/i);
+  });
+
+  it("uses exact later successor IDs for heads, dependencies, queue lookup, and replay while rejecting old USDC progress", async function () {
+    const f = await prepared();
+    for (const index of [3, 5, 8, 10, 18]) {
+      const journal = advancedJournal(f, index);
+      expect(selectUsdcSuccessorSubmissionAction(f.source, f.proposal, f.approval, journal).id).to.equal(f.proposal.actions[index]!.id);
+    }
+
+    const oldProgress = advancedJournal(f, 8); oldProgress.hashlessContinuation!.actions[3] = { ...completedRecord(f, 0), id: "usdc-base-x", commitment: oldProgress.hashlessContinuation!.actions[3]!.commitment };
+    expect(() => selectUsdcSuccessorSubmissionAction(f.source, f.proposal, f.approval, oldProgress)).to.throw(/superseded USDC source|source.*untouched|frozen source|binding/i);
+
+    const queueIndex = 10; const queued = advancedJournal(f, queueIndex); const queueState = currentState(f, {}, queueIndex, queued); let queuedAction = "";
+    const queueContext = { readState: async (action: { id: string }) => { queuedAction = action.id; return queueState; }, materialize: async () => { throw new Error("queue dependency and receipt lookup reached exact head"); }, now: () => new Date(Number(queueState.blockTimestamp * 1000n)) } as unknown as OrdinaryScenarioExecutionContext;
+    await expect(executeUsdcSuccessorAction(f.source, f.proposal, f.approval, { load: () => queued, save: () => undefined }, queueContext)).to.be.rejectedWith("queue dependency and receipt lookup reached exact head");
+    expect(queuedAction).to.equal(f.proposal.actions[queueIndex]!.id);
+
+    const replayIndex = 5; const replayJournal = advancedJournal(f, replayIndex); const replayState = currentState(f, {}, replayIndex, replayJournal); let replaySource = "";
+    const replayContext = { readState: async () => replayState, recoverReplay: async (_action: unknown, source: OrdinaryScenarioActionRecord) => { replaySource = source.id; throw new Error("exact replay source reached"); }, now: () => new Date(Number(replayState.blockTimestamp * 1000n)) } as unknown as OrdinaryScenarioExecutionContext;
+    await expect(executeUsdcSuccessorAction(f.source, f.proposal, f.approval, { load: () => replayJournal, save: () => undefined }, replayContext)).to.be.rejectedWith("exact replay source reached");
+    expect(replaySource).to.equal(f.proposal.actions[replayIndex]!.dependsOn[0]);
   });
 
   it("round-trips the exact sibling and rejects header deletion or detached mutation", async function () {
@@ -109,17 +145,21 @@ describe("ordinary USDC successor executor", function () {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
-  it("reconciles a known hash keylessly after the deadline and preserves a late receipt as stopped", async function () {
-    const f = await prepared(); const action = createUsdcSuccessorExecutionView(f.source, f.proposal, f.approval).proposal.actions.slice(-19)[0]!; const transactionHash = h("a"); const blockHash = h("b");
+  it("persists a late alert receipt as stopped before observer confirmation is available", async function () {
+    const f = await prepared(); const directory = mkdtempSync(join(tmpdir(), "usdc-successor-late-alert-")); const actionIndex = 8; const advanced = advancedJournal(f, actionIndex); const action = createUsdcSuccessorExecutionView(f.source, f.proposal, f.approval).proposal.actions.slice(-19)[actionIndex]!; expect(action.kind).to.equal("queue-proposal"); const transactionHash = h("a"); const blockHash = h("b");
     const intent = { id: action.id, to: f.source.original.safe, value: 0n, data: "0x1234" as Hex, nonce: 900, gas: action.gasLimitCap, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n };
     const facts = { proposalHash: f.proposal.proposalHash, actionCommitment: action.commitment, outerNonce: intent.nonce, gas: intent.gas.toString(), gasEstimate: "1", maxFeePerGas: "1", maxPriorityFeePerGas: "1", pinnedBlockNumber: successorSnapshot.number.toString(), pinnedBlockHash: successorSnapshot.hash, approvedContinuationReservationWei: f.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: f.proposal.reservation.successorMaximumReservationWei };
     const record: OrdinaryScenarioActionRecord = { id: action.id, commitment: action.commitment, status: "outer-pending", finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts }, outerNonce: intent.nonce, gas: intent.gas.toString(), maxFeePerGas: "1", maxPriorityFeePerGas: "1", intentHash: liveIntentHash(intent, f.journal.funder), transactionHash, outerTo: intent.to, outerValue: "0", outerDataHash: keccak256(intent.data), funderNativeBefore: (10n ** 18n).toString() };
-    let current = structuredClone(f.journal); current.usdcSuccessor!.actions[0] = record; current.liveJournal.entries.push({ id: action.id, intentHash: record.intentHash!, transactionHash, nonce: intent.nonce, reserved: intent.gas, status: "pending" }); const store = { load: () => structuredClone(current), save: (value: typeof current) => { current = structuredClone(value); } };
+    advanced.usdcSuccessor!.actions[actionIndex] = record; advanced.liveJournal.entries.push({ id: action.id, intentHash: record.intentHash!, transactionHash, nonce: intent.nonce, reserved: intent.gas, status: "pending" }); const path = join(directory, "journal.json"); const store = createOrdinaryScenarioStore(path, { proposalHash: advanced.proposalHash, approvalHash: advanced.approvalHash, funder: advanced.funder }, () => advanced);
     const receipt = { transactionHash, status: "success" as const, gasUsed: 1n, effectiveGasPrice: 1n, blockNumber: successorSnapshot.number + 100n, blockHash };
     const lateState = { ...currentState(f), blockNumber: receipt.blockNumber, blockHash, blockTimestamp: BigInt(f.proposal.deadline) + 1n, evidenceBasis: { kind: "receipt-poststate" as const, actionId: action.id, transactionHash, blockNumber: receipt.blockNumber, blockHash } };
-    const context = { recoverPending: async () => intent, confirm: async () => ({ postState: lateState, effect: { kind: "safe-execution" as const, safeTxHash: action.safeTxHash! }, observerEvidenceHash: null }), live: { funder: f.journal.funder, chainId: async () => 11_155_111, nonce: async () => 901, balance: async () => 0n, sign: async () => { throw new Error("private signer must stay unloaded"); }, broadcast: async () => { throw new Error("known hash must not rebroadcast"); }, receipt: async () => receipt } } as unknown as OrdinaryScenarioExecutionContext;
-    await expect(executeUsdcSuccessorAction(f.source, f.proposal, f.approval, store, context)).to.be.rejectedWith(/outside the approved effective period|preserved.*stopped/i);
-    const persisted = current.usdcSuccessor!.actions[0] as OrdinaryScenarioActionRecord; expect(persisted.status).to.equal("stopped"); expect(persisted.receipt?.transactionHash).to.equal(transactionHash); expect(current.liveJournal.entries[13]!.status).to.equal("success");
+    let confirmationCalls = 0;
+    const context = { recoverPending: async () => intent, inspectReceiptPostState: async () => lateState, confirm: async () => { confirmationCalls++; throw new Error("observer acknowledgement is absent"); }, live: { funder: f.journal.funder, chainId: async () => 11_155_111, nonce: async () => 901, balance: async () => 0n, sign: async () => { throw new Error("private signer must stay unloaded"); }, broadcast: async () => { throw new Error("known hash must not rebroadcast"); }, receipt: async () => receipt } } as unknown as OrdinaryScenarioExecutionContext;
+    try {
+      await expect(executeUsdcSuccessorAction(f.source, f.proposal, f.approval, store, context)).to.be.rejectedWith(/outside the approved effective period|preserved.*stopped/i);
+      const current = store.load(); const persisted = current.usdcSuccessor!.actions[actionIndex] as OrdinaryScenarioActionRecord; expect(persisted.status).to.equal("stopped"); expect(persisted.receipt?.transactionHash).to.equal(transactionHash); expect(current.liveJournal.entries[13]!.status).to.equal("success"); expect(confirmationCalls).to.equal(0); store.close?.();
+      const reopened = createOrdinaryScenarioStore(path, { proposalHash: advanced.proposalHash, approvalHash: advanced.approvalHash, funder: advanced.funder }, () => { throw new Error("must reload stopped receipt"); }); expect(reopened.load().usdcSuccessor!.actions[actionIndex]!.status).to.equal("stopped"); reopened.close?.();
+    } finally { store.close?.(); rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("requires exact nonempty observer window forwarding in the shared adapter", async function () {
