@@ -29,7 +29,8 @@ const normalizeJournalInput = <T extends { proposal: OrdinaryScenarioProposal | 
   const proposal = resolveOrdinaryScenarioExecutionProposal(input.proposal);
   if (!("kind" in input.proposal) || input.proposal.kind === "original-ordinary-v1") return { ...input, proposal };
   const sourceJournal = input.journal;
-  return { ...input, proposal, journal: () => { const source = sourceJournal(); const records = source.hashlessContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions.slice(0, 18), ...records] }; } };
+  if (input.proposal.kind === "expired-hashless-continuation-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const records = source.hashlessContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions.slice(0, 18), ...records] }; } };
+  return { ...input, proposal, journal: () => { const source = sourceJournal(); const recovery = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcSuccessor?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions, ...recovery, ...records] }; } };
 };
 
 export type FrozenLocalAccountCapability = Readonly<{
@@ -179,6 +180,10 @@ export type OrdinaryScenarioMechanicalAdapterInput = Omit<OrdinaryScenarioAdapte
 
 /** Non-authorizing callback core; production supplies the closed state reader and Sepolia chain above. */
 export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: OrdinaryScenarioMechanicalAdapterInput, stateReader: ReturnType<typeof createOrdinaryScenarioMechanicalStateReader>): OrdinaryScenarioExecutionContext {
+  if ("kind" in rawInput.proposal && rawInput.proposal.kind === "usdc-period-successor-v1") {
+    const binding = rawInput.proposal.successor.observer;
+    if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== binding.readyAt || rawInput.receiverExpiresAt !== binding.expiresAt) throw new Error("USDC successor adapter requires exact nonempty observer ready and expiry forwarding");
+  }
   const input = normalizeJournalInput(rawInput);
   const current = input.currentClient;
   const archive = input.archiveClient;
@@ -288,6 +293,7 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
       }
       return { postState, effect, observerEvidenceHash };
     },
+    ...(input.now === undefined ? {} : { now: input.now }),
     live: input.live,
   });
 }
