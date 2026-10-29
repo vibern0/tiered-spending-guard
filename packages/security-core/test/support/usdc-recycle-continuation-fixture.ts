@@ -215,7 +215,7 @@ export async function recycleProviders(source: UsdcRecycleContinuationSource, le
   return [await recycleProvider(0, source, left), await recycleProvider(1, source, right)] as const;
 }
 
-export async function createApprovedUsdcRecycleContinuation(nonce = 870) {
+export async function createAuthorizedUsdcRecycleContinuation(nonce = 870) {
   const source = await createUsdcRecycleContinuationSource();
   const certificate = await verifyUsdcRecycleContinuationCertificate(source, recycleFixture.primary, await recycleProviders(source, { snapshotNonce: nonce }, { snapshotNonce: nonce }));
   const proposal = createUsdcRecycleContinuationProposal({
@@ -248,6 +248,11 @@ export async function createApprovedUsdcRecycleContinuation(nonce = 870) {
     approvedActions: proposal.actions.map(({ id, commitment }) => ({ id, commitment })),
   };
   const approval = loadUsdcRecycleContinuationApproval(proposal, JSON.stringify(document), sha256(document) as Hex);
-  const journal = attachUsdcRecycleContinuation(source.prior.journal, proposal, approval);
-  return { source, certificate, proposal, approval, journal };
+  return { source, certificate, proposal, approval };
+}
+
+export async function createApprovedUsdcRecycleContinuation(nonce = 870) {
+  const authorized = await createAuthorizedUsdcRecycleContinuation(nonce);
+  const journal = attachUsdcRecycleContinuation(authorized.source.prior.journal, authorized.proposal, authorized.approval);
+  return { ...authorized, journal };
 }

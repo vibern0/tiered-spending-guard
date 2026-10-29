@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, getContract, hashTypedData, keccak256, parseAbi, type Address, type Hex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import factoryArtifact from "@safe-global/safe-passkey/build/artifacts/contracts/SafeWebAuthnSignerFactory.sol/SafeWebAuthnSignerFactory.json";
 import verifierArtifact from "@safe-global/safe-passkey/build/artifacts/contracts/verifiers/FCLP256Verifier.sol/FCLP256Verifier.json";
 import { createAutomatedCredential, signWebAuthn } from "../../scripts/live/webauthn";
@@ -10,7 +11,8 @@ import { SAFE_TX_TYPES } from "../../src/signers/types";
 import {
   createUsdcRecycleContinuationExecutionView,
 } from "../../scripts/live/ordinary-scenario-executor";
-import { createFrozenSafeSignerProvider, createOrdinaryScenarioMechanicalExecutionContext } from "../../scripts/live/ordinary-scenario-adapter";
+import { createFrozenSafeSignerProvider, createOrdinaryScenarioMechanicalExecutionContext, createOrdinaryScenarioMechanicalStateReader } from "../../scripts/live/ordinary-scenario-adapter";
+import { submitLiveIntentForChain, type LiveJournal } from "../../scripts/live/submission";
 import {
   cleanupUsdcRecycleContinuationFixtures,
   createApprovedUsdcRecycleContinuation,
@@ -28,6 +30,23 @@ describe("ordinary USDC recycle continuation adapter", function () {
     expect(() => createOrdinaryScenarioMechanicalExecutionContext(base as never, (async () => { throw new Error("unused"); }) as never)).to.throw(/observer ready and expiry forwarding/i);
     expect(() => createOrdinaryScenarioMechanicalExecutionContext({ ...base, receiverReadyAt: readyAt, receiverExpiresAt: expiresAt } as never, (async () => { throw new Error("unused"); }) as never)).not.to.throw();
     expect(() => createOrdinaryScenarioMechanicalExecutionContext({ ...base, receiverReadyAt: f.proposal.observer.readyAt, receiverExpiresAt: f.proposal.observer.expiresAt } as never, (async () => { throw new Error("unused"); }) as never)).to.throw(/observer ready and expiry forwarding/i);
+  });
+
+  it("proves selected-block/current nonce drift through the default mechanical reader", async function () {
+    const f = await createApprovedUsdcRecycleContinuation(); const view = createUsdcRecycleContinuationExecutionView(f.source, f.proposal, f.approval); const action = view.proposal.actions[5]!;
+    const block = { number: 12_019_410n, hash: `0x${"8".repeat(64)}` as Hex, timestamp: BigInt(f.proposal.effectivePeriod) + 60n, baseFeePerGas: 1n };
+    const client = { getBlock: async () => block, getChainId: async () => 11_155_111, getTransactionCount: async (request: { blockNumber?: bigint; blockTag?: string }) => request.blockNumber === block.number ? 901 : 902, getBalance: async () => 10n ** 18n, estimateFeesPerGas: async () => ({ maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }), readContract: async ({ functionName }: { functionName: string }) => functionName === "spendState" ? [0n, 0n, 0n] : 0n } as never;
+    const reader = createOrdinaryScenarioMechanicalStateReader({ expectedChainId: 11_155_111, proposal: view, journal: () => f.journal, currentClient: client, archiveClient: client, observerReadiness: async () => ({ ready: true, evidenceHash: f.proposal.observer.probeEvidenceHash }), verifyProfileAtBlock: async () => undefined });
+    await expect(reader(action, "pre-private")).to.be.rejectedWith("ordinary scenario selected-block and current funder nonce drift");
+  });
+
+  it("persists a durable hash before the sole 31337 broadcast and resumes without resigning", async function () {
+    const [payer] = await hre.viem.getWalletClients(); const client = await hre.viem.getPublicClient(); const local = privateKeyToAccount(generatePrivateKey()); await client.waitForTransactionReceipt({ hash: await payer.sendTransaction({ to: local.address, value: 10n ** 18n }) }); const nonce = await client.getTransactionCount({ address: local.address });
+    const journal: LiveJournal = { chainId: 31337, funder: local.address, entries: [] }; const order: string[] = []; let signs = 0, broadcasts = 0;
+    const intent = { id: "usdc-recycle-continuation-local-proof", to: local.address, data: "0x" as Hex, value: 0n, nonce, gas: 21_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
+    const context = { funder: local.address, chainId: async () => 31337, nonce: async () => nonce, balance: async () => client.getBalance({ address: local.address }), verify: async () => undefined, sign: async () => { signs++; return local.signTransaction({ type: "eip1559", chainId: 31337, to: intent.to, value: intent.value, data: intent.data, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }); }, persist: async () => { order.push("persist"); expect(journal.entries[0]?.transactionHash).to.match(/^0x[0-9a-f]{64}$/); }, broadcast: async () => { order.push("broadcast"); broadcasts++; throw new Error("ambiguous local transport"); }, receipt: async () => undefined };
+    await expect(submitLiveIntentForChain(intent, journal, context, 31337)).to.be.rejectedWith(/outcome unknown/i); expect(order).to.deep.equal(["persist", "broadcast"]); expect({ signs, broadcasts }).to.deep.equal({ signs: 1, broadcasts: 1 });
+    expect((await submitLiveIntentForChain(intent, journal, context, 31337)).status).to.equal("pending"); expect({ signs, broadcasts }).to.deep.equal({ signs: 1, broadcasts: 1 });
   });
 
   it("executes real 31337 WebAuthn transfer, cancellation, expiry, and ready branches", async function () {

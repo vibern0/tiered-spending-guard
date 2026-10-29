@@ -1209,7 +1209,7 @@ async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioP
       let fresh: CanonicalOrdinaryScenarioState;
       try { fresh = await context.readState(action, "pre-outer"); assertFreshState(action, proposal, journal, fresh, "pre-outer", boundary); }
       catch (error) {
-        if (boundary.recycleContinuation && error instanceof Error && (error.message === "USDC recycle continuation frozen materialization block changed" || error.message.includes("controlled state drift"))) { recordEntry.status = "stopped"; store.save(journal); }
+        if (boundary.recycleContinuation && error instanceof Error && (error.message === "USDC recycle continuation frozen materialization block changed" || error.message === "ordinary scenario selected-block and current funder nonce drift" || error.message.includes("controlled state drift"))) { recordEntry.status = "stopped"; store.save(journal); }
         throw error;
       }
       if (boundary.successor) assertUsdcSuccessorAdmission(boundary.successor, action.id, fresh.blockTimestamp, context.now?.() ?? new Date(), "broadcast");
