@@ -37,14 +37,14 @@ async function closedRecyclePredecessor() {
       ...(confirmed ? { transactionHash, receipt, receiptInclusion: successorReceiptInclusion(receipt, fixture.proposal.effectivePeriod, 120n + BigInt(index)), outerValue: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(), ourPrincipalDelta: "0" } : {}),
     };
   });
-  journal.usdcRecycleContinuation!.actions.splice(0, records.length, ...records);
+  (journal.usdcRecycleContinuation!.actions as any[]).splice(0, records.length, ...records);
   journal.liveJournal.entries.push(...records.filter(record => record.status === "confirmed").map((record, index) => ({ id: record.id, intentHash: hash(0x800 + index), transactionHash: record.transactionHash!, nonce: 900 + index, reserved: BigInt(record.ourReceiptGasCost!), status: "success" as const, receipt: record.receipt! })));
   const stoppedEvidence = `0x${createHash("sha256").update(JSON.stringify(fixture.source.prior.recovery.source.stoppedRow)).digest("hex")}` as Hex;
   const evidence = [
     ...journal.actions.map((record, index) => ({ actionId: record.id, evidenceHash: index === 18 ? stoppedEvidence : record.evidenceHash!, transactionHash: record.transactionHash })),
-    ...journal.hashlessContinuation!.actions.slice(0, 3).map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash!, transactionHash: record.transactionHash })),
-    ...journal.usdcSuccessor!.actions.slice(0, 2).map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash!, transactionHash: record.transactionHash })),
-    ...records.map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash })),
+    ...(journal.hashlessContinuation!.actions.slice(0, 3) as any[]).map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash })),
+    ...(journal.usdcSuccessor!.actions.slice(0, 2) as any[]).map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash })),
+    ...records.map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: "transactionHash" in record ? record.transactionHash : undefined })),
   ];
   const lineage = { kind: "usdc-recycle-continuation-v1" as const, source: fixture.source, certificate: fixture.certificate, continuation: fixture.proposal, approval: fixture.approval };
   return { ...fixture, journal, records, evidence, lineage };
@@ -63,9 +63,9 @@ describe("closed recycle continuation repair predecessor", () => {
 
   it("rejects incomplete new terminal evidence and old row3 terminalization", async () => {
     const fixture = await closedRecyclePredecessor();
-    const incomplete = structuredClone(fixture.journal); incomplete.usdcRecycleContinuation!.actions[16]!.status = "approved";
+    const incomplete = structuredClone(fixture.journal); (incomplete.usdcRecycleContinuation!.actions[16] as any).status = "approved";
     expect(() => verifyRepairPredecessor(fixture.source.prior.original, incomplete, fixture.evidence, fixture.lineage as never)).to.throw(/recycle|terminal|complete|canonical/i);
-    const oldRow = structuredClone(fixture.journal); oldRow.usdcSuccessor!.actions[2]!.status = "confirmed" as never;
+    const oldRow = structuredClone(fixture.journal); (oldRow.usdcSuccessor!.actions[2] as any).status = "confirmed";
     expect(() => verifyRepairPredecessor(fixture.source.prior.original, oldRow, fixture.evidence, fixture.lineage as never)).to.throw(/old|stopped|source|canonical/i);
   });
 

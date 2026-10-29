@@ -22,6 +22,13 @@ import type { UsdcSuccessorEvidenceProvider, UsdcSuccessorSource } from "../../.
 import { loadUsdcSuccessorPublicInputs, parseUsdcSuccessorCliArguments } from "../../../scripts/live/ordinary-scenario-usdc-successor-cli";
 import { buildOrdinaryReviewPolicyDraft, readOrdinaryReviewConfig } from "../../../scripts/live/ordinary-review-profile";
 import { policyHash } from "../../../src/topology/build";
+import { createRepairProductionAdapter } from "../../../scripts/live/ordinary-scenario-repair-adapter";
+import { createRepairCommandRuntime, runRepairCommand } from "../../../scripts/live/ordinary-scenario-repair-session";
+import { PRODUCTION_REPAIR_EXECUTION_DOMAIN } from "../../../scripts/live/ordinary-scenario-repair";
+import { PRODUCTION_ORDINARY_SCENARIO_DOMAIN } from "../../../scripts/live/ordinary-scenario-executor";
+import { reconstructReviewedPlan } from "../../../scripts/live/ordinary-scenario-review-cli";
+import { successorReceiptInclusion } from "../../support/usdc-successor-fixture";
+import { attachUsdcRecycleContinuation } from "../../../scripts/live/ordinary-scenario-usdc-recycle-continuation-proposal";
 
 const fixtureDirectory = join(__dirname, "../../fixtures");
 
@@ -68,7 +75,7 @@ async function preparePublicCli() {
   return { authorized, tracked, directory, reviewArgs, oldArgs, submitArgs, resumeArgs, providers, cleanup: () => { rmSync(directory, { recursive: true, force: true }); cleanupUsdcRecycleContinuationFixtures(); } };
 }
 
-function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof preparePublicCli>>, counters: { codeFailures: number; signs: number; broadcasts: number; simulations: number }) {
+function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof preparePublicCli>>, counters: { codeFailures: number; signs: number; broadcasts: number; simulations: number }, simulatePinnedFailure = true, repairState?: { rotated: boolean }) {
   const runtimes = (JSON.parse(readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-runtimes.public.json"), "utf8")) as { runtimes: Record<string, { bytecode: Hex }> }).runtimes;
   const runtime = (address: Address) => runtimes[address.toLowerCase()]?.bytecode;
   const original = prepared.authorized.source.prior.original, action = prepared.authorized.proposal.actions[0]!, before = action.before;
@@ -84,23 +91,25 @@ function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof pre
   for (const section of [prepared.authorized.source.prior.journal.hashlessContinuation!.actions, prepared.authorized.source.prior.journal.usdcSuccessor!.actions]) for (const row of section as any[]) if (row.receipt) blocks.set(BigInt(row.receipt.blockNumber), row.receipt.blockHash);
   const dependencyReceipt = (prepared.authorized.source.prior.journal.usdcSuccessor!.actions.find(candidate => candidate.id === action.dependsOn[0]) as any).receipt;
   const makeClient = () => {
+    const terminalRepairState = repairState !== undefined;
     let failPinned = true, creationCalls = 0;
     const client: any = {
-      getBytecode: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => { if (blockNumber !== undefined && failPinned) { failPinned = false; counters.codeFailures++; throw Object.assign(new Error("historical state unavailable"), { code: -32001 }); } return runtime(address); },
+      getBytecode: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => { if (simulatePinnedFailure && blockNumber !== undefined && failPinned) { failPinned = false; counters.codeFailures++; throw Object.assign(new Error("historical state unavailable"), { code: -32001 }); } return repairState?.rotated && address.toLowerCase() === PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate.toLowerCase() ? runtime(original.primarySigner) : runtime(address); },
+      getCode: async ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) => { if (simulatePinnedFailure && blockNumber !== undefined && failPinned) { failPinned = false; counters.codeFailures++; throw Object.assign(new Error("historical state unavailable"), { code: -32001 }); } return repairState?.rotated && address.toLowerCase() === PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate.toLowerCase() ? runtime(original.primarySigner) : runtime(address); },
       getChainId: async () => sepolia.id,
       getTransactionCount: async ({ blockNumber }: { blockNumber?: bigint }) => blockNumber !== undefined && blockNumber <= 11_986_637n ? 673 : prepared.authorized.proposal.minimumOuterNonce,
       getBlock: async ({ blockNumber }: { blockNumber?: bigint } = {}) => { const number = blockNumber === undefined ? BigInt(prepared.authorized.certificate.snapshot.blockNumber) : BigInt(blockNumber); const hash = number === BigInt(dependencyReceipt.blockNumber) ? dependencyReceipt.blockHash : blocks.get(number) ?? prepared.authorized.certificate.snapshot.blockHash; return { number, hash, timestamp: BigInt(prepared.authorized.certificate.snapshot.timestamp), baseFeePerGas: 0n }; },
-      getBalance: async ({ address }: { address: Address }) => address.toLowerCase() === original.safe.toLowerCase() ? BigInt(before.safeNativeBalance) : 10n ** 18n,
+      getBalance: async ({ address }: { address: Address }) => address.toLowerCase() === original.safe.toLowerCase() ? (terminalRepairState ? 0n : BigInt(before.safeNativeBalance)) : 10n ** 18n,
       estimateFeesPerGas: async () => ({ maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
       estimateGas: async () => 100_000n,
       getStorageAt: async ({ slot }: { slot: Hex }) => slot.toLowerCase() === "0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5" ? `0x${"0".repeat(64)}` : `0x${"0".repeat(24)}${original.guard.slice(2).toLowerCase()}`,
       call: async (input: { to?: Address }) => { if (!input.to) { const addresses = ["0xc3ba1567fb0e5961e9e4fd72f88b2ac3318360a3", original.guard, original.delay, maintenance, original.safe] as Address[]; return { data: runtime(addresses[creationCalls++ % 5]!) }; } counters.simulations++; return { data: encodeAbiParameters([{ type: "bool" }], [true]) }; },
       readContract: async ({ address, functionName, args = [] }: { address: Address; functionName: string; args?: readonly unknown[] }) => {
         const lower = address.toLowerCase(), token = String(args[0] ?? "").toLowerCase();
-        if (functionName === "getSigner") return BigInt(String(args[0])) === BigInt(bindings.primary.x) ? original.primarySigner : original.safeContractSecondary;
+        if (functionName === "getSigner") return BigInt(String(args[0])) === 10342510752483659319190807637330965811978365685423845568184481734592673940696n ? PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate : BigInt(String(args[0])) === BigInt(bindings.primary.x) ? original.primarySigner : original.safeContractSecondary;
         if (functionName === "proxyCreationCode") return safeProxyArtifact.bytecode as Hex;
         if (functionName === "config") return [original.safe, original.primarySigner, original.ecdsaSecondary, original.delay, 86_400n, 0n];
-        if (functionName === "safeContractSecondary") return [original.safeContractSecondary, 0, true];
+        if (functionName === "safeContractSecondary") return [repairState?.rotated ? PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate : original.safeContractSecondary, 0, true];
         if (functionName === "ecdsaSecondary") return [original.ecdsaSecondary, 1, true];
         if (functionName === "maintenance") return maintenance;
         if (functionName === "maintenanceAddress") return maintenance;
@@ -114,20 +123,28 @@ function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof pre
         if (functionName === "getOwners") return [original.primarySigner];
         if (functionName === "getThreshold") return 1n;
         if (functionName === "getModulesPaginated") return [[lower === original.safe.toLowerCase() ? original.delay : original.safe], sentinel];
-        if (functionName === "policyHash") return policyHash(reviewedPolicy);
+        if (functionName === "policyHash") return repairState?.rotated ? PRODUCTION_REPAIR_EXECUTION_DOMAIN.afterPolicyHash : policyHash(reviewedPolicy);
         if (functionName === "getConfiguredTokens") return [zero, original.usdc];
         if (functionName === "assetPolicy") return token === zero ? [10_000_000_000_000n, 30_000_000_000_000n, 10_000_000_000_000n, 30_000_000_000_000n] : [10_000_000n, 30_000_000n, 10_000_000n, 30_000_000n];
         if (functionName === "getPolicyRecipients") return [original.funder];
-        if (functionName === "spendState") return token === zero ? [1_793_145_600n, BigInt(before.nativeBaseSpent), BigInt(before.nativeInstantSpent)] : [BigInt(prepared.authorized.proposal.effectivePeriod), BigInt(before.usdcBaseSpent), BigInt(before.usdcInstantSpent)];
-        if (functionName === "balanceOf") return token === original.safe.toLowerCase() ? BigInt(before.safeUsdcBalance) : BigInt(before.funderUsdcBalance);
-        if (functionName === "nonce") return BigInt(before.safeNonce);
-        if (functionName === "queueNonce") return BigInt(before.delayQueueNonce);
-        if (functionName === "txNonce") return BigInt(before.delayTxNonce);
+        if (functionName === "spendState") return token === zero ? [1_793_145_600n, 10_000_000_000_000n, 30_000_000_000_000n] : [BigInt(prepared.authorized.proposal.effectivePeriod), 10_000_000n, terminalRepairState ? 20_000_000n : BigInt(before.usdcInstantSpent)];
+        if (functionName === "balanceOf") return token === original.safe.toLowerCase() ? (terminalRepairState ? 20_000_000n : BigInt(before.safeUsdcBalance)) : BigInt(before.funderUsdcBalance);
+        if (functionName === "nonce") return repairState?.rotated ? 16n : terminalRepairState ? 15n : BigInt(before.safeNonce);
+        if (functionName === "queueNonce") return repairState?.rotated ? 8n : terminalRepairState ? 7n : BigInt(before.delayQueueNonce);
+        if (functionName === "txNonce") return repairState?.rotated ? 8n : terminalRepairState ? 7n : BigInt(before.delayTxNonce);
+        if (functionName === "frozen") return false;
         if (functionName === "getTxHash") return before.queueFingerprint;
         if (functionName === "getTxCreatedAt") return BigInt(queueRecord.queueCreatedAt);
         throw new Error(`unhandled read ${functionName} at ${address}`);
       },
       getTransaction: async () => { throw new Error("no pending hash exists at the controlled signing boundary"); },
+      getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+        const journal = JSON.parse(readFileSync(prepared.tracked.path, "utf8"));
+        const rows = [...journal.actions, ...journal.hashlessContinuation.actions, ...journal.usdcSuccessor.actions, ...(journal.usdcRecycleContinuation?.actions ?? [])];
+        const row = rows.find((candidate: any) => candidate.transactionHash === hash);
+        if (!row?.receipt) throw new Error("controlled public receipt is unavailable");
+        return { ...row.receipt, gasUsed: BigInt(row.receipt.gasUsed), effectiveGasPrice: BigInt(row.receipt.effectiveGasPrice), blockNumber: BigInt(row.receipt.blockNumber) };
+      },
     };
     return client;
   };
@@ -270,6 +287,50 @@ describe("ordinary USDC recycle continuation CLI", function () {
       const after = JSON.parse(readFileSync(prepared.tracked.path, "utf8"));
       expect(after.usdcRecycleContinuation.actions[0].status).to.equal("signed-simulated"); expect(after.usdcRecycleContinuation.actions[0].finalOuterMaterialization).to.be.an("object");
       expect(after.usdcSuccessor.actions[2].status).to.equal("signed-simulated"); expect(after.liveJournal.entries).to.have.length(15);
+    } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
+  });
+
+  it("composes the actual recycle loader, production repair adapter, and atomic store", async function () {
+    const prepared = await preparePublicCli();
+    const counters = { codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 };
+    const delaySource = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8"), savedFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(delaySource, { status: 200 })) as typeof fetch;
+    try {
+      const inputs = await loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(prepared.submitArgs), prepared.providers);
+      if (!inputs.approval) throw new Error("approved recycle fixture required");
+      const journal = structuredClone(attachUsdcRecycleContinuation(inputs.source.prior.journal, inputs.continuation, inputs.approval)) as any;
+      const records = inputs.continuation.actions.map((action, index) => {
+        const confirmed = action.expectedOutcome === "success", transactionHash = `0x${(0x500 + index).toString(16).padStart(64, "0")}` as Hex;
+        const receipt = { transactionHash, status: "success" as const, gasUsed: 20n + BigInt(index), effectiveGasPrice: 11n, blockNumber: 12_019_500n + BigInt(index), blockHash: `0x${(0x600 + index).toString(16).padStart(64, "0")}` as Hex };
+        return { id: action.id, commitment: action.commitment, status: confirmed ? "confirmed" as const : "rejection-proved" as const, evidenceHash: `0x${(0x700 + index).toString(16).padStart(64, "0")}` as Hex, ...(confirmed ? { intentHash: `0x${(0x800 + index).toString(16).padStart(64, "0")}` as Hex, transactionHash, receipt, receiptInclusion: successorReceiptInclusion(receipt, inputs.continuation.effectivePeriod, 120n + BigInt(index)), outerValue: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(), ourPrincipalDelta: "0" } : {}) };
+      });
+      journal.usdcRecycleContinuation.actions.splice(0, records.length, ...records);
+      journal.liveJournal.entries.push(...records.filter(record => record.status === "confirmed").map((record: any, index) => ({ id: record.id, intentHash: record.intentHash, transactionHash: record.transactionHash, nonce: 900 + index, reserved: BigInt(record.ourReceiptGasCost), status: "success", receipt: record.receipt })));
+      writeFileSync(prepared.tracked.path, `${JSON.stringify(journal, (_key, value) => typeof value === "bigint" ? value.toString() : value)}\n`);
+
+      const repository = join(__dirname, "../../../../..");
+      const repairState = { rotated: false };
+      const harness = createDefaultCompositionHarness(prepared, counters, false, repairState);
+      let reconstruction: Awaited<ReturnType<typeof reconstructReviewedPlan>> | undefined;
+      const productionHarness = { ...harness, reconstructedProfile: async () => reconstruction ??= await reconstructReviewedPlan(repository, harness.archive) } as any;
+      const flagValue = (flag: string) => { const index = prepared.submitArgs.indexOf(flag as any); if (index < 0) throw new Error(`missing ${flag}`); return prepared.submitArgs[index + 1]!; };
+      const lineageFlags = ["--recovery-certificate", "--recovery-certificate-hash", "--recovery-proposal", "--recovery-approval", "--recovery-approval-hash", "--primary-bundle-manifest", "--successor-certificate", "--successor-certificate-hash", "--successor-proposal", "--successor-approval", "--successor-approval-hash", "--source-manifest", "--source-step-up-ledger", "--source-step-up-ack", "--recycle-certificate", "--recycle-certificate-hash", "--recycle-proposal", "--recycle-approval", "--recycle-approval-hash"].flatMap(flag => [flag, flagValue(flag)]);
+      const args = ["--report", flagValue("--original-report"), "--artifact-hash", flagValue("--original-artifact-hash"), "--package-hash", flagValue("--original-package-hash"), "--proposal-hash", flagValue("--original-proposal-hash"), "--original-approval-hash", journal.approvalHash, "--journal", prepared.tracked.path, ...lineageFlags];
+      const quote = { chainId: 11155111, factory: PRODUCTION_REPAIR_EXECUTION_DOMAIN.factory, candidate: PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate, x: 10342510752483659319190807637330965811978365685423845568184481734592673940696n, y: 83007955684183101275699917860538633816962061613045139387258186696967867907135n, verifiers: 1111636484949241205398856388087597953580887526884n, calldata: "0x0d2f048916dda754f7752e800b62ed684f89fb19d607485fbb8b9b77f5d877e4903904d8b784d685cc3013eab599b6d9696b06414ca74554ec8de222b6cdc43de410bc3f000000000000000000000000c2b78104907f722dabac4c69f826a522b2754de4" as Hex, calldataHash: "0x0ed506887dea4406bb68a77a9d4c54b2454946b80b9205772900008859a92c7b" as Hex, gasLimitCap: 740292n, maxFeePerGasCap: 1000000n, maxPriorityFeePerGasCap: 1000000n };
+      let adapter: ReturnType<typeof createRepairProductionAdapter> | undefined;
+      const runtime = createRepairCommandRuntime({ environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN, repository: () => repository, createHarness: () => productionHarness, createAdapter: input => adapter = createRepairProductionAdapter(input), loadCreationQuote: () => quote, submit: async () => { throw new Error("read-only composition must not submit"); }, now: prepared.providers.now, awaitApprovalHandoff: async () => { throw new Error("read-only composition must not await authority"); }, loadUsdcRecycleContinuationLineage: argv => loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(argv), prepared.providers) });
+      const creation = await runRepairCommand(["creation-review", ...args], runtime) as any;
+      expect(creation.predecessor).to.include({ kind: "usdc-recycle-continuation-v1", actionCount: 41 });
+      expect(creation.baseline).to.include({ safeNonce: "15", delayQueueNonce: "7", delayTxNonce: "7" });
+      const reopened = JSON.parse(readFileSync(prepared.tracked.path, "utf8"));
+      expect(reopened.repairContinuation.predecessor.kind).to.equal("usdc-recycle-continuation-v1");
+      expect(reopened.repairContinuation.actions).to.deep.equal([{ id: "repair-signer-create", commitment: creation.action.commitment, status: "proposed" }]);
+      expect(reopened.usdcSuccessor.actions[2].status).to.equal("signed-simulated");
+      expect(reopened.liveJournal.entries).to.have.length(24);
+      repairState.rotated = true;
+      const post = await adapter!.readStateAt("post-rotation", inputs.continuation.observer.probeEvidenceHash, BigInt(creation.preRotationBlockNumber), creation.preRotationBlockHash);
+      expect(post).to.include({ safeNonce: 16n, delayQueueNonce: 8n, delayTxNonce: 8n, safeContractSecondary: PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate });
+      expect(counters).to.deep.equal({ codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 });
     } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
   });
 

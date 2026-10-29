@@ -250,7 +250,7 @@ export function createRepairProductionAdapter(input: Readonly<{ repository: stri
   const verifyCurrent = async (blockNumber: bigint, phase: "pre-rotation" | "post-rotation") => {
     const base = await immutableEvidence(); const pinned = createPinnedSafeReviewClient(harness.current as never, blockNumber);
     const client = Object.freeze({ ...pinned, getStorageAt: ({ address, slot }: { address: Address; slot: Hex }) => harness.current.getStorageAt({ address, slot, blockNumber }) });
-    const policy = phase === "pre-rotation" ? reconstructed.policy : { ...reconstructed.policy, safeContractSecondary: creation.candidate, secondaries: reconstructed.policy.secondaries?.map(signer => signer.kind === "safe-contract" ? { ...signer, address: creation.candidate } : signer) };
+    const policy = phase === "pre-rotation" ? reconstructed.policy : { ...reconstructed.policy, secondaries: reconstructed.policy.secondaries?.map(signer => signer.kind === "safe-contract" ? { ...signer, address: creation.candidate } : signer) };
     const runtime = await pinned.getBytecode({ address: creation.candidate });
     if (runtime && runtime !== "0x") {
       await verifyPasskeySignerComponent(pinned, { address: creation.candidate, runtimeCodeHash: keccak256(runtime), bindingHash: REPAIR_BINDING_HASH, factory: creation.factory, source: "approved fixed repair descriptor", binding: { x: BigInt(creation.x), y: BigInt(creation.y), verifiers: BigInt(creation.verifiers) } });
