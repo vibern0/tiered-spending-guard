@@ -181,7 +181,16 @@ describe("ordinary USDC successor executor", function () {
 
   it("requires exact nonempty observer window forwarding in the shared adapter", async function () {
     const f = await prepared(); const view = createUsdcSuccessorExecutionView(f.source, f.proposal, f.approval); const input = { expectedChainId: 11_155_111, proposal: view, journal: () => f.journal, currentClient: {}, archiveClient: {}, observerReadiness: async () => ({ ready: true, evidenceHash: f.proposal.observer.probeEvidenceHash }), verifyProfileAtBlock: async () => undefined, live: {}, loadSigners: async () => { throw new Error("unused"); } } as never;
+    const readyAt = "2026-10-29T00:00:50.000Z"; const expiresAt = "2026-10-30T00:00:00.000Z";
     expect(() => createOrdinaryScenarioMechanicalExecutionContext(input, (async () => { throw new Error("unused"); }) as never)).to.throw(/observer ready and expiry forwarding/i);
-    expect(() => createOrdinaryScenarioMechanicalExecutionContext({ ...input, receiverReadyAt: f.proposal.observer.readyAt, receiverExpiresAt: f.proposal.observer.expiresAt } as never, (async () => { throw new Error("unused"); }) as never)).not.to.throw();
+    expect(() => createOrdinaryScenarioMechanicalExecutionContext({ ...input, receiverReadyAt: readyAt, receiverExpiresAt: expiresAt } as never, (async () => { throw new Error("unused"); }) as never)).not.to.throw();
+    for (const bounds of [
+      { receiverReadyAt: expiresAt, receiverExpiresAt: readyAt },
+      { receiverReadyAt: "2026-10-29T00:00:51.000Z", receiverExpiresAt: expiresAt },
+      { receiverReadyAt: readyAt, receiverExpiresAt: "2026-10-29T23:59:59.000Z" },
+      { receiverReadyAt: f.proposal.observer.readyAt, receiverExpiresAt: f.proposal.observer.expiresAt },
+      { receiverReadyAt: "", receiverExpiresAt: expiresAt },
+      { receiverReadyAt: readyAt, receiverExpiresAt: "" },
+    ]) expect(() => createOrdinaryScenarioMechanicalExecutionContext({ ...input, ...bounds } as never, (async () => { throw new Error("unused"); }) as never)).to.throw(/observer ready and expiry forwarding/i);
   });
 });

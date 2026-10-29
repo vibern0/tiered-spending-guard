@@ -189,11 +189,19 @@ export function createOrdinaryScenarioExecutionContext(input: OrdinaryScenarioAd
 
 export type OrdinaryScenarioMechanicalAdapterInput = Omit<OrdinaryScenarioAdapterInput, "repository"> & Readonly<{ expectedChainId: number }>;
 
+const canonicalObserverBound = (seconds: string): string | undefined => {
+  if (!DECIMAL.test(seconds)) return undefined;
+  const milliseconds = BigInt(seconds) * 1000n;
+  if (milliseconds > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+  const date = new Date(Number(milliseconds));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
+};
+
 /** Non-authorizing callback core; production supplies the closed state reader and Sepolia chain above. */
 export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: OrdinaryScenarioMechanicalAdapterInput, stateReader: ReturnType<typeof createOrdinaryScenarioMechanicalStateReader>): OrdinaryScenarioExecutionContext {
   if ("kind" in rawInput.proposal && rawInput.proposal.kind === "usdc-period-successor-v1") {
     const binding = rawInput.proposal.successor.observer;
-    if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== binding.readyAt || rawInput.receiverExpiresAt !== binding.expiresAt) throw new Error("USDC successor adapter requires exact nonempty observer ready and expiry forwarding");
+    if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== canonicalObserverBound(binding.readyAt) || rawInput.receiverExpiresAt !== canonicalObserverBound(binding.expiresAt)) throw new Error("USDC successor adapter requires exact nonempty observer ready and expiry forwarding");
   }
   const input = normalizeJournalInput(rawInput);
   const current = input.currentClient;
