@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Address, Hex } from "viem";
 import { createOrdinaryScenarioProposal } from "../../../scripts/live/ordinary-scenario-executor";
+import { sha256 } from "../../../scripts/plan-deployment";
 import {
   loadHashlessSourceJournalReadOnly,
   reverifyHashlessStateCertificate,
@@ -114,7 +115,7 @@ function recoveryPostState(src: UsdcSuccessorSource, index: number, block: Reado
   return state;
 }
 
-type ProviderMutation = Readonly<{ tip?: typeof tips[number]; snapshot?: Partial<typeof snapshot>; state?: Partial<UsdcSuccessorCanonicalState>; receiptState?: Readonly<{ hash: Hex; patch: Partial<UsdcSuccessorCanonicalState> }>; missingBlock?: boolean; reorgHash?: Hex; receipt?: Readonly<{ hash: Hex; patch: Record<string, unknown> }>; transactionMissing?: Hex; latestNonce?: number; pendingNonce?: number }>;
+type ProviderMutation = Readonly<{ tip?: typeof tips[number]; snapshot?: Partial<typeof snapshot>; state?: Partial<UsdcSuccessorCanonicalState>; receiptState?: Readonly<{ hash: Hex; patch: Partial<UsdcSuccessorCanonicalState> }>; missingBlock?: boolean; reorgHash?: Hex; receipt?: Readonly<{ hash: Hex; patch: Record<string, unknown> }>; transaction?: Readonly<{ hash: Hex; patch: Record<string, unknown> }>; transactionMissing?: Hex; latestNonce?: number; pendingNonce?: number }>;
 function provider(index: 0 | 1, src: UsdcSuccessorSource, mutation: ProviderMutation = {}): UsdcSuccessorEvidenceProvider {
   const records = src.journal.hashlessContinuation!.actions.slice(0, 3) as any[];
   const state = { ...canonicalState(src.original), ...mutation.state } as UsdcSuccessorCanonicalState;
@@ -131,7 +132,8 @@ function provider(index: 0 | 1, src: UsdcSuccessorSource, mutation: ProviderMuta
     readTransaction: async hash => {
       if (mutation.transactionMissing === hash) return undefined;
       const record = records.find(item => item.transactionHash === hash); if (!record) return undefined;
-      return { hash, from: funder, nonce: record.outerNonce, to: record.outerTo, value: BigInt(record.outerValue), inputHash: record.outerDataHash, gas: BigInt(record.gas), type: "eip1559", chainId: 11_155_111, maxFeePerGas: BigInt(record.maxFeePerGas), maxPriorityFeePerGas: BigInt(record.maxPriorityFeePerGas), blockNumber: BigInt(record.receipt.blockNumber), blockHash: record.receipt.blockHash };
+      const value = { hash, from: funder, nonce: record.outerNonce, to: record.outerTo, value: BigInt(record.outerValue), inputHash: record.outerDataHash, gas: BigInt(record.gas), type: "eip1559", chainId: 11_155_111, maxFeePerGas: BigInt(record.maxFeePerGas), maxPriorityFeePerGas: BigInt(record.maxPriorityFeePerGas), blockNumber: BigInt(record.receipt.blockNumber), blockHash: record.receipt.blockHash };
+      return mutation.transaction?.hash === hash ? { ...value, ...mutation.transaction.patch } as any : value;
     },
     readReceipt: async hash => {
       const record = records.find(item => item.transactionHash === hash); if (!record) return undefined;
@@ -229,6 +231,19 @@ describe("ordinary USDC successor certificate", function () {
     }
   });
 
+  it("binds all three canonical recovery transactions to frozen type-2 fee envelopes", async function () {
+    const src = await source();
+    const mutations = [
+      { label: "legacy type", patch: { type: "legacy", gasPrice: 20n, v: 22_310_258n } },
+      { label: "max fee", patch: { maxFeePerGas: 21n } },
+      { label: "priority fee", patch: { maxPriorityFeePerGas: 3n } },
+    ];
+    for (const hash of receiptHashes) for (const mutation of mutations) {
+      const changed = { hash, patch: mutation.patch };
+      await expect(verifyUsdcSuccessorCertificate(src, fixture.primary, [provider(0, src, { transaction: changed }), provider(1, src, { transaction: changed })]), `${hash}: ${mutation.label}`).to.be.rejectedWith(/transaction|envelope|type|fee/i);
+    }
+  });
+
   it("raw_native_not_effective preserves the old native tuple while deriving the actual new period", async function () {
     const src = await source();
     const certificate = await verifyUsdcSuccessorCertificate(src, fixture.primary, [provider(0, src), provider(1, src)]);
@@ -278,5 +293,27 @@ describe("ordinary USDC successor certificate", function () {
     const extra = JSON.parse(serialized); extra.trusted = true;
     await expect(reverifyUsdcSuccessorCertificate(JSON.stringify(extra), certificate.certificateHash, src, fixture.primary, providers)).to.be.rejectedWith(/shape|certificate/i);
     await expect(reverifyUsdcSuccessorCertificate(serialized, h("0"), src, fixture.primary, providers)).to.be.rejectedWith(/hash/i);
+  });
+
+  it("pinned_reverify accepts later same-journal live progress but preserves strict initial admission and the fixed prefix", async function () {
+    const clean = await source(); const certificate = await verifyUsdcSuccessorCertificate(clean, fixture.primary, [provider(0, clean), provider(1, clean)]);
+    const value = JSON.parse(fixture.sourceJournal);
+    value.liveJournal.entries.push({ ...value.liveJournal.entries[12], id: "usdc-successor-progress", transactionHash: h("7") });
+    const progressed = await source(`${JSON.stringify(value)}\n`);
+    await expect(verifyUsdcSuccessorCertificate(progressed, fixture.primary, [provider(0, progressed), provider(1, progressed)])).to.be.rejectedWith(/exact|source|13|progress/i);
+    const restored = await reverifyUsdcSuccessorCertificate(serializeUsdcSuccessorCertificate(certificate), certificate.certificateHash, progressed, fixture.primary, [provider(0, progressed), provider(1, progressed)]);
+    expect(isVerifiedUsdcSuccessorCertificate(restored)).to.equal(true);
+    (progressed.journal.liveJournal.entries[12] as any).transactionHash = h("8");
+    await expect(reverifyUsdcSuccessorCertificate(serializeUsdcSuccessorCertificate(certificate), certificate.certificateHash, progressed, fixture.primary, [provider(0, progressed), provider(1, progressed)])).to.be.rejectedWith(/source|hash|prefix|live/i);
+  });
+
+  it("pinned_reverify derives the effective period from the pinned snapshot timestamp", async function () {
+    const src = await source(); const providers = [provider(0, src), provider(1, src)] as const;
+    const certificate = await verifyUsdcSuccessorCertificate(src, fixture.primary, providers);
+    const value = JSON.parse(serializeUsdcSuccessorCertificate(certificate));
+    value.effectivePeriod = "1793318400";
+    const { certificateHash: _oldHash, ...body } = value;
+    value.certificateHash = sha256(body);
+    await expect(reverifyUsdcSuccessorCertificate(`${JSON.stringify(value)}\n`, value.certificateHash, src, fixture.primary, providers)).to.be.rejectedWith(/effective period|snapshot|period/i);
   });
 });

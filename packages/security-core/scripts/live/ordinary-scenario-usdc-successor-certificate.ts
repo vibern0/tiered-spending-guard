@@ -140,13 +140,14 @@ export function hashUsdcSuccessorSource(journal: OrdinaryScenarioJournal): Hex {
   return publicHash(fixedSourceValue(journal));
 }
 
-function assertSource(source: UsdcSuccessorSource): void {
+function assertSource(source: UsdcSuccessorSource, mode: "clean" | "pinned"): void {
   assertHashlessSourceJournalReadOnlySnapshot(source.journal);
   assertExpiredHashlessContinuationLineage(source.original, source.recovery);
   assertExpiredHashlessContinuationAuthorization(source.recovery, source.recoveryApproval);
   if (!same(source.original.proposalHash, ORIGINAL_PROPOSAL_HASH) || !same(source.recovery.historicalPrefixHash, ORIGINAL_PREFIX_HASH) || !same(source.recovery.proposalHash, RECOVERY_PROPOSAL_HASH) || !same(source.recovery.certificateHash, RECOVERY_CERTIFICATE_HASH) || !same(source.recoveryApproval.approvalHash, RECOVERY_APPROVAL_HASH)) throw new Error("USDC successor source approved header mismatch");
   const journal = source.journal;
-  if (journal.actions.length !== 19 || journal.liveJournal.entries.length !== 13 || "repairContinuation" in journal || !journal.hashlessContinuation) throw new Error("USDC successor source must contain exact 19/10+3 lineage with no repair");
+  if (journal.actions.length !== 19 || journal.liveJournal.entries.length < 13 || !journal.hashlessContinuation) throw new Error("USDC successor source must contain the complete fixed 19/10+3 lineage");
+  if (mode === "clean" && (journal.liveJournal.entries.length !== 13 || "repairContinuation" in journal)) throw new Error("USDC successor initial source must be the exact clean 19/10+3 checkpoint with no later progress");
   if (!same(hashUsdcSuccessorSource(journal), SOURCE_HASH)) throw new Error("USDC successor fixed source hash mismatch");
   const continuation = journal.hashlessContinuation;
   if (!same(continuation.proposalHash, RECOVERY_PROPOSAL_HASH) || !same(continuation.certificateHash, RECOVERY_CERTIFICATE_HASH) || !same(continuation.approvalHash, RECOVERY_APPROVAL_HASH) || continuation.actions.length !== 22 || continuation.actionCommitments.length !== 22) throw new Error("USDC successor recovery attachment header mismatch");
@@ -157,7 +158,8 @@ function assertSource(source: UsdcSuccessorSource): void {
       if (actual.status !== "confirmed" || !actual.transactionHash || !actual.receipt || !actual.evidenceHash) throw new Error("USDC successor native recovery action is not fully confirmed");
     } else if (actual.status !== "approved" || Object.keys(actual).sort().join(",") !== "commitment,id,status") throw new Error("USDC successor USDC tail is not untouched and approved");
   }
-  if (journal.liveJournal.entries.some(entry => entry.status !== "success") || journal.liveJournal.entries.slice(10).some((entry, index) => entry.id !== EXPECTED_RECEIPTS[index]!.id || !same(entry.transactionHash, EXPECTED_RECEIPTS[index]!.hash))) throw new Error("USDC successor source live entries are not the exact 13 successful entries");
+  const fixedLive = journal.liveJournal.entries.slice(0, 13);
+  if (fixedLive.some(entry => entry.status !== "success") || fixedLive.slice(10).some((entry, index) => entry.id !== EXPECTED_RECEIPTS[index]!.id || !same(entry.transactionHash, EXPECTED_RECEIPTS[index]!.hash))) throw new Error("USDC successor source live prefix is not the exact 13 successful entries");
 }
 
 function validatePrimary(primary: UsdcSuccessorPrimaryEvidence, source: UsdcSuccessorSource): Hex {
@@ -261,7 +263,7 @@ function assertView(view: ProviderView, source: UsdcSuccessorSource): readonly R
     const transaction = view.transactions[index]!, receipt = view.receipts[index]!, block = view.receiptBlocks[index]!, postState = view.receiptPostStates[index]!, sourceRecord = records[index]!;
     assertBlock(block, { number: expected.block, hash: expected.blockHash, timestamp: block.timestamp }, `${expected.id} receipt`);
     if (view.snapshot.number - block.number + 1n < 6n) throw new Error(`${expected.id} receipt has fewer than six confirmations`);
-    if (!same(transaction.hash, expected.hash) || !same(transaction.from, source.original.funder) || transaction.nonce !== sourceRecord.outerNonce || transaction.to === null || !same(transaction.to, String(sourceRecord.outerTo)) || transaction.value !== BigInt(String(sourceRecord.outerValue)) || !same(transaction.inputHash, String(sourceRecord.outerDataHash)) || transaction.gas !== BigInt(String(sourceRecord.gas)) || transaction.chainId !== CHAIN_ID || transaction.blockNumber !== expected.block || !same(transaction.blockHash, expected.blockHash)) throw new Error(`${expected.id} canonical transaction envelope mismatch`);
+    if (!same(transaction.hash, expected.hash) || !same(transaction.from, source.original.funder) || transaction.nonce !== sourceRecord.outerNonce || transaction.to === null || !same(transaction.to, String(sourceRecord.outerTo)) || transaction.value !== BigInt(String(sourceRecord.outerValue)) || !same(transaction.inputHash, String(sourceRecord.outerDataHash)) || transaction.gas !== BigInt(String(sourceRecord.gas)) || transaction.chainId !== CHAIN_ID || transaction.type !== "eip1559" || transaction.maxFeePerGas !== BigInt(String(sourceRecord.maxFeePerGas)) || transaction.maxPriorityFeePerGas !== BigInt(String(sourceRecord.maxPriorityFeePerGas)) || transaction.blockNumber !== expected.block || !same(transaction.blockHash, expected.blockHash)) throw new Error(`${expected.id} canonical type-2 transaction envelope or fee mismatch`);
     if (!same(receipt.transactionHash, expected.hash) || receipt.status !== "success" || receipt.blockNumber !== expected.block || !same(receipt.blockHash, expected.blockHash) || receipt.gasUsed !== expected.gasUsed || receipt.effectiveGasPrice !== expected.effectiveGasPrice || receipt.gasUsed * receipt.effectiveGasPrice !== BigInt(String(sourceRecord.ourReceiptGasCost))) throw new Error(`${expected.id} canonical receipt or gas product mismatch`);
     const expectedPostState = expectedRecoveryPostState(source, block, index);
     if (publicHash(postState) !== publicHash(expectedPostState)) throw new Error(`${expected.id} exact receipt effect poststate mismatch`);
@@ -277,7 +279,8 @@ function assertRechecks(view: ProviderView): void {
 }
 
 async function verifyPinned(source: UsdcSuccessorSource, primary: UsdcSuccessorPrimaryEvidence, providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider], block: UsdcSuccessorCanonicalBlock, recorded?: Readonly<{ stateHash: Hex; funderNonce: number; latestNonce: number; pendingNonce: number; receipts: readonly ReceiptEvidence[] }>): Promise<Readonly<{ primaryEvidenceHash: Hex; views: readonly [ProviderView, ProviderView]; receipts: readonly ReceiptEvidence[] }>> {
-  assertSource(source); const primaryEvidenceHash = validatePrimary(primary, source);
+  const sourceMode = recorded ? "pinned" : "clean";
+  assertSource(source, sourceMode); const primaryEvidenceHash = validatePrimary(primary, source);
   if (providers.length !== 2 || providers[0] === providers[1]) throw new Error("USDC successor certificate requires two independent providers");
   const pinnedCurrentNonces = recorded ? { latestNonce: recorded.latestNonce, pendingNonce: recorded.pendingNonce } : undefined;
   const views = await Promise.all([readView(providers[0], block.number, pinnedCurrentNonces), readView(providers[1], block.number, pinnedCurrentNonces)] as const);
@@ -286,11 +289,16 @@ async function verifyPinned(source: UsdcSuccessorSource, primary: UsdcSuccessorP
   assertRechecks(views[0]); assertRechecks(views[1]);
   if (publicHash({ snapshot: views[0].snapshot, state: views[0].state, snapshotNonce: views[0].snapshotNonce, latestNonce: views[0].latestNonce, pendingNonce: views[0].pendingNonce, transactions: views[0].transactions, receipts: views[0].receipts, receiptBlocks: views[0].receiptBlocks, receiptPostStates: views[0].receiptPostStates }) !== publicHash({ snapshot: views[1].snapshot, state: views[1].state, snapshotNonce: views[1].snapshotNonce, latestNonce: views[1].latestNonce, pendingNonce: views[1].pendingNonce, transactions: views[1].transactions, receipts: views[1].receipts, receiptBlocks: views[1].receiptBlocks, receiptPostStates: views[1].receiptPostStates }) || publicHash(receipts) !== publicHash(secondReceipts)) throw new Error("USDC successor providers disagree on canonical evidence");
   if (recorded && (!same(publicHash(views[0].state), recorded.stateHash) || views[0].snapshotNonce !== recorded.funderNonce || views[0].latestNonce !== recorded.latestNonce || views[0].pendingNonce !== recorded.pendingNonce || publicHash(receipts) !== publicHash(recorded.receipts))) throw new Error("USDC successor recorded pinned history mismatch");
-  assertSource(source); return { primaryEvidenceHash, views, receipts };
+  assertSource(source, sourceMode); return { primaryEvidenceHash, views, receipts };
+}
+
+function effectivePeriodAt(source: UsdcSuccessorSource, timestamp: bigint): bigint {
+  const anchor = BigInt(source.original.periodAnchor);
+  return anchor + ((timestamp - anchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
 }
 
 export async function verifyUsdcSuccessorCertificate(source: UsdcSuccessorSource, primary: UsdcSuccessorPrimaryEvidence, providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider]): Promise<VerifiedUsdcSuccessorCertificate> {
-  assertSource(source); validatePrimary(primary, source);
+  assertSource(source, "clean"); validatePrimary(primary, source);
   if (providers.length !== 2 || providers[0] === providers[1]) throw new Error("USDC successor certificate requires two independent providers");
   const tips = await Promise.all([providers[0].readLatestBlock(), providers[1].readLatestBlock()] as const);
   const minimumTip = tips[0].number <= tips[1].number ? tips[0] : tips[1]; if (minimumTip.number < 5n) throw new Error("USDC successor provider tip is too low");
@@ -298,7 +306,7 @@ export async function verifyUsdcSuccessorCertificate(source: UsdcSuccessorSource
   const initialBlocks = await Promise.all([providers[0].readBlock(snapshotNumber), providers[1].readBlock(snapshotNumber)] as const);
   if (!initialBlocks[0] || !initialBlocks[1]) throw new Error("USDC successor snapshot block is missing");
   if (tips.some(tip => tip.number - snapshotNumber + 1n < 6n) || publicHash(initialBlocks[0]) !== publicHash(initialBlocks[1])) throw new Error("USDC successor providers disagree on a six-confirmation snapshot");
-  const effectivePeriod = BigInt(source.original.periodAnchor) + ((initialBlocks[0].timestamp - BigInt(source.original.periodAnchor)) / PERIOD_SECONDS) * PERIOD_SECONDS;
+  const effectivePeriod = effectivePeriodAt(source, initialBlocks[0].timestamp);
   if (effectivePeriod <= OLD_PERIOD) throw new Error("USDC successor snapshot belongs to the old period");
   const pinned = await verifyPinned(source, primary, providers, initialBlocks[0]);
   const state = pinned.views[0].state, recoveryGasCostWei = pinned.receipts.reduce((sum, receipt) => sum + receipt.gasCost, 0n);
@@ -306,7 +314,7 @@ export async function verifyUsdcSuccessorCertificate(source: UsdcSuccessorSource
   const snapshot = Object.freeze({ block: Object.freeze({ ...initialBlocks[0] }), controlledStateHash: publicHash(state), funderNonce: pinned.views[0].snapshotNonce, latestNonce: pinned.views[0].latestNonce, pendingNonce: pinned.views[0].pendingNonce });
   const body = { kind: "VERIFIED_USDC_SUCCESSOR_CERTIFICATE" as const, sourceHash: SOURCE_HASH, primaryEvidenceHash: pinned.primaryEvidenceHash, snapshot, effectivePeriod, rawNativeSpend: Object.freeze({ ...state.nativeSpend }), rawUsdcSpend: Object.freeze({ ...state.usdcSpend }), recoveryReceipts: Object.freeze([...pinned.receipts]), recoveryGasCostWei };
   const certificate = Object.freeze({ ...body, certificateHash: publicHash(body) }) as VerifiedUsdcSuccessorCertificate;
-  assertSource(source); verifiedCertificates.add(certificate); return certificate;
+  assertSource(source, "clean"); verifiedCertificates.add(certificate); return certificate;
 }
 
 export function isVerifiedUsdcSuccessorCertificate(value: unknown): value is VerifiedUsdcSuccessorCertificate {
@@ -336,6 +344,6 @@ function decodeCertificate(serialized: string, expectedHash: Hex): VerifiedUsdcS
 export async function reverifyUsdcSuccessorCertificate(serialized: string, expectedHash: Hex, source: UsdcSuccessorSource, primary: UsdcSuccessorPrimaryEvidence, providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider]): Promise<VerifiedUsdcSuccessorCertificate> {
   const certificate = decodeCertificate(serialized, expectedHash);
   const pinned = await verifyPinned(source, primary, providers, certificate.snapshot.block, { stateHash: certificate.snapshot.controlledStateHash, funderNonce: certificate.snapshot.funderNonce, latestNonce: certificate.snapshot.latestNonce, pendingNonce: certificate.snapshot.pendingNonce, receipts: certificate.recoveryReceipts });
-  if (!same(pinned.primaryEvidenceHash, certificate.primaryEvidenceHash) || certificate.effectivePeriod <= OLD_PERIOD || publicHash(certificate.rawNativeSpend) !== publicHash(pinned.views[0].state.nativeSpend) || publicHash(certificate.rawUsdcSpend) !== publicHash(pinned.views[0].state.usdcSpend) || certificate.recoveryGasCostWei !== pinned.receipts.reduce((sum, receipt) => sum + receipt.gasCost, 0n)) throw new Error("USDC successor recorded certificate pinned evidence mismatch");
-  assertSource(source); verifiedCertificates.add(certificate); return certificate;
+  if (!same(pinned.primaryEvidenceHash, certificate.primaryEvidenceHash) || certificate.effectivePeriod !== effectivePeriodAt(source, certificate.snapshot.block.timestamp) || certificate.effectivePeriod <= OLD_PERIOD || publicHash(certificate.rawNativeSpend) !== publicHash(pinned.views[0].state.nativeSpend) || publicHash(certificate.rawUsdcSpend) !== publicHash(pinned.views[0].state.usdcSpend) || certificate.recoveryGasCostWei !== pinned.receipts.reduce((sum, receipt) => sum + receipt.gasCost, 0n)) throw new Error("USDC successor recorded certificate effective period or pinned evidence mismatch");
+  assertSource(source, "pinned"); verifiedCertificates.add(certificate); return certificate;
 }
