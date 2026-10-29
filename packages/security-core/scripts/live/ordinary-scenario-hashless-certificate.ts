@@ -105,7 +105,7 @@ export type VerifiedHashlessStateCertificate = Readonly<{
   readonly [certificateBrand]: true;
 }>;
 
-type FileSnapshot = Readonly<{ path: string; bytesSha256: Hex; prefixHash: Hex; size: bigint; mtimeNs: bigint }>;
+type FileSnapshot = Readonly<{ path: string; bytesSha256: Hex; prefixHash: Hex; size: bigint; mtimeNs: bigint; descendant?: true }>;
 const sourceSnapshots = new WeakMap<OrdinaryScenarioJournal, FileSnapshot>();
 const verifiedCertificates = new WeakSet<object>();
 
@@ -206,13 +206,34 @@ export function loadHashlessSourceJournalReadOnly(path: string): OrdinaryScenari
   return journal;
 }
 
+/**
+ * Register a journal that a stricter descendant loader already decoded from this exact file.
+ * This does not decode, normalize, or ignore descendant fields; the supplied value must equal
+ * the complete stable JSON bytes and retain the fixed historical prefix.
+ */
+export function adoptHashlessSourceJournalReadOnlySnapshot(path: string, journal: OrdinaryScenarioJournal): void {
+  const absolute = resolve(path), read = readStableSource(absolute); let parsed: unknown;
+  try { parsed = JSON.parse(read.raw); } catch { throw new Error("hashless descendant source journal must be JSON"); }
+  if (JSON.stringify(parsed) !== JSON.stringify(journal)) throw new Error("hashless descendant source journal does not match its stable file");
+  const prefixHash = hashHistoricalPrefix(journal);
+  if (!same(prefixHash, EXPECTED_PREFIX_HASH)) throw new Error("hashless descendant source historical prefix mismatch");
+  const bytesSha256 = rawSha256(read.raw);
+  if (!((journal as unknown as Record<string, unknown>).hashlessContinuation)) throw new Error("hashless descendant source lacks its authenticated continuation lineage");
+  sourceSnapshots.set(journal, { path: absolute, bytesSha256, prefixHash, size: read.stat.size, mtimeNs: read.stat.mtimeNs, descendant: true });
+}
+
 function revalidateSourceJournal(journal: OrdinaryScenarioJournal): FileSnapshot {
   const snapshot = sourceSnapshots.get(journal);
   if (!snapshot) throw new Error("hashless source journal lacks a read-only filesystem snapshot");
   if (!same(hashHistoricalPrefix(journal), snapshot.prefixHash) || !same(snapshot.prefixHash, EXPECTED_PREFIX_HASH)) throw new Error("hashless source historical prefix changed after load");
   const read = readStableSource(snapshot.path);
   if (read.stat.size !== snapshot.size || read.stat.mtimeNs !== snapshot.mtimeNs || !same(rawSha256(read.raw), snapshot.bytesSha256)) throw new Error("hashless source filesystem snapshot changed before certificate branding");
-  const current = decodeSourceJournal(read.raw);
+  let current: OrdinaryScenarioJournal;
+  if (snapshot.descendant) {
+    let parsed: unknown; try { parsed = JSON.parse(read.raw); } catch { throw new Error("hashless descendant source journal must be JSON"); }
+    if (JSON.stringify(parsed) !== JSON.stringify(journal)) throw new Error("hashless descendant source journal changed before certificate branding");
+    current = parsed as OrdinaryScenarioJournal;
+  } else current = decodeSourceJournal(read.raw);
   if (!same(hashHistoricalPrefix(current), snapshot.prefixHash)) throw new Error("hashless source filesystem prefix changed before certificate branding");
   return snapshot;
 }

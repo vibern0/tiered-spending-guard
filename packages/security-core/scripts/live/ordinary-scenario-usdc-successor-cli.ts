@@ -71,10 +71,10 @@ export type UsdcSuccessorPublicProviders = Readonly<{
 }>;
 export type UsdcSuccessorPublicInputs = Readonly<{ source: UsdcSuccessorSource; certificate: VerifiedUsdcSuccessorCertificate; successor: UsdcSuccessorProposal; approval?: UsdcSuccessorApproval }>;
 
-async function loadSource(args: UsdcSuccessorCliArguments, providers: UsdcSuccessorPublicProviders): Promise<UsdcSuccessorSource> {
+async function loadSource(args: UsdcSuccessorCliArguments, providers: UsdcSuccessorPublicProviders, sourceJournal?: OrdinaryScenarioJournal): Promise<UsdcSuccessorSource> {
   const original = createOrdinaryScenarioProposal(readPublicText(required(args, "--original-report"), "original report"), { expectedPackageHash: requiredHash(args, "--original-package-hash"), expectedArtifactBytesHash: requiredHash(args, "--original-artifact-hash") });
   if (!same(original.proposalHash, requiredHash(args, "--original-proposal-hash"))) throw new Error("USDC successor original proposal hash mismatch");
-  const journal = loadHashlessSourceJournalReadOnly(required(args, "--source-journal"));
+  const journal = sourceJournal ?? loadHashlessSourceJournalReadOnly(required(args, "--source-journal"));
   const recoveryCertificate = await reverifyHashlessStateCertificate(readPublicText(required(args, "--recovery-certificate"), "recovery certificate"), requiredHash(args, "--recovery-certificate-hash"), journal, providers.recovery);
   const recovery = parseExpiredHashlessContinuationProposal(readPublicText(required(args, "--recovery-proposal"), "recovery proposal"), original, journal, recoveryCertificate);
   const recoveryApproval = loadExpiredHashlessContinuationApproval(recovery, readPublicText(required(args, "--recovery-approval"), "recovery approval"), requiredHash(args, "--recovery-approval-hash"));
@@ -86,8 +86,8 @@ function loadPrimaryEvidence(manifestPath: string): UsdcSuccessorPrimaryEvidence
   return Object.freeze({ manifest: readPublicText(manifestPath, "primary evidence manifest"), ledgerSourceNativeItem2: readPublicText(join(directory, "ledger-source-native-item2.json"), "primary source ledger"), ledgerReplacementNativeItem3: readPublicText(join(directory, "ledger-replacement-native-item3.json"), "primary replacement ledger"), ackNativeQueueReadyHashlessSkip: readPublicText(join(directory, "ack-native-queue-ready-hashless-skip.json"), "primary skip acknowledgement"), ackNativeQueueReadyReplacement: readPublicText(join(directory, "ack-native-queue-ready-replacement.json"), "primary replacement acknowledgement"), ackNativeQueueReadyReplacementExecute: readPublicText(join(directory, "ack-native-queue-ready-replacement-execute.json"), "primary execution acknowledgement") });
 }
 
-export async function loadUsdcSuccessorPublicInputs(args: UsdcSuccessorCliArguments, providers: UsdcSuccessorPublicProviders): Promise<UsdcSuccessorPublicInputs> {
-  const source = await loadSource(args, providers), primary = loadPrimaryEvidence(required(args, "--primary-bundle-manifest")), successorProviders = providers.successor(source);
+export async function loadUsdcSuccessorPublicInputs(args: UsdcSuccessorCliArguments, providers: UsdcSuccessorPublicProviders, sourceJournal?: OrdinaryScenarioJournal): Promise<UsdcSuccessorPublicInputs> {
+  const source = await loadSource(args, providers, sourceJournal), primary = loadPrimaryEvidence(required(args, "--primary-bundle-manifest")), successorProviders = providers.successor(source);
   if (args.command === "review") {
     const certificate = await verifyUsdcSuccessorCertificate(source, primary, successorProviders);
     const observer = createUsdcSuccessorObserverBinding(readPublicText(required(args, "--observer-startup"), "observer startup"), readPublicText(required(args, "--observer-probe"), "observer probe"), (providers.now ?? (() => new Date()))());
