@@ -22,6 +22,8 @@ import {
   createRepairPrepareAuthorization,
   extendJournalForRepair,
   loadRepairApproval,
+  loadRepairCreationProposal,
+  loadRepairGroupProposal,
   recoverCanonicalRepairCalldata,
   recordRepairCreationConfirmation,
   validateRepairCreationReceiptLogs,
@@ -36,6 +38,9 @@ import { encodeSafeContractSignature } from "../../../src/signers/passkey-helper
 import { hashlessContinuationFixture } from "../../support/hashless-continuation-fixture";
 import { ActivityLedger, FileActivityStore } from "../../../src/monitoring/ledger";
 import type { ActivityAlert } from "../../../src/monitoring/notifier";
+import { sha256 } from "../../../scripts/plan-deployment";
+import { attachUsdcSuccessor, createUsdcSuccessorProposal, loadUsdcSuccessorApproval } from "../../../scripts/live/ordinary-scenario-usdc-successor-proposal";
+import { createUsdcSuccessorFixture, successorSnapshot } from "../../support/usdc-successor-fixture";
 
 const address = (suffix: string) => `0x${suffix.padStart(40, "0")}` as Address;
 const hash = (suffix: string) => `0x${suffix.padStart(64, "0")}` as Hex;
@@ -115,8 +120,38 @@ async function closedHashlessPredecessor() {
   return { ...fixture, journal, evidence };
 }
 
+const successorObserver = { kind: "https-webhook" as const, publicId: `temporary-test-receiver:${hash("a1")}`, endpointHash: hash("a1"), startupEvidenceHash: hash("a2"), probeEvidenceHash: hash("a3"), independentFromProposer: true as const, readyAt: successorSnapshot.timestamp.toString(), workflowScheduleSeconds: { review: "3600", execution: "7200", confirmations: "180", delivery: "60", acknowledgement: "300", keylessConfirmation: "300" }, requiredThrough: (successorSnapshot.timestamp + 11_640n).toString(), expiresAt: "1793318400" };
+const successorCaps = { fundingGasLimit: "740292", safeExecutionGasLimit: "2000000", publicDelayGasLimit: "300000", maxFeePerGas: "1000000", maxPriorityFeePerGas: "1000000" } as const;
+
+async function closedUsdcSuccessorPredecessor() {
+  const fixture = await createUsdcSuccessorFixture();
+  const successor = createUsdcSuccessorProposal({ source: fixture.source, certificate: fixture.certificate, observer: successorObserver, caps: successorCaps });
+  const approvalDocument = { schemaVersion: 1, scope: "ordinary-usdc-period-successor-v1", authorization: "STANDING_BOUNDED_SUCCESSOR_AUTHORIZATION", authorityEvidenceHash: successor.authorityEvidenceHash, proposalHash: successor.proposalHash, sourceHash: successor.sourceHash, certificateHash: successor.certificateHash, snapshot: successor.snapshot, effectivePeriod: successor.effectivePeriod, deadline: successor.deadline, observer: successor.observer, schedule: successor.schedule, groups: successor.groups, caps: successor.caps, reservation: successor.reservation, maxBroadcastAttempts: 1, approvedActions: successor.actions.map(({ id, commitment }) => ({ id, commitment })) };
+  const approval = loadUsdcSuccessorApproval(successor, JSON.stringify(approvalDocument), sha256(approvalDocument) as Hex);
+  const journal = structuredClone(attachUsdcSuccessor(fixture.source.journal, successor, approval));
+  const records = successor.actions.map((action, index) => {
+    const confirmed = action.expectedOutcome === "success";
+    const transactionHash = hash((0xb00 + index).toString(16));
+    const receipt = { transactionHash, status: "success" as const, gasUsed: 10n + BigInt(index), effectiveGasPrice: 7n, blockNumber: 12_016_100n + BigInt(index), blockHash: hash((0xc00 + index).toString(16)) };
+    return {
+      id: action.id, commitment: action.commitment, status: confirmed ? "confirmed" as const : "rejection-proved" as const,
+      evidenceHash: hash((0xd00 + index).toString(16)),
+      ...(confirmed ? { transactionHash, receipt, outerValue: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(), ourPrincipalDelta: "0" } : {}),
+    };
+  });
+  journal.usdcSuccessor.actions.splice(0, journal.usdcSuccessor.actions.length, ...records);
+  journal.liveJournal.entries.push(...records.filter(record => record.status === "confirmed").map((record, index) => ({ id: record.id, intentHash: hash((0xe00 + index).toString(16)), transactionHash: record.transactionHash!, nonce: 900 + index, reserved: BigInt(record.ourReceiptGasCost!), status: "success" as const, receipt: record.receipt! })));
+  const stoppedEvidence = rawHash(JSON.stringify(fixture.source.recovery.source.stoppedRow));
+  const evidence = [
+    ...journal.actions.map((record, index) => ({ actionId: record.id, evidenceHash: index === 18 ? stoppedEvidence : record.evidenceHash!, transactionHash: record.transactionHash })),
+    ...journal.hashlessContinuation!.actions.slice(0, 3).map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash!, transactionHash: record.transactionHash })),
+    ...records.map(record => ({ actionId: record.id, evidenceHash: record.evidenceHash, transactionHash: record.transactionHash })),
+  ];
+  return { ...fixture, successor, approval, journal, records, evidence };
+}
+
 describe("closed ordinary repair-to-freeze continuation", () => {
-  it("accepts_only_two_complete_canonical_predecessors", async () => {
+  it("accepts all three closed complete canonical predecessors", async () => {
     const legacy = prefix();
     expect(verifyRepairPredecessor(legacy.proposal, legacy.journal, legacy.evidence)).to.include({ kind: "terminal-first38-v1", actionCount: 38, safeNonce: 14n, delayQueueNonce: 6n, delayTxNonce: 6n });
 
@@ -124,6 +159,51 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     const predecessor = verifyRepairPredecessor(recovered.original, recovered.journal, recovered.evidence, { kind: "expired-hashless-continuation-v1", continuation: recovered.proposal, approval: recovered.approval });
     expect(predecessor).to.include({ kind: "expired-hashless-continuation-v1", actionCount: 41, safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n });
     expect(predecessor).to.include({ certificateHash: recovered.proposal.certificateHash, continuationProposalHash: recovered.proposal.proposalHash, continuationApprovalHash: recovered.approval.approvalHash, observerEvidenceHash: recovered.proposal.observer.probeEvidenceHash });
+
+    const usdc = await closedUsdcSuccessorPredecessor();
+    const usdcPredecessor = verifyRepairPredecessor(usdc.source.original, usdc.journal, usdc.evidence, { kind: "usdc-period-successor-v1", source: usdc.source, certificate: usdc.certificate, successor: usdc.successor, approval: usdc.approval });
+    expect(usdcPredecessor).to.include({ kind: "usdc-period-successor-v1", actionCount: 41, safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, effectivePeriod: 1793232000n });
+    expect(usdcPredecessor).to.include({ certificateHash: usdc.certificate.certificateHash, continuationProposalHash: usdc.successor.proposalHash, continuationApprovalHash: usdc.approval.approvalHash, observerEvidenceHash: usdc.successor.observer.probeEvidenceHash });
+  });
+
+  it("rejects partial mixed forged orphaned or financially mutated USDC successor lineage", async () => {
+    const recovered = await closedUsdcSuccessorPredecessor();
+    const lineage = { kind: "usdc-period-successor-v1" as const, source: recovered.source, certificate: recovered.certificate, successor: recovered.successor, approval: recovered.approval };
+    const partial = structuredClone(recovered.journal); partial.usdcSuccessor!.actions[18] = { id: recovered.successor.actions[18]!.id, commitment: recovered.successor.actions[18]!.commitment, status: "approved" };
+    expect(() => verifyRepairPredecessor(recovered.source.original, partial, recovered.evidence, lineage)).to.throw(/successor|complete|canonical/i);
+    const mutatedOld = structuredClone(recovered.journal); mutatedOld.hashlessContinuation!.actions[3]!.status = "confirmed" as any;
+    expect(() => verifyRepairPredecessor(recovered.source.original, mutatedOld, recovered.evidence, lineage)).to.throw(/untouched|lineage|canonical/i);
+    const orphan = structuredClone(recovered.journal); orphan.usdcSuccessor!.sourceHash = hash("bad");
+    expect(() => verifyRepairPredecessor(recovered.source.original, orphan, recovered.evidence, lineage)).to.throw(/header|lineage|canonical/i);
+    const badCost = structuredClone(recovered.journal); (badCost.usdcSuccessor!.actions.find(action => action.status === "confirmed") as any).ourReceiptGasCost = "1";
+    expect(() => verifyRepairPredecessor(recovered.source.original, badCost, recovered.evidence, lineage)).to.throw(/receipt gas|accounting/i);
+    expect(() => verifyRepairPredecessor(recovered.source.original, recovered.journal, recovered.evidence, { ...lineage, approval: { approvalHash: recovered.approval.approvalHash } as any })).to.throw(/opaque|authorization/i);
+    expect(() => verifyRepairPredecessor(recovered.source.original, recovered.journal, recovered.evidence.slice(1), lineage)).to.throw(/evidence|41/i);
+    const confirmed = [...recovered.journal.actions, ...recovered.journal.hashlessContinuation!.actions.slice(0, 3), ...recovered.journal.usdcSuccessor!.actions].filter((record): record is any => record.status === "confirmed");
+    const adapter = (changedHash?: Hex) => createRepairMechanicalAdapter({ domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, creation: { safe, guard, delay, funder, candidate, factory, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), preRotationBlockNumber: "1", preRotationBlockHash: hash("1") }, primary, current: {} as never, archive: { getTransactionReceipt: async ({ hash: transactionHash }: { hash: Hex }) => { const record = confirmed.find(action => action.transactionHash === transactionHash)!; return { ...record.receipt, gasUsed: transactionHash === changedHash ? BigInt(record.receipt.gasUsed) + 1n : BigInt(record.receipt.gasUsed), effectiveGasPrice: BigInt(record.receipt.effectiveGasPrice), blockNumber: BigInt(record.receipt.blockNumber) }; } } as never, readStateAtBlock: async () => { throw new Error("unexpected state read"); }, loadPasskey: async () => { throw new Error("unexpected signer"); } });
+    expect(await adapter().validateTerminalPrefix(recovered.journal)).to.have.length(41);
+    await expect(adapter(confirmed.at(-1)!.transactionHash).validateTerminalPrefix(recovered.journal)).to.be.rejectedWith(/canonical receipt changed/i);
+  });
+
+  it("rebases the USDC successor repair spine while keeping raw native and effective periods separate", async () => {
+    const recovered = await closedUsdcSuccessorPredecessor();
+    const lineage = { kind: "usdc-period-successor-v1" as const, source: recovered.source, certificate: recovered.certificate, successor: recovered.successor, approval: recovered.approval };
+    const before = state({ safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, candidateRuntimeCodeHash: hash("0"), candidateBindingHash: hash("0"), blockTimestamp: 1793232600n, nativeWindow: 1793145600n, usdcWindow: 1793232000n, nativeBaseSpent: 10000000000000n, nativeInstantSpent: 30000000000000n, usdcBaseSpent: 10000000n, usdcInstantSpent: 30000000n, nativeBalance: 0n, usdcBalance: 0n });
+    const creation = createRepairCreationProposal({ proposal: recovered.source.original, journal: recovered.journal, evidence: recovered.evidence, lineage, state: before, quote });
+    expect(creation.predecessor.kind).to.equal("usdc-period-successor-v1");
+    expect(creation.predecessor.effectivePeriod).to.equal("1793232000");
+    expect(creation.baseline.nativeWindow).to.equal("1793145600");
+    expect(loadRepairCreationProposal(JSON.stringify(creation), creation.proposalHash).action.dependsOn).to.deep.equal(["usdc-successor-queue-ready-execute"]);
+    const wrongDependency = structuredClone(creation) as any; wrongDependency.action.dependsOn = ["usdc-queue-ready-execute"]; const { proposalHash: _creationHash, ...wrongCreationBase } = wrongDependency; wrongDependency.proposalHash = rawHash(JSON.stringify(wrongCreationBase));
+    expect(() => loadRepairCreationProposal(JSON.stringify(wrongDependency), wrongDependency.proposalHash)).to.throw(/action mismatch/i);
+    approveCreation(recovered.journal, creation);
+    recovered.journal.liveJournal.entries.push({ id: "repair-signer-create", intentHash: hash("e1"), transactionHash: hash("e2"), nonce: 999, reserved: 4321n, status: "success", receipt: { transactionHash: hash("e2"), status: "success", gasUsed: 4321n, effectiveGasPrice: 1n, blockNumber: 30n, blockHash: hash("e3") } });
+    const prepared = createRepairGroupProposal({ creation, journal: recovered.journal, state: state({ ...before, candidateRuntimeCodeHash: hash("702"), candidateBindingHash: REPAIR_BINDING_HASH }), assertion: "0x123456", lineage });
+    expect(prepared.proposal.establishedNativeWindow).to.equal("1793145600");
+    expect(prepared.proposal.establishedEffectivePeriod).to.equal("1793232000");
+    expect(loadRepairGroupProposal(JSON.stringify(prepared.proposal), prepared.proposal.proposalHash).establishedEffectivePeriod).to.equal("1793232000");
+    expect(prepared.proposal.actions.at(-1)).to.include({ safeNonceAfter: "19", delayQueueNonceAfter: "9", delayTxNonceAfter: "9" });
+    expect(() => assertRepairActionState(prepared.proposal, prepared.proposal.actions[3]!, state({ ...before, safeNonce: 16n, delayQueueNonce: 8n, delayTxNonce: 8n, safeContractSecondary: candidate, policyHash: "0xf77e71d221b6ba2ac8daba8f64e4527ff34322d22449d3159a4b92a0e9f07229", candidateRuntimeCodeHash: hash("702"), candidateBindingHash: REPAIR_BINDING_HASH, blockTimestamp: 1793318400n }), "before")).to.throw(/period rollover/i);
   });
 
   it("rejects_partial_mixed_forged_or_mutated_lineage", async () => {
@@ -295,6 +375,21 @@ describe("closed ordinary repair-to-freeze continuation", () => {
     await expect(runtime.creationReview(arguments_)).to.be.rejectedWith("shared loader reached");
     expect(loaded).to.deep.equal(["submit-one", "--source-journal", "journal.json", "--original-report", "report.json", "--original-package-hash", hash("2"), "--original-artifact-hash", hash("1"), "--original-proposal-hash", hash("3"), "--certificate", "certificate.json", "--certificate-hash", hash("5"), "--proposal", "continuation.json", "--approval", "approval.json", "--approval-hash", hash("6"), "--journal", "journal.json"]);
     await expect(runtime.creationReview(arguments_.slice(0, -2))).to.be.rejectedWith("complete shared public loader inputs");
+  });
+
+  it("requires the complete unmixed USDC successor flag set and reaches the shared public loader before the writer lease", async () => {
+    let loaded: readonly string[] | undefined;
+    const runtime = createRepairCommandRuntime({
+      environment: {}, domain: PRODUCTION_REPAIR_EXECUTION_DOMAIN, ordinaryDomain: PRODUCTION_ORDINARY_SCENARIO_DOMAIN,
+      repository: () => { throw new Error("journal lease reached before USDC loader"); }, createHarness: () => { throw new Error("unexpected harness"); }, createAdapter: () => { throw new Error("unexpected adapter"); }, loadCreationQuote: () => { throw new Error("unexpected quote"); }, submit: async () => { throw new Error("unexpected submit"); }, now: () => new Date(0), awaitApprovalHandoff: async () => { throw new Error("unexpected approval"); },
+      loadUsdcSuccessorLineage: async argv => { loaded = argv; throw new Error("USDC shared loader reached"); },
+    });
+    const flags = ["--recovery-certificate", "recovery-certificate.json", "--recovery-certificate-hash", hash("5"), "--recovery-proposal", "recovery-proposal.json", "--recovery-approval", "recovery-approval.json", "--recovery-approval-hash", hash("6"), "--primary-bundle-manifest", "manifest.json", "--successor-certificate", "successor-certificate.json", "--successor-certificate-hash", hash("7"), "--successor-proposal", "successor-proposal.json", "--successor-approval", "successor-approval.json", "--successor-approval-hash", hash("8")];
+    const arguments_ = ["--report", "report.json", "--artifact-hash", hash("1"), "--package-hash", hash("2"), "--proposal-hash", hash("3"), "--original-approval-hash", hash("4"), "--journal", "journal.json", ...flags];
+    await expect(runtime.creationReview(arguments_)).to.be.rejectedWith("USDC shared loader reached");
+    expect(loaded).to.deep.equal(["submit-one", "--source-journal", "journal.json", "--original-report", "report.json", "--original-package-hash", hash("2"), "--original-artifact-hash", hash("1"), "--original-proposal-hash", hash("3"), ...flags, "--journal", "journal.json"]);
+    await expect(runtime.creationReview(arguments_.slice(0, -2))).to.be.rejectedWith("complete shared public loader inputs");
+    await expect(runtime.creationReview([...arguments_, "--continuation-certificate", "mixed.json"])).to.be.rejectedWith("cannot mix predecessor routes");
   });
 
   it("keylessly resumes one known recovered-lineage hash after observer expiry using its timely acknowledgement", async () => {

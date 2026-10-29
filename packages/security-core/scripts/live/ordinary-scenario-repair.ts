@@ -20,6 +20,8 @@ import {
   type ExpiredHashlessContinuationApproval,
   type ExpiredHashlessContinuationProposal,
 } from "./ordinary-scenario-hashless-continuation";
+import { assertUsdcSuccessorAuthorization, type UsdcSuccessorApproval, type UsdcSuccessorProposal } from "./ordinary-scenario-usdc-successor-proposal";
+import { isVerifiedUsdcSuccessorCertificate, type UsdcSuccessorRawSpend, type UsdcSuccessorSource, type VerifiedUsdcSuccessorCertificate } from "./ordinary-scenario-usdc-successor-certificate";
 
 export const REPAIR_ACTION_IDS = Object.freeze([
   "repair-signer-create",
@@ -114,7 +116,7 @@ export type RepairGroupProposal = Readonly<{
   cumulativeActualCostWei: string; maximumCumulativeOutlayWei: string; phaseLimitWei: string;
   safe: Address; delay: Address; guard: Address; candidate: Address; oldSecondary: Address; recipient: Address;
   beforePolicyHash: Hex; afterPolicyHash: Hex; beforeSignerIdentityHash: Hex; afterSignerIdentityHash: Hex;
-  periodAnchor: string; establishedNativeWindow: string; repair: RepairFixedFields; actions: readonly RepairActionReview[];
+  periodAnchor: string; establishedNativeWindow: string; establishedEffectivePeriod?: string; repair: RepairFixedFields; actions: readonly RepairActionReview[];
   repairQueueTiming: Readonly<{ source: "CANONICAL_RECEIPT_CREATED_AT_ONLY"; queueNonce: string; queueFingerprint: Hex; cooldownSeconds: "120"; expirationSeconds: "600" }>;
   baseline: RepairCreationProposal["baseline"];
 }>;
@@ -126,7 +128,7 @@ const approvalBindings = new WeakMap<object, RepairCreationProposal | RepairGrou
 
 export type RepairPrefixEvidence = Readonly<{ actionId: string; evidenceHash: Hex; transactionHash?: Hex }>;
 export type RepairPredecessorBinding = Readonly<{
-  kind: "terminal-first38-v1" | "expired-hashless-continuation-v1";
+  kind: "terminal-first38-v1" | "expired-hashless-continuation-v1" | "usdc-period-successor-v1";
   actionCount: 38 | 41;
   prefixHash: Hex;
   certificateHash: Hex | null;
@@ -134,9 +136,12 @@ export type RepairPredecessorBinding = Readonly<{
   continuationApprovalHash: Hex | null;
   observerIdentityHash: Hex | null;
   observerEvidenceHash: Hex;
+  effectivePeriod?: string;
+  rawNativeSpend?: Readonly<{ window: string; baseSpent: string; instantSpent: string }>;
+  rawUsdcSpend?: Readonly<{ window: string; baseSpent: string; instantSpent: string }>;
 }>;
 export type VerifiedRepairPredecessor = RepairPredecessorBinding & Readonly<{
-  safeNonce: bigint; delayQueueNonce: bigint; delayTxNonce: bigint; cumulativeActualCostWei: bigint;
+  safeNonce: bigint; delayQueueNonce: bigint; delayTxNonce: bigint; cumulativeActualCostWei: bigint; effectivePeriod?: bigint;
 }>;
 const predecessorBrands = new WeakSet<object>();
 const assertVerifiedPredecessor = (value: VerifiedRepairPredecessor): void => { if (!predecessorBrands.has(value)) throw new Error("repair predecessor is not opaque and verified"); };
@@ -154,11 +159,31 @@ const assertEvidence = (records: readonly Readonly<{ id: string; evidenceHash?: 
   }
 };
 
+export type RepairPredecessorLineage =
+  | Readonly<{ kind: "expired-hashless-continuation-v1"; continuation: ExpiredHashlessContinuationProposal; approval: ExpiredHashlessContinuationApproval }>
+  | Readonly<{ kind: "usdc-period-successor-v1"; source: UsdcSuccessorSource; certificate: VerifiedUsdcSuccessorCertificate; successor: UsdcSuccessorProposal; approval: UsdcSuccessorApproval }>;
+
+const successfulReceiptGas = (
+  records: readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[],
+  liveEntries: readonly LiveJournal["entries"][number][],
+  offset: number,
+  label: string,
+): bigint => records.reduce((sum, record, index) => {
+  if (!record.receipt || record.ourReceiptGasCost === undefined) throw new Error(`${label} receipt gas accounting is incomplete`);
+  const receiptGasUsed = BigInt(record.receipt.gasUsed), receiptEffectiveGasPrice = BigInt(record.receipt.effectiveGasPrice), receiptCost = receiptGasUsed * receiptEffectiveGasPrice;
+  if (BigInt(record.ourReceiptGasCost) !== receiptCost) throw new Error(`${label} stored receipt gas accounting mismatch`);
+  const live = liveEntries[offset + index]; const outerValue = BigInt(record.outerValue ?? "0");
+  if (!live || live.id !== record.id || !live.receipt || live.transactionHash !== record.transactionHash || live.receipt.transactionHash !== record.receipt.transactionHash || BigInt(live.receipt.gasUsed) !== receiptGasUsed || BigInt(live.receipt.effectiveGasPrice) !== receiptEffectiveGasPrice || BigInt(live.receipt.blockNumber) !== BigInt(record.receipt.blockNumber) || !same(live.receipt.blockHash, record.receipt.blockHash) || BigInt(live.reserved) !== receiptCost + outerValue) throw new Error(`${label} live receipt gas accounting mismatch`);
+  return sum + receiptCost;
+}, 0n);
+
+const spendBinding = (value: UsdcSuccessorRawSpend) => Object.freeze({ window: value.window.toString(), baseSpent: value.baseSpent.toString(), instantSpent: value.instantSpent.toString() });
+
 export function verifyRepairPredecessor(
   proposal: OrdinaryScenarioProposal,
   journal: OrdinaryScenarioJournal,
   evidence: readonly RepairPrefixEvidence[],
-  lineage?: Readonly<{ kind: "expired-hashless-continuation-v1"; continuation: ExpiredHashlessContinuationProposal; approval: ExpiredHashlessContinuationApproval }>,
+  lineage?: RepairPredecessorLineage,
 ): VerifiedRepairPredecessor {
   if (journal.proposalHash !== proposal.proposalHash || journal.reviewPackageHash !== proposal.reviewPackageHash || journal.chainId !== proposal.chainId || journal.liveJournal.chainId !== proposal.chainId) throw new Error("repair continuation prefix identity mismatch");
   const assertProjectedLivePrefix = (expectedIds: readonly string[]): typeof journal.liveJournal.entries => {
@@ -184,6 +209,40 @@ export function verifyRepairPredecessor(
     if (cumulative > PHASE_OUTLAY_LIMIT) throw new Error("repair continuation cumulative phase cost exceeds ceiling");
     const value = Object.freeze({ kind: "terminal-first38-v1" as const, actionCount: 38 as const, prefixHash: publicHash({ proposalHash: proposal.proposalHash, approvalHash: journal.approvalHash, actions: journal.actions, liveJournal: { chainId: journal.liveJournal.chainId, entries: predecessorLiveEntries } }), certificateHash: null, continuationProposalHash: null, continuationApprovalHash: null, observerIdentityHash: null, observerEvidenceHash: proposal.observerEvidenceHash, safeNonce: 14n, delayQueueNonce: 6n, delayTxNonce: 6n, cumulativeActualCostWei: cumulative }); predecessorBrands.add(value); return value;
   }
+  if (lineage.kind === "usdc-period-successor-v1") {
+    assertExpiredHashlessContinuationLineage(proposal, lineage.source.recovery); assertExpiredHashlessContinuationAuthorization(lineage.source.recovery, lineage.source.recoveryApproval);
+    if (!isVerifiedUsdcSuccessorCertificate(lineage.certificate)) throw new Error("repair USDC successor certificate is not opaque and verified");
+    assertUsdcSuccessorAuthorization(lineage.successor, lineage.approval);
+    const attachedRecovery = journal.hashlessContinuation, attachedSuccessor = journal.usdcSuccessor;
+    if (evidence.length !== 41) throw new Error("repair USDC successor evidence must cover exactly 19+3+19 semantic actions");
+    if (!attachedRecovery || !attachedSuccessor || journal.actions.length !== 19 || attachedRecovery.actions.length !== 22 || attachedRecovery.actionCommitments.length !== 22 || attachedSuccessor.actions.length !== 19 || attachedSuccessor.actionCommitments.length !== 19 || !same(attachedRecovery.historicalPrefixHash, lineage.source.recovery.historicalPrefixHash) || !same(attachedRecovery.certificateHash, lineage.source.recovery.certificateHash) || !same(attachedRecovery.proposalHash, lineage.source.recovery.proposalHash) || !same(attachedRecovery.approvalHash, lineage.source.recoveryApproval.approvalHash) || publicHash(attachedRecovery.source) !== publicHash(lineage.source.recovery.source) || !same(attachedSuccessor.sourceHash, lineage.successor.sourceHash) || !same(attachedSuccessor.certificateHash, lineage.certificate.certificateHash) || !same(attachedSuccessor.proposalHash, lineage.successor.proposalHash) || !same(attachedSuccessor.approvalHash, lineage.approval.approvalHash) || attachedSuccessor.effectivePeriod !== lineage.successor.effectivePeriod) throw new Error("repair USDC successor lineage header or catalog is not canonical");
+    for (let index = 0; index < 19; index++) { const record = journal.actions[index]!, source = proposal.actions[index]!; const expected = index === 18 ? "signed-simulated" : source.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed"; if (record.id !== source.id || !same(record.commitment, source.commitment) || record.status !== expected) throw new Error("repair USDC successor historical source prefix changed"); }
+    assertEvidence(journal.actions, evidence, 0, { index: 18, hash: publicHash(lineage.source.recovery.source.stoppedRow) });
+    const recoveryRecords = attachedRecovery.actions as readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[];
+    for (let index = 0; index < 22; index++) { const record = recoveryRecords[index]!, action = lineage.source.recovery.actions[index]!, commitment = attachedRecovery.actionCommitments[index]; if (record.id !== action.id || !same(record.commitment, action.commitment) || commitment?.id !== action.id || !same(commitment.commitment, action.commitment)) throw new Error("repair USDC successor native recovery catalog changed"); if (index < 3) { if (record.status !== "confirmed" || !record.transactionHash || !record.receipt || !record.evidenceHash) throw new Error("repair USDC successor native prefix is incomplete"); } else if (record.status !== "approved" || Object.keys(record).sort().join(",") !== "commitment,id,status") throw new Error("repair USDC successor superseded old USDC tail must remain untouched"); }
+    assertEvidence(recoveryRecords.slice(0, 3), evidence, 19);
+    const successorRecords = attachedSuccessor.actions as readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[];
+    for (let index = 0; index < 19; index++) { const record = successorRecords[index]!, action = lineage.successor.actions[index]!, commitment = attachedSuccessor.actionCommitments[index], expected = action.expectedOutcome === "rejection" ? "rejection-proved" : "confirmed"; if (record.id !== action.id || !same(record.commitment, action.commitment) || commitment?.id !== action.id || !same(commitment.commitment, action.commitment) || record.status !== expected || !record.evidenceHash || (expected === "confirmed" && (!record.transactionHash || !record.receipt))) throw new Error("repair USDC successor terminal catalog is incomplete or changed"); }
+    assertEvidence(successorRecords, evidence, 22);
+    const historicalRecords = journal.actions.slice(0, 18).filter((record): record is import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord => record.status === "confirmed");
+    const nativeRecords = recoveryRecords.slice(0, 3);
+    const confirmedSuccessor = successorRecords.filter(record => record.status === "confirmed");
+    const expectedLiveIds = [...historicalRecords, ...nativeRecords, ...confirmedSuccessor].map(record => record.id);
+    if (expectedLiveIds.length !== 24) throw new Error("repair USDC successor must have exactly 24 successful live entries");
+    const predecessorLiveEntries = assertProjectedLivePrefix(expectedLiveIds);
+    const historicalGas = successfulReceiptGas(historicalRecords, predecessorLiveEntries, 0, "repair USDC successor historical");
+    const nativeGas = successfulReceiptGas(nativeRecords, predecessorLiveEntries, historicalRecords.length, "repair USDC successor native");
+    const successorGas = successfulReceiptGas(confirmedSuccessor, predecessorLiveEntries, historicalRecords.length + nativeRecords.length, "repair USDC successor");
+    const priorActual = BigInt(proposal.baselineActualCostWei) + historicalGas + nativeGas;
+    if (BigInt(lineage.successor.reservation.priorActualGasCostWei) !== priorActual || BigInt(lineage.successor.reservation.priorPrincipalWei) !== 60_000_000_000_002n) throw new Error("repair USDC successor prior accounting lineage changed");
+    if (confirmedSuccessor.some(record => BigInt(record.ourPrincipalDelta ?? "0") !== 0n || BigInt(record.outerValue ?? "0") !== 0n)) throw new Error("repair USDC successor principal accounting mismatch");
+    const cumulative = priorActual + BigInt(lineage.successor.reservation.priorPrincipalWei) + successorGas;
+    if (cumulative > PHASE_OUTLAY_LIMIT) throw new Error("repair USDC successor cumulative phase cost exceeds ceiling");
+    const rawNativeSpend = spendBinding(lineage.certificate.rawNativeSpend), rawUsdcSpend = spendBinding(lineage.certificate.rawUsdcSpend), effectivePeriod = lineage.certificate.effectivePeriod;
+    if (lineage.successor.effectivePeriod !== effectivePeriod.toString() || rawNativeSpend.window === effectivePeriod.toString() || rawUsdcSpend.window !== "0") throw new Error("repair USDC successor raw/effective period binding mismatch");
+    const prefixHash = publicHash({ originalProposalHash: proposal.proposalHash, originalApprovalHash: journal.approvalHash, historicalActions: journal.actions.slice(0, 19), historicalLiveEntries: journal.liveJournal.entries.slice(0, 10), recoveryCertificateHash: lineage.source.recovery.certificateHash, recoveryProposalHash: lineage.source.recovery.proposalHash, recoveryApprovalHash: lineage.source.recoveryApproval.approvalHash, nativeRecoveryActions: recoveryRecords.slice(0, 3), untouchedOldUsdcActions: recoveryRecords.slice(3), successorCertificateHash: lineage.certificate.certificateHash, successorProposalHash: lineage.successor.proposalHash, successorApprovalHash: lineage.approval.approvalHash, successorActions: successorRecords, successorCommitments: attachedSuccessor.actionCommitments, observer: lineage.successor.observer, effectivePeriod: effectivePeriod.toString(), rawNativeSpend, rawUsdcSpend });
+    const value = Object.freeze({ kind: "usdc-period-successor-v1" as const, actionCount: 41 as const, prefixHash, certificateHash: lineage.certificate.certificateHash, continuationProposalHash: lineage.successor.proposalHash, continuationApprovalHash: lineage.approval.approvalHash, observerIdentityHash: publicHash(lineage.successor.observer), observerEvidenceHash: lineage.successor.observer.probeEvidenceHash, effectivePeriod, rawNativeSpend, rawUsdcSpend, safeNonce: 15n, delayQueueNonce: 7n, delayTxNonce: 7n, cumulativeActualCostWei: cumulative }); predecessorBrands.add(value); return value;
+  }
   if (lineage.kind !== "expired-hashless-continuation-v1") throw new Error("repair continuation lineage kind is unsupported");
   assertExpiredHashlessContinuationLineage(proposal, lineage.continuation); assertExpiredHashlessContinuationAuthorization(lineage.continuation, lineage.approval);
   const attached = journal.hashlessContinuation;
@@ -198,17 +257,9 @@ export function verifyRepairPredecessor(
   const continuationRecords = progressed.filter(record => record.status === "confirmed");
   const expectedLiveIds = [...historicalRecords.map(record => record.id), ...continuationRecords.map(record => record.id)];
   const predecessorLiveEntries = assertProjectedLivePrefix(expectedLiveIds);
-  const actualGas = (records: readonly import("./ordinary-scenario-executor").OrdinaryScenarioActionRecord[], offset: number): bigint => records.reduce((sum, record, index) => {
-    if (!record.receipt || record.ourReceiptGasCost === undefined) throw new Error("repair continuation receipt gas accounting is incomplete");
-    const receiptGasUsed = BigInt(record.receipt.gasUsed), receiptEffectiveGasPrice = BigInt(record.receipt.effectiveGasPrice); const receiptCost = receiptGasUsed * receiptEffectiveGasPrice;
-    if (BigInt(record.ourReceiptGasCost) !== receiptCost) throw new Error("repair continuation stored receipt gas accounting mismatch");
-    const live = predecessorLiveEntries[offset + index]; const outerValue = BigInt(record.outerValue ?? "0");
-    if (!live || live.id !== record.id || !live.receipt || live.transactionHash !== record.transactionHash || live.receipt.transactionHash !== record.receipt.transactionHash || BigInt(live.receipt.gasUsed) !== receiptGasUsed || BigInt(live.receipt.effectiveGasPrice) !== receiptEffectiveGasPrice || BigInt(live.receipt.blockNumber) !== BigInt(record.receipt.blockNumber) || !same(live.receipt.blockHash, record.receipt.blockHash) || BigInt(live.reserved) !== receiptCost + outerValue) throw new Error("repair continuation live receipt gas accounting mismatch");
-    return sum + receiptCost;
-  }, 0n);
-  const historicalGas = actualGas(historicalRecords, 0);
+  const historicalGas = successfulReceiptGas(historicalRecords, predecessorLiveEntries, 0, "repair continuation");
   if (BigInt(lineage.continuation.reservation.originalActualGasCostWei) !== BigInt(proposal.baselineActualCostWei) + historicalGas || BigInt(lineage.continuation.reservation.originalPrincipalWei) !== 60_000_000_000_001n) throw new Error("repair continuation original accounting lineage changed");
-  const continuationGas = actualGas(continuationRecords, historicalRecords.length);
+  const continuationGas = successfulReceiptGas(continuationRecords, predecessorLiveEntries, historicalRecords.length, "repair continuation");
   const replacementPrincipal = progressed.reduce((sum, record) => sum + BigInt(record.ourPrincipalDelta ?? "0"), 0n);
   if (replacementPrincipal !== 1n) throw new Error("repair continuation replacement principal accounting mismatch");
   const cumulative = BigInt(lineage.continuation.reservation.originalActualGasCostWei) + 60_000_000_000_001n + continuationGas + replacementPrincipal;
@@ -223,15 +274,18 @@ function assertPreRepairState(state: RepairCanonicalState, proposal: OrdinarySce
   if (!same(state.safeContractSecondary, domain.oldSecondary) || !same(state.safeContractSecondary, proposal.safeContractSecondary) || !same(state.policyHash, domain.beforePolicyHash) || state.frozen || !HASH.test(state.topologyEvidenceHash) || !state.observerReady) throw new Error("repair continuation pre-rotation state mismatch");
   const deployed = !/^0x0{64}$/i.test(state.candidateRuntimeCodeHash);
   if (candidateMustExist !== deployed || (deployed && !same(state.candidateBindingHash, domain.bindingHash))) throw new Error("repair continuation candidate runtime/binding mismatch");
+  if (predecessor.kind === "usdc-period-successor-v1") {
+    if (!predecessor.rawNativeSpend || !predecessor.rawUsdcSpend || predecessor.effectivePeriod === undefined || state.nativeWindow.toString() !== predecessor.rawNativeSpend.window || state.nativeBaseSpent.toString() !== predecessor.rawNativeSpend.baseSpent || state.nativeInstantSpent.toString() !== predecessor.rawNativeSpend.instantSpent || state.usdcWindow !== predecessor.effectivePeriod || state.usdcBaseSpent !== 10_000_000n || state.usdcInstantSpent !== 30_000_000n || state.nativeBalance !== 0n || state.usdcBalance !== 0n) throw new Error("repair USDC successor terminal raw spend, period, balance, or counter mismatch");
+  }
 }
 
 function quoteAction(quote: RepairCreationQuote, predecessor: VerifiedRepairPredecessor): RepairActionReview {
   assertVerifiedPredecessor(predecessor);
-  const base = { id: "repair-signer-create" as const, kind: "factory-create" as const, dependsOn: ["usdc-queue-ready-execute"], signerRoles: ["funder"], policyPhase: "pre-rotation" as const, safeNonceBefore: predecessor.safeNonce.toString(), safeNonceAfter: predecessor.safeNonce.toString(), delayQueueNonceBefore: predecessor.delayQueueNonce.toString(), delayQueueNonceAfter: predecessor.delayQueueNonce.toString(), delayTxNonceBefore: predecessor.delayTxNonce.toString(), delayTxNonceAfter: predecessor.delayTxNonce.toString(), gasLimitCap: quote.gasLimitCap.toString(), maxFeePerGasCap: quote.maxFeePerGasCap.toString(), maxPriorityFeePerGasCap: quote.maxPriorityFeePerGasCap.toString(), safeTxHash: null, requestDataHash: quote.calldataHash, queueFingerprint: null, monitoringFingerprint: null, alert: "none" as const };
+  const base = { id: "repair-signer-create" as const, kind: "factory-create" as const, dependsOn: [predecessor.kind === "usdc-period-successor-v1" ? "usdc-successor-queue-ready-execute" : "usdc-queue-ready-execute"], signerRoles: ["funder"], policyPhase: "pre-rotation" as const, safeNonceBefore: predecessor.safeNonce.toString(), safeNonceAfter: predecessor.safeNonce.toString(), delayQueueNonceBefore: predecessor.delayQueueNonce.toString(), delayQueueNonceAfter: predecessor.delayQueueNonce.toString(), delayTxNonceBefore: predecessor.delayTxNonce.toString(), delayTxNonceAfter: predecessor.delayTxNonce.toString(), gasLimitCap: quote.gasLimitCap.toString(), maxFeePerGasCap: quote.maxFeePerGasCap.toString(), maxPriorityFeePerGasCap: quote.maxPriorityFeePerGasCap.toString(), safeTxHash: null, requestDataHash: quote.calldataHash, queueFingerprint: null, monitoringFingerprint: null, alert: "none" as const };
   return Object.freeze({ ...base, commitment: publicHash(base) });
 }
 
-export function createRepairCreationProposal(input: Readonly<{ proposal: OrdinaryScenarioProposal; journal: OrdinaryScenarioJournal; evidence: readonly RepairPrefixEvidence[]; lineage?: Readonly<{ kind: "expired-hashless-continuation-v1"; continuation: ExpiredHashlessContinuationProposal; approval: ExpiredHashlessContinuationApproval }>; state: RepairCanonicalState; quote: RepairCreationQuote; domain?: RepairExecutionDomain }>): RepairCreationProposal {
+export function createRepairCreationProposal(input: Readonly<{ proposal: OrdinaryScenarioProposal; journal: OrdinaryScenarioJournal; evidence: readonly RepairPrefixEvidence[]; lineage?: RepairPredecessorLineage; state: RepairCanonicalState; quote: RepairCreationQuote; domain?: RepairExecutionDomain }>): RepairCreationProposal {
   const domain = input.domain ?? PRODUCTION_REPAIR_EXECUTION_DOMAIN; assertDomain(domain);
   const predecessor = verifyRepairPredecessor(input.proposal, input.journal, input.evidence, input.lineage); assertVerifiedPredecessor(predecessor);
   if (input.proposal.chainId !== domain.chainId) throw new Error("repair predecessor chain/domain mismatch");
@@ -244,7 +298,7 @@ export function createRepairCreationProposal(input: Readonly<{ proposal: Ordinar
   if (maximum > PHASE_OUTLAY_LIMIT) throw new Error("repair creation maximum cumulative outlay exceeds ceiling");
   const originalIdentityHash = repairOriginalIdentityHash(input.proposal);
   const baseline = Object.freeze({ safeNonce: predecessor.safeNonce.toString(), delayQueueNonce: predecessor.delayQueueNonce.toString(), delayTxNonce: predecessor.delayTxNonce.toString(), safeContractSecondary: input.state.safeContractSecondary, policyHash: input.state.policyHash, frozen: false as const, nativeWindow: input.state.nativeWindow.toString(), nativeBaseSpent: input.state.nativeBaseSpent.toString(), nativeInstantSpent: input.state.nativeInstantSpent.toString(), usdcWindow: input.state.usdcWindow.toString(), usdcBaseSpent: input.state.usdcBaseSpent.toString(), usdcInstantSpent: input.state.usdcInstantSpent.toString(), nativeBalance: input.state.nativeBalance.toString(), usdcBalance: input.state.usdcBalance.toString() });
-  const predecessorBinding: RepairPredecessorBinding = Object.freeze({ kind: predecessor.kind, actionCount: predecessor.actionCount, prefixHash: predecessor.prefixHash, certificateHash: predecessor.certificateHash, continuationProposalHash: predecessor.continuationProposalHash, continuationApprovalHash: predecessor.continuationApprovalHash, observerIdentityHash: predecessor.observerIdentityHash, observerEvidenceHash: predecessor.observerEvidenceHash });
+  const predecessorBinding: RepairPredecessorBinding = Object.freeze({ kind: predecessor.kind, actionCount: predecessor.actionCount, prefixHash: predecessor.prefixHash, certificateHash: predecessor.certificateHash, continuationProposalHash: predecessor.continuationProposalHash, continuationApprovalHash: predecessor.continuationApprovalHash, observerIdentityHash: predecessor.observerIdentityHash, observerEvidenceHash: predecessor.observerEvidenceHash, ...(predecessor.kind === "usdc-period-successor-v1" ? { effectivePeriod: predecessor.effectivePeriod!.toString(), rawNativeSpend: predecessor.rawNativeSpend!, rawUsdcSpend: predecessor.rawUsdcSpend! } : {}) });
   const base = { schemaVersion: 1 as const, scope: "repair-signer-create-v1" as const, authorization: "NONE" as const, chainId: domain.chainId, predecessor: predecessorBinding, prefixHash, originalProposalHash: input.proposal.proposalHash, originalApprovalHash: input.journal.approvalHash, originalActionCount: predecessor.actionCount, cumulativeActualCostWei: cumulative.toString(), maximumCumulativeOutlayWei: maximum.toString(), phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), safe: input.proposal.safe, guard: input.proposal.guard, delay: input.proposal.delay, funder: input.proposal.funder, periodAnchor: input.proposal.periodAnchor, candidate: domain.candidate, factory: domain.factory, x: quote.x.toString(), y: quote.y.toString(), verifiers: quote.verifiers.toString(), creationCalldata: quote.calldata, bindingHash: domain.bindingHash, candidateRuntimeCodeHash: input.state.candidateRuntimeCodeHash, alreadyDeployed: !/^0x0{64}$/i.test(input.state.candidateRuntimeCodeHash), preRotationBlockNumber: input.state.blockNumber.toString(), preRotationBlockHash: input.state.blockHash, originalIdentityHash, currentTopologyEvidenceHash: input.state.topologyEvidenceHash, baseline, action };
   return Object.freeze({ ...base, proposalHash: publicHash(base) });
 }
@@ -267,17 +321,22 @@ function continuation(journal: OrdinaryScenarioJournal, creation: RepairCreation
 
 function action(input: Omit<RepairActionReview, "commitment">): RepairActionReview { return Object.freeze({ ...input, commitment: publicHash(input) }); }
 
-export function createRepairGroupProposal(input: Readonly<{ creation: RepairCreationProposal; journal: OrdinaryScenarioJournal; state: RepairCanonicalState; assertion: Hex; lineage?: Readonly<{ kind: "expired-hashless-continuation-v1"; continuation: ExpiredHashlessContinuationProposal; approval: ExpiredHashlessContinuationApproval }>; domain?: RepairExecutionDomain }>): PreparedRepairGroup {
+export function createRepairGroupProposal(input: Readonly<{ creation: RepairCreationProposal; journal: OrdinaryScenarioJournal; state: RepairCanonicalState; assertion: Hex; lineage?: RepairPredecessorLineage; domain?: RepairExecutionDomain }>): PreparedRepairGroup {
   const domain = input.domain ?? PRODUCTION_REPAIR_EXECUTION_DOMAIN; assertDomain(domain);
   const header = continuation(input.journal, input.creation); canonicalHex(input.assertion, "replacement assertion");
   if (input.creation.predecessor.kind === "expired-hashless-continuation-v1") {
     if (!input.lineage || input.lineage.kind !== "expired-hashless-continuation-v1") throw new Error("repair group requires the opaque continuation lineage");
     assertExpiredHashlessContinuationAuthorization(input.lineage.continuation, input.lineage.approval);
     if (!same(input.lineage.continuation.certificateHash, input.creation.predecessor.certificateHash ?? "") || !same(input.lineage.continuation.proposalHash, input.creation.predecessor.continuationProposalHash ?? "") || !same(input.lineage.approval.approvalHash, input.creation.predecessor.continuationApprovalHash ?? "") || publicHash(input.lineage.continuation.observer) !== input.creation.predecessor.observerIdentityHash) throw new Error("repair group continuation lineage binding mismatch");
+  } else if (input.creation.predecessor.kind === "usdc-period-successor-v1") {
+    if (!input.lineage || input.lineage.kind !== "usdc-period-successor-v1") throw new Error("repair group requires the opaque USDC successor lineage");
+    assertUsdcSuccessorAuthorization(input.lineage.successor, input.lineage.approval);
+    if (!isVerifiedUsdcSuccessorCertificate(input.lineage.certificate) || !same(input.lineage.certificate.certificateHash, input.creation.predecessor.certificateHash ?? "") || !same(input.lineage.successor.proposalHash, input.creation.predecessor.continuationProposalHash ?? "") || !same(input.lineage.approval.approvalHash, input.creation.predecessor.continuationApprovalHash ?? "") || publicHash(input.lineage.successor.observer) !== input.creation.predecessor.observerIdentityHash || input.lineage.successor.effectivePeriod !== input.creation.predecessor.effectivePeriod) throw new Error("repair group USDC successor lineage binding mismatch");
   } else if (input.lineage !== undefined) throw new Error("legacy repair group rejects continuation lineage substitution");
   if (input.assertion === "0x" || !same(input.creation.candidate, domain.candidate) || input.creation.chainId !== domain.chainId) throw new Error("repair group fixed input mismatch");
   const baseSafe = BigInt(input.creation.baseline.safeNonce), baseQueue = BigInt(input.creation.baseline.delayQueueNonce), baseTx = BigInt(input.creation.baseline.delayTxNonce);
   if (input.state.chainId !== domain.chainId || input.state.safeNonce !== baseSafe || input.state.delayQueueNonce !== baseQueue || input.state.delayTxNonce !== baseTx || !same(input.state.safeContractSecondary, domain.oldSecondary) || !same(input.state.policyHash, domain.beforePolicyHash) || input.state.frozen || !same(input.state.candidateBindingHash, domain.bindingHash) || /^0x0{64}$/i.test(input.state.candidateRuntimeCodeHash) || !input.state.observerReady) throw new Error("repair group preflight state mismatch");
+  assertRepairCreationState(input.creation, input.state, true, domain);
   const guard = input.creation.guard; const safe = input.creation.safe; const delay = input.creation.delay;
   const assertionHash = keccak256(input.assertion);
   const maintenanceCalldata = encodeFunctionData({ abi: REPLACE_ABI, functionName: "replaceSigner", args: [guard, 1, domain.oldSecondary, domain.candidate, ZERO, 1n, input.assertion] });
@@ -309,7 +368,7 @@ export function createRepairGroupProposal(input: Readonly<{ creation: RepairCrea
   if (cumulative + reservation > PHASE_OUTLAY_LIMIT) throw new Error("repair group maximum cumulative outlay exceeds ceiling");
   const fixed: RepairFixedFields = { guard, role: 1, expectedOld: domain.oldSecondary, replacement: domain.candidate, previousOwner: ZERO, threshold: "1", proofHash: domain.proofHash, assertionHash, maintenance: domain.maintenance, maintenanceCalldataHash: keccak256(maintenanceCalldata) };
   const repairQueueTiming = Object.freeze({ source: "CANONICAL_RECEIPT_CREATED_AT_ONLY" as const, queueNonce: n(baseQueue), queueFingerprint: repairFp, cooldownSeconds: "120" as const, expirationSeconds: "600" as const });
-  const base = { schemaVersion: 1 as const, scope: "repair-tail-group-v1" as const, authorization: "NONE" as const, chainId: domain.chainId, predecessor: input.creation.predecessor, prefixHash: input.creation.prefixHash, creationProposalHash: input.creation.proposalHash, originalProposalHash: input.creation.originalProposalHash, originalApprovalHash: input.creation.originalApprovalHash, cumulativeActualCostWei: cumulative.toString(), maximumCumulativeOutlayWei: (cumulative + reservation).toString(), phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), safe, delay, guard, candidate: domain.candidate, oldSecondary: domain.oldSecondary, recipient: domain.recipient, beforePolicyHash: domain.beforePolicyHash, afterPolicyHash: domain.afterPolicyHash, beforeSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: domain.oldSecondary }), afterSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: domain.candidate }), periodAnchor: input.creation.periodAnchor, establishedNativeWindow: input.state.nativeWindow.toString(), repair: fixed, repairQueueTiming, baseline: input.creation.baseline, actions: Object.freeze(actions) };
+  const base = { schemaVersion: 1 as const, scope: "repair-tail-group-v1" as const, authorization: "NONE" as const, chainId: domain.chainId, predecessor: input.creation.predecessor, prefixHash: input.creation.prefixHash, creationProposalHash: input.creation.proposalHash, originalProposalHash: input.creation.originalProposalHash, originalApprovalHash: input.creation.originalApprovalHash, cumulativeActualCostWei: cumulative.toString(), maximumCumulativeOutlayWei: (cumulative + reservation).toString(), phaseLimitWei: PHASE_OUTLAY_LIMIT.toString(), safe, delay, guard, candidate: domain.candidate, oldSecondary: domain.oldSecondary, recipient: domain.recipient, beforePolicyHash: domain.beforePolicyHash, afterPolicyHash: domain.afterPolicyHash, beforeSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: domain.oldSecondary }), afterSignerIdentityHash: publicHash({ primary: "immutable", safeContractSecondary: domain.candidate }), periodAnchor: input.creation.periodAnchor, establishedNativeWindow: input.state.nativeWindow.toString(), ...(input.creation.predecessor.kind === "usdc-period-successor-v1" ? { establishedEffectivePeriod: input.creation.predecessor.effectivePeriod } : {}), repair: fixed, repairQueueTiming, baseline: input.creation.baseline, actions: Object.freeze(actions) };
   const proposal = Object.freeze({ ...base, proposalHash: publicHash(base) });
   return Object.freeze({ proposal, transient: Object.freeze({ assertion: input.assertion, maintenanceCalldata, safeTransactionData: repairQueueData }) });
 }
@@ -388,9 +447,11 @@ export function loadRepairCreationProposal(serialized: string, expectedProposalH
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("repair creation proposal must be an object");
   const value = parsed as Record<string, unknown>; const { proposalHash, ...base } = value;
   const predecessor = value.predecessor as RepairPredecessorBinding | undefined;
-  if (proposalHash !== expectedProposalHash || publicHash(base) !== expectedProposalHash || value.schemaVersion !== 1 || value.scope !== "repair-signer-create-v1" || value.authorization !== "NONE" || value.chainId !== domain.chainId || !predecessor || (predecessor.kind !== "terminal-first38-v1" && predecessor.kind !== "expired-hashless-continuation-v1") || predecessor.actionCount !== (predecessor.kind === "terminal-first38-v1" ? 38 : 41) || value.originalActionCount !== predecessor.actionCount || value.prefixHash !== predecessor.prefixHash || !HASH.test(predecessor.observerEvidenceHash) || (predecessor.kind === "terminal-first38-v1" ? predecessor.certificateHash !== null || predecessor.continuationProposalHash !== null || predecessor.continuationApprovalHash !== null || predecessor.observerIdentityHash !== null : !HASH.test(predecessor.certificateHash ?? "") || !HASH.test(predecessor.continuationProposalHash ?? "") || !HASH.test(predecessor.continuationApprovalHash ?? "") || !HASH.test(predecessor.observerIdentityHash ?? "")) || !same(String(value.candidate), domain.candidate) || !same(String(value.factory), domain.factory) || !same(String(value.bindingHash), domain.bindingHash) || value.creationCalldata === undefined || value.preRotationBlockNumber === undefined || !HASH.test(String(value.preRotationBlockHash))) throw new Error("repair creation proposal identity or fixed fields mismatch");
+  if (proposalHash !== expectedProposalHash || publicHash(base) !== expectedProposalHash || value.schemaVersion !== 1 || value.scope !== "repair-signer-create-v1" || value.authorization !== "NONE" || value.chainId !== domain.chainId || !predecessor || !["terminal-first38-v1", "expired-hashless-continuation-v1", "usdc-period-successor-v1"].includes(predecessor.kind) || predecessor.actionCount !== (predecessor.kind === "terminal-first38-v1" ? 38 : 41) || value.originalActionCount !== predecessor.actionCount || value.prefixHash !== predecessor.prefixHash || !HASH.test(predecessor.observerEvidenceHash) || (predecessor.kind === "terminal-first38-v1" ? predecessor.certificateHash !== null || predecessor.continuationProposalHash !== null || predecessor.continuationApprovalHash !== null || predecessor.observerIdentityHash !== null : !HASH.test(predecessor.certificateHash ?? "") || !HASH.test(predecessor.continuationProposalHash ?? "") || !HASH.test(predecessor.continuationApprovalHash ?? "") || !HASH.test(predecessor.observerIdentityHash ?? "")) || (predecessor.kind === "usdc-period-successor-v1" && (!predecessor.effectivePeriod || !predecessor.rawNativeSpend || !predecessor.rawUsdcSpend)) || !same(String(value.candidate), domain.candidate) || !same(String(value.factory), domain.factory) || !same(String(value.bindingHash), domain.bindingHash) || value.creationCalldata === undefined || value.preRotationBlockNumber === undefined || !HASH.test(String(value.preRotationBlockHash))) throw new Error("repair creation proposal identity or fixed fields mismatch");
   const proposal = Object.freeze(value) as unknown as RepairCreationProposal;
-  if (!HASH.test(proposal.originalIdentityHash) || !HASH.test(proposal.currentTopologyEvidenceHash) || !proposal.baseline || !same(proposal.funder, domain.recipient) || proposal.action.id !== "repair-signer-create" || proposal.action.kind !== "factory-create" || proposal.action.gasLimitCap !== "740292" || proposal.action.maxFeePerGasCap !== "1000000" || proposal.action.maxPriorityFeePerGasCap !== "1000000" || keccak256(proposal.creationCalldata) !== proposal.action.requestDataHash || !same(proposal.action.requestDataHash, domain.creationCalldataHash)) throw new Error("repair creation proposal action mismatch");
+  const start = predecessor.kind === "terminal-first38-v1" ? ["14", "6", "6"] : ["15", "7", "7"];
+  const expectedDependency = predecessor.kind === "usdc-period-successor-v1" ? "usdc-successor-queue-ready-execute" : "usdc-queue-ready-execute";
+  if (!HASH.test(proposal.originalIdentityHash) || !HASH.test(proposal.currentTopologyEvidenceHash) || !proposal.baseline || !same(proposal.funder, domain.recipient) || proposal.action.id !== "repair-signer-create" || proposal.action.kind !== "factory-create" || JSON.stringify(proposal.action.dependsOn) !== JSON.stringify([expectedDependency]) || proposal.action.safeNonceBefore !== start[0] || proposal.action.safeNonceAfter !== start[0] || proposal.action.delayQueueNonceBefore !== start[1] || proposal.action.delayQueueNonceAfter !== start[1] || proposal.action.delayTxNonceBefore !== start[2] || proposal.action.delayTxNonceAfter !== start[2] || proposal.action.gasLimitCap !== "740292" || proposal.action.maxFeePerGasCap !== "1000000" || proposal.action.maxPriorityFeePerGasCap !== "1000000" || keccak256(proposal.creationCalldata) !== proposal.action.requestDataHash || !same(proposal.action.requestDataHash, domain.creationCalldataHash)) throw new Error("repair creation proposal action mismatch");
   return proposal;
 }
 
@@ -400,8 +461,8 @@ export function loadRepairGroupProposal(serialized: string, expectedProposalHash
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("repair group proposal must be an object");
   const value = parsed as Record<string, unknown>; const { proposalHash, ...base } = value;
   const timing = value.repairQueueTiming as Record<string, unknown> | undefined; const repair = value.repair as Record<string, unknown> | undefined;
-  const predecessor = value.predecessor as RepairPredecessorBinding | undefined; const startSafe = predecessor?.kind === "expired-hashless-continuation-v1" ? 15 : 14; const startQueue = predecessor?.kind === "expired-hashless-continuation-v1" ? 7 : 6; const startTx = predecessor?.kind === "expired-hashless-continuation-v1" ? 7 : 6;
-  if (proposalHash !== expectedProposalHash || publicHash(base) !== expectedProposalHash || value.schemaVersion !== 1 || value.scope !== "repair-tail-group-v1" || value.authorization !== "NONE" || value.chainId !== domain.chainId || !predecessor || value.prefixHash !== predecessor.prefixHash || !same(String(value.candidate), domain.candidate) || !same(String(value.oldSecondary), domain.oldSecondary) || !same(String(value.recipient), domain.recipient) || !same(String(repair?.guard), String(value.guard)) || repair?.role !== 1 || !same(String(repair?.expectedOld), domain.oldSecondary) || !same(String(repair?.replacement), domain.candidate) || !same(String(repair?.previousOwner), ZERO) || repair?.threshold !== "1" || repair?.proofHash !== domain.proofHash || !HASH.test(String(repair?.assertionHash)) || !same(String(repair?.maintenance), domain.maintenance) || !HASH.test(String(repair?.maintenanceCalldataHash)) || timing?.source !== "CANONICAL_RECEIPT_CREATED_AT_ONLY" || timing.queueNonce !== String(startQueue) || timing.cooldownSeconds !== "120" || timing.expirationSeconds !== "600" || !HASH.test(String(timing.queueFingerprint)) || !value.baseline || !Array.isArray(value.actions) || value.actions.length !== 6) throw new Error("repair group proposal identity or closed action map mismatch");
+  const predecessor = value.predecessor as RepairPredecessorBinding | undefined; const rebased = predecessor?.kind === "expired-hashless-continuation-v1" || predecessor?.kind === "usdc-period-successor-v1"; const startSafe = rebased ? 15 : 14; const startQueue = rebased ? 7 : 6; const startTx = rebased ? 7 : 6;
+  if (proposalHash !== expectedProposalHash || publicHash(base) !== expectedProposalHash || value.schemaVersion !== 1 || value.scope !== "repair-tail-group-v1" || value.authorization !== "NONE" || value.chainId !== domain.chainId || !predecessor || value.prefixHash !== predecessor.prefixHash || (predecessor.kind === "usdc-period-successor-v1" ? value.establishedEffectivePeriod !== predecessor.effectivePeriod : value.establishedEffectivePeriod !== undefined) || !same(String(value.candidate), domain.candidate) || !same(String(value.oldSecondary), domain.oldSecondary) || !same(String(value.recipient), domain.recipient) || !same(String(repair?.guard), String(value.guard)) || repair?.role !== 1 || !same(String(repair?.expectedOld), domain.oldSecondary) || !same(String(repair?.replacement), domain.candidate) || !same(String(repair?.previousOwner), ZERO) || repair?.threshold !== "1" || repair?.proofHash !== domain.proofHash || !HASH.test(String(repair?.assertionHash)) || !same(String(repair?.maintenance), domain.maintenance) || !HASH.test(String(repair?.maintenanceCalldataHash)) || timing?.source !== "CANONICAL_RECEIPT_CREATED_AT_ONLY" || timing.queueNonce !== String(startQueue) || timing.cooldownSeconds !== "120" || timing.expirationSeconds !== "600" || !HASH.test(String(timing.queueFingerprint)) || !value.baseline || !Array.isArray(value.actions) || value.actions.length !== 6) throw new Error("repair group proposal identity or closed action map mismatch");
   const expected = [
     ["repair-queue", "safe-queue", "pre-rotation", String(startSafe), String(startSafe + 1), String(startQueue), String(startQueue + 1), String(startTx), String(startTx), "delayed-queued"],
     ["repair-ready-execute", "delay-execute", "pre-rotation", String(startSafe + 1), String(startSafe + 1), String(startQueue + 1), String(startQueue + 1), String(startTx), String(startTx + 1), "delayed-executed"],
@@ -430,7 +491,8 @@ export function assertRepairActionState(proposal: RepairGroupProposal, action: R
     const anchor = BigInt(proposal.periodAnchor);
     if (state.blockTimestamp < anchor) throw new Error("repair canonical timestamp precedes period anchor");
     const effectiveWindow = anchor + ((state.blockTimestamp - anchor) / 86_400n) * 86_400n;
-    if (state.nativeWindow.toString() !== proposal.establishedNativeWindow || effectiveWindow.toString() !== proposal.establishedNativeWindow) throw new Error("repair native period rollover requires new review");
+    const approvedEffectivePeriod = proposal.establishedEffectivePeriod ?? proposal.establishedNativeWindow;
+    if (state.nativeWindow.toString() !== proposal.establishedNativeWindow || effectiveWindow.toString() !== approvedEffectivePeriod || (proposal.establishedEffectivePeriod !== undefined && state.usdcWindow.toString() !== approvedEffectivePeriod)) throw new Error("repair period rollover requires new review");
   }
 }
 
@@ -439,11 +501,19 @@ export function assertRepairCreationState(proposal: RepairCreationProposal, stat
   if (state.chainId !== domain.chainId || state.safeNonce.toString() !== proposal.baseline.safeNonce || state.delayQueueNonce.toString() !== proposal.baseline.delayQueueNonce || state.delayTxNonce.toString() !== proposal.baseline.delayTxNonce || !same(state.safeContractSecondary, proposal.baseline.safeContractSecondary) || !same(state.policyHash, proposal.baseline.policyHash) || state.frozen || state.nativeWindow.toString() !== proposal.baseline.nativeWindow || state.nativeBaseSpent.toString() !== proposal.baseline.nativeBaseSpent || state.nativeInstantSpent.toString() !== proposal.baseline.nativeInstantSpent || state.usdcWindow.toString() !== proposal.baseline.usdcWindow || state.usdcBaseSpent.toString() !== proposal.baseline.usdcBaseSpent || state.usdcInstantSpent.toString() !== proposal.baseline.usdcInstantSpent || state.nativeBalance.toString() !== proposal.baseline.nativeBalance || state.usdcBalance.toString() !== proposal.baseline.usdcBalance || !state.observerReady) throw new Error("repair creation canonical pre-sign state changed");
   const deployed = !/^0x0{64}$/i.test(state.candidateRuntimeCodeHash);
   if (deployed !== candidateMustExist || (deployed && !same(state.candidateBindingHash, proposal.bindingHash))) throw new Error("repair creation candidate binding state changed");
+  if (proposal.predecessor.kind === "usdc-period-successor-v1") {
+    const anchor = BigInt(proposal.periodAnchor), approved = BigInt(proposal.predecessor.effectivePeriod!);
+    if (state.blockTimestamp < anchor || anchor + ((state.blockTimestamp - anchor) / 86_400n) * 86_400n !== approved || state.usdcWindow !== approved) throw new Error("repair USDC successor effective period changed");
+  }
 }
 
 export function assertRepairBaselineUnchanged(proposal: RepairGroupProposal, state: RepairCanonicalState): void {
   const baseline = proposal.baseline;
   if (state.nativeWindow.toString() !== baseline.nativeWindow || state.nativeBaseSpent.toString() !== baseline.nativeBaseSpent || state.nativeInstantSpent.toString() !== baseline.nativeInstantSpent || state.usdcWindow.toString() !== baseline.usdcWindow || state.usdcBaseSpent.toString() !== baseline.usdcBaseSpent || state.usdcInstantSpent.toString() !== baseline.usdcInstantSpent || state.nativeBalance.toString() !== baseline.nativeBalance || state.usdcBalance.toString() !== baseline.usdcBalance) throw new Error("repair tail balance/counter drift");
+  if (proposal.establishedEffectivePeriod !== undefined) {
+    const anchor = BigInt(proposal.periodAnchor), approved = BigInt(proposal.establishedEffectivePeriod);
+    if (state.blockTimestamp < anchor || anchor + ((state.blockTimestamp - anchor) / 86_400n) * 86_400n !== approved || state.usdcWindow !== approved) throw new Error("repair USDC successor effective period changed");
+  }
 }
 
 export function assertRepairQueueTiming(proposal: RepairGroupProposal, evidence: RepairQueueTimingEvidence, state: RepairCanonicalState): void {

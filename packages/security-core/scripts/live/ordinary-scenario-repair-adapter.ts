@@ -161,8 +161,12 @@ export function createRepairMechanicalAdapter(input: RepairMechanicalAdapterInpu
         const stoppedHash = index === 18 && journal.hashlessContinuation ? publicHash(journal.hashlessContinuation.source.stoppedRow) : undefined;
         await validate(journal.actions[index]!, stoppedHash);
       }
-      if (journal.hashlessContinuation) for (const record of journal.hashlessContinuation.actions) {
-        if (record.status === "approved") throw new Error("repair terminal prefix evidence is incomplete");
+      if (journal.hashlessContinuation) {
+        const recoveryRecords = journal.usdcSuccessor ? journal.hashlessContinuation.actions.slice(0, 3) : journal.hashlessContinuation.actions;
+        for (const record of recoveryRecords) { if (record.status === "approved") throw new Error("repair terminal prefix evidence is incomplete"); await validate(record); }
+      }
+      if (journal.usdcSuccessor) for (const record of journal.usdcSuccessor.actions) {
+        if (record.status === "approved") throw new Error("repair USDC successor terminal prefix evidence is incomplete");
         await validate(record);
       }
       return Object.freeze(evidence);

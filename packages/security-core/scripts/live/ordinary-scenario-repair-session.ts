@@ -32,6 +32,7 @@ import {
   type RepairExecutionDomain,
   PRODUCTION_REPAIR_EXECUTION_DOMAIN,
   type TransientRepairGroup,
+  type RepairPredecessorLineage,
 } from "./ordinary-scenario-repair";
 import { createOrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
 import type { OrdinaryScenarioProductionHarness } from "./ordinary-scenario-executor-cli";
@@ -45,6 +46,7 @@ import {
   parseHashlessContinuationCliArguments,
   type HashlessContinuationPublicInputs,
 } from "./ordinary-scenario-hashless-continuation-cli";
+import { createUsdcSuccessorProductionDependencies, loadUsdcSuccessorPublicInputs, parseUsdcSuccessorCliArguments, type UsdcSuccessorPublicInputs } from "./ordinary-scenario-usdc-successor-cli";
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const SAFE_ABI = [{ type: "function", name: "execTransaction", stateMutability: "payable", inputs: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" }, { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "signatures", type: "bytes" }], outputs: [{ type: "bool" }] }] as const;
 const ERC1271_ABI = [{ type: "function", name: "isValidSignature", stateMutability: "view", inputs: [{ type: "bytes32", name: "hash" }, { type: "bytes", name: "signature" }], outputs: [{ type: "bytes4" }] }] as const;
@@ -53,7 +55,7 @@ export type RepairQueueSessionInput<Credential> = Readonly<{
   creation: RepairCreationProposal;
   journal: OrdinaryScenarioJournal;
   domain?: import("./ordinary-scenario-repair").RepairExecutionDomain;
-  lineage?: Readonly<{ kind: "expired-hashless-continuation-v1"; continuation: import("./ordinary-scenario-hashless-continuation").ExpiredHashlessContinuationProposal; approval: import("./ordinary-scenario-hashless-continuation").ExpiredHashlessContinuationApproval }>;
+  lineage?: RepairPredecessorLineage;
   maxApprovalWaitMs: number;
   publicPreflight(): Promise<RepairCanonicalState>;
   awaitPrepareAuthorization(authorization: ReturnType<typeof createRepairPrepareAuthorization>): Promise<boolean>;
@@ -194,6 +196,7 @@ export type RepairCommandDependencies = Readonly<{
   now(): Date;
   awaitApprovalHandoff(maxWaitMs: number): Promise<Readonly<{ raw: string; hash: Hex }>>;
   loadHashlessLineage?(argv: readonly string[]): Promise<HashlessContinuationPublicInputs>;
+  loadUsdcSuccessorLineage?(argv: readonly string[]): Promise<UsdcSuccessorPublicInputs>;
 }>;
 
 const productionRepairCommandDependencies = (): RepairCommandDependencies => Object.freeze({
@@ -212,17 +215,33 @@ const productionRepairCommandDependencies = (): RepairCommandDependencies => Obj
     if (!production.providers) throw new Error("repair continuation two-provider verifier is unavailable");
     return loadHashlessContinuationPublicInputs(parseHashlessContinuationCliArguments(argv), production.providers);
   },
+  loadUsdcSuccessorLineage: async argv => {
+    const repository = process.cwd().replace(/\/packages\/security-core$/, ""); const production = createUsdcSuccessorProductionDependencies(repository, argv);
+    return loadUsdcSuccessorPublicInputs(parseUsdcSuccessorCliArguments(argv), production.providers);
+  },
 });
 
 const REPAIR_LINEAGE_FLAGS = ["--continuation-certificate", "--continuation-certificate-hash", "--continuation-proposal", "--continuation-approval", "--continuation-approval-hash"] as const;
-const repairKnownWithLineage = (base: readonly string[]) => new Set([...base, ...REPAIR_LINEAGE_FLAGS]);
-async function loadRepairHashlessLineage(values: ReadonlyMap<string, string>, dependencies: RepairCommandDependencies, observerMode: "fresh" | "historical-resume" = "fresh"): Promise<HashlessContinuationPublicInputs | undefined> {
-  const present = REPAIR_LINEAGE_FLAGS.filter(flag => values.has(flag)); if (present.length === 0) return undefined;
-  if (present.length !== REPAIR_LINEAGE_FLAGS.length || !dependencies.loadHashlessLineage) throw new Error("repair hashless lineage requires the complete shared public loader inputs");
-  const requiredValue = (flag: string) => { const value = values.get(flag); if (!value) throw new Error(`repair hashless lineage requires ${flag}`); return value; };
-  const argv = ["submit-one", "--source-journal", requiredValue("--journal"), "--original-report", requiredValue("--report"), "--original-package-hash", requiredValue("--package-hash"), "--original-artifact-hash", requiredValue("--artifact-hash"), "--original-proposal-hash", requiredValue("--proposal-hash"), "--certificate", requiredValue("--continuation-certificate"), "--certificate-hash", requiredValue("--continuation-certificate-hash"), "--proposal", requiredValue("--continuation-proposal"), "--approval", requiredValue("--continuation-approval"), "--approval-hash", requiredValue("--continuation-approval-hash"), "--journal", requiredValue("--journal")];
-  const loaded = await dependencies.loadHashlessLineage(argv); if (!loaded.approval) throw new Error("repair hashless lineage requires the exact separate continuation approval");
-  if (observerMode === "fresh") assertContinuationObserverFresh(loaded.continuation.observer, dependencies.now()); return loaded;
+const REPAIR_USDC_SUCCESSOR_FLAGS = ["--recovery-certificate", "--recovery-certificate-hash", "--recovery-proposal", "--recovery-approval", "--recovery-approval-hash", "--primary-bundle-manifest", "--successor-certificate", "--successor-certificate-hash", "--successor-proposal", "--successor-approval", "--successor-approval-hash"] as const;
+const repairKnownWithLineage = (base: readonly string[]) => new Set([...base, ...REPAIR_LINEAGE_FLAGS, ...REPAIR_USDC_SUCCESSOR_FLAGS]);
+type LoadedRepairLineage = Readonly<{ original: ReturnType<typeof createOrdinaryScenarioProposal>; lineage: RepairPredecessorLineage; observer: import("./ordinary-scenario-hashless-continuation").ContinuationObserverBinding }>;
+async function loadRepairLineage(values: ReadonlyMap<string, string>, dependencies: RepairCommandDependencies, observerMode: "fresh" | "historical-resume" = "fresh"): Promise<LoadedRepairLineage | undefined> {
+  const hashlessPresent = REPAIR_LINEAGE_FLAGS.filter(flag => values.has(flag)), usdcPresent = REPAIR_USDC_SUCCESSOR_FLAGS.filter(flag => values.has(flag));
+  if (hashlessPresent.length && usdcPresent.length) throw new Error("repair lineage flags cannot mix predecessor routes");
+  if (hashlessPresent.length === 0 && usdcPresent.length === 0) return undefined;
+  const requiredValue = (flag: string) => { const value = values.get(flag); if (!value) throw new Error(`repair lineage requires ${flag}`); return value; };
+  if (hashlessPresent.length) {
+    if (hashlessPresent.length !== REPAIR_LINEAGE_FLAGS.length || !dependencies.loadHashlessLineage) throw new Error("repair hashless lineage requires the complete shared public loader inputs");
+    const argv = ["submit-one", "--source-journal", requiredValue("--journal"), "--original-report", requiredValue("--report"), "--original-package-hash", requiredValue("--package-hash"), "--original-artifact-hash", requiredValue("--artifact-hash"), "--original-proposal-hash", requiredValue("--proposal-hash"), "--certificate", requiredValue("--continuation-certificate"), "--certificate-hash", requiredValue("--continuation-certificate-hash"), "--proposal", requiredValue("--continuation-proposal"), "--approval", requiredValue("--continuation-approval"), "--approval-hash", requiredValue("--continuation-approval-hash"), "--journal", requiredValue("--journal")];
+    const loaded = await dependencies.loadHashlessLineage(argv); if (!loaded.approval) throw new Error("repair hashless lineage requires the exact separate continuation approval");
+    if (observerMode === "fresh") assertContinuationObserverFresh(loaded.continuation.observer, dependencies.now());
+    return Object.freeze({ original: loaded.original, lineage: { kind: "expired-hashless-continuation-v1", continuation: loaded.continuation, approval: loaded.approval }, observer: loaded.continuation.observer });
+  }
+  if (usdcPresent.length !== REPAIR_USDC_SUCCESSOR_FLAGS.length || !dependencies.loadUsdcSuccessorLineage) throw new Error("repair USDC successor lineage requires the complete shared public loader inputs");
+  const argv = ["submit-one", "--source-journal", requiredValue("--journal"), "--original-report", requiredValue("--report"), "--original-package-hash", requiredValue("--package-hash"), "--original-artifact-hash", requiredValue("--artifact-hash"), "--original-proposal-hash", requiredValue("--proposal-hash"), "--recovery-certificate", requiredValue("--recovery-certificate"), "--recovery-certificate-hash", requiredValue("--recovery-certificate-hash"), "--recovery-proposal", requiredValue("--recovery-proposal"), "--recovery-approval", requiredValue("--recovery-approval"), "--recovery-approval-hash", requiredValue("--recovery-approval-hash"), "--primary-bundle-manifest", requiredValue("--primary-bundle-manifest"), "--successor-certificate", requiredValue("--successor-certificate"), "--successor-certificate-hash", requiredValue("--successor-certificate-hash"), "--successor-proposal", requiredValue("--successor-proposal"), "--successor-approval", requiredValue("--successor-approval"), "--successor-approval-hash", requiredValue("--successor-approval-hash"), "--journal", requiredValue("--journal")];
+  const loaded = await dependencies.loadUsdcSuccessorLineage(argv); if (!loaded.approval) throw new Error("repair USDC successor lineage requires the exact separate successor approval");
+  if (observerMode === "fresh") assertContinuationObserverFresh(loaded.successor.observer, dependencies.now());
+  return Object.freeze({ original: loaded.source.original, lineage: { kind: "usdc-period-successor-v1", source: loaded.source, certificate: loaded.certificate, successor: loaded.successor, approval: loaded.approval }, observer: loaded.successor.observer });
 }
 
 function loadFixedRepairCreationQuote(repository: string): RepairCreationQuote {
@@ -238,7 +257,7 @@ export async function runPublicRepairCreationReview(arguments_: readonly string[
   while (args.length) { const key = args.shift()!; const value = args.shift(); if (!key.startsWith("--") || !value || values.has(key)) throw new Error("repair creation-review arguments are malformed"); values.set(key, value); }
   const known = repairKnownWithLineage(["--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--output"]); for (const key of values.keys()) if (!known.has(key)) throw new Error(`repair creation-review rejects unknown flag ${key}`);
   const required = (key: string) => { const value = values.get(key); if (!value) throw new Error(`repair creation-review requires ${key}`); return value; };
-  const loadedLineage = await loadRepairHashlessLineage(values, dependencies);
+  const loadedLineage = await loadRepairLineage(values, dependencies);
   const proposal = loadedLineage?.original ?? createOrdinaryScenarioProposal(readFileSync(required("--report"), "utf8"), { expectedArtifactBytesHash: required("--artifact-hash") as Hex, expectedPackageHash: required("--package-hash") as Hex }, dependencies.ordinaryDomain);
   if (proposal.proposalHash.toLowerCase() !== required("--proposal-hash").toLowerCase()) throw new Error("repair creation-review original proposal hash mismatch");
   const store = createOrdinaryScenarioStore(required("--journal"), { proposalHash: proposal.proposalHash, approvalHash: required("--original-approval-hash") as Hex, funder: proposal.funder }, () => { throw new Error("repair creation-review requires the terminal journal"); }, dependencies.ordinaryDomain);
@@ -246,8 +265,8 @@ export async function runPublicRepairCreationReview(arguments_: readonly string[
     const journal = store.load(); const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const quote = dependencies.loadCreationQuote(repository);
     const anchor = await harness.current.getBlock(); if (!anchor.hash) throw new Error("repair creation review canonical block hash unavailable");
     const descriptor = createRepairAdapterDescriptor(proposal, quote, { blockNumber: anchor.number, blockHash: anchor.hash }); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation: descriptor, domain: dependencies.domain });
-    const evidence = await adapter.validateTerminalPrefix(journal); const observerHash = loadedLineage?.continuation.observer.probeEvidenceHash ?? proposal.observerEvidenceHash; const state = await adapter.readStateAt("pre-rotation", observerHash, anchor.number, anchor.hash);
-    const lineage = loadedLineage?.approval ? { kind: "expired-hashless-continuation-v1" as const, continuation: loadedLineage.continuation, approval: loadedLineage.approval } : undefined;
+    const evidence = await adapter.validateTerminalPrefix(journal); const observerHash = loadedLineage?.observer.probeEvidenceHash ?? proposal.observerEvidenceHash; const state = await adapter.readStateAt("pre-rotation", observerHash, anchor.number, anchor.hash);
+    const lineage = loadedLineage?.lineage;
     const creation = createRepairCreationProposal({ proposal, journal, evidence, ...(lineage ? { lineage } : {}), state, quote, domain: dependencies.domain }); extendJournalForRepair(journal, creation); store.save(journal);
     const output = values.get("--output"); if (output) writeFileSync(output, `${JSON.stringify(creation)}\n`, { flag: "wx", mode: 0o600 });
     return creation;
@@ -260,7 +279,7 @@ export async function runRepairCreationSubmit(arguments_: readonly string[], dep
   const pairs: Array<[string, string]> = []; const args = [...arguments_]; const seen = new Set<string>(); while (args.length) { const key = args.shift()!; const value = args.shift(); if (!key.startsWith("--") || !value || seen.has(key)) throw new Error("repair creation-submit arguments are malformed"); seen.add(key); pairs.push([key, value]); }
   const known = repairKnownWithLineage(["--creation", "--creation-hash", "--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--approval", "--approval-hash"]); for (const [key] of pairs) if (!known.has(key)) throw new Error(`repair creation-submit rejects unknown flag ${key}`);
   const value = (key: string) => { const found = pairs.find(([name]) => name === key)?.[1]; if (!found) throw new Error(`repair creation-submit requires ${key}`); return found; };
-  const values = new Map(pairs); const loadedLineage = await loadRepairHashlessLineage(values, dependencies);
+  const values = new Map(pairs); const loadedLineage = await loadRepairLineage(values, dependencies);
   const creation = loadRepairCreationProposal(readFileSync(value("--creation"), "utf8"), value("--creation-hash") as Hex, dependencies.domain);
   const approvalRaw = readFileSync(value("--approval"), "utf8"); const approval = loadRepairApproval(creation, approvalRaw, value("--approval-hash") as Hex);
   const report = readFileSync(value("--report"), "utf8"); const original = loadedLineage?.original ?? createOrdinaryScenarioProposal(report, { expectedArtifactBytesHash: value("--artifact-hash") as Hex, expectedPackageHash: value("--package-hash") as Hex }, dependencies.ordinaryDomain);
@@ -268,7 +287,7 @@ export async function runRepairCreationSubmit(arguments_: readonly string[], dep
   const store = createOrdinaryScenarioStore(value("--journal"), { proposalHash: original.proposalHash, approvalHash: value("--original-approval-hash") as Hex, funder: original.funder }, () => { throw new Error("repair creation-submit requires the terminal journal"); }, dependencies.ordinaryDomain);
   try {
     const journal = store.load(); const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation, domain: dependencies.domain });
-    const evidence = await adapter.validateTerminalPrefix(journal); const observerHash = loadedLineage?.continuation.observer.probeEvidenceHash ?? original.observerEvidenceHash; const lineage = loadedLineage?.approval ? { kind: "expired-hashless-continuation-v1" as const, continuation: loadedLineage.continuation, approval: loadedLineage.approval } : undefined;
+    const evidence = await adapter.validateTerminalPrefix(journal); const observerHash = loadedLineage?.observer.probeEvidenceHash ?? original.observerEvidenceHash; const lineage = loadedLineage?.lineage;
     const verified = verifyRepairPredecessor(original, journal, evidence, lineage); if (verified.prefixHash !== creation.prefixHash || verified.kind !== creation.predecessor.kind) throw new Error("repair creation predecessor changed under the writer lease");
     bindRepairCreationApproval(journal, creation, approval); store.save(journal);
     if (creation.alreadyDeployed) { const state = await adapter.readState("pre-rotation", observerHash); assertRepairCreationState(creation, state, true, dependencies.domain); recordRepairCreationConfirmation(journal, creation, evidenceHash({ noNewCreation: true, blockNumber: state.blockNumber, blockHash: state.blockHash, runtimeCodeHash: state.candidateRuntimeCodeHash, bindingHash: state.candidateBindingHash })); store.save(journal); return Object.freeze({ status: "CONFIRMED_NO_NEW_CREATION", actionId: "repair-signer-create" }); }
@@ -305,14 +324,14 @@ export async function runRepairPrepareQueue(arguments_: readonly string[], depen
   for (const key of ["LIVE_ECDSA_KEY_FILE", "PRIVATE_KEY"] as const) if (dependencies.environment[key] !== undefined) throw new Error(`repair prepare-queue rejects unsupported authority input: ${key}`);
   const values = argumentMap(arguments_, "repair prepare-queue"); const known = repairKnownWithLineage(["--creation", "--creation-hash", "--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--prepare-authorization", "--group-output", "--observer-ledger", "--receiver-ack", "--approval-wait-ms"]); for (const key of values.keys()) if (!known.has(key)) throw new Error(`repair prepare-queue rejects unknown flag ${key}`);
   const get = (key: string) => requireArgument(values, key, "repair prepare-queue"); const maxWait = Number(values.get("--approval-wait-ms") ?? REPAIR_MAX_APPROVAL_WAIT_MS); if (!Number.isSafeInteger(maxWait) || maxWait <= 0 || maxWait > REPAIR_MAX_APPROVAL_WAIT_MS) throw new Error("repair prepare-queue approval wait is invalid");
-  const loadedLineage = await loadRepairHashlessLineage(values, dependencies);
+  const loadedLineage = await loadRepairLineage(values, dependencies);
   const creation = loadRepairCreationProposal(readFileSync(get("--creation"), "utf8"), get("--creation-hash") as Hex, dependencies.domain);
   const original = loadedLineage?.original ?? createOrdinaryScenarioProposal(readFileSync(get("--report"), "utf8"), { expectedArtifactBytesHash: get("--artifact-hash") as Hex, expectedPackageHash: get("--package-hash") as Hex }, dependencies.ordinaryDomain); if (original.proposalHash.toLowerCase() !== get("--proposal-hash").toLowerCase()) throw new Error("repair prepare-queue original proposal mismatch"); assertCreationOriginalBinding(creation, original, get("--original-approval-hash") as Hex);
   const store = createOrdinaryScenarioStore(get("--journal"), { proposalHash: original.proposalHash, approvalHash: get("--original-approval-hash") as Hex, funder: original.funder }, () => { throw new Error("repair prepare-queue requires terminal journal"); }, dependencies.ordinaryDomain);
   try {
     const journal = store.load(); const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation, domain: dependencies.domain });
-    const observerHash = loadedLineage?.continuation.observer.probeEvidenceHash ?? original.observerEvidenceHash; const live = await harness.createLiveContext("submit-one", creation.funder, async () => {});
-    const evidence = await adapter.validateTerminalPrefix(journal); const lineage = loadedLineage?.approval ? { kind: "expired-hashless-continuation-v1" as const, continuation: loadedLineage.continuation, approval: loadedLineage.approval } : undefined; const verified = verifyRepairPredecessor(original, journal, evidence, lineage); if (verified.prefixHash !== creation.prefixHash || verified.kind !== creation.predecessor.kind) throw new Error("repair predecessor changed before proof preparation");
+    const observerHash = loadedLineage?.observer.probeEvidenceHash ?? original.observerEvidenceHash; const live = await harness.createLiveContext("submit-one", creation.funder, async () => {});
+    const evidence = await adapter.validateTerminalPrefix(journal); const lineage = loadedLineage?.lineage; const verified = verifyRepairPredecessor(original, journal, evidence, lineage); if (verified.prefixHash !== creation.prefixHash || verified.kind !== creation.predecessor.kind) throw new Error("repair predecessor changed before proof preparation");
     return await runRepairQueueSession({ creation, journal, ...(lineage ? { lineage } : {}), domain: dependencies.domain, maxApprovalWaitMs: maxWait,
       publicPreflight: () => adapter.readState("pre-rotation", observerHash),
       awaitPrepareAuthorization: async authorization => { const raw = readFileSync(get("--prepare-authorization"), "utf8"); let parsed: unknown; try { parsed = JSON.parse(raw); } catch { return false; } return JSON.stringify(parsed) === JSON.stringify(authorization); },
@@ -356,14 +375,14 @@ export async function runRepairTail(arguments_: readonly string[], mode: "submit
   if (mode === "resume-one" && PRIVATE_INPUTS.some(key => dependencies.environment[key] !== undefined)) throw new Error("repair tail-resume-one rejects private authority input");
   const values = argumentMap(arguments_, `repair tail-${mode}`); const get = (key: string) => requireArgument(values, key, `repair tail-${mode}`);
   const known = repairKnownWithLineage(["--creation", "--creation-hash", "--report", "--artifact-hash", "--package-hash", "--proposal-hash", "--original-approval-hash", "--journal", "--group", "--group-hash", "--observer-ledger", "--receiver-ack"]); for (const key of values.keys()) if (!known.has(key)) throw new Error(`repair tail-${mode} rejects unknown flag ${key}`);
-  const loadedLineage = await loadRepairHashlessLineage(values, dependencies, mode === "resume-one" ? "historical-resume" : "fresh");
+  const loadedLineage = await loadRepairLineage(values, dependencies, mode === "resume-one" ? "historical-resume" : "fresh");
   const creation = loadRepairCreationProposal(readFileSync(get("--creation"), "utf8"), get("--creation-hash") as Hex, dependencies.domain); const original = loadedLineage?.original ?? createOrdinaryScenarioProposal(readFileSync(get("--report"), "utf8"), { expectedArtifactBytesHash: get("--artifact-hash") as Hex, expectedPackageHash: get("--package-hash") as Hex }, dependencies.ordinaryDomain);
   if (original.proposalHash.toLowerCase() !== get("--proposal-hash").toLowerCase()) throw new Error("repair tail original proposal mismatch"); assertCreationOriginalBinding(creation, original, get("--original-approval-hash") as Hex);
   const store = createOrdinaryScenarioStore(get("--journal"), { proposalHash: original.proposalHash, approvalHash: get("--original-approval-hash") as Hex, funder: original.funder }, () => { throw new Error("repair tail requires journal"); }, dependencies.ordinaryDomain);
   try {
     const journal = store.load(); const continuation = journal.repairContinuation; if (!continuation) throw new Error("repair tail continuation is missing");
     const repository = dependencies.repository(); const harness = dependencies.createHarness(repository); const reconstructed = await harness.reconstructedProfile(); const adapter = dependencies.createAdapter({ repository, harness, reconstructed, creation, domain: dependencies.domain, observerMode: mode === "resume-one" ? "historical" : "current" });
-    const lineage = loadedLineage?.approval ? { kind: "expired-hashless-continuation-v1" as const, continuation: loadedLineage.continuation, approval: loadedLineage.approval } : undefined; const observerHash = loadedLineage?.continuation.observer.probeEvidenceHash ?? original.observerEvidenceHash; const observerEndpointHash = loadedLineage?.continuation.observer.endpointHash ?? "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0"; const receiverReadyAt = loadedLineage ? new Date(Number(BigInt(loadedLineage.continuation.observer.readyAt)) * 1000).toISOString() : undefined; const receiverExpiresAt = loadedLineage ? new Date(Number(BigInt(loadedLineage.continuation.observer.expiresAt)) * 1000).toISOString() : undefined;
+    const lineage = loadedLineage?.lineage; const observerHash = loadedLineage?.observer.probeEvidenceHash ?? original.observerEvidenceHash; const observerEndpointHash = loadedLineage?.observer.endpointHash ?? "0x8a3e2db19f160da76a08385670e22e08a293ee5b09276b90e74cd2dc65029ae0"; const receiverReadyAt = loadedLineage ? new Date(Number(BigInt(loadedLineage.observer.readyAt)) * 1000).toISOString() : undefined; const receiverExpiresAt = loadedLineage ? new Date(Number(BigInt(loadedLineage.observer.expiresAt)) * 1000).toISOString() : undefined;
     const prefixEvidence = await adapter.validateTerminalPrefix(journal); const verified = verifyRepairPredecessor(original, journal, prefixEvidence, lineage); if (verified.prefixHash.toLowerCase() !== creation.prefixHash.toLowerCase() || verified.kind !== creation.predecessor.kind) throw new Error("repair predecessor changed before tail execution");
     const persist = async (updated: OrdinaryScenarioJournal["liveJournal"]) => { journal.liveJournal = updated; for (const entry of updated.entries) { const actionRecord = continuation.actions.find(item => item.id === entry.id && item.status === "approved"); if (actionRecord && entry.status === "pending") { actionRecord.status = "pending"; actionRecord.transactionHash = entry.transactionHash; } } store.save(journal); };
     const liveBase = await harness.createLiveContext(mode, creation.funder, persist); const live: LiveContext = { ...liveBase, verify: async () => {}, persist };
