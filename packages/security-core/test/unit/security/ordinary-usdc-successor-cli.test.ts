@@ -157,6 +157,7 @@ describe("ordinary USDC successor CLI", function () {
       const execution = runUsdcSuccessorCli(prepared.submitArgs, { environment: { LIVE_SUBMIT: "YES" }, providers: prepared.providers, now: () => new Date("2026-10-29T00:00:50Z"), publicPreflight: async () => undefined, createExecutionContext: async (_mode, inputs, journal) => {
         expect(journal().usdcSuccessor?.proposalHash).to.equal(inputs.successor.proposalHash);
         return {
+          now: () => new Date("2026-10-29T00:00:50Z"),
           readState: async action => {
             started(); await deferred;
             const dependencies = action.dependsOn.map(id => {
