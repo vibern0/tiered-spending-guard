@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { expect } from "chai";
 import { BaseError, CallExecutionError, keccak256, type Hex } from "viem";
 import { sha256 } from "../../../scripts/plan-deployment";
-import { runOrdinaryScenarioExecutorCli, runOrdinaryScenarioExecutorEntryPoint } from "../../../scripts/live/ordinary-scenario-executor-cli";
+import { createArchiveConfirmedLiveContext, runOrdinaryScenarioExecutorCli, runOrdinaryScenarioExecutorEntryPoint } from "../../../scripts/live/ordinary-scenario-executor-cli";
 import { createOrdinaryScenarioJournal, createOrdinaryScenarioProposal, loadOrdinaryScenarioApproval, type CanonicalOrdinaryScenarioState, type OrdinaryScenarioExecutionContext } from "../../../scripts/live/ordinary-scenario-executor";
 import { liveIntentHash, type LiveIntent } from "../../../scripts/live/submission";
 
@@ -24,6 +24,26 @@ const intent: LiveIntent = { id: "native-funding", to: proposal.safe, data: "0x"
 const resumeContext = (counts: { sign: number; broadcast: number }): OrdinaryScenarioExecutionContext => ({ readState: async () => state, materialize: async () => { throw new Error("no materialize"); }, simulate: async () => { throw new Error("no simulate"); }, proveRejection: async () => { throw new Error("no reject"); }, recoverPending: async () => intent, recoverReplay: async () => { throw new Error("no replay"); }, verifyContractSignature: async () => "0x1626ba7e", confirm: async () => { throw new Error("no confirmation without receipt"); }, live: { funder: proposal.funder, chainId: async () => 11155111, nonce: async () => 743, balance: async () => state.funderNativeBalance, sign: async () => { counts.sign++; throw new Error("resume sign disabled"); }, broadcast: async () => { counts.broadcast++; throw new Error("resume broadcast disabled"); }, receipt: async () => undefined } });
 
 describe("ordinary scenario one-action CLI", () => {
+  it("uses the archive client for historical receipt and confirmation canonicality reads", async () => {
+    const transactionHash = keccak256("0x77");
+    const blockHash = keccak256("0x78");
+    const calls: string[] = [];
+    const archive = {
+      getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+        calls.push(`receipt:${hash}`);
+        return { transactionHash: hash, status: "success" as const, gasUsed: 12n, effectiveGasPrice: 3n, blockNumber: 40n, blockHash };
+      },
+      getBlockNumber: async () => { calls.push("head"); return 45n; },
+      getBlock: async ({ blockNumber }: { blockNumber: bigint }) => { calls.push(`block:${blockNumber}`); return { hash: blockHash }; },
+    };
+    const currentOnly = { funder: proposal.funder, chainId: async () => 11155111, nonce: async () => 743, balance: async () => 1n, sign: async () => "0x" as Hex, broadcast: async () => transactionHash };
+
+    const live = createArchiveConfirmedLiveContext(currentOnly, archive);
+
+    expect(await live.receipt(transactionHash)).to.deep.equal({ transactionHash, status: "success", gasUsed: 12n, effectiveGasPrice: 3n, blockNumber: 40n, blockHash });
+    expect(calls).to.deep.equal([`receipt:${transactionHash}`, "block:40", "head", "block:40"]);
+  });
+
   it("prints only the fixed executor diagnostic when a Viem call failure contains private markers", async () => {
     const calldataMarker = `0x${"ab".repeat(32)}` as Hex;
     const credentialMarker = "PRIVATE_CREDENTIAL_MARKER_ordinary";

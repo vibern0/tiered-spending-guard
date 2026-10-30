@@ -10,7 +10,7 @@ import { createFrozenSafeSignerProvider, createOrdinaryScenarioExecutionContext,
 import { PUBLIC_ARCHIVE_RPC, PUBLIC_CURRENT_RPC, reconstructReviewedPlan } from "./ordinary-scenario-review-cli";
 import { createPasskeySignerCore } from "../../src/signers/passkey-core";
 import { createEip1193SecondarySigner } from "../../src/signers/eip1193";
-import type { LiveContext, LiveIntent } from "./submission";
+import type { LiveContext, LiveIntent, LiveReceipt } from "./submission";
 import type { VaultSigner } from "../../src/signers/types";
 import { runOperationalCliEntryPoint, type OperationalCliOutput } from "./operational-cli-entrypoint";
 
@@ -82,6 +82,26 @@ export type OrdinaryScenarioProductionHarness = Readonly<{
   createLiveContext(mode: "submit-one" | "resume-one", funder: Address, persist: (journal: Parameters<LiveContext["persist"]>[0]) => Promise<void>): Promise<Omit<LiveContext, "verify">>;
 }>;
 
+export type ArchiveReceiptClient = Readonly<{
+  getTransactionReceipt(input: Readonly<{ hash: Hex }>): Promise<Readonly<{ transactionHash: Hex; status: "success" | "reverted"; gasUsed: bigint; effectiveGasPrice: bigint; blockNumber: bigint; blockHash: Hex }>>;
+  getBlockNumber(): Promise<bigint>;
+  getBlock(input: Readonly<{ blockNumber: bigint }>): Promise<Readonly<{ hash: Hex | null }>>;
+}>;
+
+/** Historical journal receipts and their confirmation blocks must use the fixed archive provider. */
+export function createArchiveConfirmedLiveContext(base: Omit<LiveContext, "receipt" | "verify" | "persist">, archive: ArchiveReceiptClient): Omit<LiveContext, "verify" | "persist"> {
+  const receipt = async (hash: Hex): Promise<LiveReceipt | undefined> => {
+    try {
+      const value = await archive.getTransactionReceipt({ hash });
+      return { transactionHash: value.transactionHash, status: value.status, gasUsed: value.gasUsed, effectiveGasPrice: value.effectiveGasPrice, blockNumber: value.blockNumber, blockHash: value.blockHash };
+    } catch { return undefined; }
+  };
+  return requireSixConfirmationReceipts({ ...base, receipt }, {
+    blockNumber: () => archive.getBlockNumber(),
+    blockHash: async number => { const block = await archive.getBlock({ blockNumber: number }); if (!block.hash) throw new Error("canonical archive block hash unavailable"); return block.hash; },
+  });
+}
+
 /** Fixed Sepolia mechanics shared by the original CLI and the closed repair CLI. Construction is public and non-authorizing; every secret loader is lazy. */
 export function createOrdinaryScenarioProductionHarness(repository: string): OrdinaryScenarioProductionHarness {
   const current = createPublicClient({ chain: sepolia, transport: http(PUBLIC_CURRENT_RPC) });
@@ -122,8 +142,8 @@ export function createOrdinaryScenarioProductionHarness(repository: string): Ord
     createLiveContext: async (mode, funder, persist) => {
       let fundingAccount: ReturnType<typeof privateKeyToAccount> | undefined;
       const account = async () => { if (mode !== "submit-one") throw new Error("resume-one signing capability is disabled"); if (!fundingAccount) { const { loadFundingKey } = await import("./secrets"); fundingAccount = privateKeyToAccount(loadFundingKey(requiredEnvironment(process.env, "LIVE_FUNDING_KEY_FILE"), repository)); if (fundingAccount.address.toLowerCase() !== funder.toLowerCase()) throw new Error("funding key does not match reviewed funder"); } return fundingAccount; };
-      const base = { funder, chainId: () => current.getChainId(), nonce: () => readAgreedCurrentFunderNonce(current, funder), balance: () => current.getBalance({ address: funder }), sign: async (intent: LiveIntent) => (await account()).signTransaction({ chainId: 11155111, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }), broadcast: async (raw: Hex) => { if (mode !== "submit-one") throw new Error("resume-one broadcast capability is disabled"); return current.sendRawTransaction({ serializedTransaction: raw }); }, receipt: async (hash: Hex) => { try { const receipt = await current.getTransactionReceipt({ hash }); return { transactionHash: receipt.transactionHash, status: receipt.status, gasUsed: receipt.gasUsed, effectiveGasPrice: receipt.effectiveGasPrice, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash }; } catch { return undefined; } } };
-      return { ...requireSixConfirmationReceipts(base, { blockNumber: current.getBlockNumber, blockHash: async number => { const block = await current.getBlock({ blockNumber: number }); if (!block.hash) throw new Error("canonical block hash unavailable"); return block.hash; } }), persist };
+      const base = { funder, chainId: () => current.getChainId(), nonce: () => readAgreedCurrentFunderNonce(current, funder), balance: () => current.getBalance({ address: funder }), sign: async (intent: LiveIntent) => (await account()).signTransaction({ chainId: 11155111, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }), broadcast: async (raw: Hex) => { if (mode !== "submit-one") throw new Error("resume-one broadcast capability is disabled"); return current.sendRawTransaction({ serializedTransaction: raw }); } };
+      return { ...createArchiveConfirmedLiveContext(base, archive), persist };
     },
   };
 }
