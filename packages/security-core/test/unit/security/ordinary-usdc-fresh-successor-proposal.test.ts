@@ -33,7 +33,7 @@ const kinds = ["controlled-recipient-funding", "base-transfer", "step-up-transfe
 const tokenAbi = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ type: "address", name: "to" }, { type: "uint256", name: "amount" }], outputs: [{ type: "bool" }] }, { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address", name: "to" }, { type: "uint256", name: "amount" }], outputs: [{ type: "bool" }] }] as const;
 
 function approvalDocument(proposal: ReturnType<typeof createUsdcFreshSuccessorProposal>) {
-  return { schemaVersion: 1, scope: "ordinary-usdc-fresh-period-successor-v1", authorization: "FOCUSED_BOUNDED_SUCCESSOR_AUTHORIZATION", authorityEvidenceHash: proposal.authorityEvidenceHash, proposalHash: proposal.proposalHash, sourceHash: proposal.sourceHash, certificateHash: proposal.certificateHash, snapshot: proposal.snapshot, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, observer: proposal.observer, schedule: proposal.schedule, groups: proposal.groups, caps: proposal.caps, reservation: proposal.reservation, maxBroadcastAttempts: 1, repairAuthority: "NONE", approvedActions: proposal.actions.map(({ id, commitment }) => ({ id, commitment })) };
+  return { schemaVersion: 1, scope: "ordinary-usdc-fresh-period-successor-v1", authorization: "FOCUSED_BOUNDED_SUCCESSOR_AUTHORIZATION", authorityEvidenceHash: proposal.authorityEvidenceHash, proposalHash: proposal.proposalHash, sourceHash: proposal.sourceHash, certificateHash: proposal.certificateHash, snapshot: proposal.snapshot, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, observer: proposal.observer, schedule: proposal.schedule, groups: proposal.groups, caps: proposal.caps, reservation: proposal.reservation, maxBroadcastAttempts: 1, repairAuthority: "NONE", approvedActions: proposal.actions.map(({ id, commitment }) => ({ id, commitment })) };
 }
 
 describe("ordinary USDC fresh-period successor proposal", function () {
@@ -128,7 +128,7 @@ describe("ordinary USDC fresh-period successor proposal", function () {
     const { source, certificate, proposal } = await fixture();
     expect(FRESH_SUCCESSOR_SCHEDULE).to.deep.equal({ review: "3600", execution: "7200", confirmations: "180", delivery: "60", acknowledgement: "300", keylessConfirmation: "300", reviewAdmission: "11640", initialExecutionAdmission: "8040", reconciliationMargin: "840" });
     expect(FRESH_SUCCESSOR_GROUPS).to.deep.equal([{ start: 1, end: 7, budgetSeconds: "2400" }, { start: 8, end: 11, budgetSeconds: "1500" }, { start: 12, end: 15, budgetSeconds: "1800" }, { start: 16, end: 18, budgetSeconds: "1500" }]);
-    expect(proposal).to.include({ authorization: "NONE", effectivePeriod: "1793318400", deadline: "1793404800", maxBroadcastAttempts: 1 });
+    expect(proposal).to.include({ authorization: "NONE", minimumOuterNonce: 870, effectivePeriod: "1793318400", deadline: "1793404800", maxBroadcastAttempts: 1 });
     const deadline = BigInt(proposal.deadline), at = (remaining: bigint) => new Date(Number((deadline - remaining) * 1000n));
     expect(() => assertUsdcFreshSuccessorAdmission(proposal, ids[0]!, deadline - 11_640n, at(11_640n), "review")).not.to.throw();
     expect(() => assertUsdcFreshSuccessorAdmission(proposal, ids[0]!, deadline - 11_639n, at(11_640n), "review")).to.throw(/11640|remaining/i);

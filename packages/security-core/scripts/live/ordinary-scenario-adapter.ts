@@ -30,6 +30,7 @@ const normalizeJournalInput = <T extends { proposal: OrdinaryScenarioProposal | 
   if (!("kind" in input.proposal) || input.proposal.kind === "original-ordinary-v1") return { ...input, proposal };
   const sourceJournal = input.journal;
   if (input.proposal.kind === "expired-hashless-continuation-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const records = source.hashlessContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions.slice(0, 18), ...records] }; } };
+  if (input.proposal.kind === "usdc-fresh-period-successor-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const native = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const old = source.usdcSuccessor?.actions.slice(0, 2).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcFreshSuccessor?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...native, ...old, ...records] }; } };
   if (input.proposal.kind === "usdc-recycle-continuation-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const native = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const old = source.usdcSuccessor?.actions.slice(0, 2).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcRecycleContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...native, ...old, ...records] }; } };
   return { ...input, proposal, journal: () => { const source = sourceJournal(); const recovery = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcSuccessor?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions, ...recovery, ...records] }; } };
 };
@@ -108,11 +109,11 @@ export function createOrdinaryScenarioMechanicalStateReader(rawInput: OrdinarySc
       const maxPriorityFeePerGas = BigInt(record.maxPriorityFeePerGas);
       if (maxFeePerGas <= 0n || maxPriorityFeePerGas > maxFeePerGas || maxFeePerGas > action.maxFeePerGasCap || maxPriorityFeePerGas > action.maxPriorityFeePerGasCap) throw new Error("ordinary scenario persisted pre-outer fee quote is missing or invalid");
       frozenFees = { maxFeePerGas, maxPriorityFeePerGas };
-      if ("kind" in rawInput.proposal && rawInput.proposal.kind === "usdc-recycle-continuation-v1") {
+      if ("kind" in rawInput.proposal && (rawInput.proposal.kind === "usdc-recycle-continuation-v1" || rawInput.proposal.kind === "usdc-fresh-period-successor-v1")) {
         const frozen = record.finalOuterMaterialization;
-        if (!frozen || !DECIMAL.test(frozen.pinnedBlockNumber)) throw new Error("USDC recycle continuation frozen materialization block is missing");
+        if (!frozen || !DECIMAL.test(frozen.pinnedBlockNumber)) throw new Error("USDC continuation frozen materialization block is missing");
         const pinned = await input.archiveClient.getBlock({ blockNumber: BigInt(frozen.pinnedBlockNumber) } as never);
-        if (!pinned.hash || pinned.hash.toLowerCase() !== frozen.pinnedBlockHash.toLowerCase()) throw new Error("USDC recycle continuation frozen materialization block changed");
+        if (!pinned.hash || pinned.hash.toLowerCase() !== frozen.pinnedBlockHash.toLowerCase()) throw new Error("USDC continuation frozen materialization block changed");
       }
     }
     let client = input.currentClient;
@@ -214,6 +215,10 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
     const binding = rawInput.proposal.continuation.observer;
     if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== canonicalObserverBound(binding.readyAt) || rawInput.receiverExpiresAt !== canonicalObserverBound(binding.expiresAt)) throw new Error("USDC recycle continuation adapter requires exact nonempty observer ready and expiry forwarding");
   }
+  if ("kind" in rawInput.proposal && rawInput.proposal.kind === "usdc-fresh-period-successor-v1") {
+    const binding = rawInput.proposal.successor.observer;
+    if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== canonicalObserverBound(binding.readyAt) || rawInput.receiverExpiresAt !== canonicalObserverBound(binding.expiresAt)) throw new Error("fresh USDC successor adapter requires exact nonempty observer ready and expiry forwarding");
+  }
   const input = normalizeJournalInput(rawInput);
   const current = input.currentClient;
   const archive = input.archiveClient;
@@ -287,7 +292,7 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
       const postState = await inspectReceiptPostState(action, entry, record);
       let effect: ConfirmationEffect;
       if (action.id === "native-funding") effect = { kind: "native-funding", to: input.proposal.safe, amount: action.publicTransaction!.value };
-      else if (action.kind === "funding" || action.kind === "controlled-recipient-recycled-funding") {
+      else if (action.kind === "funding" || action.kind === "controlled-recipient-funding" || action.kind === "controlled-recipient-recycled-funding") {
         const transfers = canonicalReceipt.logs.filter(log => log.address.toLowerCase() === input.proposal.usdc.toLowerCase()).flatMap(log => { try { const decoded = decodeEventLog({ abi: ERC20_EVENT_ABI, data: log.data, topics: log.topics }); return decoded.eventName === "Transfer" ? [decoded.args] : []; } catch { return []; } });
         const amount = postState.safeUsdcBalance - BigInt(action.before.safeUsdcBalance);
         if (transfers.length !== 1 || transfers[0]!.from.toLowerCase() !== input.proposal.funder.toLowerCase() || transfers[0]!.to.toLowerCase() !== input.proposal.safe.toLowerCase() || transfers[0]!.value !== amount) throw new Error("ordinary scenario ERC-20 funding Transfer mismatch");
