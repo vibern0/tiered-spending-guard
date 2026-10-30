@@ -62,14 +62,13 @@ The scoped Task 6 review initially found two Important report-validation gaps an
 
 The first whole-change review found three further Important issues: the production wrapper had erased the fresh-view discriminator before the frozen-block reorg check; replay rejection persistence and reporting rejected the authenticated fresh-base transaction reference that the executor deliberately recovers; and the journal comparison omitted predecessor identity headers. The fixes preserve the original view through the production reader, stop on a changed materialization block before signing, permit only the exact confirmed fresh-base hash on the replay proof with no new intent/receipt/live row, and hash the complete predecessor header/row/live-prefix projection. Tests cover production reorg with zero sign/broadcast, the monotonic replay lifecycle through store reopen/selection/report, individual header mutations, and mirrored source/journal mutations. Affected fresh and legacy executor/report tests recorded 110 passing before re-review; the whole-change re-review and full gate remain required.
 
+Whole-change re-review of `6cf6e05..57e8989` returned `ACCEPT`, with no remaining Critical or Important findings. The full gate ran against tested product HEAD `57e89898a0d8328d37df162221ab35f841783769` and exited zero: 652 regular tests passing; 4 invariants passing; coverage 650 passing and 2 pending; Slither accepted exactly 11 reviewed baseline findings with no new finding; local rehearsal 1 passing; and `git diff --check` clean. Raw security-gate log: 126823 bytes, SHA-256 `c34e1ae042605799d0a68ad18285313e0dc829a2f0858f0180c900cd41116515`. Normal artifact restoration compiled 51 Solidity files, exit zero, log SHA-256 `36ecbd61a60d0f3287bd95d143e26babdde3f633f075569aa8eb0402c000a717`. Backend: 8 files / 18 tests passing, exit zero, log SHA-256 `44f47145eba00cbc9d24a49119dc7fea15e448f10239e8685c365d9fc815e8c9`. The tracked worktree was clean immediately after these checks. Compiler mutability suggestions and the local Python LibreSSL warning remain non-failing warnings; the two coverage pendings are the existing conditional maintenance cases. Logs remain outside Git under the temporary gate directory and contain no live credentials.
+
 ## Gates still required before live execution
 
-1. Scoped Task 6 review and focused test rerun.
-2. Fresh whole-change independent review with all Critical and Important findings resolved.
-3. Full `security:check`, normal artifact restoration/build, backend tests, whitespace check and clean tracked state, with exact HEAD and log hashes recorded.
-4. A fresh independent receiver and observer window covering the whole reviewed schedule.
-5. Fresh two-provider source proof and unsigned production review artifacts bound to the clean tested HEAD.
-6. Independent exact-artifact acceptance and one exact machine approval. Proposal generation alone has `authorization: NONE`.
-7. One-action-at-a-time live execution, real waits, six confirmations, receipt/effect validation, required observer delivery and official acknowledgement, then a terminal public report and evidence review.
+1. A fresh independent receiver and observer window covering the whole reviewed schedule.
+2. Fresh two-provider source proof and unsigned production review artifacts bound to the clean tested HEAD.
+3. Independent exact-artifact acceptance and one exact machine approval. Proposal generation alone has `authorization: NONE`.
+4. One-action-at-a-time live execution, real waits, six confirmations, receipt/effect validation, required observer delivery and official acknowledgement, then a terminal public report and evidence review.
 
 No transaction has been signed or broadcast under this fresh successor at the time of this record. Repair, browser/hardware proof, ordinary Task 0 closure and native Safe ERC-4337 Tasks 1–13 remain open.

@@ -157,8 +157,8 @@ git commit -m "docs: report fresh USDC successor"
 
 ## Task 7: Whole-change review and code gate
 
-- [ ] Fresh whole-change reviewer. Fix Critical/Important with RED/GREEN. Rereview.
-- [ ] Run full gate. Save raw log outside Git. Restore normal artifacts.
+- [x] Fresh whole-change reviewer. Fix Critical/Important with RED/GREEN. Rereview.
+- [x] Run full gate. Save raw log outside Git. Restore normal artifacts.
 ```bash
 npm --prefix packages/security-core run security:check
 npm --prefix packages/security-core run build
@@ -166,7 +166,7 @@ npm --prefix apps/backend test
 git diff --check
 git status --short
 ```
-- [ ] Record exact HEAD, counts, artifact/log hashes, warnings, skips. Require clean tracked state.
+- [x] Record exact HEAD, counts, artifact/log hashes, warnings, skips. Require clean tracked state.
 
 ## Task 8: Observer and unsigned artifacts
 
