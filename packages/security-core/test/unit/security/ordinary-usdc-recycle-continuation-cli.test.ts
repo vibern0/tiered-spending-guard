@@ -278,7 +278,7 @@ describe("ordinary USDC recycle continuation CLI", function () {
     globalThis.fetch = (async () => new Response(delaySource, { status: 200 })) as typeof fetch;
     const dependencies = (argv: readonly string[], environment: Record<string, string>) => {
       const harness = createDefaultCompositionHarness(prepared, counters);
-      const production = createUsdcRecycleContinuationProductionDependencies(join(__dirname, "../../../../.."), argv, { createHarness: () => harness, wait: async () => undefined });
+      const production = createUsdcRecycleContinuationProductionDependencies(join(__dirname, "../../../../.."), argv, { createHarness: () => harness, wait: async () => undefined, now: prepared.providers.now });
       return { ...production, environment, providers: prepared.providers, now: prepared.providers.now };
     };
     try {
@@ -367,11 +367,11 @@ describe("ordinary USDC recycle continuation CLI", function () {
     try {
       const inputs = await loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(prepared.submitArgs), prepared.providers);
       const fakeHarness = { current: {}, archive: {}, reconstructedProfile: async () => ({}), observerReadiness: async () => ({ ready: true, evidenceHash: inputs.continuation.observer.probeEvidenceHash }), loadClosedPasskey: async () => { throw new Error("signers stay lazy during construction"); }, loadClosedProofSigner: async () => { throw new Error("unused"); }, createLiveContext: async () => ({}) } as never;
-      const dependencies = createUsdcRecycleContinuationProductionDependencies("/public/repository", prepared.submitArgs, { createHarness: () => fakeHarness, createStateReader: (() => async (action: any) => { reads++; selected.push(action.id); return { blockTimestamp: BigInt(inputs.certificate.snapshot.timestamp) } as never; }) as never });
+      const dependencies = createUsdcRecycleContinuationProductionDependencies("/public/repository", prepared.submitArgs, { createHarness: () => fakeHarness, createStateReader: (() => async (action: any) => { reads++; selected.push(action.id); return { blockTimestamp: BigInt(inputs.certificate.snapshot.timestamp) } as never; }) as never, now: prepared.providers.now });
       await dependencies.publicPreflight!("submit-one", inputs); await dependencies.publicPreflight!("submit-one", inputs);
       expect(reads).to.equal(2); expect(selected).to.deep.equal([inputs.continuation.actions[0]!.id, inputs.continuation.actions[0]!.id]); expect(selected[0]).not.to.equal(inputs.source.priorProposal.actions[2]!.id);
       const context = await dependencies.createExecutionContext!("submit-one", inputs, () => inputs.source.prior.journal);
-      expect(context.inspectReceiptPostState).to.be.a("function");
+      expect(context.inspectReceiptPostState).to.be.a("function"); expect(context.now).to.equal(prepared.providers.now);
     } finally { prepared.cleanup(); }
   });
 });

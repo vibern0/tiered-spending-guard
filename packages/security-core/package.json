@@ -9,6 +9,7 @@
     "test:invariant": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/invariant';const files=[];const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files,...process.argv.slice(1)],{stdio:'inherit'});else console.log('matching test/invariant files not present; skipped until a later task adds them')\" --",
     "test:headless": "tsx scripts/headless-test.ts",
     "check": "npm run build && npm test",
+    "precoverage": "npm run build",
     "coverage": "SOLIDITY_COVERAGE=true hardhat coverage",
     "slither": "tsx scripts/slither-gate.ts",
     "security:check": "npx hardhat clean && npm run build && npm test && npm run test:invariant && npm run coverage && npm run slither && npm run rehearse && git diff --check",
