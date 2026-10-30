@@ -48,6 +48,7 @@ const INVALIDATION_INPUT_HASH = keccak256("0xa0eb5570");
 const INVALIDATION_COST = 124_785_100_000n;
 const PRIOR_ACTUAL_COST = 168_855_544n;
 const AGGREGATE_KNOWN_CHARGE = 124_953_955_544n;
+const HISTORICAL_SOURCE_SNAPSHOT = Object.freeze({ number: 12_019_465n, hash: "0xbf7cbfcf7b46054149edf3a71b9cb26ccdf728ef3db5389af09fc51550a4f754" as Hex, timestamp: 1_793_276_400n });
 
 export type UsdcRecycleContinuationSource = Readonly<{
   prior: UsdcSuccessorSource;
@@ -309,10 +310,10 @@ function assertRechecks(view: ProviderView): void {
   for (let index = 0; index < view.rechecks.length; index++) { const before = index === 0 ? view.snapshot : view.receiptBlocks[index - 1]!, after = view.rechecks[index]; if (!after || publicHash(before) !== publicHash(after)) throw new Error("USDC recycle canonical recheck detected a reorg"); }
 }
 
-async function verifyPinned(source: UsdcRecycleContinuationSource, primary: UsdcRecycleContinuationPrimaryEvidence, providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider], block: UsdcSuccessorCanonicalBlock, mode: "initial" | "pinned", recorded?: Readonly<{ stateHash: Hex; snapshotNonce: number; latestNonce: number; pendingNonce: number; priorReceipts: readonly ReceiptEvidence[]; invalidation: InvalidationEvidence }>) {
+async function verifyPinned(source: UsdcRecycleContinuationSource, primary: UsdcRecycleContinuationPrimaryEvidence, providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider], block: UsdcSuccessorCanonicalBlock, mode: "initial" | "pinned", recorded?: Readonly<{ stateHash: Hex; snapshotNonce: number; latestNonce: number; pendingNonce: number; priorReceipts: readonly ReceiptEvidence[]; invalidation: InvalidationEvidence }>, historicalNonces?: Readonly<{ latestNonce: number; pendingNonce: number }>) {
   const sourceHash = assertSource(source, mode), primaryEvidenceHash = validatePrimary(primary, source);
   if (!Array.isArray(providers) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("USDC recycle certificate requires two independent providers");
-  const nonces = recorded ? { latestNonce: recorded.latestNonce, pendingNonce: recorded.pendingNonce } : undefined;
+  const nonces = recorded ? { latestNonce: recorded.latestNonce, pendingNonce: recorded.pendingNonce } : historicalNonces;
   const views = await Promise.all([readView(providers[0], source, block.number, nonces), readView(providers[1], source, block.number, nonces)] as const);
   assertBlock(views[0].snapshot, block, "USDC recycle snapshot"); assertBlock(views[1].snapshot, block, "USDC recycle snapshot");
   const evidence = assertView(views[0], source), second = assertView(views[1], source); assertRechecks(views[0]); assertRechecks(views[1]);
@@ -321,6 +322,41 @@ async function verifyPinned(source: UsdcRecycleContinuationSource, primary: Usdc
   if (recorded && (!same(publicHash(views[0].state), recorded.stateHash) || views[0].snapshotNonce !== recorded.snapshotNonce || views[0].latestNonce !== recorded.latestNonce || views[0].pendingNonce !== recorded.pendingNonce || publicHash(evidence.priorReceipts) !== publicHash(recorded.priorReceipts) || publicHash(evidence.invalidation) !== publicHash(recorded.invalidation))) throw new Error("USDC recycle recorded pinned history mismatch");
   assertSource(source, mode);
   return { sourceHash, primaryEvidenceHash, views, ...evidence };
+}
+
+export type VerifiedUsdcRecycleHistoricalEvidence = Readonly<{
+  sourceHash: Hex;
+  primaryEvidenceHash: Hex;
+  snapshot: UsdcSuccessorCanonicalBlock;
+  state: UsdcSuccessorCanonicalState;
+  snapshotNonce: number;
+  latestNonce: number;
+  pendingNonce: number;
+  priorReceipts: readonly ReceiptEvidence[];
+  invalidation: InvalidationEvidence;
+}>;
+
+/** Revalidates the immutable stopped source at its fixed recorded canonical boundary. */
+export async function verifyUsdcRecycleHistoricalEvidence(
+  source: UsdcRecycleContinuationSource,
+  primary: UsdcRecycleContinuationPrimaryEvidence,
+  providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider],
+): Promise<VerifiedUsdcRecycleHistoricalEvidence> {
+  const snapshotNonces = await Promise.all(providers.map(provider => provider.readTransactionCount(source.prior.original.funder, HISTORICAL_SOURCE_SNAPSHOT.number)));
+  if (snapshotNonces[0] !== snapshotNonces[1]) throw new Error("USDC recycle historical snapshot nonce providers disagree");
+  const pinned = await verifyPinned(source, primary, providers, HISTORICAL_SOURCE_SNAPSHOT, "initial", undefined, { latestNonce: snapshotNonces[0]!, pendingNonce: snapshotNonces[0]! });
+  const first = pinned.views[0];
+  return Object.freeze({
+    sourceHash: pinned.sourceHash,
+    primaryEvidenceHash: pinned.primaryEvidenceHash,
+    snapshot: first.snapshot,
+    state: Object.freeze(structuredClone(first.state)),
+    snapshotNonce: first.snapshotNonce,
+    latestNonce: first.latestNonce,
+    pendingNonce: first.pendingNonce,
+    priorReceipts: pinned.priorReceipts,
+    invalidation: pinned.invalidation,
+  });
 }
 
 export async function verifyUsdcRecycleContinuationCertificate(source: UsdcRecycleContinuationSource, primary: UsdcRecycleContinuationPrimaryEvidence, providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider]): Promise<VerifiedUsdcRecycleContinuationCertificate> {
