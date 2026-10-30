@@ -66,8 +66,10 @@ describe("ordinary USDC delayed-completion certificate", function () {
     await expect(reverifyUsdcDelayedCompletionCertificateForTestsOnly(serializeUsdcDelayedCompletionCertificate(certificate), certificate.certificateHash, source, [providers[0], providers[0]])).to.be.rejectedWith(/independent/i);
   });
 
-  it("requires the first clean nonce to be exactly the stopped nonce plus one", async function () {
+  it("accepts later resolved unrelated nonce progress while rejecting a pending split", async function () {
     const fixture = await createDelayedCompletionFixture(), source = createUsdcDelayedCompletionSourceForTestsOnly(fixture);
-    await expect(verifyUsdcDelayedCompletionCertificateForTestsOnly(source, await delayedProviders(fixture.historical, { snapshotNonce: 907, latestNonce: 907, pendingNonce: 907 }))).to.be.rejectedWith(/consume|nonce/i);
+    const certificate = await verifyUsdcDelayedCompletionCertificateForTestsOnly(source, await delayedProviders(fixture.historical, { snapshotNonce: 911, latestNonce: 911, pendingNonce: 911 }));
+    expect(certificate.minimumOuterNonce).to.equal(911);
+    await expect(verifyUsdcDelayedCompletionCertificateForTestsOnly(source, await delayedProviders(fixture.historical, { snapshotNonce: 911, latestNonce: 911, pendingNonce: 912 }))).to.be.rejectedWith(/pending|nonce/i);
   });
 });

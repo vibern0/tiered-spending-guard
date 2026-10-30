@@ -131,7 +131,7 @@ async function verifyCertificate(source: UsdcDelayedCompletionSource, providers:
   assertState(source, leftState);
   const nonces = [leftSnapshotNonce, rightSnapshotNonce, leftLatest, rightLatest, leftPending, rightPending];
   const minimumOuterNonce = nonces[0]!;
-  if (nonces.some(value => value !== minimumOuterNonce) || minimumOuterNonce !== source.stoppedRow.outerNonce! + 1) throw new Error("delayed completion outer nonce is pending, inconsistent, or did not exactly consume the stopped nonce");
+  if (nonces.some(value => value !== minimumOuterNonce) || minimumOuterNonce < source.stoppedRow.outerNonce! + 1) throw new Error("delayed completion outer nonce is pending, inconsistent, or precedes the first nonce after the stopped row");
   const rechecks = await Promise.all([providers[0].readBlock(snapshotNumber), providers[1].readBlock(snapshotNumber)] as const);
   if (!rechecks[0] || !rechecks[1] || publicHash(rechecks[0]) !== publicHash(blocks[0]) || publicHash(rechecks[1]) !== publicHash(blocks[0])) throw new Error("delayed completion snapshot reorg detected");
   const effectivePeriod = blocks[0].timestamp / PERIOD_SECONDS * PERIOD_SECONDS;
@@ -173,7 +173,7 @@ async function reverifyCertificate(serialized: string, expectedHash: Hex, source
     providers[0].readBlock(blockNumber), providers[1].readBlock(blockNumber), providers[0].readControlledState(blockNumber), providers[1].readControlledState(blockNumber),
     providers[0].readTransactionCount(source.journal.funder, blockNumber), providers[1].readTransactionCount(source.journal.funder, blockNumber), providers[0].readTransactionCount(source.journal.funder, "latest"), providers[1].readTransactionCount(source.journal.funder, "latest"), providers[0].readTransactionCount(source.journal.funder, "pending"), providers[1].readTransactionCount(source.journal.funder, "pending"),
   ]);
-  if (!leftBlock || !rightBlock || tips.some(tip => tip.number - blockNumber + 1n < 6n) || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== parsed.minimumOuterNonce || rightSnapshotNonce !== parsed.minimumOuterNonce || parsed.minimumOuterNonce !== source.stoppedRow.outerNonce! + 1) throw new Error("delayed completion recorded canonical snapshot changed, did not exactly consume the stopped nonce, or lacks six confirmations");
+  if (!leftBlock || !rightBlock || tips.some(tip => tip.number - blockNumber + 1n < 6n) || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== parsed.minimumOuterNonce || rightSnapshotNonce !== parsed.minimumOuterNonce || parsed.minimumOuterNonce < source.stoppedRow.outerNonce! + 1) throw new Error("delayed completion recorded canonical snapshot changed, precedes the first nonce after the stopped row, or lacks six confirmations");
   assertState(source, leftState);
   const latest = [leftLatest, rightLatest], pending = [leftPending, rightPending];
   const resolved = latest[0] === latest[1] && pending[0] === pending[1] && latest[0] === pending[0] && latest[0]! >= parsed.minimumOuterNonce;
