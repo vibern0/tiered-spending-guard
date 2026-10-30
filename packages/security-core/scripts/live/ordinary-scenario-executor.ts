@@ -631,7 +631,7 @@ export type PreparedOrdinaryAction = Readonly<{
   transientSignedOuterTransaction?: Hex;
 }>;
 export type SignedSimulationEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: boolean; gasEstimate: bigint; resultHash: Hex }>;
-export type RejectionEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: false; revertDataHash: Hex; postState: CanonicalOrdinaryScenarioState }>;
+export type RejectionEvidence = Readonly<{ blockNumber: bigint; blockHash: Hex; success: false; revertDataHash: Hex; proofKind?: "call-revert" | "public-policy-bound"; postState: CanonicalOrdinaryScenarioState }>;
 export type ConfirmationEffect =
   | Readonly<{ kind: "native-funding"; to: Address; amount: bigint }>
   | Readonly<{ kind: "erc20-funding"; token: Address; from: Address; to: Address; amount: bigint }>
@@ -1355,7 +1355,7 @@ async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioP
     assertControlledState(evidence.postState, action.before, "rejection unchanged");
     if (evidence.postState.blockNumber !== state.blockNumber || !same(evidence.postState.blockHash, state.blockHash) || JSON.stringify(evidence.postState.evidenceBasis) !== JSON.stringify(state.evidenceBasis)) throw new Error("ordinary scenario rejection evidence is not canonical");
     const basis = state.evidenceBasis.kind === "queue-receipt" ? "queue-receipt-block" : "current-head";
-    recordEntry.status = "rejection-proved"; recordEntry.evidenceHash = sha256({ basis, blockNumber: evidence.blockNumber.toString(), blockHash: evidence.blockHash, revertDataHash: evidence.revertDataHash, state: controlledState(evidence.postState) }) as Hex; store.save(journal);
+    recordEntry.status = "rejection-proved"; recordEntry.evidenceHash = sha256({ basis, proofKind: evidence.proofKind ?? "call-revert", blockNumber: evidence.blockNumber.toString(), blockHash: evidence.blockHash, revertDataHash: evidence.revertDataHash, state: controlledState(evidence.postState) }) as Hex; store.save(journal);
     return { status: "REJECTION_PROVED", actionId: action.id };
   }
   const prepared = await context.materialize(action, state); await validatePrepared(action, proposal, prepared, state, context);

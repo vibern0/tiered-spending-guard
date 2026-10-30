@@ -61,7 +61,8 @@ export type VerifiedUsdcDelayedCompletionCertificate = Readonly<{
   readonly [certificateBrand]: true;
 }>;
 
-const sources = new WeakSet<object>();
+const productionSources = new WeakSet<object>();
+const testSources = new WeakSet<object>();
 const certificates = new WeakSet<object>();
 
 const serializedPredecessor = (journal: OrdinaryScenarioJournal): string => `${JSON.stringify(publicValue(usdcDelayedCompletionPredecessorValue(journal)))}\n`;
@@ -95,7 +96,7 @@ function constructSource(input: Omit<UsdcDelayedCompletionSource, "sourceJournal
   const sourceJournalBytesSha256 = usdcDelayedCompletionSourceJournalBytesSha256(input.journal);
   if (production && (!same(sourceJournalBytesSha256, USDC_DELAYED_COMPLETION_SOURCE_JOURNAL_BYTES_SHA256) || !same(publicHash(stoppedRow), STOPPED_ROW_SHA256) || stoppedRow.outerNonce !== 905)) throw new Error("delayed completion source is not the pinned nonce-905 stopped journal");
   const source = { ...input, sourceJournalBytesSha256, sourceJournalHash: publicHash(usdcDelayedCompletionPredecessorValue(input.journal)), stoppedRow } as UsdcDelayedCompletionSource;
-  sources.add(source);
+  (production ? productionSources : testSources).add(source);
   return source;
 }
 
@@ -111,8 +112,8 @@ function assertState(source: UsdcDelayedCompletionSource, state: UsdcSuccessorCa
   if (stale.window !== 1_793_232_000n || stale.baseSpent !== 10_000_000n || stale.instantSpent !== 20_000_000n) throw new Error("delayed completion stale USDC counter tuple mismatch");
 }
 
-export async function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> {
-  if (!sources.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed completion certificate requires an opaque source and two independent providers");
+async function verifyCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], authority: WeakSet<object>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
+  if (!authority.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed completion certificate requires a pinned production source and two independent providers");
   if (!same(publicHash(usdcDelayedCompletionPredecessorValue(source.journal)), source.sourceJournalHash)) throw new Error("delayed completion stopped source changed after construction");
   exactStoppedSource(source);
   const tips = await Promise.all([providers[0].readLatestBlock(), providers[1].readLatestBlock()] as const);
@@ -129,7 +130,7 @@ export async function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayed
   assertState(source, leftState);
   const nonces = [leftSnapshotNonce, rightSnapshotNonce, leftLatest, rightLatest, leftPending, rightPending];
   const minimumOuterNonce = nonces[0]!;
-  if (nonces.some(value => value !== minimumOuterNonce) || minimumOuterNonce <= source.stoppedRow.outerNonce!) throw new Error("delayed completion outer nonce is pending, inconsistent, or did not consume the stopped nonce");
+  if (nonces.some(value => value !== minimumOuterNonce) || minimumOuterNonce !== source.stoppedRow.outerNonce! + 1) throw new Error("delayed completion outer nonce is pending, inconsistent, or did not exactly consume the stopped nonce");
   const rechecks = await Promise.all([providers[0].readBlock(snapshotNumber), providers[1].readBlock(snapshotNumber)] as const);
   if (!rechecks[0] || !rechecks[1] || publicHash(rechecks[0]) !== publicHash(blocks[0]) || publicHash(rechecks[1]) !== publicHash(blocks[0])) throw new Error("delayed completion snapshot reorg detected");
   const effectivePeriod = blocks[0].timestamp / PERIOD_SECONDS * PERIOD_SECONDS;
@@ -141,6 +142,10 @@ export async function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayed
   return certificate;
 }
 
+export function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> { return verifyCertificate(source, providers, productionSources); }
+/** Test-only certificate authority; its sources are never accepted by the production verifier or reverifier. */
+export function verifyUsdcDelayedCompletionCertificateForTestsOnly(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> { return verifyCertificate(source, providers, testSources); }
+
 export function isVerifiedUsdcDelayedCompletionCertificate(value: unknown): value is VerifiedUsdcDelayedCompletionCertificate {
   return !!value && typeof value === "object" && certificates.has(value as object);
 }
@@ -150,12 +155,12 @@ export function serializeUsdcDelayedCompletionCertificate(certificate: VerifiedU
   return `${JSON.stringify(publicValue(certificate))}\n`;
 }
 
-export async function reverifyUsdcDelayedCompletionCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
+async function reverifyCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], authority: WeakSet<object>, reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
   let parsed: any; try { parsed = JSON.parse(serialized); } catch { throw new Error("delayed completion recorded certificate must be JSON"); }
   if (!parsed || typeof parsed !== "object" || parsed.kind !== "VERIFIED_USDC_DELAYED_COMPLETION_CERTIFICATE" || parsed.scope !== USDC_DELAYED_COMPLETION_SCOPE || typeof parsed.certificateHash !== "string" || !same(parsed.certificateHash, expectedHash)) throw new Error("delayed completion recorded certificate identity or hash mismatch");
   const { certificateHash, ...body } = parsed;
   if (!same(publicHash(body), certificateHash)) throw new Error("delayed completion recorded certificate body hash mismatch");
-  if (!sources.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed completion recorded certificate requires an opaque source and two independent providers");
+  if (!authority.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed completion recorded certificate requires a pinned production source and two independent providers");
   exactStoppedSource(source);
   if (!same(publicHash(usdcDelayedCompletionPredecessorValue(source.journal)), parsed.sourceJournalHash) || !same(source.sourceJournalHash, parsed.sourceJournalHash) || !same(source.sourceJournalBytesSha256, parsed.sourceJournalBytesSha256)) throw new Error("delayed completion recorded source changed");
   const blockNumber = BigInt(parsed.snapshot.blockNumber);
@@ -164,7 +169,7 @@ export async function reverifyUsdcDelayedCompletionCertificate(serialized: strin
     providers[0].readBlock(blockNumber), providers[1].readBlock(blockNumber), providers[0].readControlledState(blockNumber), providers[1].readControlledState(blockNumber),
     providers[0].readTransactionCount(source.journal.funder, blockNumber), providers[1].readTransactionCount(source.journal.funder, blockNumber), providers[0].readTransactionCount(source.journal.funder, "latest"), providers[1].readTransactionCount(source.journal.funder, "latest"), providers[0].readTransactionCount(source.journal.funder, "pending"), providers[1].readTransactionCount(source.journal.funder, "pending"),
   ]);
-  if (!leftBlock || !rightBlock || tips.some(tip => tip.number - blockNumber + 1n < 6n) || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== parsed.minimumOuterNonce || rightSnapshotNonce !== parsed.minimumOuterNonce) throw new Error("delayed completion recorded canonical snapshot changed or lacks six confirmations");
+  if (!leftBlock || !rightBlock || tips.some(tip => tip.number - blockNumber + 1n < 6n) || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== parsed.minimumOuterNonce || rightSnapshotNonce !== parsed.minimumOuterNonce || parsed.minimumOuterNonce !== source.stoppedRow.outerNonce! + 1) throw new Error("delayed completion recorded canonical snapshot changed, did not exactly consume the stopped nonce, or lacks six confirmations");
   assertState(source, leftState);
   const latest = [leftLatest, rightLatest], pending = [leftPending, rightPending];
   const resolved = latest[0] === latest[1] && pending[0] === pending[1] && latest[0] === pending[0] && latest[0]! >= parsed.minimumOuterNonce;
@@ -180,3 +185,7 @@ export async function reverifyUsdcDelayedCompletionCertificate(serialized: strin
   certificates.add(restored);
   return restored;
 }
+
+export function reverifyUsdcDelayedCompletionCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, productionSources, reconciliation); }
+/** Test-only recorded-certificate authority; never accepted by production re-verification. */
+export function reverifyUsdcDelayedCompletionCertificateForTestsOnly(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, testSources, reconciliation); }

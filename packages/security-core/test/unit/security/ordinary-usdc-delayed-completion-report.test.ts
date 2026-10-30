@@ -44,6 +44,11 @@ describe("ordinary USDC delayed-completion report", function () {
       ["gas", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).ourReceiptGasCost = "1"; }],
       ["principal", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).ourPrincipalDelta = "1"; }],
       ["envelope", journal => { delete (journal.usdcDelayedCompletion!.actions[0] as any).finalOuterMaterialization; }],
+      ["mirrored-nonce", journal => { const record = journal.usdcDelayedCompletion!.actions[0] as any; record.outerNonce++; journal.liveJournal.entries[15]!.nonce++; }],
+      ["record-gas-cap", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).gas = "740293"; }],
+      ["record-fee", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).maxFeePerGas = "8"; }],
+      ["destination", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).outerTo = "0x0000000000000000000000000000000000000001"; }],
+      ["signature-field", journal => { delete (journal.usdcDelayedCompletion!.actions[2] as any).signatureBundleHash; }],
       ["proof-private", journal => { (journal.usdcDelayedCompletion!.actions[1] as any).requestHash = hash("bad"); }],
       ["live-receipt", journal => { journal.liveJournal.entries[15]!.reserved = 1n; }],
     ];

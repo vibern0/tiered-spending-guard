@@ -23,4 +23,12 @@ describe("ordinary USDC delayed-completion CLI", function () {
     value.liveJournal.entries[0]!.transactionHash = hash;
     expect(() => parseUsdcDelayedCompletionPendingReconciliation(JSON.stringify(value))).to.throw(/exactly bound/i);
   });
+
+  it("admits the exact receipt-discovered live envelope without requiring another signature", function () {
+    const intentHash = `0x${"1".repeat(64)}`, transactionHash = `0x${"2".repeat(64)}`, blockHash = `0x${"3".repeat(64)}`;
+    const value = { usdcDelayedCompletion: { actions: [{ id: "usdc-delayed-completion-prefund-all", status: "outer-pending", outerNonce: 906, intentHash, transactionHash }] }, liveJournal: { entries: [{ id: "usdc-delayed-completion-prefund-all", status: "success", nonce: 906, intentHash, transactionHash, receipt: { transactionHash, status: "success", gasUsed: "1", effectiveGasPrice: "1", blockNumber: "1", blockHash } }] } };
+    expect(parseUsdcDelayedCompletionPendingReconciliation(JSON.stringify(value))).to.deep.equal({ outerNonce: 906 });
+    delete (value.liveJournal.entries[0] as any).receipt;
+    expect(() => parseUsdcDelayedCompletionPendingReconciliation(JSON.stringify(value))).to.throw(/receipt|bound/i);
+  });
 });

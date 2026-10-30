@@ -12,7 +12,7 @@ import {
   freshSnapshot,
 } from "./usdc-fresh-successor-fixture";
 import type { Hex } from "viem";
-import { createUsdcDelayedCompletionSourceForTestsOnly, verifyUsdcDelayedCompletionCertificate } from "../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
+import { createUsdcDelayedCompletionSourceForTestsOnly, verifyUsdcDelayedCompletionCertificateForTestsOnly } from "../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
 import { createUsdcDelayedCompletionProposal, loadUsdcDelayedCompletionApproval } from "../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
 
 const h = (byte: string): Hex => `0x${byte.repeat(64)}` as Hex;
@@ -64,7 +64,7 @@ export async function delayedProviders(historical: Awaited<ReturnType<typeof cre
 export async function approvedDelayedCompletion() {
   const base = await createDelayedCompletionFixture();
   const source = createUsdcDelayedCompletionSourceForTestsOnly(base);
-  const certificate = await verifyUsdcDelayedCompletionCertificate(source, await delayedProviders(base.historical));
+  const certificate = await verifyUsdcDelayedCompletionCertificateForTestsOnly(source, await delayedProviders(base.historical));
   const proposal = createUsdcDelayedCompletionProposal({ source, certificate, observer: delayedObserver, caps: delayedCaps });
   const document = { schemaVersion: 1, scope: proposal.scope, authorization: "FOCUSED_BOUNDED_DELAYED_COMPLETION_AUTHORIZATION", authorityEvidenceHash: proposal.authorityEvidenceHash, proposalHash: proposal.proposalHash, sourceJournalHash: proposal.sourceJournalHash, certificateHash: proposal.certificateHash, snapshot: proposal.snapshot, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, observer: proposal.observer, schedule: proposal.schedule, groups: proposal.groups, caps: proposal.caps, reservation: proposal.reservation, maxBroadcastAttempts: 1, repairAuthority: "NONE", approvedActions: proposal.actions.map(({ id, commitment }) => ({ id, commitment })) };
   const approval = loadUsdcDelayedCompletionApproval(proposal, JSON.stringify(document), sha256(document) as Hex);

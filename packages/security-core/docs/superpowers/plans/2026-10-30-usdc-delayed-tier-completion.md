@@ -39,10 +39,10 @@
 
 **Interfaces:** Produce opaque `VerifiedUsdcDelayedCompletionCertificate`, exact `UsdcDelayedCompletionProposal`, opaque approval, and attachment builder.
 
-- [ ] RED: exact stopped source, canonical two-provider state, 13 literal rows, 7 broadcasts, 6 proofs, `10/4/4 → 14/7/7`, `0/40 → 0/40`, 31/51 accounting, reservation.
-- [ ] Run focused tests; require missing APIs/catalog failures.
-- [ ] GREEN: minimal closed certificate/proposal/parser/approval/attachment.
-- [ ] Run focused and fresh predecessor families. Commit.
+- [x] RED: exact stopped source, canonical two-provider state, 13 literal rows, 7 broadcasts, 6 proofs, `10/4/4 → 14/7/7`, `0/40 → 0/40`, 31/51 accounting, reservation.
+- [x] Run focused tests; require missing APIs/catalog failures.
+- [x] GREEN: minimal closed certificate/proposal/parser/approval/attachment.
+- [x] Run focused and fresh predecessor families. Commit.
 
 ### Task 2: Atomic execution, CLI, and report
 
@@ -58,10 +58,10 @@
 
 **Interfaces:** Produce closed execution view, append-only store projection, `review|submit-one|resume-one`, and pure terminal renderer.
 
-- [ ] RED: predecessor freeze, one sibling, one selected row, durable hash, keyless pending reconciliation, proof zero-broadcast, stale-counter 31-USDC classification, terminal report.
-- [ ] Run focused tests; require missing execution/CLI/report failures.
-- [ ] GREEN: minimal projection and production composition using existing harness/providers.
-- [ ] Run focused plus fresh/legacy executor, adapter, CLI, report families. Commit.
+- [x] RED: predecessor freeze, one sibling, one selected row, durable hash, keyless pending reconciliation, proof zero-broadcast, stale-counter 31-USDC classification, terminal report.
+- [x] Run focused tests; require missing execution/CLI/report failures.
+- [x] GREEN: minimal projection and production composition using existing harness/providers.
+- [x] Run focused plus fresh/legacy executor, adapter, CLI, report families. Commit.
 
 ### Task 3: Docs, review, and exact code gate
 
@@ -70,7 +70,7 @@
 - Modify: `packages/security-core/docs/security/testnet-runbook.md`
 - Modify: `packages/security-core/docs/evidence/2026-10-30-usdc-fresh-successor.md`
 
-- [ ] Document only the new Z-only path and stopped predecessor.
+- [x] Document only the new Z-only path and stopped predecessor.
 - [ ] Request independent review; fix every Critical/Important with RED/GREEN; rereview.
 - [ ] Run `npm --prefix packages/security-core run security:check`, normal build, backend tests, `git diff --check`; bind exact clean product HEAD and hashes.
 

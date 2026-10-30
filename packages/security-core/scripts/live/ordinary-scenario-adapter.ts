@@ -18,6 +18,7 @@ const SAFE_READ_ABI = parseAbi(["function nonce() view returns (uint256)"]);
 const DELAY_READ_ABI = parseAbi(["function txNonce() view returns (uint256)", "function queueNonce() view returns (uint256)", "function getTxHash(uint256) view returns (bytes32)", "function getTxCreatedAt(uint256) view returns (uint256)"]);
 const GUARD_READ_ABI = parseAbi(["function spendState(address) view returns (uint256,uint256,uint256)"]);
 const ERC20_READ_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+const ERC20_TRANSFER_ABI = parseAbi(["function transfer(address,uint256) returns (bool)"]);
 const ERC1271_ABI = parseAbi(["function isValidSignature(bytes32,bytes) view returns (bytes4)"]);
 const SAFE_EVENT_ABI = parseAbi(["event ExecutionSuccess(bytes32 indexed txHash,uint256 payment)", "event ExecutionFailure(bytes32 indexed txHash,uint256 payment)"]);
 const ERC20_EVENT_ABI = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
@@ -25,6 +26,7 @@ const DELAY_EVENT_ABI = parseAbi(["event TransactionAdded(uint256 indexed queueN
 const DELAY_CALL_ABI = parseAbi(["function executeNextTx(address,uint256,bytes,uint8)", "function skipExpired()", "function setTxNonce(uint256)"]);
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
+const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
 const normalizeJournalInput = <T extends { proposal: OrdinaryScenarioProposal | OrdinaryScenarioExecutionView; journal(): OrdinaryScenarioJournal }>(input: T): Omit<T, "proposal" | "journal"> & { proposal: OrdinaryScenarioProposal; journal(): OrdinaryScenarioJournal } => {
   const proposal = resolveOrdinaryScenarioExecutionProposal(input.proposal);
   if (!("kind" in input.proposal) || input.proposal.kind === "original-ordinary-v1") return { ...input, proposal };
@@ -264,6 +266,17 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
     simulate: (action, prepared, state) => simulatePreparedOrdinaryAction({ blockHash: async number => { const block = await current.getBlock({ blockNumber: number } as never); if (!block.hash) throw new Error("simulation block hash unavailable"); return block.hash; }, call: async value => (await current.call({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never)).data ?? "0x", estimateGas: value => current.estimateGas({ account: value.from, to: value.to, value: value.value, data: value.data, blockNumber: value.blockNumber } as never) }, input.proposal.funder, prepared, state.blockNumber, state.blockHash, action.gasLimitCap, ordinarySimulationResultContract(action, input.proposal.usdc)),
     proveRejection: async (action, state, prepared) => {
       const client = state.evidenceBasis.kind === "queue-receipt" ? archive : current;
+      if (action.id === "usdc-delayed-completion-direct-above-y-rejection") {
+        if (prepared !== undefined || action.kind !== "expected-direct-rejection" || action.asset !== "USDC" || action.expectedOutcome !== "rejection" || !action.safeTransaction || !action.safeTxHash || action.publicTransaction !== undefined || action.safeTransaction.operation !== 0 || action.safeTransaction.value !== 0n || action.safeTransaction.safeNonce !== state.safeNonce || !same(action.safeTransaction.to, input.proposal.usdc) || JSON.stringify(action.before) !== JSON.stringify(action.after)) throw new Error("delayed completion public policy proof tuple changed");
+        let decoded: ReturnType<typeof decodeFunctionData>; try { decoded = decodeFunctionData({ abi: ERC20_TRANSFER_ABI, data: action.safeTransaction.data }); } catch { throw new Error("delayed completion public policy proof calldata is malformed"); }
+        const args = decoded.args as readonly [Address, bigint];
+        const reviewedInstantDailyLimit = 30_000_000n, reviewedStepUpPerTransaction = 30_000_000n;
+        if (decoded.functionName !== "transfer" || !same(args[0], input.proposal.funder) || args[1] !== 31_000_000n || state.usdcSpend.instantSpent !== 20_000_000n || args[1] <= reviewedStepUpPerTransaction || args[1] <= reviewedInstantDailyLimit - state.usdcSpend.instantSpent) throw new Error("delayed completion direct transfer is not publicly proven above Y");
+        const block = await client.getBlock({ blockNumber: state.blockNumber } as never); if (!block.hash || !same(block.hash, state.blockHash)) throw new Error("ordinary scenario rejection block changed");
+        const postState = await stateReader(action, "pre-private", { actionId: action.id, transactionHash: keccak256(new TextEncoder().encode(action.id)), blockNumber: state.blockNumber, blockHash: state.blockHash, evidenceBasis: state.evidenceBasis });
+        const publicPolicyProofHash = sha256({ scope: "USDC_DIRECT_ABOVE_Y_PUBLIC_POLICY_PROOF_V1", blockNumber: state.blockNumber.toString(), blockHash: state.blockHash, planHash: state.planHash, safeTxHash: action.safeTxHash, safeNonce: state.safeNonce.toString(), token: action.safeTransaction.to, recipient: args[0], amount: args[1].toString(), instantSpent: state.usdcSpend.instantSpent.toString(), instantDailyLimit: reviewedInstantDailyLimit.toString(), stepUpPerTransaction: reviewedStepUpPerTransaction.toString() }) as Hex;
+        return { blockNumber: state.blockNumber, blockHash: state.blockHash, success: false as const, proofKind: "public-policy-bound" as const, revertDataHash: publicPolicyProofHash, postState };
+      }
       const transaction = prepared?.liveIntent ?? (action.publicTransaction ? { to: action.publicTransaction.to, value: action.publicTransaction.value, data: action.publicTransaction.data } : undefined);
       if (!transaction?.to) throw new Error("ordinary scenario rejection transaction is unavailable");
       let revertData: Hex | undefined;
@@ -274,7 +287,7 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
       if (revertData === undefined) throw new Error("ordinary scenario expected rejection call did not return exact revert data");
       const block = await client.getBlock({ blockNumber: state.blockNumber } as never); if (!block.hash || block.hash.toLowerCase() !== state.blockHash.toLowerCase()) throw new Error("ordinary scenario rejection block changed");
       const postState = await stateReader(action, "pre-private", { actionId: action.id, transactionHash: keccak256(new TextEncoder().encode(action.id)), blockNumber: state.blockNumber, blockHash: state.blockHash, evidenceBasis: state.evidenceBasis });
-      return { blockNumber: state.blockNumber, blockHash: state.blockHash, success: false as const, revertDataHash: keccak256(revertData), postState };
+      return { blockNumber: state.blockNumber, blockHash: state.blockHash, success: false as const, proofKind: "call-revert" as const, revertDataHash: keccak256(revertData), postState };
     },
     recoverPending: recoverIntent,
     recoverReplay: async (action, source) => {
