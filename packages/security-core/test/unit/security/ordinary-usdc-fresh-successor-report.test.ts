@@ -23,12 +23,14 @@ async function prepared() {
 
 function terminalize(value: Awaited<ReturnType<typeof prepared>>) {
   let nextOuterNonce = 870;
+  let freshBaseTransactionHash: Hex | undefined;
   const journal = structuredClone(value.journal), records = value.proposal.actions.map((action, index) => {
     const outerNonce = nextOuterNonce;
     const materialized = { materializationHash: hash((0xa00 + index).toString(16)), prestateHash: hash((0xa20 + index).toString(16)), outerNonce, maxFeePerGas: "7", maxPriorityFeePerGas: "7", funderNativeBefore: "1000000000000000000" };
-    if (action.expectedOutcome === "rejection") return { id: action.id, commitment: action.commitment, status: "rejection-proved" as const, ...materialized, evidenceHash: hash((0xd00 + index).toString(16)) };
+    if (action.expectedOutcome === "rejection") return { id: action.id, commitment: action.commitment, status: "rejection-proved" as const, ...materialized, ...(action.kind === "expected-replay-rejection" ? { transactionHash: freshBaseTransactionHash } : {}), evidenceHash: hash((0xd00 + index).toString(16)) };
     nextOuterNonce++;
     const transactionHash = hash((0xb00 + index).toString(16)), receipt = { transactionHash, status: "success" as const, gasUsed: 10n + BigInt(index), effectiveGasPrice: 7n, blockNumber: 12_026_900n + BigInt(index), blockHash: hash((0xc00 + index).toString(16)) }, observerEvidenceHash = alerts.has(action.kind) ? hash((0xf00 + index).toString(16)) : null;
+    if (index === 1) freshBaseTransactionHash = transactionHash;
     const facts = { proposalHash: value.proposal.proposalHash, actionCommitment: action.commitment, outerNonce, gas: action.gasLimitCap.toString(), gasEstimate: receipt.gasUsed.toString(), maxFeePerGas: "7", maxPriorityFeePerGas: "7", pinnedBlockNumber: (receipt.blockNumber - 1n).toString(), pinnedBlockHash: hash((0xc80 + index).toString(16)), approvedContinuationReservationWei: value.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: value.proposal.reservation.successorMaximumReservationWei };
     return { id: action.id, commitment: action.commitment, status: "confirmed" as const, ...materialized, gas: action.gasLimitCap.toString(), requestHash: action.safeTxHash ?? action.commitment, signatureBundleHash: action.safeTransaction ? hash((0xa40 + index).toString(16)) : null, signedCalldataHash: hash((0xa60 + index).toString(16)), simulationEvidenceHash: hash((0xa80 + index).toString(16)), finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts }, intentHash: hash((0xe00 + index).toString(16)), transactionHash, outerTo: action.publicTransaction?.to ?? value.source.prior.original.safe, outerValue: "0", outerDataHash: hash((0xaa0 + index).toString(16)), evidenceHash: hash((0xd00 + index).toString(16)), observerEvidenceHash, receipt, receiptInclusion: successorReceiptInclusion(receipt, value.proposal.effectivePeriod, 60n + BigInt(index)), ourPrincipalDelta: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(), ...(index === 1 ? { establishedWindow: value.proposal.effectivePeriod } : {}) };
   });
@@ -74,6 +76,15 @@ describe("ordinary USDC fresh successor persisted-evidence report", function () 
       ["live", journal => { journal.liveJournal.entries.pop(); }],
       ["durable envelope", journal => { delete (journal.usdcFreshSuccessor!.actions[0] as any).finalOuterMaterialization; }],
       ["proof materialization", journal => { delete (journal.usdcFreshSuccessor!.actions[4] as any).materializationHash; }],
+      ["replay source", journal => { (journal.usdcFreshSuccessor!.actions[5] as any).transactionHash = hash("bad"); }],
+      ["schema header", journal => { (journal as any).schemaVersion = 2; }],
+      ["chain header", journal => { journal.chainId++; }],
+      ["package header", journal => { journal.reviewPackageHash = hash("bad1"); }],
+      ["proposal header", journal => { journal.proposalHash = hash("bad2"); }],
+      ["approval header", journal => { journal.approvalHash = hash("bad3"); }],
+      ["funder header", journal => { journal.funder = "0x0000000000000000000000000000000000000001"; }],
+      ["live chain header", journal => { journal.liveJournal.chainId++; }],
+      ["live funder header", journal => { journal.liveJournal.funder = "0x0000000000000000000000000000000000000001"; }],
     ];
     for (const [label, mutate] of mutations) { const journal = structuredClone(value.journal); mutate(journal); expect(() => renderUsdcFreshSuccessorReport(value.source, value.context, journal), label).to.throw(/inclusion|period|receipt|gas|principal|observer|header|lineage|live|accounting|frozen|durable|materialization|envelope|source/i); }
   });
@@ -85,5 +96,7 @@ describe("ordinary USDC fresh successor persisted-evidence report", function () 
     expect(() => renderUsdcFreshSuccessorReport(value.source, { ...value.context, approval: { approvalHash: value.approval.approvalHash } as any }, value.journal)).to.throw(/approval|authorization|opaque/i);
     const forgedSource = structuredClone(value.source), forgedJournal = structuredClone(value.journal); (forgedSource.prior.journal.actions[0] as any).evidenceHash = hash("feed"); (forgedJournal.actions[0] as any).evidenceHash = hash("feed");
     expect(() => renderUsdcFreshSuccessorReport(forgedSource, value.context, forgedJournal)).to.throw(/source|history|frozen|changed/i);
+    const headerMutations: Array<(journal: OrdinaryScenarioJournal) => void> = [journal => { (journal as any).schemaVersion = 2; }, journal => { journal.chainId++; }, journal => { journal.reviewPackageHash = hash("ca1"); }, journal => { journal.proposalHash = hash("ca2"); }, journal => { journal.approvalHash = hash("ca3"); }, journal => { journal.funder = "0x0000000000000000000000000000000000000001"; }, journal => { journal.liveJournal.chainId++; }, journal => { journal.liveJournal.funder = "0x0000000000000000000000000000000000000001"; }];
+    for (const mutate of headerMutations) { const source = structuredClone(value.source), journal = structuredClone(value.journal); mutate(source.prior.journal); mutate(journal); expect(() => renderUsdcFreshSuccessorReport(source, value.context, journal)).to.throw(/source|header|frozen|changed|binding/i); }
   });
 });

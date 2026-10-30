@@ -75,10 +75,9 @@ export type OrdinaryScenarioStateReaderInput = Readonly<{
 export type ReceiptStateBinding = Readonly<{ actionId: string; transactionHash: Hex; blockNumber: bigint; blockHash: Hex; evidenceBasis?: CanonicalOrdinaryScenarioState["evidenceBasis"] }>;
 
 export function createOrdinaryScenarioStateReader(input: OrdinaryScenarioStateReaderInput) {
-  const normalized = normalizeJournalInput(input);
   let reconstruction: Awaited<ReturnType<typeof reconstructReviewedPlan>> | undefined;
   const reconstructed = async () => reconstruction ??= await reconstructReviewedPlan(input.repository, input.archiveClient);
-  return createOrdinaryScenarioMechanicalStateReader({ ...normalized, expectedChainId: 11155111, verifyProfileAtBlock: async (client, blockNumber) => { await verifyReconstructedPlanAtBlock(await reconstructed(), client, blockNumber); } });
+  return createOrdinaryScenarioMechanicalStateReader({ ...input, expectedChainId: 11155111, verifyProfileAtBlock: async (client, blockNumber) => { await verifyReconstructedPlanAtBlock(await reconstructed(), client, blockNumber); } });
 }
 
 export type OrdinaryScenarioMechanicalStateReaderInput = Omit<OrdinaryScenarioStateReaderInput, "repository"> & Readonly<{

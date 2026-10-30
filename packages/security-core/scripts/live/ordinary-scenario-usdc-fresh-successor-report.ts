@@ -10,7 +10,8 @@ const TERMINAL = new Set(["confirmed", "rejection-proved"]);
 const PROGRESS = new Set(["approved", "materialized", "signed-simulated", "outer-pending", "reverted", "stopped"]);
 const ALERT_KINDS = new Set(["step-up-transfer", "queue-proposal", "queue-cancellation", "queue-expiry", "ready-delay-execution"]);
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
-const publicHash = (value: unknown): Hex => sha256(value) as Hex;
+const publicValue = (value: unknown): unknown => typeof value === "bigint" ? value.toString() : Array.isArray(value) ? value.map(publicValue) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, publicValue(child)])) : value;
+const publicHash = (value: unknown): Hex => sha256(publicValue(value)) as Hex;
 const freeze = <T>(value: T): T => { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value as Record<string, unknown>)) freeze(child); } return value; };
 
 export type UsdcFreshSuccessorReportContext = Readonly<{ certificate: VerifiedUsdcFreshSuccessorCertificate; proposal: UsdcFreshSuccessorProposal; approval: UsdcFreshSuccessorApproval }>;
@@ -56,7 +57,13 @@ function validateProgress(context: UsdcFreshSuccessorReportContext, journal: Ord
         const alert = ALERT_KINDS.has(action.kind); if (alert ? !record.observerEvidenceHash || !HASH.test(record.observerEvidenceHash) : record.observerEvidenceHash !== null) throw new Error(`fresh USDC successor report kind-specific observer evidence mismatch at ${index + 1}`);
         expectedLive.push({ record, status: "success" }); successfulCount++; gasCostWei += BigInt(record.ourReceiptGasCost!);
         const before = BigInt(action.before.safeUsdcBalance), after = BigInt(action.after.safeUsdcBalance); if (after < before) newOutflow += before - after; else if (after > before) inward += after - before;
-      } else if (record.transactionHash !== undefined || record.receipt !== undefined || record.observerEvidenceHash !== undefined) throw new Error("fresh USDC successor report proof row carries broadcast or observer evidence");
+      } else {
+        const replaySource = attached.actions[1] as OrdinaryScenarioActionRecord | undefined;
+        const replayHashValid = action.kind === "expected-replay-rejection"
+          ? !!record.transactionHash && !!replaySource?.transactionHash && same(record.transactionHash, replaySource.transactionHash)
+          : record.transactionHash === undefined;
+        if (!replayHashValid || record.receipt !== undefined || record.observerEvidenceHash !== undefined) throw new Error("fresh USDC successor report proof row carries an unbound transaction, receipt, or observer evidence");
+      }
     } else {
       complete = false;
       if (!PROGRESS.has(record.status)) throw new Error(`fresh USDC successor report progress status mismatch at ${index + 1}`);

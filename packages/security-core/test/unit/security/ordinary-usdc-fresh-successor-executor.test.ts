@@ -20,6 +20,7 @@ import {
   loadUsdcFreshSuccessorApproval,
 } from "../../../scripts/live/ordinary-scenario-usdc-fresh-successor-proposal";
 import { verifyUsdcFreshSuccessorCertificate } from "../../../scripts/live/ordinary-scenario-usdc-fresh-successor-certificate";
+import { renderUsdcFreshSuccessorReport } from "../../../scripts/live/ordinary-scenario-usdc-fresh-successor-report";
 import { cleanupUsdcRecycleContinuationFixtures } from "../../support/usdc-recycle-continuation-fixture";
 import { createFreshSource, freshPrimary, freshProviders, freshSnapshot } from "../../support/usdc-fresh-successor-fixture";
 
@@ -71,6 +72,34 @@ describe("ordinary USDC fresh successor executor", function () {
       const wrongOutcome = store.load(); const first = f.proposal.actions[0]!, facts = { proposalHash: f.proposal.proposalHash, actionCommitment: first.commitment, outerNonce: 870, gas: first.gasLimitCap, gasEstimate: "1", maxFeePerGas: "1", maxPriorityFeePerGas: "1", pinnedBlockNumber: freshSnapshot.number.toString(), pinnedBlockHash: freshSnapshot.hash, approvedContinuationReservationWei: f.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: f.proposal.reservation.successorMaximumReservationWei };
       wrongOutcome.usdcFreshSuccessor!.actions[0] = { id: first.id, commitment: first.commitment, status: "rejection-proved", finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts }, evidenceHash: h("9") } as any;
       expect(() => store.save(wrongOutcome)).to.throw(/outcome|status|rejection/i);
+    } finally { store.close?.(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("preserves only the fresh base hash through replay proof, store reopen, selection, and report", async function () {
+    const f = await approved(); const directory = mkdtempSync(join(tmpdir(), "usdc-fresh-replay-"));
+    const store = createOrdinaryScenarioStore(join(directory, "journal.json"), { proposalHash: f.journal.proposalHash, approvalHash: f.journal.approvalHash, funder: f.journal.funder }, () => f.journal);
+    const txHashes = [h("a"), h("b"), h("c"), h("d")];
+    try {
+      for (let index = 0; index < 4; index++) {
+        const action = f.proposal.actions[index]!, outerNonce = 870 + index, transactionHash = txHashes[index]!, intentHash = h(String(index + 1)), receipt = { transactionHash, status: "success" as const, gasUsed: 1n, effectiveGasPrice: 1n, blockNumber: freshSnapshot.number + BigInt(index), blockHash: h(String(index + 5)) };
+        const facts = { proposalHash: f.proposal.proposalHash, actionCommitment: action.commitment, outerNonce, gas: action.gasLimitCap.toString(), gasEstimate: "1", maxFeePerGas: "1", maxPriorityFeePerGas: "1", pinnedBlockNumber: freshSnapshot.number.toString(), pinnedBlockHash: freshSnapshot.hash, approvedContinuationReservationWei: f.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: f.proposal.reservation.successorMaximumReservationWei };
+        let journal = store.load(); const materialized = { id: action.id, commitment: action.commitment, status: "materialized", materializationHash: h("e"), prestateHash: h("f"), outerNonce, maxFeePerGas: "1", maxPriorityFeePerGas: "1", funderNativeBefore: "1000000000000000000" } as any; journal.usdcFreshSuccessor!.actions[index] = materialized; store.save(journal);
+        journal = store.load(); const signed = { ...materialized, status: "signed-simulated", gas: action.gasLimitCap.toString(), requestHash: action.safeTxHash ?? action.commitment, signatureBundleHash: action.safeTransaction ? h("9") : null, signedCalldataHash: h("8"), simulationEvidenceHash: h("7"), outerTo: action.publicTransaction?.to ?? f.source.prior.original.safe, outerValue: "0", outerDataHash: h("6"), finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts } }; journal.usdcFreshSuccessor!.actions[index] = signed; store.save(journal);
+        journal = store.load(); const pending = { ...signed, status: "outer-pending", intentHash, transactionHash }; journal.usdcFreshSuccessor!.actions[index] = pending; journal.liveJournal.entries.push({ id: action.id, intentHash, transactionHash, nonce: outerNonce, reserved: action.gasLimitCap, status: "pending" }); store.save(journal);
+        journal = store.load(); journal.usdcFreshSuccessor!.actions[index] = { ...pending, status: "confirmed", evidenceHash: h("5"), observerEvidenceHash: action.kind === "step-up-transfer" ? h("a") : null, receipt, receiptInclusion: { transactionHash, blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, blockTimestamp: (BigInt(f.proposal.effectivePeriod) + BigInt(index + 1)).toString(), effectivePeriod: f.proposal.effectivePeriod }, ourPrincipalDelta: "0", ourReceiptGasCost: "1", ...(index === 1 ? { establishedWindow: f.proposal.effectivePeriod } : {}) } as any; const live = journal.liveJournal.entries.at(-1)!; live.status = "success"; live.reserved = 1n; live.receipt = receipt; store.save(journal);
+      }
+      for (const index of [4, 5]) {
+        const action = f.proposal.actions[index]!; let journal = store.load(); const materialized = { id: action.id, commitment: action.commitment, status: "materialized", materializationHash: h("4"), prestateHash: h("3"), outerNonce: 874, maxFeePerGas: "1", maxPriorityFeePerGas: "1", funderNativeBefore: "1000000000000000000" } as any; journal.usdcFreshSuccessor!.actions[index] = materialized; store.save(journal);
+        journal = store.load(); const prepared = index === 5 ? { ...materialized, outerNonce: 871, transactionHash: txHashes[1], requestHash: action.commitment, signatureBundleHash: h("2"), signedCalldataHash: h("1"), outerDataHash: h("0") } : materialized; if (index === 5) { journal.usdcFreshSuccessor!.actions[index] = prepared; store.save(journal); journal = store.load(); }
+        journal.usdcFreshSuccessor!.actions[index] = { ...prepared, status: "rejection-proved", evidenceHash: h("9") }; store.save(journal);
+      }
+      const reopened = store.load(), replay = reopened.usdcFreshSuccessor!.actions[5] as any;
+      expect(replay.transactionHash).to.equal(txHashes[1]);
+      expect(selectUsdcFreshSuccessorSubmissionAction(f.source, f.proposal, f.approval, reopened).id).to.equal("usdc-fresh-successor-unsupported-path-rejection");
+      const report = renderUsdcFreshSuccessorReport(f.source, { certificate: f.certificate, proposal: f.proposal, approval: f.approval }, reopened) as any;
+      expect(report.freshSuccessor).to.include({ status: "FRESH_USDC_SUCCESSOR_INCOMPLETE", terminalActionCount: 6, successfulLiveEntryCount: 4 });
+      const forged = store.load(); (forged.usdcFreshSuccessor!.actions[5] as any).transactionHash = txHashes[0];
+      expect(() => renderUsdcFreshSuccessorReport(f.source, { certificate: f.certificate, proposal: f.proposal, approval: f.approval }, forged)).to.throw(/replay|rejection|lineage|transaction/i);
     } finally { store.close?.(); rmSync(directory, { recursive: true, force: true }); }
   });
 

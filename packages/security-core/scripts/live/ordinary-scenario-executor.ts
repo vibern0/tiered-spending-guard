@@ -1476,7 +1476,11 @@ function assertFreshSuccessorDurableLineage(attached: UsdcFreshSuccessorStorage,
     if (expectsRejection ? record.status !== "materialized" && record.status !== "rejection-proved" : record.status === "rejection-proved") throw new Error("fresh USDC successor action status contradicts its approved outcome");
     if (record.status === "rejection-proved") {
       const required = [record.materializationHash, record.prestateHash, record.maxFeePerGas, record.maxPriorityFeePerGas, record.funderNativeBefore, record.evidenceHash];
-      if (record.outerNonce === undefined || record.outerNonce < attached.minimumOuterNonce || required.some(value => value === undefined) || !HASH.test(record.materializationHash!) || !HASH.test(record.prestateHash!) || !HASH.test(record.evidenceHash!) || record.intentHash !== undefined || record.transactionHash !== undefined || record.receipt !== undefined) throw new Error("fresh USDC successor rejection evidence lineage is incomplete");
+      const replaySource = attached.actions[1] as OrdinaryScenarioActionRecord | undefined;
+      const replayHashValid = record.id === "usdc-fresh-successor-replay-rejection"
+        ? !!record.transactionHash && !!replaySource?.transactionHash && same(record.transactionHash, replaySource.transactionHash)
+        : record.transactionHash === undefined;
+      if (record.outerNonce === undefined || record.outerNonce < attached.minimumOuterNonce || required.some(value => value === undefined) || !HASH.test(record.materializationHash!) || !HASH.test(record.prestateHash!) || !HASH.test(record.evidenceHash!) || record.intentHash !== undefined || !replayHashValid || record.receipt !== undefined) throw new Error("fresh USDC successor rejection evidence lineage is incomplete");
       continue;
     }
     if (record.status === "materialized" || record.status === "signed-simulated") continue;
@@ -1501,6 +1505,21 @@ function assertFreshSuccessorDurableLineage(attached: UsdcFreshSuccessorStorage,
   if (liveSuffix.length !== broadcast.length) throw new Error("fresh USDC successor live journal suffix is orphaned, reordered, or mixed");
 }
 
+function freshSuccessorPredecessorProjection(journal: OrdinaryScenarioJournal): Readonly<Record<string, unknown>> {
+  return {
+    schemaVersion: journal.schemaVersion,
+    chainId: journal.chainId,
+    reviewPackageHash: journal.reviewPackageHash,
+    proposalHash: journal.proposalHash,
+    approvalHash: journal.approvalHash,
+    funder: journal.funder,
+    actions: journal.actions,
+    liveJournal: { chainId: journal.liveJournal.chainId, funder: journal.liveJournal.funder, entries: journal.liveJournal.entries.slice(0, 15) },
+    hashlessContinuation: journal.hashlessContinuation,
+    usdcSuccessor: journal.usdcSuccessor,
+  };
+}
+
 export function assertUsdcFreshSuccessorJournal(journal: OrdinaryScenarioJournal, source: UsdcRecycleContinuationSource, successor: UsdcFreshSuccessorProposal, approval: UsdcFreshSuccessorApproval, options?: Readonly<{ inMemorySourceOnly?: boolean }>): void {
   assertUsdcFreshSuccessorAuthorization(successor, approval);
   assertUsdcFreshSuccessorSourceBinding(source, successor, options?.inMemorySourceOnly === true);
@@ -1509,7 +1528,7 @@ export function assertUsdcFreshSuccessorJournal(journal: OrdinaryScenarioJournal
   if (attached.schemaVersion !== 1 || attached.scope !== "ordinary-usdc-fresh-period-successor-v1" || !same(attached.sourceHash, successor.sourceHash) || !same(attached.certificateHash, successor.certificateHash) || !same(attached.proposalHash, successor.proposalHash) || !same(attached.approvalHash, approval.approvalHash) || attached.minimumOuterNonce !== successor.minimumOuterNonce || attached.effectivePeriod !== successor.effectivePeriod || attached.deadline !== successor.deadline || attached.maximumReservationWei !== successor.reservation.successorMaximumReservationWei || attached.maxBroadcastAttempts !== 1 || attached.repairAuthority !== "NONE" || attached.actionCommitments.length !== 18 || attached.actions.length !== 18) throw new Error("fresh USDC successor journal authority or immutable header mismatch");
   const sourceJournal = source.prior.journal;
   const sourceHash = options?.inMemorySourceOnly === true ? hashUsdcRecycleContinuationSourceValue(source) : hashUsdcFreshSuccessorSource(source);
-  if (publicHash(journal.actions) !== publicHash(sourceJournal.actions) || publicHash(journal.hashlessContinuation) !== publicHash(sourceJournal.hashlessContinuation) || publicHash(journal.usdcSuccessor) !== publicHash(sourceJournal.usdcSuccessor) || publicHash(journal.liveJournal.entries.slice(0, 15)) !== publicHash(sourceJournal.liveJournal.entries.slice(0, 15)) || !same(sourceHash, successor.sourceHash)) throw new Error("fresh USDC successor frozen source prefix changed");
+  if (publicHash(freshSuccessorPredecessorProjection(journal)) !== publicHash(freshSuccessorPredecessorProjection(sourceJournal)) || !same(sourceHash, successor.sourceHash)) throw new Error("fresh USDC successor frozen source prefix or header changed");
   const progressed = new Map<string, OrdinaryScenarioActionRecord>();
   for (let index = 0; index < successor.actions.length; index++) {
     const expected = successor.actions[index]!, commitment = attached.actionCommitments[index]!, actual = attached.actions[index]!;
@@ -1842,8 +1861,9 @@ export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ p
   };
   const assertActionProgress = (prior: { id: string; commitment: Hex; status: string } & Record<string, unknown>, next: { id: string; commitment: Hex; status: string } & Record<string, unknown>, label: string): void => {
     const successorLateStop = (label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") && prior.status === "outer-pending" && next.status === "stopped";
+    const replayEnvelopeAdoption = prior.status === "materialized" && next.status === "materialized" && prior.id.endsWith("-replay-rejection") && prior.transactionHash === undefined && typeof next.transactionHash === "string";
     if (prior.id !== next.id || prior.commitment !== next.commitment || (!actionTransitions[prior.status]?.has(next.status) && !successorLateStop)) throw new Error(`${label} action removal, reordering, identity drift, or status regression`);
-    assertFixedFields(prior, next, new Set(["status", "receipt", ...((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") ? ["receiptInclusion"] : [])]), label);
+    assertFixedFields(prior, next, new Set(["status", "receipt", ...(replayEnvelopeAdoption ? ["outerNonce"] : []), ...((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") ? ["receiptInclusion"] : [])]), label);
     if (prior.receipt !== undefined && publicHash(prior.receipt) !== publicHash(next.receipt)) throw new Error(`${label} receipt changed or was deleted`);
     if ((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") && prior.receiptInclusion !== undefined && publicHash(prior.receiptInclusion) !== publicHash(next.receiptInclusion)) throw new Error(`${label} receipt inclusion changed or was deleted`);
   };
