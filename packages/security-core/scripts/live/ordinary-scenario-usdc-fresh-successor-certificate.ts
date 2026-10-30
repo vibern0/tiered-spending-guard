@@ -2,6 +2,7 @@ import type { Address, Hex } from "viem";
 import { sha256 } from "../plan-deployment";
 import {
   hashUsdcRecycleContinuationSource,
+  hashUsdcRecycleContinuationSourceValue,
   verifyUsdcRecycleHistoricalEvidence,
   type UsdcRecycleContinuationPrimaryEvidence,
   type UsdcRecycleContinuationSource,
@@ -101,14 +102,18 @@ type ProviderView = Readonly<{
 }>;
 
 type RecordedCheckpoint = VerifiedUsdcFreshSuccessorCertificate["currentCheckpoint"];
+export type UsdcFreshSuccessorKnownPendingReconciliation = Readonly<{ outerNonce: number }>;
 
 const verifiedCertificates = new WeakSet<object>();
+const verifiedSourceHashes = new WeakMap<object, Hex>();
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
 const publicValue = (value: unknown): unknown => typeof value === "bigint" ? value.toString() : Array.isArray(value) ? value.map(publicValue) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, publicValue(child)])) : value;
 const publicHash = (value: unknown): Hex => sha256(publicValue(value)) as Hex;
 
 export function hashUsdcFreshSuccessorSource(source: UsdcRecycleContinuationSource): Hex {
-  return hashUsdcRecycleContinuationSource(source);
+  const current = hashUsdcRecycleContinuationSourceValue(source), verified = verifiedSourceHashes.get(source);
+  if (verified !== undefined) { if (!same(current, verified)) throw new Error("fresh successor verified source changed in memory"); return current; }
+  const strict = hashUsdcRecycleContinuationSource(source); if (!same(strict, current)) throw new Error("fresh successor stable source and in-memory source disagree"); return strict;
 }
 
 function exactState(historical: VerifiedUsdcRecycleHistoricalEvidence, block: UsdcSuccessorCanonicalBlock, funderUsdcBalance: bigint): UsdcSuccessorCanonicalState {
@@ -141,11 +146,15 @@ async function readView(provider: UsdcFreshSuccessorEvidenceProvider, snapshot: 
   return { snapshot, state, snapshotNonce, latestNonce, pendingNonce, faucetTransaction, faucetReceipt, faucetBlock, faucetPreState, faucetPostState, faucetTransferLog, snapshotRecheck, faucetRecheck };
 }
 
-function assertView(view: ProviderView, historical: VerifiedUsdcRecycleHistoricalEvidence, recorded?: RecordedCheckpoint): FaucetEvidence {
+function assertView(view: ProviderView, historical: VerifiedUsdcRecycleHistoricalEvidence, recorded?: RecordedCheckpoint, reconciliation?: UsdcFreshSuccessorKnownPendingReconciliation): FaucetEvidence {
   if (publicHash(view.state) !== publicHash(exactState(historical, view.snapshot, 40_000_000n))) throw new Error("fresh successor current profile, state, or funder balance mismatch");
   if (view.snapshotNonce < historical.snapshotNonce) throw new Error("fresh successor checkpoint nonce is below the historical lower bound");
   if (recorded) {
-    if (view.snapshotNonce !== recorded.snapshotNonce || view.latestNonce < recorded.latestNonce || view.pendingNonce < recorded.pendingNonce || view.latestNonce !== view.pendingNonce) throw new Error("fresh successor recorded checkpoint nonce regressed or has unresolved pending activity");
+    const resolved = reconciliation === undefined && view.latestNonce === view.pendingNonce;
+    const knownMempool = reconciliation !== undefined && view.latestNonce === reconciliation.outerNonce && view.pendingNonce >= view.latestNonce && view.pendingNonce <= reconciliation.outerNonce + 1;
+    const resolvedProgress = reconciliation !== undefined && view.latestNonce > reconciliation.outerNonce && view.pendingNonce === view.latestNonce;
+    const knownPending = reconciliation !== undefined && Number.isSafeInteger(reconciliation.outerNonce) && reconciliation.outerNonce >= recorded.latestNonce && (knownMempool || resolvedProgress);
+    if (view.snapshotNonce !== recorded.snapshotNonce || view.latestNonce < recorded.latestNonce || view.pendingNonce < recorded.pendingNonce || (!resolved && !knownPending)) throw new Error("fresh successor recorded checkpoint nonce regressed or has unresolved pending activity");
   } else if (view.snapshotNonce !== view.latestNonce || view.snapshotNonce !== view.pendingNonce) {
     throw new Error("fresh successor checkpoint nonce must satisfy snapshot=latest=pending");
   }
@@ -169,11 +178,12 @@ async function verifyAtSnapshot(
   historical: VerifiedUsdcRecycleHistoricalEvidence,
   block: UsdcSuccessorCanonicalBlock,
   recordedCheckpoint?: RecordedCheckpoint,
+  reconciliation?: UsdcFreshSuccessorKnownPendingReconciliation,
 ): Promise<VerifiedUsdcFreshSuccessorCertificate> {
   const effectivePeriod = block.timestamp / PERIOD_SECONDS * PERIOD_SECONDS;
   if (effectivePeriod <= OLD_PERIOD || block.timestamp >= effectivePeriod + PERIOD_SECONDS) throw new Error("fresh successor canonical snapshot is not in a later valid period");
   const views = await Promise.all([readView(providers[0], block), readView(providers[1], block)] as const);
-  const faucet = assertView(views[0], historical, recordedCheckpoint), secondFaucet = assertView(views[1], historical, recordedCheckpoint);
+  const faucet = assertView(views[0], historical, recordedCheckpoint, reconciliation), secondFaucet = assertView(views[1], historical, recordedCheckpoint, reconciliation);
   if (publicHash(views[0]) !== publicHash(views[1]) || publicHash(faucet) !== publicHash(secondFaucet)) throw new Error("fresh successor providers disagree on canonical state or faucet evidence");
   const state = views[0].state, stateHash = publicHash(state);
   const currentCheckpoint = recordedCheckpoint
@@ -198,6 +208,7 @@ async function verifyAtSnapshot(
   };
   const certificate = Object.freeze({ ...body, certificateHash: publicHash(body) }) as VerifiedUsdcFreshSuccessorCertificate;
   if (!same(hashUsdcFreshSuccessorSource(source), certificate.sourceHash)) throw new Error("fresh successor source changed during certificate verification");
+  verifiedSourceHashes.set(source, certificate.sourceHash);
   verifiedCertificates.add(certificate);
   return certificate;
 }
@@ -233,6 +244,7 @@ export async function reverifyUsdcFreshSuccessorCertificate(
   source: UsdcRecycleContinuationSource,
   primary: UsdcRecycleContinuationPrimaryEvidence,
   providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider],
+  reconciliation?: UsdcFreshSuccessorKnownPendingReconciliation,
 ): Promise<VerifiedUsdcFreshSuccessorCertificate> {
   let parsed: any;
   try { parsed = JSON.parse(serialized); } catch { throw new Error("fresh successor recorded certificate must be JSON"); }
@@ -247,12 +259,12 @@ export async function reverifyUsdcFreshSuccessorCertificate(
   if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint) || Object.keys(checkpoint).sort().join(",") !== checkpointKeys.join(",") || !/^(0|[1-9][0-9]*)$/.test(checkpoint.blockNumber) || typeof checkpoint.blockHash !== "string" || typeof checkpoint.stateHash !== "string" || !Number.isSafeInteger(checkpoint.snapshotNonce) || !Number.isSafeInteger(checkpoint.latestNonce) || !Number.isSafeInteger(checkpoint.pendingNonce)) throw new Error("fresh successor recorded checkpoint shape mismatch");
   if (checkpoint.blockNumber !== parsed.snapshot.blockNumber || !same(checkpoint.blockHash, parsed.snapshot.blockHash) || !same(checkpoint.stateHash, parsed.snapshot.stateHash) || checkpoint.snapshotNonce < 0 || checkpoint.snapshotNonce !== checkpoint.latestNonce || checkpoint.snapshotNonce !== checkpoint.pendingNonce) throw new Error("fresh successor recorded checkpoint must match the snapshot and preserve a nonnegative resolved nonce tuple");
   if (!Array.isArray(providers) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("fresh successor certificate requires two independent providers");
-  const historical = await verifyUsdcRecycleHistoricalEvidence(source, primary, providers);
+  const historical = await verifyUsdcRecycleHistoricalEvidence(source, primary, providers, "pinned");
   const recorded = { number: BigInt(parsed.snapshot.blockNumber), hash: parsed.snapshot.blockHash as Hex, timestamp: BigInt(parsed.snapshot.timestamp) };
   const tips = await Promise.all([providers[0].readLatestBlock(), providers[1].readLatestBlock()] as const);
   const blocks = await Promise.all([providers[0].readBlock(recorded.number), providers[1].readBlock(recorded.number)] as const);
   if (!blocks[0] || !blocks[1] || publicHash(blocks[0]) !== publicHash(recorded) || publicHash(blocks[1]) !== publicHash(recorded) || tips.some(tip => tip.number - recorded.number + 1n < 6n)) throw new Error("fresh successor recorded snapshot is not canonical with six confirmations");
-  const verified = await verifyAtSnapshot(source, primary, providers, historical, recorded, checkpoint as RecordedCheckpoint);
+  const verified = await verifyAtSnapshot(source, primary, providers, historical, recorded, checkpoint as RecordedCheckpoint, reconciliation);
   if (JSON.stringify(publicValue(verified)) !== JSON.stringify(parsed)) throw new Error("fresh successor recorded certificate differs from canonical verification");
   return verified;
 }

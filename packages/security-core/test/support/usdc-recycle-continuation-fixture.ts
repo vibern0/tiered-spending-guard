@@ -50,7 +50,7 @@ export function trackedRecycleJournal(raw = recycleFixture.sourceJournal, mode: 
   return { directory, path, journal: loadUsdcRecycleContinuationSourceJournalReadOnly(path, mode) };
 }
 
-function genuinePriorCertificateProvider(source: Awaited<ReturnType<typeof createUsdcSuccessorSource>>): UsdcSuccessorEvidenceProvider {
+export function genuinePriorCertificateProvider(source: Awaited<ReturnType<typeof createUsdcSuccessorSource>>): UsdcSuccessorEvidenceProvider {
   const snapshot = { number: 12_019_201n, hash: "0xd7fceb0b7f4bbb2164db7a23d2452944889035f25307a69bfb93845ebafbc251" as Hex, timestamp: 1_793_273_232n };
   const rows = source.journal.hashlessContinuation!.actions.slice(0, 3) as Array<Record<string, any>>;
   const blocks = new Map<bigint, { number: bigint; hash: Hex; timestamp: bigint }>([[snapshot.number, snapshot]]);

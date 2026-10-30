@@ -128,7 +128,7 @@ function readStableSource(path: string): Readonly<{ raw: string; stat: BigIntSta
 function decodeJournal(raw: string, mode: "initial" | "pinned"): OrdinaryScenarioJournal {
   const value = parseJson(raw, "USDC recycle source journal");
   const baseKeys = ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", "hashlessContinuation", "usdcSuccessor"];
-  const descendants = mode === "pinned" ? ["usdcRecycleContinuation", "repairContinuation"].filter(key => value[key] !== undefined) : [];
+  const descendants = mode === "pinned" ? ["usdcRecycleContinuation", "usdcFreshSuccessor", "repairContinuation"].filter(key => value[key] !== undefined) : [];
   exactKeys(value, [...baseKeys, ...descendants], "USDC recycle source journal");
   const live = record(value.liveJournal, "USDC recycle source live journal"); exactKeys(live, ["chainId", "funder", "entries"], "USDC recycle source live journal");
   if (value.schemaVersion !== 1 || value.chainId !== CHAIN_ID || live.chainId !== CHAIN_ID || !Array.isArray(value.actions) || !Array.isArray(live.entries) || !value.hashlessContinuation || !value.usdcSuccessor) throw new Error("USDC recycle source journal identity or lineage is incomplete");
@@ -208,6 +208,12 @@ export function hashUsdcRecycleContinuationSource(source: UsdcRecycleContinuatio
   if (!mode) throw new Error("USDC recycle source journal is not read-only tracked");
   assertSourceSnapshot(source.prior.journal, mode);
   return publicHash(sourceHashValue(source, approvalBody));
+}
+
+/** In-memory companion for a source already branded by the strict stable-file verifier. */
+export function hashUsdcRecycleContinuationSourceValue(source: UsdcRecycleContinuationSource): Hex {
+  assertFixedJournal(source.prior.journal, "pinned");
+  return publicHash(sourceHashValue(source, assertOpaqueAuthority(source)));
 }
 
 function assertSource(source: UsdcRecycleContinuationSource, mode: "initial" | "pinned"): Hex {
@@ -341,10 +347,11 @@ export async function verifyUsdcRecycleHistoricalEvidence(
   source: UsdcRecycleContinuationSource,
   primary: UsdcRecycleContinuationPrimaryEvidence,
   providers: readonly [UsdcSuccessorEvidenceProvider, UsdcSuccessorEvidenceProvider],
+  mode: "initial" | "pinned" = "initial",
 ): Promise<VerifiedUsdcRecycleHistoricalEvidence> {
   const snapshotNonces = await Promise.all(providers.map(provider => provider.readTransactionCount(source.prior.original.funder, HISTORICAL_SOURCE_SNAPSHOT.number)));
   if (snapshotNonces[0] !== snapshotNonces[1]) throw new Error("USDC recycle historical snapshot nonce providers disagree");
-  const pinned = await verifyPinned(source, primary, providers, HISTORICAL_SOURCE_SNAPSHOT, "initial", undefined, { latestNonce: snapshotNonces[0]!, pendingNonce: snapshotNonces[0]! });
+  const pinned = await verifyPinned(source, primary, providers, HISTORICAL_SOURCE_SNAPSHOT, mode, undefined, { latestNonce: snapshotNonces[0]!, pendingNonce: snapshotNonces[0]! });
   const first = pinned.views[0];
   return Object.freeze({
     sourceHash: pinned.sourceHash,
