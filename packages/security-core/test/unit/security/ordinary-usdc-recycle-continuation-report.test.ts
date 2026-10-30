@@ -149,8 +149,33 @@ describe("ordinary USDC recycle continuation persisted-evidence report", functio
     ];
     for (const [label, mutate] of mutations) {
       const journal = structuredClone(value.journal); mutate(journal);
-      expect(() => renderUsdcRecycleContinuationReport(value.source, value.context, journal), label).to.throw(/header|lineage|stopped|receipt|period|gas|accounting|principal|charge|reservation|live/i);
+      expect(() => renderUsdcRecycleContinuationReport(value.source, value.context, journal), label).to.throw(/historical|binding|header|lineage|stopped|receipt|period|gas|accounting|principal|charge|reservation|live/i);
     }
+  });
+
+  it("content-binds every historical source record before any recycle progress", async function () {
+    const value = await prepared();
+    const mutations: Array<[string, (journal: OrdinaryScenarioJournal) => void]> = [
+      ["old row 3 outer nonce", journal => { (journal.usdcSuccessor!.actions[2] as any).outerNonce = 870; }],
+      ["original receipt gas", journal => { (journal.actions[0] as any).receipt.gasUsed += 1n; }],
+      ["native evidence", journal => { (journal.hashlessContinuation!.actions[0] as any).evidenceHash = hash("bad"); }],
+      ["predecessor approval header", journal => { journal.approvalHash = hash("bad"); }],
+      ["live prefix accounting", journal => { journal.liveJournal.entries[0]!.reserved += 1n; }],
+    ];
+    for (const [label, mutate] of mutations) {
+      const journal = structuredClone(value.journal); mutate(journal);
+      expect(() => renderUsdcRecycleContinuationReport(value.source, value.context, journal), label).to.throw(/historical|source|lineage|binding/i);
+    }
+
+    const mirroredSource = structuredClone(value.source) as typeof value.source;
+    const mirroredJournal = structuredClone(value.journal);
+    (mirroredSource.prior.journal.usdcSuccessor!.actions[2] as any).outerNonce = 870;
+    (mirroredJournal.usdcSuccessor!.actions[2] as any).outerNonce = 870;
+    expect(() => renderUsdcRecycleContinuationReport(mirroredSource, value.context, mirroredJournal)).to.throw(/historical|source|lineage|binding/i);
+
+    const terminal = terminalize(value);
+    (terminal.journal.usdcSuccessor!.actions[2] as any).outerNonce = 870;
+    expect(() => renderUsdcRecycleContinuationReport(terminal.source, terminal.context, terminal.journal)).to.throw(/historical|source|lineage|binding/i);
   });
 
   it("never upgrades pending, stopped, late, or forged authority to completion", async function () {

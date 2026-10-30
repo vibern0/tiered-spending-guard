@@ -25,6 +25,7 @@ import {
 import {
   assertAttachedUsdcRecycleContinuation,
   assertUsdcRecycleContinuationAuthorization,
+  assertUsdcRecycleContinuationHistoricalBinding,
   hashApprovedUsdcRecycleContinuationHeader,
   hashAttachedUsdcRecycleContinuationHeader,
   type UsdcRecycleContinuationApproval,
@@ -61,6 +62,7 @@ function sameReceipt(left: OrdinaryScenarioActionRecord["receipt"], right: Ordin
 function assertHistoricalSource(source: UsdcRecycleContinuationSource, context: UsdcRecycleContinuationReportContext, journal: OrdinaryScenarioJournal): void {
   if (!isVerifiedUsdcRecycleContinuationCertificate(context.certificate)) throw new Error("USDC recycle report certificate is not opaque and verified");
   assertUsdcRecycleContinuationAuthorization(context.proposal, context.approval);
+  assertUsdcRecycleContinuationHistoricalBinding(source, context.certificate, context.proposal, journal);
   const proposal = context.proposal, certificate = context.certificate, attached = journal.usdcRecycleContinuation;
   if (!same(certificate.sourceHash, proposal.sourceHash) || !same(certificate.certificateHash, proposal.certificateHash) || certificate.effectivePeriod.toString() !== proposal.effectivePeriod) throw new Error("USDC recycle report certificate, source, or period binding mismatch");
   if (!attached) throw new Error("USDC recycle report attachment is missing");

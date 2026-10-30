@@ -133,6 +133,7 @@ type ProposalInput = Readonly<{ source: UsdcRecycleContinuationSource; certifica
 type ProposalContext = Readonly<{
   source: UsdcRecycleContinuationSource;
   certificate: VerifiedUsdcRecycleContinuationCertificate;
+  historicalSourceHash: Hex;
   observer: ContinuationObserverBinding;
   caps: ContinuationActionCaps;
   commitments: readonly Hex[];
@@ -146,6 +147,7 @@ const proposalContexts = new WeakMap<object, ProposalContext>();
 const approvals = new WeakMap<object, UsdcRecycleContinuationProposal>();
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
 const publicHash = (value: unknown): Hex => sha256(value) as Hex;
+const publicValue = (value: unknown): unknown => typeof value === "bigint" ? value.toString() : Array.isArray(value) ? value.map(publicValue) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, publicValue(child)])) : value;
 const freeze = <T>(value: T): T => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -165,6 +167,25 @@ const decimal = (value: unknown, label: string): bigint => {
   if (typeof value !== "string" || !DECIMAL.test(value)) throw new Error(`${label} must be a canonical decimal string`);
   return BigInt(value);
 };
+
+function historicalJournalProjection(journal: OrdinaryScenarioJournal): Readonly<Record<string, unknown>> {
+  const { usdcRecycleContinuation: _recycle, repairContinuation: _repair, liveJournal, ...historical } = journal;
+  return { ...historical, liveJournal: { ...liveJournal, entries: liveJournal.entries.slice(0, 15) } };
+}
+
+function historicalSourceHash(source: UsdcRecycleContinuationSource, journal: OrdinaryScenarioJournal): Hex {
+  return publicHash(publicValue({
+    prior: {
+      original: source.prior.original,
+      recovery: source.prior.recovery,
+      recoveryApproval: source.prior.recoveryApproval,
+      journal: historicalJournalProjection(journal),
+    },
+    priorCertificate: source.priorCertificate,
+    priorProposal: source.priorProposal,
+    priorApproval: source.priorApproval,
+  }));
+}
 
 function validateCaps(caps: ContinuationActionCaps): ContinuationActionCaps {
   exactKeys(caps as unknown as Record<string, unknown>, ["fundingGasLimit", "safeExecutionGasLimit", "publicDelayGasLimit", "maxFeePerGas", "maxPriorityFeePerGas"], "USDC recycle continuation caps");
@@ -235,7 +256,7 @@ function buildProposal(input: ProposalInput, mode: "create" | "parse"): UsdcRecy
   const sharedBudgetCharges = freeze({ priorActualGasCostWei: budget.priorActualGasCostWei, invalidationGasCostWei: budget.invalidationGasCostWei, aggregateKnownChargeWei: budget.aggregateKnownChargeWei });
   const body = { schemaVersion: 1 as const, scope: SCOPE, authorization: "NONE" as const, chainId: 11_155_111 as const, authorityEvidenceHash: AUTHORITY_EVIDENCE_HASH, sourceHash: input.certificate.sourceHash, certificateHash: input.certificate.certificateHash, snapshot: freeze(structuredClone(input.certificate.snapshot)), currentCheckpoint, minimumOuterNonce, effectivePeriod: PERIOD.toString(), deadline: DEADLINE.toString(), observer, schedule: USDC_RECYCLE_CONTINUATION_SCHEDULE, groups: USDC_RECYCLE_CONTINUATION_GROUPS, caps, reservation: budget, sharedBudgetCharges, maxBroadcastAttempts: 1 as const, actions };
   const proposal = freeze({ ...body, proposalHash: publicHash(body) }) as unknown as UsdcRecycleContinuationProposal;
-  proposalContexts.set(proposal, freeze({ source: input.source, certificate: input.certificate, observer, caps, commitments: actions.map(action => action.commitment), aggregateKnownChargeWei: input.certificate.aggregateKnownChargeWei, remainingAggregateAllowanceWei: REMAINING_AGGREGATE_ALLOWANCE, continuationMaximumReservationWei: CONTINUATION_MAXIMUM_RESERVATION, maxBroadcastAttempts: 1 as const }));
+  proposalContexts.set(proposal, freeze({ source: input.source, certificate: input.certificate, historicalSourceHash: historicalSourceHash(input.source, input.source.prior.journal), observer, caps, commitments: actions.map(action => action.commitment), aggregateKnownChargeWei: input.certificate.aggregateKnownChargeWei, remainingAggregateAllowanceWei: REMAINING_AGGREGATE_ALLOWANCE, continuationMaximumReservationWei: CONTINUATION_MAXIMUM_RESERVATION, maxBroadcastAttempts: 1 as const }));
   return proposal;
 }
 
@@ -295,6 +316,12 @@ export function loadUsdcRecycleContinuationApproval(proposal: UsdcRecycleContinu
 
 export function assertUsdcRecycleContinuationAuthorization(proposal: UsdcRecycleContinuationProposal, approval: UsdcRecycleContinuationApproval): void {
   if (!proposalContexts.has(proposal) || approvals.get(approval) !== proposal) throw new Error("USDC recycle continuation authorization is not opaque and exactly bound");
+}
+
+export function assertUsdcRecycleContinuationHistoricalBinding(source: UsdcRecycleContinuationSource, certificate: VerifiedUsdcRecycleContinuationCertificate, proposal: UsdcRecycleContinuationProposal, journal: OrdinaryScenarioJournal): void {
+  const context = proposalContexts.get(proposal);
+  if (!context || context.source !== source || context.certificate !== certificate) throw new Error("USDC recycle continuation historical source is not the authenticated proposal context");
+  if (!same(historicalSourceHash(source, source.prior.journal), context.historicalSourceHash) || !same(historicalSourceHash(source, journal), context.historicalSourceHash)) throw new Error("USDC recycle continuation historical source or journal binding mismatch");
 }
 
 export function attachUsdcRecycleContinuation(journal: OrdinaryScenarioJournal, proposal: UsdcRecycleContinuationProposal, approval: UsdcRecycleContinuationApproval): OrdinaryScenarioJournal & { usdcRecycleContinuation: UsdcRecycleContinuationStorage } {
