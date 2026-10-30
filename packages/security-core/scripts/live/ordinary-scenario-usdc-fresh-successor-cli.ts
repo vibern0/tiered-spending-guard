@@ -107,7 +107,7 @@ export type UsdcFreshSuccessorPublicInputs = Readonly<{ source: UsdcRecycleConti
 function predecessorArguments(args: UsdcFreshSuccessorCliArguments) { const argv: string[] = ["submit-one"]; for (const flag of OLD_FLAGS) argv.push(flag, required(args, flag)); return parseUsdcSuccessorCliArguments(argv); }
 function loadPrimary(args: UsdcFreshSuccessorCliArguments): UsdcRecycleContinuationPrimaryEvidence { return Object.freeze({ manifest: readPublicText(required(args, "--source-manifest"), "source manifest"), stepUpLedger: readPublicText(required(args, "--source-step-up-ledger"), "source step-up ledger"), stepUpAcknowledgement: readPublicText(required(args, "--source-step-up-ack"), "source step-up acknowledgement") }); }
 
-export async function loadUsdcFreshSuccessorPublicInputs(args: UsdcFreshSuccessorCliArguments, providers: UsdcFreshSuccessorPublicProviders): Promise<UsdcFreshSuccessorPublicInputs> {
+export async function loadUsdcFreshSuccessorPublicInputs(args: UsdcFreshSuccessorCliArguments, providers: UsdcFreshSuccessorPublicProviders, descendantReconciliation?: Readonly<{ outerNonce: number }>): Promise<UsdcFreshSuccessorPublicInputs> {
   const journal = loadUsdcRecycleContinuationSourceJournalReadOnly(required(args, "--source-journal"), args.command === "review" ? "initial" : "pinned");
   adoptHashlessSourceJournalReadOnlySnapshot(required(args, "--source-journal"), journal);
   const prior = await loadUsdcSuccessorPublicInputs(predecessorArguments(args), providers.predecessor, journal);
@@ -120,7 +120,8 @@ export async function loadUsdcFreshSuccessorPublicInputs(args: UsdcFreshSuccesso
     const successor = createUsdcFreshSuccessorProposal({ source, certificate, observer, caps: USDC_FRESH_SUCCESSOR_CAPS });
     return Object.freeze({ source, certificate, successor });
   }
-  const reconciliation = args.command === "resume-one" ? knownPendingReconciliation(journal) : undefined;
+  if (descendantReconciliation !== undefined && args.command !== "submit-one") throw new Error("fresh USDC successor descendant reconciliation requires predecessor-only loading");
+  const reconciliation = args.command === "resume-one" ? knownPendingReconciliation(journal) : descendantReconciliation;
   const certificate = await reverifyUsdcFreshSuccessorCertificate(readPublicText(required(args, "--fresh-certificate"), "certificate"), requiredHash(args, "--fresh-certificate-hash"), source, primary, freshProviders, reconciliation);
   const successor = parseUsdcFreshSuccessorProposal(readPublicText(required(args, "--fresh-proposal"), "proposal"), source, certificate);
   const approval = loadUsdcFreshSuccessorApproval(successor, readPublicText(required(args, "--fresh-approval"), "approval"), requiredHash(args, "--fresh-approval-hash"));

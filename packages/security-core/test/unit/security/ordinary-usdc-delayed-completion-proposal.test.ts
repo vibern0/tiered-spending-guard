@@ -9,7 +9,7 @@ import {
   loadUsdcDelayedCompletionApproval,
   parseUsdcDelayedCompletionProposal,
 } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
-import { createUsdcDelayedCompletionSource, verifyUsdcDelayedCompletionCertificate } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
+import { createUsdcDelayedCompletionSourceForTestsOnly, verifyUsdcDelayedCompletionCertificate } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
 import { cleanupUsdcRecycleContinuationFixtures } from "../../support/usdc-recycle-continuation-fixture";
 import { createDelayedCompletionFixture, delayedCaps, delayedObserver, delayedProviders } from "../../support/usdc-delayed-completion-fixture";
 
@@ -21,7 +21,7 @@ describe("ordinary USDC delayed-completion proposal", function () {
 
   async function fixture() {
     const base = await createDelayedCompletionFixture();
-    const source = createUsdcDelayedCompletionSource(base);
+  const source = createUsdcDelayedCompletionSourceForTestsOnly(base);
     const certificate = await verifyUsdcDelayedCompletionCertificate(source, await delayedProviders(base.historical));
     const proposal = createUsdcDelayedCompletionProposal({ source, certificate, observer: delayedObserver, caps: delayedCaps });
     return { ...base, source, certificate, proposal };

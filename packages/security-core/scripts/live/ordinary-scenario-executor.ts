@@ -1343,7 +1343,7 @@ async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioP
       if (!same(keccak256(rawOuter), source.transactionHash) || !same(sender, proposal.funder) || outer.type !== "eip1559" || outer.chainId !== CHAIN_ID || source.outerNonce === undefined || !source.gas || !source.maxFeePerGas || !source.maxPriorityFeePerGas || !source.outerTo || !source.outerValue || !source.outerDataHash || outer.nonce !== source.outerNonce || outer.gas?.toString() !== source.gas || outer.maxFeePerGas?.toString() !== source.maxFeePerGas || outer.maxPriorityFeePerGas?.toString() !== source.maxPriorityFeePerGas || !outer.to || !same(outer.to, source.outerTo) || (outer.value ?? 0n).toString() !== source.outerValue || !same(keccak256(outer.data ?? "0x"), source.outerDataHash)) throw new Error("ordinary scenario replay signed outer transaction does not match the confirmed source");
       if (prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !prepared.liveIntent.to || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
       recordEntry.transactionHash = source.transactionHash;
-    } else if (!PUBLIC_REJECTION_KINDS.has(action.kind)) prepared = await context.materialize(action, state);
+    } else if (!PUBLIC_REJECTION_KINDS.has(action.kind) && !(boundary.delayedCompletion && DELAYED_COMPLETION_REJECTION_IDS.has(action.id))) prepared = await context.materialize(action, state);
     if (prepared) {
       await validatePrepared(action, proposal, prepared, state, context);
       recordEntry.requestHash = prepared.requestHash; recordEntry.signatureBundleHash = prepared.signatureBundleHash; recordEntry.signedCalldataHash = prepared.signedCalldataHash; recordEntry.outerDataHash = keccak256(prepared.liveIntent.data);
@@ -2002,12 +2002,12 @@ export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ p
     confirmed: new Set(["confirmed"]), reverted: new Set(["reverted"]), "rejection-proved": new Set(["rejection-proved"]), stopped: new Set(["stopped"]),
   };
   const assertActionProgress = (prior: { id: string; commitment: Hex; status: string } & Record<string, unknown>, next: { id: string; commitment: Hex; status: string } & Record<string, unknown>, label: string): void => {
-    const successorLateStop = (label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") && prior.status === "outer-pending" && next.status === "stopped";
+    const successorLateStop = (label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor" || label === "USDC delayed completion") && prior.status === "outer-pending" && next.status === "stopped";
     const replayEnvelopeAdoption = prior.status === "materialized" && next.status === "materialized" && prior.id.endsWith("-replay-rejection") && prior.transactionHash === undefined && typeof next.transactionHash === "string";
     if (prior.id !== next.id || prior.commitment !== next.commitment || (!actionTransitions[prior.status]?.has(next.status) && !successorLateStop)) throw new Error(`${label} action removal, reordering, identity drift, or status regression`);
-    assertFixedFields(prior, next, new Set(["status", "receipt", ...(replayEnvelopeAdoption ? ["outerNonce"] : []), ...((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") ? ["receiptInclusion"] : [])]), label);
+    assertFixedFields(prior, next, new Set(["status", "receipt", ...(replayEnvelopeAdoption ? ["outerNonce"] : []), ...((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor" || label === "USDC delayed completion") ? ["receiptInclusion"] : [])]), label);
     if (prior.receipt !== undefined && publicHash(prior.receipt) !== publicHash(next.receipt)) throw new Error(`${label} receipt changed or was deleted`);
-    if ((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor") && prior.receiptInclusion !== undefined && publicHash(prior.receiptInclusion) !== publicHash(next.receiptInclusion)) throw new Error(`${label} receipt inclusion changed or was deleted`);
+    if ((label === "USDC successor" || label === "USDC recycle continuation" || label === "fresh USDC successor" || label === "USDC delayed completion") && prior.receiptInclusion !== undefined && publicHash(prior.receiptInclusion) !== publicHash(next.receiptInclusion)) throw new Error(`${label} receipt inclusion changed or was deleted`);
   };
   const assertMonotonic = (prior: OrdinaryScenarioJournal, next: OrdinaryScenarioJournal): void => {
     if (next.actions.length < prior.actions.length) throw new Error("ordinary scenario action history was truncated");
@@ -2050,6 +2050,19 @@ export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ p
       if (changed.length === 1) {
         const selected = priorActions.findIndex(entry => entry.status !== "confirmed" && entry.status !== "rejection-proved");
         if (selected < 0 || changed[0] !== selected) throw new Error("fresh USDC successor save changed a row other than the selected catalog head");
+      }
+    }
+    if (prior.usdcDelayedCompletion) {
+      if (!next.usdcDelayedCompletion) throw new Error("USDC delayed completion cannot be deleted");
+      if (publicHash(delayedCompletionPredecessorProjection(prior)) !== publicHash(delayedCompletionPredecessorProjection(next))) throw new Error("USDC delayed completion frozen source prefix changed");
+      const { actions: priorActions, ...priorHeader } = prior.usdcDelayedCompletion; const { actions: nextActions, ...nextHeader } = next.usdcDelayedCompletion;
+      if (JSON.stringify(priorHeader) !== JSON.stringify(nextHeader) || nextActions.length !== priorActions.length) throw new Error("USDC delayed completion immutable header or catalog changed");
+      priorActions.forEach((entry, index) => assertActionProgress(entry as typeof entry & Record<string, unknown>, nextActions[index] as typeof entry & Record<string, unknown>, "USDC delayed completion"));
+      const changed = priorActions.flatMap((entry, index) => publicHash(entry) === publicHash(nextActions[index]) ? [] : [index]);
+      if (changed.length > 1) throw new Error("USDC delayed completion save may change only one selected row");
+      if (changed.length === 1) {
+        const selected = priorActions.findIndex(entry => entry.status !== "confirmed" && entry.status !== "rejection-proved");
+        if (selected < 0 || changed[0] !== selected) throw new Error("USDC delayed completion save changed a row other than the selected catalog head");
       }
     }
     if (prior.repairContinuation) {

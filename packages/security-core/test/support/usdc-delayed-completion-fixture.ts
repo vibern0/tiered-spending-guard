@@ -12,7 +12,7 @@ import {
   freshSnapshot,
 } from "./usdc-fresh-successor-fixture";
 import type { Hex } from "viem";
-import { createUsdcDelayedCompletionSource, verifyUsdcDelayedCompletionCertificate } from "../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
+import { createUsdcDelayedCompletionSourceForTestsOnly, verifyUsdcDelayedCompletionCertificate } from "../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
 import { createUsdcDelayedCompletionProposal, loadUsdcDelayedCompletionApproval } from "../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
 
 const h = (byte: string): Hex => `0x${byte.repeat(64)}` as Hex;
@@ -40,10 +40,11 @@ export async function createDelayedCompletionFixture() {
     status: "signed-simulated",
     materializationHash: h("7"),
     prestateHash: h("8"),
-    outerNonce: 870,
+    outerNonce: 905,
     maxFeePerGas: "69",
     maxPriorityFeePerGas: "51",
     funderNativeBefore: "7193973545294610",
+    finalOuterMaterialization: (() => { const facts = { proposalHash: freshProposal.proposalHash, actionCommitment: row.commitment, outerNonce: 905, gas: "740292", gasEstimate: "154151", maxFeePerGas: "69", maxPriorityFeePerGas: "51", pinnedBlockNumber: "12027487", pinnedBlockHash: h("c"), approvedContinuationReservationWei: freshProposal.reservation.successorMaximumReservationWei, remainingReservationWei: freshProposal.reservation.successorMaximumReservationWei }; return { hash: sha256(facts) as Hex, ...facts }; })(),
     requestHash: row.commitment,
     signatureBundleHash: null,
     signedCalldataHash: h("9"),
@@ -57,12 +58,12 @@ export async function createDelayedCompletionFixture() {
 }
 
 export async function delayedProviders(historical: Awaited<ReturnType<typeof createFreshSource>>, mutation: Record<string, unknown> = {}) {
-  return freshProviders(historical, { snapshotNonce: 871, latestNonce: 871, pendingNonce: 871, ...mutation }, { snapshotNonce: 871, latestNonce: 871, pendingNonce: 871, ...mutation });
+  return freshProviders(historical, { snapshotNonce: 906, latestNonce: 906, pendingNonce: 906, ...mutation }, { snapshotNonce: 906, latestNonce: 906, pendingNonce: 906, ...mutation });
 }
 
 export async function approvedDelayedCompletion() {
   const base = await createDelayedCompletionFixture();
-  const source = createUsdcDelayedCompletionSource(base);
+  const source = createUsdcDelayedCompletionSourceForTestsOnly(base);
   const certificate = await verifyUsdcDelayedCompletionCertificate(source, await delayedProviders(base.historical));
   const proposal = createUsdcDelayedCompletionProposal({ source, certificate, observer: delayedObserver, caps: delayedCaps });
   const document = { schemaVersion: 1, scope: proposal.scope, authorization: "FOCUSED_BOUNDED_DELAYED_COMPLETION_AUTHORIZATION", authorityEvidenceHash: proposal.authorityEvidenceHash, proposalHash: proposal.proposalHash, sourceJournalHash: proposal.sourceJournalHash, certificateHash: proposal.certificateHash, snapshot: proposal.snapshot, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, observer: proposal.observer, schedule: proposal.schedule, groups: proposal.groups, caps: proposal.caps, reservation: proposal.reservation, maxBroadcastAttempts: 1, repairAuthority: "NONE", approvedActions: proposal.actions.map(({ id, commitment }) => ({ id, commitment })) };
