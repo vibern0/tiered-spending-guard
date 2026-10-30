@@ -128,7 +128,7 @@ function readStableSource(path: string): Readonly<{ raw: string; stat: BigIntSta
 function decodeJournal(raw: string, mode: "initial" | "pinned"): OrdinaryScenarioJournal {
   const value = parseJson(raw, "USDC recycle source journal");
   const baseKeys = ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", "hashlessContinuation", "usdcSuccessor"];
-  const descendants = mode === "pinned" ? ["usdcRecycleContinuation", "usdcFreshSuccessor", "repairContinuation"].filter(key => value[key] !== undefined) : [];
+  const descendants = mode === "pinned" ? ["usdcRecycleContinuation", "usdcFreshSuccessor", "usdcDelayedCompletion", "repairContinuation"].filter(key => value[key] !== undefined) : [];
   exactKeys(value, [...baseKeys, ...descendants], "USDC recycle source journal");
   const live = record(value.liveJournal, "USDC recycle source live journal"); exactKeys(live, ["chainId", "funder", "entries"], "USDC recycle source live journal");
   if (value.schemaVersion !== 1 || value.chainId !== CHAIN_ID || live.chainId !== CHAIN_ID || !Array.isArray(value.actions) || !Array.isArray(live.entries) || !value.hashlessContinuation || !value.usdcSuccessor) throw new Error("USDC recycle source journal identity or lineage is incomplete");

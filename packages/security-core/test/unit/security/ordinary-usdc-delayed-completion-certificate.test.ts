@@ -2,6 +2,8 @@ import { expect } from "chai";
 import {
   createUsdcDelayedCompletionSource,
   isVerifiedUsdcDelayedCompletionCertificate,
+  reverifyUsdcDelayedCompletionCertificate,
+  serializeUsdcDelayedCompletionCertificate,
   verifyUsdcDelayedCompletionCertificate,
 } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-certificate";
 import { cleanupUsdcRecycleContinuationFixtures } from "../../support/usdc-recycle-continuation-fixture";
@@ -32,5 +34,14 @@ describe("ordinary USDC delayed-completion certificate", function () {
     const providers = await delayedProviders(fixture.historical);
     const disagreeing = [providers[0], { ...providers[1], readControlledState: async (block: bigint) => ({ ...(await providers[1].readControlledState(block)), safeUsdcBalance: 1n }) }] as const;
     await expect(verifyUsdcDelayedCompletionCertificate(source, disagreeing)).to.be.rejectedWith(/provider|state|disagree/i);
+  });
+
+  it("reverifies the exact recorded snapshot while allowing later resolved nonce progress", async function () {
+    const fixture = await createDelayedCompletionFixture();
+    const source = createUsdcDelayedCompletionSource(fixture);
+    const certificate = await verifyUsdcDelayedCompletionCertificate(source, await delayedProviders(fixture.historical));
+    const restored = await reverifyUsdcDelayedCompletionCertificate(serializeUsdcDelayedCompletionCertificate(certificate), certificate.certificateHash, source, await delayedProviders(fixture.historical, { latestNonce: 872, pendingNonce: 872 }));
+    expect(isVerifiedUsdcDelayedCompletionCertificate(restored)).to.equal(true);
+    expect(restored.certificateHash).to.equal(certificate.certificateHash);
   });
 });

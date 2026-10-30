@@ -7,6 +7,7 @@ import type { ContinuationActionCaps, ContinuationObserverBinding, ExpiredHashle
 import {
   USDC_DELAYED_COMPLETION_SCOPE,
   isVerifiedUsdcDelayedCompletionCertificate,
+  usdcDelayedCompletionPredecessorValue,
   type UsdcDelayedCompletionSource,
   type VerifiedUsdcDelayedCompletionCertificate,
 } from "./ordinary-scenario-usdc-delayed-completion-certificate";
@@ -35,7 +36,7 @@ export const DELAYED_COMPLETION_GROUPS = Object.freeze([
 
 const IDS = Object.freeze(["prefund-all", "direct-above-y-rejection", "queue-cancel", "queue-cancel-early-rejection", "queue-cancel-action", "queue-cancelled-execution-rejection", "queue-expiry", "queue-expiry-early-rejection", "queue-expiry-skip", "queue-expired-execution-rejection", "queue-execute", "queue-execute-early-rejection", "queue-ready-execute"].map(id => `usdc-delayed-completion-${id}`));
 const DEPENDENCIES = Object.freeze([
-  Object.freeze(["usdc-fresh-successor-prefund-all"]), Object.freeze([IDS[0]!]), Object.freeze([IDS[0]!]), Object.freeze([IDS[2]!]), Object.freeze([IDS[2]!]), Object.freeze([IDS[4]!]), Object.freeze([IDS[4]!]), Object.freeze([IDS[6]!]), Object.freeze([IDS[6]!]), Object.freeze([IDS[8]!]), Object.freeze([IDS[8]!]), Object.freeze([IDS[10]!]), Object.freeze([IDS[11]!]),
+  Object.freeze(["usdc-successor-step-up-contract"]), Object.freeze([IDS[0]!]), Object.freeze([IDS[0]!]), Object.freeze([IDS[2]!]), Object.freeze([IDS[2]!]), Object.freeze([IDS[4]!]), Object.freeze([IDS[4]!]), Object.freeze([IDS[6]!]), Object.freeze([IDS[6]!]), Object.freeze([IDS[8]!]), Object.freeze([IDS[8]!]), Object.freeze([IDS[10]!]), Object.freeze([IDS[11]!]),
 ]);
 
 type Schedule = typeof DELAYED_COMPLETION_SCHEDULE;
@@ -96,7 +97,7 @@ function buildActions(source: UsdcDelayedCompletionSource, caps: ContinuationAct
   const q4tx = buildQueueTransaction(q4.item), q5tx = buildQueueTransaction(q5.item), q6tx = buildQueueTransaction(q6.item);
   const direct = safeTransaction(source, identity.usdc, transfer, 10), queue4 = safeTransaction(source, q4tx.to, q4tx.data, 10), cancel4Tx = buildCancellationTransaction(identity.delay, 5n), cancel4 = safeTransaction(source, cancel4Tx.to, cancel4Tx.data, 11), queue5 = safeTransaction(source, q5tx.to, q5tx.data, 12), queue6 = safeTransaction(source, q6tx.to, q6tx.data, 13);
   const execute4 = buildExecutionTransaction(q4.item), execute5 = buildExecutionTransaction(q5.item), execute6 = buildExecutionTransaction(q6.item), skip = encodeFunctionData({ abi: DELAY_ABI, functionName: "skipExpired" });
-  const s0 = state(10,4,4,0,40_000_000), s1 = state(10,4,4,31_000_000,9_000_000), s2 = state(11,5,4,31_000_000,9_000_000,"QUEUED",4,q4.binding.fingerprint), s3 = state(12,5,5,31_000_000,9_000_000,"CANCELLED",4,q4.binding.fingerprint), s4 = state(13,6,5,31_000_000,9_000_000,"QUEUED",5,q5.binding.fingerprint), s5 = state(13,6,6,31_000_000,9_000_000,"EXPIRED_SKIPPED",5,q5.binding.fingerprint), s6 = state(14,7,6,31_000_000,9_000_000,"QUEUED",6,q6.binding.fingerprint), s7 = state(14,7,7,0,40_000_000,"EXECUTED",6,q6.binding.fingerprint);
+  const s0 = state(10,4,4,0,40_000_000), s1 = state(10,4,4,31_000_000,9_000_000), s2 = state(11,5,4,31_000_000,9_000_000,"QUEUED",4,q4.binding.fingerprint), s3 = state(12,5,5,31_000_000,9_000_000,"CANCELLED_CONDITIONAL",4,q4.binding.fingerprint), s4 = state(13,6,5,31_000_000,9_000_000,"QUEUED",5,q5.binding.fingerprint), s5 = state(13,6,6,31_000_000,9_000_000,"EXPIRED_CONDITIONAL",5,q5.binding.fingerprint), s6 = state(14,7,6,31_000_000,9_000_000,"QUEUED",6,q6.binding.fingerprint), s7 = state(14,7,7,0,40_000_000,"EXECUTED",6,q6.binding.fingerprint);
   const common = (index: number, kind: string, expectedOutcome: "success" | "rejection", signerRoles: readonly string[], transaction: { to: Address; value: bigint; data: Hex }, before: State, after: State, gasLimitCap: string, safe?: ReturnType<typeof safeTransaction>, binding?: typeof q4.binding) => action({ id: IDS[index]!, kind, asset: "USDC", expectedOutcome, signerRoles: freeze([...signerRoles]), dependsOn: DEPENDENCIES[index]!, transaction: freeze({ to: transaction.to, value: transaction.value.toString(), data: transaction.data, operation: 0 as const }), safeTransaction: safe?.tx, safeTxHash: safe?.safeTxHash, queue: binding, before, after, gasLimitCap, maxFeePerGasCap: caps.maxFeePerGas, maxPriorityFeePerGasCap: caps.maxPriorityFeePerGas });
   return freeze([
     common(0,"controlled-recipient-funding","success",["funder"],{to:identity.usdc,value:0n,data:fund},s0,s1,caps.fundingGasLimit),
@@ -117,7 +118,7 @@ function buildActions(source: UsdcDelayedCompletionSource, caps: ContinuationAct
 
 type ProposalInput = Readonly<{ source: UsdcDelayedCompletionSource; certificate: VerifiedUsdcDelayedCompletionCertificate; observer: ContinuationObserverBinding; caps: ContinuationActionCaps }>;
 function buildProposal(input: ProposalInput): UsdcDelayedCompletionProposal {
-  if (!isVerifiedUsdcDelayedCompletionCertificate(input.certificate) || !same(input.source.sourceJournalHash, input.certificate.sourceJournalHash) || !same(publicHash(input.source.journal), input.source.sourceJournalHash)) throw new Error("delayed completion source and opaque certificate are not exactly bound");
+  if (!isVerifiedUsdcDelayedCompletionCertificate(input.certificate) || !same(input.source.sourceJournalHash, input.certificate.sourceJournalHash) || !same(publicHash(usdcDelayedCompletionPredecessorValue(input.source.journal)), input.source.sourceJournalHash)) throw new Error("delayed completion source and opaque certificate are not exactly bound");
   const effectivePeriod = input.certificate.effectivePeriod, deadline = effectivePeriod + 86_400n, caps = validateCaps(input.caps), observer = validateObserver(input.observer, input.certificate, deadline, input.source), actions = buildActions(input.source, caps);
   const reservation = actions.filter(item => item.expectedOutcome === "success").reduce((sum, item) => sum + BigInt(item.gasLimitCap) * BigInt(item.maxFeePerGasCap), 0n);
   if (actions.length !== 13 || reservation !== RESERVATION) throw new Error("delayed completion exact thirteen-row reservation mismatch");
@@ -155,7 +156,7 @@ export function getUsdcDelayedCompletionApprovalPublicValue(approval: UsdcDelaye
 export function attachUsdcDelayedCompletion(journal: UsdcDelayedCompletionSource["journal"], proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): UsdcDelayedCompletionSource["journal"] & { usdcDelayedCompletion: UsdcDelayedCompletionStorage } {
   assertUsdcDelayedCompletionAuthorization(proposal, approval);
   if (journal.usdcDelayedCompletion !== undefined) throw new Error("journal already has a delayed completion attachment");
-  if (proposalJournals.get(proposal) !== journal || !same(publicHash(journal), proposal.sourceJournalHash)) throw new Error("delayed completion attachment source changed or detached");
+  if (proposalJournals.get(proposal) !== journal || !same(publicHash(usdcDelayedCompletionPredecessorValue(journal)), proposal.sourceJournalHash)) throw new Error("delayed completion attachment source changed or detached");
   const storage: UsdcDelayedCompletionStorage = { schemaVersion: 1, scope: USDC_DELAYED_COMPLETION_SCOPE, sourceJournalHash: proposal.sourceJournalHash, certificateHash: proposal.certificateHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, actionCommitments: proposal.actions.map(({ id, commitment }) => ({ id, commitment })), maximumReservationWei: proposal.reservation.successorMaximumReservationWei, maxBroadcastAttempts: 1, repairAuthority: "NONE", actions: proposal.actions.map(({ id, commitment }) => ({ id, commitment, status: "approved" as const })) };
   journal.usdcDelayedCompletion = storage;
   return journal as typeof journal & { usdcDelayedCompletion: UsdcDelayedCompletionStorage };

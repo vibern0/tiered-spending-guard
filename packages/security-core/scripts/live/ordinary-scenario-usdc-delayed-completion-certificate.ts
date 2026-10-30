@@ -26,7 +26,6 @@ export type UsdcDelayedCompletionJournal = OrdinaryScenarioJournal & {
   usdcDelayedCompletion?: unknown;
 };
 
-export type UsdcDelayedCompletionJournal = OrdinaryScenarioJournal & { usdcDelayedCompletion?: unknown };
 export type UsdcDelayedCompletionSource = Readonly<{
   historical: UsdcRecycleContinuationSource;
   freshCertificate: VerifiedUsdcFreshSuccessorCertificate;
@@ -60,12 +59,17 @@ export type VerifiedUsdcDelayedCompletionCertificate = Readonly<{
 const sources = new WeakSet<object>();
 const certificates = new WeakSet<object>();
 
+export function usdcDelayedCompletionPredecessorValue(journal: OrdinaryScenarioJournal): unknown {
+  const { usdcDelayedCompletion: _ignored, ...predecessor } = journal;
+  return { ...predecessor, liveJournal: { ...predecessor.liveJournal, entries: predecessor.liveJournal.entries.slice(0, 15) } };
+}
+
 function exactStoppedSource(input: Omit<UsdcDelayedCompletionSource, "sourceJournalHash" | "stoppedRow">): OrdinaryScenarioActionRecord {
   const { journal, freshProposal, freshApproval, freshCertificate } = input;
   assertUsdcFreshSuccessorAuthorization(freshProposal, freshApproval);
   if (!isVerifiedUsdcFreshSuccessorCertificate(freshCertificate)) throw new Error("delayed completion requires an opaque fresh certificate");
   const attached = journal.usdcFreshSuccessor;
-  if (!attached || journal.usdcRecycleContinuation !== undefined || journal.repairContinuation !== undefined || journal.usdcDelayedCompletion !== undefined || journal.liveJournal.entries.length !== 15 || journal.actions.length !== 19 || attached.actions.length !== 18 || attached.actionCommitments.length !== 18) throw new Error("delayed completion source is not the exact stopped fresh sibling");
+  if (!attached || journal.usdcRecycleContinuation !== undefined || journal.repairContinuation !== undefined || journal.liveJournal.entries.length < 15 || journal.actions.length !== 19 || attached.actions.length !== 18 || attached.actionCommitments.length !== 18) throw new Error("delayed completion source is not the exact stopped fresh sibling");
   if (!same(attached.proposalHash, freshProposal.proposalHash) || !same(attached.approvalHash, freshApproval.approvalHash) || !same(attached.certificateHash, freshCertificate.certificateHash) || attached.scope !== freshProposal.scope || attached.repairAuthority !== "NONE") throw new Error("delayed completion stopped source authority mismatch");
   for (let index = 0; index < attached.actions.length; index++) {
     const action = attached.actions[index]!, expected = freshProposal.actions[index]!, commitment = attached.actionCommitments[index]!;
@@ -80,7 +84,7 @@ function exactStoppedSource(input: Omit<UsdcDelayedCompletionSource, "sourceJour
 
 export function createUsdcDelayedCompletionSource(input: Omit<UsdcDelayedCompletionSource, "sourceJournalHash" | "stoppedRow">): UsdcDelayedCompletionSource {
   const stoppedRow = exactStoppedSource(input);
-  const source = { ...input, sourceJournalHash: publicHash(input.journal), stoppedRow } as UsdcDelayedCompletionSource;
+  const source = { ...input, sourceJournalHash: publicHash(usdcDelayedCompletionPredecessorValue(input.journal)), stoppedRow } as UsdcDelayedCompletionSource;
   sources.add(source);
   return source;
 }
@@ -95,7 +99,7 @@ function assertState(source: UsdcDelayedCompletionSource, state: UsdcSuccessorCa
 
 export async function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> {
   if (!sources.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed completion certificate requires an opaque source and two independent providers");
-  if (!same(publicHash(source.journal), source.sourceJournalHash)) throw new Error("delayed completion stopped source changed after construction");
+  if (!same(publicHash(usdcDelayedCompletionPredecessorValue(source.journal)), source.sourceJournalHash)) throw new Error("delayed completion stopped source changed after construction");
   exactStoppedSource(source);
   const tips = await Promise.all([providers[0].readLatestBlock(), providers[1].readLatestBlock()] as const);
   const snapshotNumber = (tips[0].number < tips[1].number ? tips[0].number : tips[1].number) - 5n;
@@ -125,4 +129,31 @@ export async function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayed
 
 export function isVerifiedUsdcDelayedCompletionCertificate(value: unknown): value is VerifiedUsdcDelayedCompletionCertificate {
   return !!value && typeof value === "object" && certificates.has(value as object);
+}
+
+export function serializeUsdcDelayedCompletionCertificate(certificate: VerifiedUsdcDelayedCompletionCertificate): string {
+  if (!isVerifiedUsdcDelayedCompletionCertificate(certificate)) throw new Error("delayed completion certificate is not runtime verified");
+  return `${JSON.stringify(publicValue(certificate))}\n`;
+}
+
+export async function reverifyUsdcDelayedCompletionCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
+  let parsed: any; try { parsed = JSON.parse(serialized); } catch { throw new Error("delayed completion recorded certificate must be JSON"); }
+  if (!parsed || typeof parsed !== "object" || parsed.kind !== "VERIFIED_USDC_DELAYED_COMPLETION_CERTIFICATE" || parsed.scope !== USDC_DELAYED_COMPLETION_SCOPE || typeof parsed.certificateHash !== "string" || !same(parsed.certificateHash, expectedHash)) throw new Error("delayed completion recorded certificate identity or hash mismatch");
+  const { certificateHash, ...body } = parsed;
+  if (!same(publicHash(body), certificateHash)) throw new Error("delayed completion recorded certificate body hash mismatch");
+  if (!same(publicHash(usdcDelayedCompletionPredecessorValue(source.journal)), parsed.sourceJournalHash)) throw new Error("delayed completion recorded source changed");
+  const blockNumber = BigInt(parsed.snapshot.blockNumber);
+  const [leftBlock, rightBlock, leftState, rightState, leftSnapshotNonce, rightSnapshotNonce, leftLatest, rightLatest, leftPending, rightPending] = await Promise.all([
+    providers[0].readBlock(blockNumber), providers[1].readBlock(blockNumber), providers[0].readControlledState(blockNumber), providers[1].readControlledState(blockNumber),
+    providers[0].readTransactionCount(source.journal.funder, blockNumber), providers[1].readTransactionCount(source.journal.funder, blockNumber), providers[0].readTransactionCount(source.journal.funder, "latest"), providers[1].readTransactionCount(source.journal.funder, "latest"), providers[0].readTransactionCount(source.journal.funder, "pending"), providers[1].readTransactionCount(source.journal.funder, "pending"),
+  ]);
+  if (!leftBlock || !rightBlock || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== parsed.minimumOuterNonce || rightSnapshotNonce !== parsed.minimumOuterNonce) throw new Error("delayed completion recorded canonical snapshot changed");
+  const latest = [leftLatest, rightLatest], pending = [leftPending, rightPending];
+  const resolved = latest[0] === latest[1] && pending[0] === pending[1] && latest[0] === pending[0] && latest[0]! >= parsed.minimumOuterNonce;
+  const knownPending = reconciliation !== undefined && latest[0] === latest[1] && pending[0] === pending[1] && reconciliation.outerNonce === latest[0] && pending[0]! >= latest[0]! && pending[0]! <= latest[0]! + 1;
+  const resolvedProgress = reconciliation !== undefined && latest[0] === latest[1] && pending[0] === pending[1] && latest[0]! > reconciliation.outerNonce && pending[0] === latest[0];
+  if (!resolved && !knownPending && !resolvedProgress) throw new Error("delayed completion current outer nonce is unresolved or inconsistent");
+  const restored = Object.freeze({ ...parsed, effectivePeriod: BigInt(parsed.effectivePeriod), safeNonce: BigInt(parsed.safeNonce), delayQueueNonce: BigInt(parsed.delayQueueNonce), delayTxNonce: BigInt(parsed.delayTxNonce), safeUsdcBalance: BigInt(parsed.safeUsdcBalance), funderUsdcBalance: BigInt(parsed.funderUsdcBalance), rawNativeSpend: Object.freeze({ window: BigInt(parsed.rawNativeSpend.window), baseSpent: BigInt(parsed.rawNativeSpend.baseSpent), instantSpent: BigInt(parsed.rawNativeSpend.instantSpent) }), rawUsdcSpend: Object.freeze({ window: BigInt(parsed.rawUsdcSpend.window), baseSpent: BigInt(parsed.rawUsdcSpend.baseSpent), instantSpent: BigInt(parsed.rawUsdcSpend.instantSpent) }) }) as VerifiedUsdcDelayedCompletionCertificate;
+  certificates.add(restored);
+  return restored;
 }

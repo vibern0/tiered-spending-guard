@@ -31,6 +31,7 @@ const normalizeJournalInput = <T extends { proposal: OrdinaryScenarioProposal | 
   const sourceJournal = input.journal;
   if (input.proposal.kind === "expired-hashless-continuation-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const records = source.hashlessContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions.slice(0, 18), ...records] }; } };
   if (input.proposal.kind === "usdc-fresh-period-successor-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const native = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const old = source.usdcSuccessor?.actions.slice(0, 2).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcFreshSuccessor?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...native, ...old, ...records] }; } };
+  if (input.proposal.kind === "usdc-delayed-completion-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const native = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const old = source.usdcSuccessor?.actions.slice(0, 2).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcDelayedCompletion?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...native, ...old, ...records] }; } };
   if (input.proposal.kind === "usdc-recycle-continuation-v1") return { ...input, proposal, journal: () => { const source = sourceJournal(); const native = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const old = source.usdcSuccessor?.actions.slice(0, 2).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcRecycleContinuation?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...native, ...old, ...records] }; } };
   return { ...input, proposal, journal: () => { const source = sourceJournal(); const recovery = source.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? []; const records = source.usdcSuccessor?.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? []; return { ...source, actions: [...source.actions, ...recovery, ...records] }; } };
 };
@@ -108,7 +109,7 @@ export function createOrdinaryScenarioMechanicalStateReader(rawInput: OrdinarySc
       const maxPriorityFeePerGas = BigInt(record.maxPriorityFeePerGas);
       if (maxFeePerGas <= 0n || maxPriorityFeePerGas > maxFeePerGas || maxFeePerGas > action.maxFeePerGasCap || maxPriorityFeePerGas > action.maxPriorityFeePerGasCap) throw new Error("ordinary scenario persisted pre-outer fee quote is missing or invalid");
       frozenFees = { maxFeePerGas, maxPriorityFeePerGas };
-      if ("kind" in rawInput.proposal && (rawInput.proposal.kind === "usdc-recycle-continuation-v1" || rawInput.proposal.kind === "usdc-fresh-period-successor-v1")) {
+      if ("kind" in rawInput.proposal && (rawInput.proposal.kind === "usdc-recycle-continuation-v1" || rawInput.proposal.kind === "usdc-fresh-period-successor-v1" || rawInput.proposal.kind === "usdc-delayed-completion-v1")) {
         const frozen = record.finalOuterMaterialization;
         if (!frozen || !DECIMAL.test(frozen.pinnedBlockNumber)) throw new Error("USDC continuation frozen materialization block is missing");
         const pinned = await input.archiveClient.getBlock({ blockNumber: BigInt(frozen.pinnedBlockNumber) } as never);
@@ -217,6 +218,10 @@ export function createOrdinaryScenarioMechanicalExecutionContext(rawInput: Ordin
   if ("kind" in rawInput.proposal && rawInput.proposal.kind === "usdc-fresh-period-successor-v1") {
     const binding = rawInput.proposal.successor.observer;
     if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== canonicalObserverBound(binding.readyAt) || rawInput.receiverExpiresAt !== canonicalObserverBound(binding.expiresAt)) throw new Error("fresh USDC successor adapter requires exact nonempty observer ready and expiry forwarding");
+  }
+  if ("kind" in rawInput.proposal && rawInput.proposal.kind === "usdc-delayed-completion-v1") {
+    const binding = rawInput.proposal.completion.observer;
+    if (!rawInput.receiverReadyAt || !rawInput.receiverExpiresAt || rawInput.receiverReadyAt !== canonicalObserverBound(binding.readyAt) || rawInput.receiverExpiresAt !== canonicalObserverBound(binding.expiresAt)) throw new Error("delayed completion adapter requires exact nonempty observer ready and expiry forwarding");
   }
   const input = normalizeJournalInput(rawInput);
   const current = input.currentClient;
