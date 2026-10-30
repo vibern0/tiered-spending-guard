@@ -3,9 +3,15 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keccak256 } from "viem";
-import { assertOrdinaryScenarioReviewCliEnvironment, writeOrdinaryScenarioReviewPackage } from "../../../scripts/live/ordinary-scenario-review-cli";
+import { assertOrdinaryScenarioReviewCliEnvironment, PUBLIC_ARCHIVE_RPC, PUBLIC_CURRENT_RPC, PUBLIC_HISTORICAL_EVIDENCE_RPC, writeOrdinaryScenarioReviewPackage } from "../../../scripts/live/ordinary-scenario-review-cli";
 
 describe("ordinary scenario review read-only CLI package", () => {
+  it("separates the live current endpoint from two distinct historical evidence endpoints", () => {
+    expect(PUBLIC_CURRENT_RPC).to.equal("https://ethereum-sepolia-rpc.publicnode.com");
+    expect(PUBLIC_HISTORICAL_EVIDENCE_RPC).to.equal("https://eth-sepolia.blockscout.com/api/eth-rpc");
+    expect(PUBLIC_ARCHIVE_RPC).to.equal("https://sepolia.gateway.tenderly.co");
+    expect(new Set([PUBLIC_CURRENT_RPC, PUBLIC_HISTORICAL_EVIDENCE_RPC, PUBLIC_ARCHIVE_RPC]).size).to.equal(3);
+  });
   it("rejects RPC credentials and arbitrary observer paths before adapter work", () => {
     for (const key of ["SEPOLIA_RPC_URL", "SEPOLIA_ARCHIVE_RPC_URL", "ORDINARY_SCENARIO_OBSERVER", "PRIVATE_KEY", "VAULT_FUNDING_KEY_PATH", "LIVE_SUBMIT"]) {
       expect(() => assertOrdinaryScenarioReviewCliEnvironment({ [key]: "forbidden" })).to.throw("rejects override or authority input");

@@ -44,7 +44,7 @@ import {
   type UsdcFreshSuccessorProposal,
 } from "./ordinary-scenario-usdc-fresh-successor-proposal";
 import type { ContinuationObserverBinding } from "./ordinary-scenario-hashless-continuation";
-import { PUBLIC_ARCHIVE_RPC, PUBLIC_CURRENT_RPC, reconstructReviewedPlan } from "./ordinary-scenario-review-cli";
+import { PUBLIC_ARCHIVE_RPC, PUBLIC_HISTORICAL_EVIDENCE_RPC, reconstructReviewedPlan } from "./ordinary-scenario-review-cli";
 import type { OperationalCliOutput } from "./operational-cli-entrypoint";
 
 export const USDC_FRESH_SUCCESSOR_COMMANDS = Object.freeze(["review", "submit-one", "resume-one"] as const);
@@ -187,7 +187,7 @@ export function createUsdcFreshSuccessorEvidenceProvider(client: ReturnType<type
 type ProductionSeams = Readonly<{ createHarness?: typeof createOrdinaryScenarioProductionHarness; createStateReader?: typeof createOrdinaryScenarioStateReader; createExecutionContext?: typeof createOrdinaryScenarioExecutionContext; now?: () => Date }>;
 export function createUsdcFreshSuccessorProductionDependencies(repository: string, argv: readonly string[], seams: ProductionSeams = {}): UsdcFreshSuccessorCliDependencies {
   const baseHarness: OrdinaryScenarioProductionHarness = (seams.createHarness ?? createOrdinaryScenarioProductionHarness)(repository);
-  const currentClient = seams.createHarness ? baseHarness.current : createPublicClient({ chain: sepolia, transport: http(PUBLIC_CURRENT_RPC, { retryCount: 0 }) });
+  const currentClient = seams.createHarness ? baseHarness.current : createPublicClient({ chain: sepolia, transport: http(PUBLIC_HISTORICAL_EVIDENCE_RPC, { retryCount: 0 }) });
   const archiveClient = seams.createHarness ? baseHarness.archive : createPublicClient({ chain: sepolia, transport: http(PUBLIC_ARCHIVE_RPC, { retryCount: 0 }) });
   const current = withOnePinnedGetCodeRetry(currentClient), archive = withOnePinnedGetCodeRetry(archiveClient), harness = Object.freeze({ ...baseHarness, current, archive });
   const args = parseUsdcFreshSuccessorCliArguments(argv); let reconstruction: ReturnType<typeof reconstructReviewedPlan> | undefined; const reconstructed = () => reconstruction ??= reconstructReviewedPlan(repository, archive);
