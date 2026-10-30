@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { createOrdinaryScenarioMechanicalExecutionContext, createOrdinaryScenarioStateReader } from "../../scripts/live/ordinary-scenario-adapter";
-import { createUsdcDelayedCompletionExecutionView } from "../../scripts/live/ordinary-scenario-executor";
+import { createUsdcDelayedCompletionExecutionViewForTestsOnly as createUsdcDelayedCompletionExecutionView } from "../../scripts/live/ordinary-scenario-executor";
 import { cleanupUsdcRecycleContinuationFixtures } from "../support/usdc-recycle-continuation-fixture";
 import { approvedDelayedCompletion } from "../support/usdc-delayed-completion-fixture";
 

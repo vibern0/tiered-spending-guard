@@ -1,13 +1,14 @@
 import { expect } from "chai";
 import {
   createOrdinaryScenarioStore,
-  createUsdcDelayedCompletionExecutionView,
-  executeUsdcDelayedCompletionAction,
-  selectUsdcDelayedCompletionSubmissionAction,
+  createUsdcDelayedCompletionExecutionView as createProductionUsdcDelayedCompletionExecutionView,
+  createUsdcDelayedCompletionExecutionViewForTestsOnly as createUsdcDelayedCompletionExecutionView,
+  executeUsdcDelayedCompletionActionForTestsOnly as executeUsdcDelayedCompletionAction,
+  selectUsdcDelayedCompletionSubmissionActionForTestsOnly as selectUsdcDelayedCompletionSubmissionAction,
   type CanonicalOrdinaryScenarioState,
   type OrdinaryScenarioExecutionContext,
 } from "../../../scripts/live/ordinary-scenario-executor";
-import { attachUsdcDelayedCompletion } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
+import { attachUsdcDelayedCompletionForTestsOnly as attachUsdcDelayedCompletion } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
 import { cleanupUsdcRecycleContinuationFixtures } from "../../support/usdc-recycle-continuation-fixture";
 import { approvedDelayedCompletion } from "../../support/usdc-delayed-completion-fixture";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -17,6 +18,10 @@ import type { Hex } from "viem";
 
 describe("ordinary USDC delayed-completion executor", function () {
   afterEach(cleanupUsdcRecycleContinuationFixtures);
+  it("rejects test-only certificate/proposal authority at the production execution boundary", async function () {
+    const f = await approvedDelayedCompletion();
+    expect(() => createProductionUsdcDelayedCompletionExecutionView(f.source, f.proposal, f.approval)).to.throw(/production authorization|opaque|bound/i);
+  });
   it("projects only the new sibling and selects one exact approved row", async function () {
     const f = await approvedDelayedCompletion();
     const attached = attachUsdcDelayedCompletion(f.journal, f.proposal, f.approval);

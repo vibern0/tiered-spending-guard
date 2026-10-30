@@ -7,6 +7,7 @@ import type { ContinuationActionCaps, ContinuationObserverBinding, ExpiredHashle
 import {
   USDC_DELAYED_COMPLETION_SCOPE,
   isVerifiedUsdcDelayedCompletionCertificate,
+  isVerifiedUsdcDelayedCompletionCertificateForTestsOnly,
   usdcDelayedCompletionPredecessorValue,
   type UsdcDelayedCompletionSource,
   type VerifiedUsdcDelayedCompletionCertificate,
@@ -48,8 +49,10 @@ declare const approvalBrand: unique symbol;
 export type UsdcDelayedCompletionApproval = Readonly<{ approvalHash: Hex; readonly [approvalBrand]: true }>;
 export type UsdcDelayedCompletionStorage = Readonly<{ schemaVersion: 1; scope: typeof USDC_DELAYED_COMPLETION_SCOPE; sourceJournalHash: Hex; certificateHash: Hex; proposalHash: Hex; approvalHash: Hex; minimumOuterNonce: number; effectivePeriod: string; deadline: string; actionCommitments: readonly Readonly<{ id: string; commitment: Hex }>[]; maximumReservationWei: string; maxBroadcastAttempts: 1; repairAuthority: "NONE"; actions: Array<Readonly<{ id: string; commitment: Hex; status: "approved" }> | OrdinaryScenarioActionRecord> }>;
 
-const proposals = new WeakSet<object>();
-const approvals = new WeakMap<object, UsdcDelayedCompletionProposal>();
+const productionProposals = new WeakSet<object>();
+const testProposals = new WeakSet<object>();
+const productionApprovals = new WeakMap<object, UsdcDelayedCompletionProposal>();
+const testApprovals = new WeakMap<object, UsdcDelayedCompletionProposal>();
 const publicApprovals = new WeakMap<object, Readonly<Record<string, unknown>>>();
 const proposalJournals = new WeakMap<object, UsdcDelayedCompletionSource["journal"]>();
 const same = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase();
@@ -117,8 +120,9 @@ function buildActions(source: UsdcDelayedCompletionSource, caps: ContinuationAct
 }
 
 type ProposalInput = Readonly<{ source: UsdcDelayedCompletionSource; certificate: VerifiedUsdcDelayedCompletionCertificate; observer: ContinuationObserverBinding; caps: ContinuationActionCaps }>;
-function buildProposal(input: ProposalInput): UsdcDelayedCompletionProposal {
-  if (!isVerifiedUsdcDelayedCompletionCertificate(input.certificate) || !same(input.source.sourceJournalHash, input.certificate.sourceJournalHash) || !same(publicHash(usdcDelayedCompletionPredecessorValue(input.source.journal)), input.source.sourceJournalHash)) throw new Error("delayed completion source and opaque certificate are not exactly bound");
+function buildProposal(input: ProposalInput, testOnly: boolean): UsdcDelayedCompletionProposal {
+  const verified = testOnly ? isVerifiedUsdcDelayedCompletionCertificateForTestsOnly(input.certificate) : isVerifiedUsdcDelayedCompletionCertificate(input.certificate);
+  if (!verified || !same(input.source.sourceJournalHash, input.certificate.sourceJournalHash) || !same(publicHash(usdcDelayedCompletionPredecessorValue(input.source.journal)), input.source.sourceJournalHash)) throw new Error("delayed completion source and opaque certificate are not exactly bound");
   const effectivePeriod = input.certificate.effectivePeriod, deadline = effectivePeriod + 86_400n, caps = validateCaps(input.caps), observer = validateObserver(input.observer, input.certificate, deadline, input.source), actions = buildActions(input.source, caps);
   const reservation = actions.filter(item => item.expectedOutcome === "success").reduce((sum, item) => sum + BigInt(item.gasLimitCap) * BigInt(item.maxFeePerGasCap), 0n);
   if (actions.length !== 13 || reservation !== RESERVATION) throw new Error("delayed completion exact thirteen-row reservation mismatch");
@@ -127,20 +131,23 @@ function buildProposal(input: ProposalInput): UsdcDelayedCompletionProposal {
   const reservationValue = freeze({ phaseLimitWei: PHASE_LIMIT.toString(), priorActualGasCostWei: PRIOR_ACTUAL_GAS_COST.toString(), priorPrincipalWei: PRIOR_PRINCIPAL.toString(), knownOldSuccessorChargeWei: KNOWN_OLD_SUCCESSOR_CHARGE.toString(), remainingOldSuccessorAllowanceWei: REMAINING_OLD_SUCCESSOR_ALLOWANCE.toString(), successorMaximumReservationWei: reservation.toString(), spareOldSuccessorAllowanceWei: spare.toString(), maximumCumulativeOutlayWei: maximum.toString(), newGrossUsdcAllowance: "31000000", aggregateGrossUsdcAllowance: "51000000", inwardUsdcFunding: "31000000" });
   const body = { schemaVersion: 1 as const, scope: USDC_DELAYED_COMPLETION_SCOPE, authorization: "NONE" as const, chainId: 11_155_111 as const, authorityEvidenceHash: DELAYED_COMPLETION_AUTHORITY_EVIDENCE_HASH, sourceJournalHash: input.source.sourceJournalHash, certificateHash: input.certificate.certificateHash, snapshot: freeze({ blockNumber: input.certificate.snapshot.blockNumber, blockHash: input.certificate.snapshot.blockHash, timestamp: input.certificate.snapshot.timestamp }), minimumOuterNonce: input.certificate.minimumOuterNonce, effectivePeriod: effectivePeriod.toString(), deadline: deadline.toString(), observer, schedule: DELAYED_COMPLETION_SCHEDULE, groups: DELAYED_COMPLETION_GROUPS, caps, reservation: reservationValue, maxBroadcastAttempts: 1 as const, repairAuthority: "NONE" as const, actions };
   const proposal = freeze({ ...body, proposalHash: publicHash(body) }) as unknown as UsdcDelayedCompletionProposal;
-  proposals.add(proposal); proposalJournals.set(proposal, input.source.journal);
+  (testOnly ? testProposals : productionProposals).add(proposal); proposalJournals.set(proposal, input.source.journal);
   return proposal;
 }
 
-export function createUsdcDelayedCompletionProposal(input: ProposalInput): UsdcDelayedCompletionProposal { return buildProposal(input); }
+export function createUsdcDelayedCompletionProposal(input: ProposalInput): UsdcDelayedCompletionProposal { return buildProposal(input, false); }
+/** Test-only proposal authority; production approval and execution boundaries reject it. */
+export function createUsdcDelayedCompletionProposalForTestsOnly(input: ProposalInput): UsdcDelayedCompletionProposal { return buildProposal(input, true); }
 export function parseUsdcDelayedCompletionProposal(serialized: string, source: UsdcDelayedCompletionSource, certificate: VerifiedUsdcDelayedCompletionCertificate): UsdcDelayedCompletionProposal {
   let parsed: any; try { parsed = JSON.parse(serialized); } catch { throw new Error("delayed completion proposal must be JSON"); }
-  const expected = buildProposal({ source, certificate, observer: parsed?.observer, caps: parsed?.caps });
+  const expected = buildProposal({ source, certificate, observer: parsed?.observer, caps: parsed?.caps }, false);
   if (JSON.stringify(parsed) !== JSON.stringify(expected)) throw new Error("delayed completion proposal shape, catalog, or hash drift");
   return expected;
 }
+export function parseUsdcDelayedCompletionProposalForTestsOnly(serialized: string, source: UsdcDelayedCompletionSource, certificate: VerifiedUsdcDelayedCompletionCertificate): UsdcDelayedCompletionProposal { let parsed: any; try { parsed = JSON.parse(serialized); } catch { throw new Error("delayed completion proposal must be JSON"); } const expected = buildProposal({ source, certificate, observer: parsed?.observer, caps: parsed?.caps }, true); if (JSON.stringify(parsed) !== JSON.stringify(expected)) throw new Error("delayed completion proposal shape, catalog, or hash drift"); return expected; }
 
-export function loadUsdcDelayedCompletionApproval(proposal: UsdcDelayedCompletionProposal, serialized: string, expectedHash: Hex): UsdcDelayedCompletionApproval {
-  if (!proposals.has(proposal)) throw new Error("delayed completion proposal is not opaque");
+function loadApproval(proposal: UsdcDelayedCompletionProposal, serialized: string, expectedHash: Hex, proposals: WeakSet<object>, approvals: WeakMap<object, UsdcDelayedCompletionProposal>): UsdcDelayedCompletionApproval {
+  if (!proposals.has(proposal)) throw new Error("delayed completion proposal is not opaque for this authority");
   let value: any; try { value = JSON.parse(serialized); } catch { throw new Error("delayed completion approval must be JSON"); }
   const approvalHash = publicHash(value);
   if (!same(approvalHash, expectedHash)) throw new Error("delayed completion approval hash mismatch");
@@ -149,12 +156,19 @@ export function loadUsdcDelayedCompletionApproval(proposal: UsdcDelayedCompletio
   if (!Array.isArray(value.approvedActions) || value.approvedActions.length !== 13 || value.approvedActions.some((item: any, index: number) => item.id !== proposal.actions[index]!.id || item.commitment !== proposal.actions[index]!.commitment)) throw new Error("delayed completion approved action mismatch");
   const approval = freeze({ approvalHash }) as UsdcDelayedCompletionApproval; approvals.set(approval, proposal); publicApprovals.set(approval, freeze(structuredClone(value))); return approval;
 }
+export function loadUsdcDelayedCompletionApproval(proposal: UsdcDelayedCompletionProposal, serialized: string, expectedHash: Hex): UsdcDelayedCompletionApproval { return loadApproval(proposal, serialized, expectedHash, productionProposals, productionApprovals); }
+export function loadUsdcDelayedCompletionApprovalForTestsOnly(proposal: UsdcDelayedCompletionProposal, serialized: string, expectedHash: Hex): UsdcDelayedCompletionApproval { return loadApproval(proposal, serialized, expectedHash, testProposals, testApprovals); }
 
-export function assertUsdcDelayedCompletionAuthorization(proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): void { if (!proposals.has(proposal) || approvals.get(approval) !== proposal) throw new Error("delayed completion authorization is not opaque and exactly bound"); }
+export function assertUsdcDelayedCompletionAuthorization(proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): void { if (!productionProposals.has(proposal) || productionApprovals.get(approval) !== proposal) throw new Error("delayed completion production authorization is not opaque and exactly bound"); }
+export function assertUsdcDelayedCompletionAuthorizationForTestsOnly(proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): void { if (!testProposals.has(proposal) || testApprovals.get(approval) !== proposal) throw new Error("delayed completion test authorization is not opaque and exactly bound"); }
 export function getUsdcDelayedCompletionApprovalPublicValue(approval: UsdcDelayedCompletionApproval): Readonly<Record<string, unknown>> { const value = publicApprovals.get(approval); if (!value || !same(publicHash(value), approval.approvalHash)) throw new Error("delayed completion approval is not genuine"); return structuredClone(value); }
 
 export function attachUsdcDelayedCompletion(journal: UsdcDelayedCompletionSource["journal"], proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): UsdcDelayedCompletionSource["journal"] & { usdcDelayedCompletion: UsdcDelayedCompletionStorage } {
   assertUsdcDelayedCompletionAuthorization(proposal, approval);
+  return attachAuthorized(journal, proposal, approval);
+}
+export function attachUsdcDelayedCompletionForTestsOnly(journal: UsdcDelayedCompletionSource["journal"], proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): UsdcDelayedCompletionSource["journal"] & { usdcDelayedCompletion: UsdcDelayedCompletionStorage } { assertUsdcDelayedCompletionAuthorizationForTestsOnly(proposal, approval); return attachAuthorized(journal, proposal, approval); }
+function attachAuthorized(journal: UsdcDelayedCompletionSource["journal"], proposal: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): UsdcDelayedCompletionSource["journal"] & { usdcDelayedCompletion: UsdcDelayedCompletionStorage } {
   if (journal.usdcDelayedCompletion !== undefined) throw new Error("journal already has a delayed completion attachment");
   if (proposalJournals.get(proposal) !== journal || !same(publicHash(usdcDelayedCompletionPredecessorValue(journal)), proposal.sourceJournalHash)) throw new Error("delayed completion attachment source changed or detached");
   const storage: UsdcDelayedCompletionStorage = { schemaVersion: 1, scope: USDC_DELAYED_COMPLETION_SCOPE, sourceJournalHash: proposal.sourceJournalHash, certificateHash: proposal.certificateHash, proposalHash: proposal.proposalHash, approvalHash: approval.approvalHash, minimumOuterNonce: proposal.minimumOuterNonce, effectivePeriod: proposal.effectivePeriod, deadline: proposal.deadline, actionCommitments: proposal.actions.map(({ id, commitment }) => ({ id, commitment })), maximumReservationWei: proposal.reservation.successorMaximumReservationWei, maxBroadcastAttempts: 1, repairAuthority: "NONE", actions: proposal.actions.map(({ id, commitment }) => ({ id, commitment, status: "approved" as const })) };
@@ -163,7 +177,7 @@ export function attachUsdcDelayedCompletion(journal: UsdcDelayedCompletionSource
 }
 
 export function assertUsdcDelayedCompletionAdmission(proposal: UsdcDelayedCompletionProposal, actionId: string, chainTimestamp: bigint, now: Date, phase: "review" | "scenario" | "private" | "broadcast"): void {
-  if (!proposals.has(proposal)) throw new Error("delayed completion admission requires opaque proposal");
+  if (!productionProposals.has(proposal) && !testProposals.has(proposal)) throw new Error("delayed completion admission requires opaque proposal");
   const index = proposal.actions.findIndex(item => item.id === actionId); if (index < 0) throw new Error("action is outside delayed completion catalog");
   const nowSeconds = BigInt(Math.floor(now.getTime() / 1000)), deadline = BigInt(proposal.deadline), expires = BigInt(proposal.observer.expiresAt);
   if (chainTimestamp >= deadline || nowSeconds >= deadline || chainTimestamp >= expires || nowSeconds >= expires) throw new Error("delayed completion deadline or observer expiry elapsed");

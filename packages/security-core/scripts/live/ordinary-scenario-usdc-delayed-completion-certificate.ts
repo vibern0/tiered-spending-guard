@@ -63,7 +63,8 @@ export type VerifiedUsdcDelayedCompletionCertificate = Readonly<{
 
 const productionSources = new WeakSet<object>();
 const testSources = new WeakSet<object>();
-const certificates = new WeakSet<object>();
+const productionCertificates = new WeakSet<object>();
+const testCertificates = new WeakSet<object>();
 
 const serializedPredecessor = (journal: OrdinaryScenarioJournal): string => `${JSON.stringify(publicValue(usdcDelayedCompletionPredecessorValue(journal)))}\n`;
 export const usdcDelayedCompletionSourceJournalBytesSha256 = (journal: OrdinaryScenarioJournal): Hex => `0x${createHash("sha256").update(serializedPredecessor(journal)).digest("hex")}` as Hex;
@@ -112,7 +113,7 @@ function assertState(source: UsdcDelayedCompletionSource, state: UsdcSuccessorCa
   if (stale.window !== 1_793_232_000n || stale.baseSpent !== 10_000_000n || stale.instantSpent !== 20_000_000n) throw new Error("delayed completion stale USDC counter tuple mismatch");
 }
 
-async function verifyCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], authority: WeakSet<object>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
+async function verifyCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], authority: WeakSet<object>, certificateAuthority: WeakSet<object>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
   if (!authority.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed completion certificate requires a pinned production source and two independent providers");
   if (!same(publicHash(usdcDelayedCompletionPredecessorValue(source.journal)), source.sourceJournalHash)) throw new Error("delayed completion stopped source changed after construction");
   exactStoppedSource(source);
@@ -138,24 +139,27 @@ async function verifyCertificate(source: UsdcDelayedCompletionSource, providers:
   const stoppedRow = Object.freeze({ id: stopped.id, commitment: stopped.commitment, status: "signed-simulated" as const, outerNonce: stopped.outerNonce!, materializationHash: stopped.materializationHash!, prestateHash: stopped.prestateHash!, requestHash: stopped.requestHash!, signedCalldataHash: stopped.signedCalldataHash!, simulationEvidenceHash: stopped.simulationEvidenceHash!, outerDataHash: stopped.outerDataHash! });
   const body = { kind: "VERIFIED_USDC_DELAYED_COMPLETION_CERTIFICATE" as const, scope: USDC_DELAYED_COMPLETION_SCOPE, sourceJournalHash: source.sourceJournalHash, sourceJournalBytesSha256: source.sourceJournalBytesSha256, snapshot: Object.freeze({ blockNumber: blocks[0].number.toString(), blockHash: blocks[0].hash, timestamp: blocks[0].timestamp.toString(), stateHash: publicHash(leftState) }), effectivePeriod, minimumOuterNonce, safeNonce: leftState.safeNonce, delayQueueNonce: leftState.delayQueueNonce, delayTxNonce: leftState.delayTxNonce, safeUsdcBalance: leftState.safeUsdcBalance, funderUsdcBalance: leftState.funderUsdcBalance, rawNativeSpend: Object.freeze({ ...leftState.nativeSpend }), rawUsdcSpend: Object.freeze({ ...leftState.usdcSpend }), stoppedRow };
   const certificate = Object.freeze({ ...body, certificateHash: publicHash(body) }) as VerifiedUsdcDelayedCompletionCertificate;
-  certificates.add(certificate);
+  certificateAuthority.add(certificate);
   return certificate;
 }
 
-export function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> { return verifyCertificate(source, providers, productionSources); }
+export function verifyUsdcDelayedCompletionCertificate(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> { return verifyCertificate(source, providers, productionSources, productionCertificates); }
 /** Test-only certificate authority; its sources are never accepted by the production verifier or reverifier. */
-export function verifyUsdcDelayedCompletionCertificateForTestsOnly(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> { return verifyCertificate(source, providers, testSources); }
+export function verifyUsdcDelayedCompletionCertificateForTestsOnly(source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedCompletionCertificate> { return verifyCertificate(source, providers, testSources, testCertificates); }
 
 export function isVerifiedUsdcDelayedCompletionCertificate(value: unknown): value is VerifiedUsdcDelayedCompletionCertificate {
-  return !!value && typeof value === "object" && certificates.has(value as object);
+  return !!value && typeof value === "object" && productionCertificates.has(value as object);
 }
 
+/** Test-only brand predicate. Production proposal construction never consults it. */
+export function isVerifiedUsdcDelayedCompletionCertificateForTestsOnly(value: unknown): value is VerifiedUsdcDelayedCompletionCertificate { return !!value && typeof value === "object" && testCertificates.has(value as object); }
+
 export function serializeUsdcDelayedCompletionCertificate(certificate: VerifiedUsdcDelayedCompletionCertificate): string {
-  if (!isVerifiedUsdcDelayedCompletionCertificate(certificate)) throw new Error("delayed completion certificate is not runtime verified");
+  if (!isVerifiedUsdcDelayedCompletionCertificate(certificate) && !isVerifiedUsdcDelayedCompletionCertificateForTestsOnly(certificate)) throw new Error("delayed completion certificate is not runtime verified");
   return `${JSON.stringify(publicValue(certificate))}\n`;
 }
 
-async function reverifyCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], authority: WeakSet<object>, reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
+async function reverifyCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], authority: WeakSet<object>, certificateAuthority: WeakSet<object>, reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> {
   let parsed: any; try { parsed = JSON.parse(serialized); } catch { throw new Error("delayed completion recorded certificate must be JSON"); }
   if (!parsed || typeof parsed !== "object" || parsed.kind !== "VERIFIED_USDC_DELAYED_COMPLETION_CERTIFICATE" || parsed.scope !== USDC_DELAYED_COMPLETION_SCOPE || typeof parsed.certificateHash !== "string" || !same(parsed.certificateHash, expectedHash)) throw new Error("delayed completion recorded certificate identity or hash mismatch");
   const { certificateHash, ...body } = parsed;
@@ -182,10 +186,10 @@ async function reverifyCertificate(serialized: string, expectedHash: Hex, source
   const expectedBody = { kind: "VERIFIED_USDC_DELAYED_COMPLETION_CERTIFICATE" as const, scope: USDC_DELAYED_COMPLETION_SCOPE, sourceJournalHash: source.sourceJournalHash, sourceJournalBytesSha256: source.sourceJournalBytesSha256, snapshot: Object.freeze({ blockNumber: leftBlock.number.toString(), blockHash: leftBlock.hash, timestamp: leftBlock.timestamp.toString(), stateHash: publicHash(leftState) }), effectivePeriod: leftBlock.timestamp / PERIOD_SECONDS * PERIOD_SECONDS, minimumOuterNonce: leftSnapshotNonce, safeNonce: leftState.safeNonce, delayQueueNonce: leftState.delayQueueNonce, delayTxNonce: leftState.delayTxNonce, safeUsdcBalance: leftState.safeUsdcBalance, funderUsdcBalance: leftState.funderUsdcBalance, rawNativeSpend: Object.freeze({ ...leftState.nativeSpend }), rawUsdcSpend: Object.freeze({ ...leftState.usdcSpend }), stoppedRow };
   if (!same(publicHash(expectedBody), certificateHash) || JSON.stringify(publicValue(expectedBody)) !== JSON.stringify(body)) throw new Error("delayed completion recorded certificate contains unchecked or changed claims");
   const restored = Object.freeze({ ...expectedBody, certificateHash }) as VerifiedUsdcDelayedCompletionCertificate;
-  certificates.add(restored);
+  certificateAuthority.add(restored);
   return restored;
 }
 
-export function reverifyUsdcDelayedCompletionCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, productionSources, reconciliation); }
+export function reverifyUsdcDelayedCompletionCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, productionSources, productionCertificates, reconciliation); }
 /** Test-only recorded-certificate authority; never accepted by production re-verification. */
-export function reverifyUsdcDelayedCompletionCertificateForTestsOnly(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, testSources, reconciliation); }
+export function reverifyUsdcDelayedCompletionCertificateForTestsOnly(serialized: string, expectedHash: Hex, source: UsdcDelayedCompletionSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedCompletionCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, testSources, testCertificates, reconciliation); }

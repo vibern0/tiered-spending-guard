@@ -1,8 +1,8 @@
-import type { Hex } from "viem";
+import { keccak256, type Hex } from "viem";
 import { sha256 } from "../plan-deployment";
-import { assertUsdcDelayedCompletionJournal, assertUsdcSuccessorReceiptInclusion, type OrdinaryScenarioActionRecord, type OrdinaryScenarioJournal } from "./ordinary-scenario-executor";
-import { isVerifiedUsdcDelayedCompletionCertificate, type UsdcDelayedCompletionSource, type VerifiedUsdcDelayedCompletionCertificate } from "./ordinary-scenario-usdc-delayed-completion-certificate";
-import { assertUsdcDelayedCompletionAuthorization, type UsdcDelayedCompletionApproval, type UsdcDelayedCompletionProposal } from "./ordinary-scenario-usdc-delayed-completion-proposal";
+import { assertUsdcDelayedCompletionJournal, assertUsdcDelayedCompletionJournalForTestsOnly, assertUsdcSuccessorReceiptInclusion, type OrdinaryScenarioActionRecord, type OrdinaryScenarioJournal } from "./ordinary-scenario-executor";
+import { isVerifiedUsdcDelayedCompletionCertificate, isVerifiedUsdcDelayedCompletionCertificateForTestsOnly, type UsdcDelayedCompletionSource, type VerifiedUsdcDelayedCompletionCertificate } from "./ordinary-scenario-usdc-delayed-completion-certificate";
+import { assertUsdcDelayedCompletionAuthorization, assertUsdcDelayedCompletionAuthorizationForTestsOnly, type UsdcDelayedCompletionApproval, type UsdcDelayedCompletionProposal } from "./ordinary-scenario-usdc-delayed-completion-proposal";
 
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const TERMINAL = new Set(["confirmed", "rejection-proved"]), PROGRESS = new Set(["approved", "materialized", "signed-simulated", "outer-pending", "reverted", "stopped"]), ALERT_KINDS = new Set(["queue-proposal", "queue-cancellation", "queue-expiry", "ready-delay-execution"]);
@@ -10,9 +10,10 @@ const same = (left: string, right: string): boolean => left.toLowerCase() === ri
 const freeze = <T>(value: T): T => { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value as Record<string, unknown>)) freeze(child); } return value; };
 export type UsdcDelayedCompletionReportContext = Readonly<{ certificate: VerifiedUsdcDelayedCompletionCertificate; proposal: UsdcDelayedCompletionProposal; approval: UsdcDelayedCompletionApproval }>;
 
-function validateContext(source: UsdcDelayedCompletionSource, context: UsdcDelayedCompletionReportContext, journal: OrdinaryScenarioJournal): void {
-  if (!isVerifiedUsdcDelayedCompletionCertificate(context.certificate)) throw new Error("delayed completion report certificate is not opaque");
-  assertUsdcDelayedCompletionAuthorization(context.proposal, context.approval); assertUsdcDelayedCompletionJournal(journal, source, context.proposal, context.approval);
+function validateContext(source: UsdcDelayedCompletionSource, context: UsdcDelayedCompletionReportContext, journal: OrdinaryScenarioJournal, testOnly: boolean): void {
+  if (!(testOnly ? isVerifiedUsdcDelayedCompletionCertificateForTestsOnly(context.certificate) : isVerifiedUsdcDelayedCompletionCertificate(context.certificate))) throw new Error("delayed completion report certificate is not opaque for this authority");
+  if (testOnly) { assertUsdcDelayedCompletionAuthorizationForTestsOnly(context.proposal, context.approval); assertUsdcDelayedCompletionJournalForTestsOnly(journal, source, context.proposal, context.approval); }
+  else { assertUsdcDelayedCompletionAuthorization(context.proposal, context.approval); assertUsdcDelayedCompletionJournal(journal, source, context.proposal, context.approval); }
   const certificate = context.certificate, proposal = context.proposal, attached = journal.usdcDelayedCompletion!;
   if (!same(certificate.sourceJournalHash, proposal.sourceJournalHash) || !same(certificate.certificateHash, proposal.certificateHash) || certificate.effectivePeriod.toString() !== proposal.effectivePeriod || !same(attached.certificateHash, proposal.certificateHash) || !same(attached.proposalHash, proposal.proposalHash) || !same(attached.approvalHash, context.approval.approvalHash)) throw new Error("delayed completion report source, certificate, proposal, approval, or header mismatch");
   if (proposal.reservation.newGrossUsdcAllowance !== "31000000" || proposal.reservation.aggregateGrossUsdcAllowance !== "51000000" || proposal.reservation.inwardUsdcFunding !== "31000000" || proposal.reservation.successorMaximumReservationWei !== "9340292000000" || proposal.reservation.maximumCumulativeOutlayWei !== "140501418272986") throw new Error("delayed completion report accounting or reservation header mismatch");
@@ -26,7 +27,11 @@ function finalMaterializationMatches(record: OrdinaryScenarioActionRecord, propo
 
 /** Pure persisted-evidence projection: no RPC, filesystem, signing, simulation, approval construction, or broadcast. */
 export function renderUsdcDelayedCompletionReport(source: UsdcDelayedCompletionSource, context: UsdcDelayedCompletionReportContext, journal: OrdinaryScenarioJournal): Readonly<Record<string, any>> {
-  validateContext(source, context, journal);
+  return renderReport(source, context, journal, false);
+}
+export function renderUsdcDelayedCompletionReportForTestsOnly(source: UsdcDelayedCompletionSource, context: UsdcDelayedCompletionReportContext, journal: OrdinaryScenarioJournal): Readonly<Record<string, any>> { return renderReport(source, context, journal, true); }
+function renderReport(source: UsdcDelayedCompletionSource, context: UsdcDelayedCompletionReportContext, journal: OrdinaryScenarioJournal, testOnly: boolean): Readonly<Record<string, any>> {
+  validateContext(source, context, journal, testOnly);
   const attached = journal.usdcDelayedCompletion!, proposal = context.proposal, expectedLive: OrdinaryScenarioActionRecord[] = [];
   let terminal = 0, successful = 0, gas = 0n, outflow = 0n, inward = 0n, approvedTail = false, complete = true;
   const actions = proposal.actions.map((action, index) => {
@@ -41,7 +46,8 @@ export function renderUsdcDelayedCompletionReport(source: UsdcDelayedCompletionS
         const expectedTo = action.safeTransaction ? source.historical.prior.original.safe : action.transaction.to;
         const signatureField = Object.prototype.hasOwnProperty.call(record, "signatureBundleHash") && (action.safeTransaction ? typeof record.signatureBundleHash === "string" && HASH.test(record.signatureBundleHash) : record.signatureBundleHash === null);
         const requestMatches = !!record.requestHash && HASH.test(record.requestHash) && same(record.requestHash, action.safeTxHash ?? action.commitment);
-        if (!record.intentHash || !record.transactionHash || !receipt || receipt.status !== "success" || !same(record.transactionHash, receipt.transactionHash) || BigInt(receipt.gasUsed) <= 0n || BigInt(receipt.gasUsed) > BigInt(action.gasLimitCap) || BigInt(receipt.effectiveGasPrice) < 0n || BigInt(receipt.effectiveGasPrice) > BigInt(action.maxFeePerGasCap) || BigInt(record.ourReceiptGasCost ?? "-1") !== BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) || BigInt(record.ourPrincipalDelta ?? "-1") !== 0n || BigInt(record.outerValue ?? "-1") !== 0n || !record.outerTo || !same(record.outerTo, expectedTo) || !requestMatches || !signatureField || !record.signedCalldataHash || !HASH.test(record.signedCalldataHash) || !record.simulationEvidenceHash || !HASH.test(record.simulationEvidenceHash) || !record.outerDataHash || !HASH.test(record.outerDataHash) || !record.gas || !finalMaterializationMatches(record, proposal, action)) throw new Error(`delayed completion receipt, gas, principal, or durable envelope mismatch at ${index + 1}`);
+        const calldataMatches = !!record.signedCalldataHash && !!record.outerDataHash && HASH.test(record.signedCalldataHash) && HASH.test(record.outerDataHash) && same(record.signedCalldataHash, record.outerDataHash) && (action.safeTransaction !== undefined || same(record.signedCalldataHash, keccak256(action.transaction.data)));
+        if (!record.intentHash || !record.transactionHash || !receipt || receipt.status !== "success" || !same(record.transactionHash, receipt.transactionHash) || !record.gas || !record.maxFeePerGas || BigInt(receipt.gasUsed) <= 0n || BigInt(receipt.gasUsed) > BigInt(record.gas) || BigInt(receipt.effectiveGasPrice) < 0n || BigInt(receipt.effectiveGasPrice) > BigInt(record.maxFeePerGas) || BigInt(record.ourReceiptGasCost ?? "-1") !== BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) || BigInt(record.ourPrincipalDelta ?? "-1") !== 0n || BigInt(record.outerValue ?? "-1") !== 0n || !record.outerTo || !same(record.outerTo, expectedTo) || !requestMatches || !signatureField || !calldataMatches || !record.simulationEvidenceHash || !HASH.test(record.simulationEvidenceHash) || !finalMaterializationMatches(record, proposal, action)) throw new Error(`delayed completion receipt, gas, principal, or durable envelope mismatch at ${index + 1}`);
         assertUsdcSuccessorReceiptInclusion(record, proposal.effectivePeriod, proposal.deadline);
         const alert = ALERT_KINDS.has(action.kind); if (alert ? !record.observerEvidenceHash || !HASH.test(record.observerEvidenceHash) : record.observerEvidenceHash !== null) throw new Error(`delayed completion observer evidence mismatch at ${index + 1}`);
         expectedLive.push(record); successful++; gas += BigInt(record.ourReceiptGasCost!);

@@ -1,9 +1,9 @@
 import { expect } from "chai";
-import type { Hex } from "viem";
+import { keccak256, type Hex } from "viem";
 import { sha256 } from "../../../scripts/plan-deployment";
 import type { OrdinaryScenarioJournal } from "../../../scripts/live/ordinary-scenario-executor";
-import { renderUsdcDelayedCompletionReport } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-report";
-import { attachUsdcDelayedCompletion } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
+import { renderUsdcDelayedCompletionReportForTestsOnly as renderUsdcDelayedCompletionReport } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-report";
+import { attachUsdcDelayedCompletionForTestsOnly as attachUsdcDelayedCompletion } from "../../../scripts/live/ordinary-scenario-usdc-delayed-completion-proposal";
 import { cleanupUsdcRecycleContinuationFixtures } from "../../support/usdc-recycle-continuation-fixture";
 import { approvedDelayedCompletion } from "../../support/usdc-delayed-completion-fixture";
 
@@ -17,7 +17,8 @@ function terminalize(value: Awaited<ReturnType<typeof approvedDelayedCompletion>
     if (action.expectedOutcome === "rejection") return { ...base, status: "rejection-proved" as const, evidenceHash: hash((0xd00 + index).toString(16)) };
     const outerNonce = nonce++, transactionHash = hash((0xb00 + index).toString(16)), receipt = { transactionHash, status: "success" as const, gasUsed: 10n + BigInt(index), effectiveGasPrice: 7n, blockNumber: 12_027_000n + BigInt(index), blockHash: hash((0xc00 + index).toString(16)) };
     const facts = { proposalHash: value.proposal.proposalHash, actionCommitment: action.commitment, outerNonce, gas: action.gasLimitCap.toString(), gasEstimate: receipt.gasUsed.toString(), maxFeePerGas: "7", maxPriorityFeePerGas: "7", pinnedBlockNumber: (receipt.blockNumber - 1n).toString(), pinnedBlockHash: hash((0xc80 + index).toString(16)), approvedContinuationReservationWei: value.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: value.proposal.reservation.successorMaximumReservationWei };
-    return { ...base, outerNonce, status: "confirmed" as const, gas: action.gasLimitCap.toString(), requestHash: action.safeTxHash ?? action.commitment, signatureBundleHash: action.safeTransaction ? hash((0xa40 + index).toString(16)) : null, signedCalldataHash: hash((0xa60 + index).toString(16)), simulationEvidenceHash: hash((0xa80 + index).toString(16)), finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts }, intentHash: hash((0xe00 + index).toString(16)), transactionHash, outerTo: action.safeTransaction ? value.source.historical.prior.original.safe : action.transaction.to, outerValue: "0", outerDataHash: hash((0xaa0 + index).toString(16)), evidenceHash: hash((0xd00 + index).toString(16)), observerEvidenceHash: alerts.has(action.kind) ? hash((0xf00 + index).toString(16)) : null, receipt, receiptInclusion: { transactionHash, blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, blockTimestamp: (BigInt(value.proposal.effectivePeriod) + 60n + BigInt(index)).toString(), effectivePeriod: value.proposal.effectivePeriod }, ourPrincipalDelta: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString() };
+    const signedCalldataHash = action.safeTransaction ? hash((0xa60 + index).toString(16)) : keccak256(action.transaction.data);
+    return { ...base, outerNonce, status: "confirmed" as const, gas: action.gasLimitCap.toString(), requestHash: action.safeTxHash ?? action.commitment, signatureBundleHash: action.safeTransaction ? hash((0xa40 + index).toString(16)) : null, signedCalldataHash, simulationEvidenceHash: hash((0xa80 + index).toString(16)), finalOuterMaterialization: { hash: sha256(facts) as Hex, ...facts }, intentHash: hash((0xe00 + index).toString(16)), transactionHash, outerTo: action.safeTransaction ? value.source.historical.prior.original.safe : action.transaction.to, outerValue: "0", outerDataHash: signedCalldataHash, evidenceHash: hash((0xd00 + index).toString(16)), observerEvidenceHash: alerts.has(action.kind) ? hash((0xf00 + index).toString(16)) : null, receipt, receiptInclusion: { transactionHash, blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash, blockTimestamp: (BigInt(value.proposal.effectivePeriod) + 60n + BigInt(index)).toString(), effectivePeriod: value.proposal.effectivePeriod }, ourPrincipalDelta: "0", ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString() };
   });
   journal.usdcDelayedCompletion!.actions.splice(0, records.length, ...records);
   journal.liveJournal.entries.push(...records.filter((record): record is typeof record & { status: "confirmed"; intentHash: Hex; transactionHash: Hex; receipt: any; ourReceiptGasCost: string } => record.status === "confirmed").map(record => ({ id: record.id, intentHash: record.intentHash, transactionHash: record.transactionHash, nonce: record.outerNonce, reserved: BigInt(record.ourReceiptGasCost), status: "success" as const, receipt: record.receipt })));
@@ -49,6 +50,10 @@ describe("ordinary USDC delayed-completion report", function () {
       ["record-fee", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).maxFeePerGas = "8"; }],
       ["destination", journal => { (journal.usdcDelayedCompletion!.actions[0] as any).outerTo = "0x0000000000000000000000000000000000000001"; }],
       ["signature-field", journal => { delete (journal.usdcDelayedCompletion!.actions[2] as any).signatureBundleHash; }],
+      ["calldata-hash", journal => { (journal.usdcDelayedCompletion!.actions[2] as any).signedCalldataHash = hash("bad"); }],
+      ["public-calldata", journal => { const record = journal.usdcDelayedCompletion!.actions[0] as any; record.signedCalldataHash = hash("bad"); record.outerDataHash = hash("bad"); }],
+      ["mirrored-receipt-gas", journal => { const record = journal.usdcDelayedCompletion!.actions[0] as any; record.gas = "1"; record.finalOuterMaterialization.gas = "1"; const { hash: _old, ...facts } = record.finalOuterMaterialization; record.finalOuterMaterialization.hash = sha256(facts); }],
+      ["mirrored-receipt-fee", journal => { const record = journal.usdcDelayedCompletion!.actions[0] as any, entry = journal.liveJournal.entries[15]!; record.receipt.effectiveGasPrice = 8n; record.ourReceiptGasCost = (record.receipt.gasUsed * 8n).toString(); (entry.receipt as any).effectiveGasPrice = 8n; entry.reserved = record.receipt.gasUsed * 8n; }],
       ["proof-private", journal => { (journal.usdcDelayedCompletion!.actions[1] as any).requestHash = hash("bad"); }],
       ["live-receipt", journal => { journal.liveJournal.entries[15]!.reserved = 1n; }],
     ];

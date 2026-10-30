@@ -3,6 +3,7 @@ import {
   createUsdcDelayedCompletionSource,
   createUsdcDelayedCompletionSourceForTestsOnly,
   isVerifiedUsdcDelayedCompletionCertificate,
+  isVerifiedUsdcDelayedCompletionCertificateForTestsOnly,
   reverifyUsdcDelayedCompletionCertificateForTestsOnly,
   serializeUsdcDelayedCompletionCertificate,
   verifyUsdcDelayedCompletionCertificate,
@@ -25,7 +26,8 @@ describe("ordinary USDC delayed-completion certificate", function () {
     const fixture = await createDelayedCompletionFixture();
     const source = createUsdcDelayedCompletionSourceForTestsOnly(fixture);
     const certificate = await verifyUsdcDelayedCompletionCertificateForTestsOnly(source, await delayedProviders(fixture.historical));
-    expect(isVerifiedUsdcDelayedCompletionCertificate(certificate)).to.equal(true);
+    expect(isVerifiedUsdcDelayedCompletionCertificate(certificate)).to.equal(false);
+    expect(isVerifiedUsdcDelayedCompletionCertificateForTestsOnly(certificate)).to.equal(true);
     expect(certificate).to.include({ safeNonce: 10n, delayQueueNonce: 4n, delayTxNonce: 4n, safeUsdcBalance: 0n, funderUsdcBalance: 40_000_000n, minimumOuterNonce: 906 });
     expect(certificate.rawUsdcSpend).to.deep.equal({ window: 1_793_232_000n, baseSpent: 10_000_000n, instantSpent: 20_000_000n });
     expect(certificate.stoppedRow).to.include({ id: "usdc-fresh-successor-prefund-all", status: "signed-simulated", outerNonce: 905 });
@@ -51,7 +53,8 @@ describe("ordinary USDC delayed-completion certificate", function () {
     const source = createUsdcDelayedCompletionSourceForTestsOnly(fixture);
     const certificate = await verifyUsdcDelayedCompletionCertificateForTestsOnly(source, await delayedProviders(fixture.historical));
     const restored = await reverifyUsdcDelayedCompletionCertificateForTestsOnly(serializeUsdcDelayedCompletionCertificate(certificate), certificate.certificateHash, source, await delayedProviders(fixture.historical, { latestNonce: 907, pendingNonce: 907 }));
-    expect(isVerifiedUsdcDelayedCompletionCertificate(restored)).to.equal(true);
+    expect(isVerifiedUsdcDelayedCompletionCertificate(restored)).to.equal(false);
+    expect(isVerifiedUsdcDelayedCompletionCertificateForTestsOnly(restored)).to.equal(true);
     expect(restored.certificateHash).to.equal(certificate.certificateHash);
   });
 

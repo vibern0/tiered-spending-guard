@@ -33,6 +33,7 @@ import type { UsdcDelayedCompletionSource } from "./ordinary-scenario-usdc-delay
 import {
   assertUsdcDelayedCompletionAdmission,
   assertUsdcDelayedCompletionAuthorization,
+  assertUsdcDelayedCompletionAuthorizationForTestsOnly,
   type UsdcDelayedCompletionApproval,
   type UsdcDelayedCompletionProposal,
   type UsdcDelayedCompletionStorage,
@@ -540,9 +541,9 @@ function delayedCompletionPredecessorProjection(journal: OrdinaryScenarioJournal
   return { ...predecessor, liveJournal: { ...predecessor.liveJournal, entries: predecessor.liveJournal.entries.slice(0, 15) } };
 }
 
-export function createUsdcDelayedCompletionExecutionView(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval?: UsdcDelayedCompletionApproval): OrdinaryScenarioExecutionView {
+function createDelayedCompletionExecutionView(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, assertAuthorization: typeof assertUsdcDelayedCompletionAuthorization): OrdinaryScenarioExecutionView {
   if (!same(publicHash(delayedCompletionPredecessorProjection(source.journal)), completion.sourceJournalHash) || !same(source.sourceJournalHash, completion.sourceJournalHash)) throw new Error("delayed completion frozen predecessor changed");
-  if (approval !== undefined) assertUsdcDelayedCompletionAuthorization(completion, approval);
+  if (approval !== undefined) assertAuthorization(completion, approval);
   const nativeBridge = source.historical.prior.recovery.actions.slice(0, 3).map(continuationScope);
   const oldConfirmed = source.historical.priorProposal.actions.slice(0, 2).map(usdcSuccessorScope);
   const actions = completion.actions.map(continuationScope);
@@ -551,6 +552,8 @@ export function createUsdcDelayedCompletionExecutionView(source: UsdcDelayedComp
   executionViews.add(view);
   return view;
 }
+export function createUsdcDelayedCompletionExecutionView(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval?: UsdcDelayedCompletionApproval): OrdinaryScenarioExecutionView { return createDelayedCompletionExecutionView(source, completion, approval, assertUsdcDelayedCompletionAuthorization); }
+export function createUsdcDelayedCompletionExecutionViewForTestsOnly(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval?: UsdcDelayedCompletionApproval): OrdinaryScenarioExecutionView { return createDelayedCompletionExecutionView(source, completion, approval, assertUsdcDelayedCompletionAuthorizationForTestsOnly); }
 
 function projectUsdcDelayedCompletionJournal(journal: OrdinaryScenarioJournal, progressed: readonly OrdinaryScenarioActionRecord[]): OrdinaryScenarioJournal {
   const nativeBridge = journal.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? [];
@@ -559,8 +562,8 @@ function projectUsdcDelayedCompletionJournal(journal: OrdinaryScenarioJournal, p
   return structuredClone({ ...journal, actions: [...nativeBridge, ...oldConfirmed, ...progressed] });
 }
 
-export function assertUsdcDelayedCompletionJournal(journal: OrdinaryScenarioJournal, source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): void {
-  assertUsdcDelayedCompletionAuthorization(completion, approval);
+function assertDelayedCompletionJournal(journal: OrdinaryScenarioJournal, source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, assertAuthorization: typeof assertUsdcDelayedCompletionAuthorization): void {
+  assertAuthorization(completion, approval);
   const attached = journal.usdcDelayedCompletion;
   if (!attached || journal.usdcRecycleContinuation !== undefined || journal.repairContinuation !== undefined || !journal.usdcFreshSuccessor || journal.liveJournal.entries.length < 15 || !same(publicHash(delayedCompletionPredecessorProjection(journal)), completion.sourceJournalHash)) throw new Error("delayed completion predecessor, sole sibling, or live prefix changed");
   if (attached.schemaVersion !== 1 || attached.scope !== completion.scope || !same(attached.sourceJournalHash, completion.sourceJournalHash) || !same(attached.certificateHash, completion.certificateHash) || !same(attached.proposalHash, completion.proposalHash) || !same(attached.approvalHash, approval.approvalHash) || attached.minimumOuterNonce !== completion.minimumOuterNonce || attached.effectivePeriod !== completion.effectivePeriod || attached.deadline !== completion.deadline || attached.maximumReservationWei !== completion.reservation.successorMaximumReservationWei || attached.maxBroadcastAttempts !== 1 || attached.repairAuthority !== "NONE" || attached.actions.length !== 13 || attached.actionCommitments.length !== 13) throw new Error("delayed completion immutable header mismatch");
@@ -586,10 +589,12 @@ export function assertUsdcDelayedCompletionJournal(journal: OrdinaryScenarioJour
   const suffix = journal.liveJournal.entries.slice(15);
   if (suffix.length !== broadcasts.length || suffix.some((entry, index) => entry.id !== broadcasts[index]!.id || !same(entry.transactionHash, broadcasts[index]!.transactionHash!))) throw new Error("delayed completion live suffix is orphaned, reordered, or mixed");
 }
+export function assertUsdcDelayedCompletionJournal(journal: OrdinaryScenarioJournal, source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): void { return assertDelayedCompletionJournal(journal, source, completion, approval, assertUsdcDelayedCompletionAuthorization); }
+export function assertUsdcDelayedCompletionJournalForTestsOnly(journal: OrdinaryScenarioJournal, source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval): void { return assertDelayedCompletionJournal(journal, source, completion, approval, assertUsdcDelayedCompletionAuthorizationForTestsOnly); }
 
-export function selectUsdcDelayedCompletionSubmissionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope {
-  const view = createUsdcDelayedCompletionExecutionView(source, completion, approval);
-  assertUsdcDelayedCompletionJournal(journal, source, completion, approval);
+function selectDelayedCompletionSubmissionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, journal: OrdinaryScenarioJournal, assertAuthorization: typeof assertUsdcDelayedCompletionAuthorization): OrdinaryScenarioActionScope {
+  const view = createDelayedCompletionExecutionView(source, completion, approval, assertAuthorization);
+  assertDelayedCompletionJournal(journal, source, completion, approval, assertAuthorization);
   const progressed = journal.usdcDelayedCompletion!.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
   const binding: ApprovalBinding = { proposal: view.proposal, actions: completion.actions.map(continuationScope), actionCount: completion.actions.length, maximumApprovedReservation: BigInt(completion.reservation.successorMaximumReservationWei) };
   const action = nextAction(binding, projectUsdcDelayedCompletionJournal(journal, progressed));
@@ -598,6 +603,8 @@ export function selectUsdcDelayedCompletionSubmissionAction(source: UsdcDelayedC
   if (!attached || attached.status !== "approved") throw new Error("delayed completion requires one fresh approved action");
   return action;
 }
+export function selectUsdcDelayedCompletionSubmissionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope { return selectDelayedCompletionSubmissionAction(source, completion, approval, journal, assertUsdcDelayedCompletionAuthorization); }
+export function selectUsdcDelayedCompletionSubmissionActionForTestsOnly(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope { return selectDelayedCompletionSubmissionAction(source, completion, approval, journal, assertUsdcDelayedCompletionAuthorizationForTestsOnly); }
 
 /** Select one exact fresh submission from validated attached continuation progress. */
 export function selectExpiredHashlessContinuationSubmissionAction(original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope {
@@ -1656,22 +1663,22 @@ export async function executeUsdcFreshSuccessorAction(source: UsdcRecycleContinu
   return executeResolvedOrdinaryScenarioAction(view.proposal, binding, sourceStore, guardedContext, () => undefined, successor.reservation.successorMaximumReservationWei, { rawNativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, effectivePeriod: BigInt(successor.effectivePeriod), freshSuccessor: successor, staleUsdcSpend: { window: 1_793_232_000n, baseSpent: 10_000_000n, instantSpent: 20_000_000n } });
 }
 
-export async function executeUsdcDelayedCompletionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> {
+async function executeDelayedCompletionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext, assertAuthorization: typeof assertUsdcDelayedCompletionAuthorization): Promise<OrdinaryScenarioExecutionResult> {
   if (!approval) throw new Error("delayed completion exact approval is required");
-  const view = createUsdcDelayedCompletionExecutionView(source, completion, approval);
+  const view = createDelayedCompletionExecutionView(source, completion, approval, assertAuthorization);
   const sourceStore: OrdinaryScenarioStore = {
     load: () => {
-      const current = store.load(); assertUsdcDelayedCompletionJournal(current, source, completion, approval);
+      const current = store.load(); assertDelayedCompletionJournal(current, source, completion, approval, assertAuthorization);
       const progressed = current.usdcDelayedCompletion!.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
       return projectUsdcDelayedCompletionJournal(current, progressed);
     },
     save: projected => {
-      const current = store.load(); assertUsdcDelayedCompletionJournal(current, source, completion, approval);
+      const current = store.load(); assertDelayedCompletionJournal(current, source, completion, approval, assertAuthorization);
       const progressed = new Map(projected.actions.filter(entry => entry.id.startsWith("usdc-delayed-completion-")).map(entry => [entry.id, entry]));
       const storage = current.usdcDelayedCompletion! as UsdcDelayedCompletionStorage & { actions: Array<Readonly<{ id: string; commitment: Hex; status: "approved" }> | OrdinaryScenarioActionRecord> };
       storage.actions.splice(0, storage.actions.length, ...completion.actions.map(action => progressed.get(action.id) ?? { id: action.id, commitment: action.commitment, status: "approved" as const }));
       current.liveJournal = projected.liveJournal;
-      assertUsdcDelayedCompletionJournal(current, source, completion, approval);
+      assertDelayedCompletionJournal(current, source, completion, approval, assertAuthorization);
       store.save(current);
     },
   };
@@ -1679,6 +1686,8 @@ export async function executeUsdcDelayedCompletionAction(source: UsdcDelayedComp
   const guardedContext: OrdinaryScenarioExecutionContext = { ...context, readState: async (action, phase) => { const state = await context.readState(action, phase); if (state.outerNonce < completion.minimumOuterNonce) throw new Error("delayed completion outer nonce is below the persisted minimum checkpoint"); return state; } };
   return executeResolvedOrdinaryScenarioAction(view.proposal, binding, sourceStore, guardedContext, () => undefined, completion.reservation.successorMaximumReservationWei, { rawNativeSpend: { window: 1_793_145_600n, baseSpent: 10_000_000_000_000n, instantSpent: 30_000_000_000_000n }, effectivePeriod: BigInt(completion.effectivePeriod), delayedCompletion: completion, staleUsdcSpend: { window: 1_793_232_000n, baseSpent: 10_000_000n, instantSpent: 20_000_000n } });
 }
+export function executeUsdcDelayedCompletionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> { return executeDelayedCompletionAction(source, completion, approval, store, context, assertUsdcDelayedCompletionAuthorization); }
+export function executeUsdcDelayedCompletionActionForTestsOnly(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> { return executeDelayedCompletionAction(source, completion, approval, store, context, assertUsdcDelayedCompletionAuthorizationForTestsOnly); }
 
 function assertHashlessContinuationJournal(journal: OrdinaryScenarioJournal, original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval): void {
   const attached = journal.hashlessContinuation;
