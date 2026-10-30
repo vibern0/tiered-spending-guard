@@ -1,6 +1,6 @@
 # Fresh-period USDC successor — implementation evidence
 
-**Status: IMPLEMENTED THROUGH PURE REPORT; NOT YET LIVE-APPROVED OR EXECUTED.** This record describes source verification, proposal, execution boundary, CLI and pure reporting code. It is not a transaction receipt, observer delivery, exact artifact acceptance, repair approval, audit, or production-readiness claim.
+**Status: EXACT FOCUSED APPROVAL CREATED; FIRST LIVE ATTEMPT STOPPED BEFORE OUTER SIGNING OR BROADCAST.** This record describes source verification, proposal, execution boundary, CLI, pure reporting code and the exact stopped attempt. It is not a transaction receipt, repair approval, audit, or production-readiness claim.
 
 ## Authority and fixed scope
 
@@ -64,11 +64,19 @@ The first whole-change review found three further Important issues: the producti
 
 Whole-change re-review of `6cf6e05..57e8989` returned `ACCEPT`, with no remaining Critical or Important findings. The full gate ran against tested product HEAD `57e89898a0d8328d37df162221ab35f841783769` and exited zero: 652 regular tests passing; 4 invariants passing; coverage 650 passing and 2 pending; Slither accepted exactly 11 reviewed baseline findings with no new finding; local rehearsal 1 passing; and `git diff --check` clean. Raw security-gate log: 126823 bytes, SHA-256 `c34e1ae042605799d0a68ad18285313e0dc829a2f0858f0180c900cd41116515`. Normal artifact restoration compiled 51 Solidity files, exit zero, log SHA-256 `36ecbd61a60d0f3287bd95d143e26babdde3f633f075569aa8eb0402c000a717`. Backend: 8 files / 18 tests passing, exit zero, log SHA-256 `44f47145eba00cbc9d24a49119dc7fea15e448f10239e8685c365d9fc815e8c9`. The tracked worktree was clean immediately after these checks. Compiler mutability suggestions and the local Python LibreSSL warning remain non-failing warnings; the two coverage pendings are the existing conditional maintenance cases. Logs remain outside Git under the temporary gate directory and contain no live credentials.
 
-## Gates still required before live execution
+## Exact artifacts and stopped attempt
 
-1. A fresh independent receiver and observer window covering the whole reviewed schedule.
-2. Fresh two-provider source proof and unsigned production review artifacts bound to the clean tested HEAD.
-3. Independent exact-artifact acceptance and one exact machine approval. Proposal generation alone has `authorization: NONE`.
-4. One-action-at-a-time live execution, real waits, six confirmations, receipt/effect validation, required observer delivery and official acknowledgement, then a terminal public report and evidence review.
+A fresh independent observer, two-provider source proof, unsigned production review, independent artifact replay and focused machine approval were completed. The immutable artifact hashes are:
 
-No transaction has been signed or broadcast under this fresh successor at the time of this record. Repair, browser/hardware proof, ordinary Task 0 closure and native Safe ERC-4337 Tasks 1–13 remain open.
+| Artifact | Hash |
+| --- | --- |
+| Certificate | `0x251f6f2e3a7458327eb5bf46c79e52a3476703310c109ef91d4e75cf67fbf57a` |
+| Proposal | `0xcef5b572ea4405539c805ce2469ac738406bea55f1a2a47e25773987dc4cb4b2` |
+| Approval | `0xfe6ce491b7f4a62968144912101e121fc04c58e4ad0c49117fdcd0a0a6650286` |
+| Independent artifact review SHA-256 | `0xf11af6a22e8cfb9b47420e29c9cc8c78662dcfe421c44670415c7b176a79a6ac` |
+
+The first operator invocation stopped on a public rate limit before private work or broadcast. The second passed public preflight and exact signed simulation, then failed before outer signing while reconciling old durable receipts through PublicNode's shorter retained history. It persisted `usdc-fresh-successor-prefund-all` as `signed-simulated`, outer nonce `905`, with no intent hash, transaction hash, receipt or live record. `broadcastAttempts` remained zero and the shared live journal still has 15 successful entries. Its post-attempt SHA-256 is `0x22c3171640cb450024ba6d4964b67ed6e761e75573ac451dffdd3342d6cee07a`.
+
+Commit `0babbcd6819d8ba8a31c7ec86992d812b10d7bd8` routes future durable receipt and six-confirmation canonicality reads through the fixed Tenderly archive client. The exact-head security gate passed 654 regular tests, 4 invariants, 652 coverage tests with 2 pending, the reviewed Slither baseline and rehearsal; normal build compiled 51 Solidity files; backend passed 18 tests in 8 files. Independent review verdict: `ACCEPT PATCH; CURRENT EXECUTION BLOCKED`. The accepted gate hashes are `0xa6ee60f962aec6dd211a5a447a7ed64d0f4a82f534bbbbce6b6501e7a5f8b638`, `0x36ecbd61a60d0f3287bd95d143e26babdde3f633f075569aa8eb0402c000a717`, and `0xd25b362df7eabdd843ffaf4ac11a4ea77f72499a9457fcc8d0543c7d2115fb84` for security, build and backend respectively.
+
+The patch cannot restore the interrupted row. Restart rejects `signed-simulated`, the fresh selector requires `approved`, and no durable hash exists for keyless reconciliation. Resetting/replacing the journal, regressing or skipping the row, bypassing the selector or re-signing under this approval is prohibited. Further live continuation requires a separately authorized successor design, exact review/approval and execution-head binding. Repair, browser/hardware proof, ordinary Task 0 closure and native Safe ERC-4337 Tasks 1–13 remain open.
