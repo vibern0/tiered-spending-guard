@@ -8,7 +8,7 @@ import { assertOrdinaryScenarioReviewCliEnvironment, PUBLIC_ARCHIVE_RPC, PUBLIC_
 describe("ordinary scenario review read-only CLI package", () => {
   it("separates the live current endpoint from two distinct historical evidence endpoints", () => {
     expect(PUBLIC_CURRENT_RPC).to.equal("https://ethereum-sepolia-rpc.publicnode.com");
-    expect(PUBLIC_HISTORICAL_EVIDENCE_RPC).to.equal("https://eth-sepolia.blockscout.com/api/eth-rpc");
+    expect(PUBLIC_HISTORICAL_EVIDENCE_RPC).to.equal("https://sepolia.rpc.thirdweb.com");
     expect(PUBLIC_ARCHIVE_RPC).to.equal("https://sepolia.gateway.tenderly.co");
     expect(new Set([PUBLIC_CURRENT_RPC, PUBLIC_HISTORICAL_EVIDENCE_RPC, PUBLIC_ARCHIVE_RPC]).size).to.equal(3);
   });

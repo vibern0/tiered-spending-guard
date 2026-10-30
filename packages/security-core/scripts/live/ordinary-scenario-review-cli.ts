@@ -29,7 +29,7 @@ const GUARD_ABI = parseAbi(["function spendState(address) view returns (uint256,
 const ERC20_ABI = parseAbi(["function balanceOf(address) view returns (uint256)", "function name() view returns (string)", "function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
 const FACTORY_ABI = parseAbi(["function getSigner(uint256,uint256,uint176) view returns (address)"]);
 export const PUBLIC_CURRENT_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
-export const PUBLIC_HISTORICAL_EVIDENCE_RPC = "https://eth-sepolia.blockscout.com/api/eth-rpc";
+export const PUBLIC_HISTORICAL_EVIDENCE_RPC = "https://sepolia.rpc.thirdweb.com";
 export const PUBLIC_ARCHIVE_RPC = "https://sepolia.gateway.tenderly.co";
 const json = <T>(path: string): T => JSON.parse(readFileSync(path, "utf8")) as T;
 const decimal = (value: string, label: string): bigint => {
