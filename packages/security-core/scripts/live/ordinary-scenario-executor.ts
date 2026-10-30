@@ -20,7 +20,7 @@ import {
   type UsdcSuccessorProposal,
   type UsdcSuccessorStorage,
 } from "./ordinary-scenario-usdc-successor-proposal";
-import type { UsdcRecycleContinuationSource } from "./ordinary-scenario-usdc-recycle-continuation-certificate";
+import { hashUsdcRecycleContinuationSourceValue, type UsdcRecycleContinuationSource } from "./ordinary-scenario-usdc-recycle-continuation-certificate";
 import { hashUsdcFreshSuccessorSource } from "./ordinary-scenario-usdc-fresh-successor-certificate";
 import {
   assertUsdcFreshSuccessorAdmission,
@@ -314,6 +314,7 @@ export type OrdinaryScenarioActionRecord = {
   outerValue?: string;
   outerDataHash?: Hex;
   evidenceHash?: Hex;
+  observerEvidenceHash?: Hex | null;
   receipt?: LiveReceipt;
   receiptInclusion?: SuccessorReceiptInclusion;
   queueCreatedAt?: string;
@@ -487,9 +488,10 @@ export function selectUsdcRecycleContinuationSubmissionAction(source: UsdcRecycl
   return action;
 }
 
-function assertUsdcFreshSuccessorSourceBinding(source: UsdcRecycleContinuationSource, successor: UsdcFreshSuccessorProposal): void {
+function assertUsdcFreshSuccessorSourceBinding(source: UsdcRecycleContinuationSource, successor: UsdcFreshSuccessorProposal, inMemoryOnly = false): void {
   const journal = source.prior.journal;
-  if (!same(hashUsdcFreshSuccessorSource(source), successor.sourceHash) || source.priorProposal.proposalHash !== journal.usdcSuccessor?.proposalHash || source.priorApproval.approvalHash !== journal.usdcSuccessor.approvalHash || journal.actions.length !== 19 || journal.liveJournal.entries.length < 15 || !journal.hashlessContinuation || journal.hashlessContinuation.actions.length !== 22 || journal.usdcSuccessor.actions.length !== 19 || journal.usdcRecycleContinuation !== undefined || journal.repairContinuation !== undefined) throw new Error("fresh USDC successor verified source binding mismatch");
+  const sourceHash = inMemoryOnly ? hashUsdcRecycleContinuationSourceValue(source) : hashUsdcFreshSuccessorSource(source);
+  if (!same(sourceHash, successor.sourceHash) || source.priorProposal.proposalHash !== journal.usdcSuccessor?.proposalHash || source.priorApproval.approvalHash !== journal.usdcSuccessor.approvalHash || journal.actions.length !== 19 || journal.liveJournal.entries.length < 15 || !journal.hashlessContinuation || journal.hashlessContinuation.actions.length !== 22 || journal.usdcSuccessor.actions.length !== 19 || journal.usdcRecycleContinuation !== undefined || journal.repairContinuation !== undefined) throw new Error("fresh USDC successor verified source binding mismatch");
   const old = journal.usdcSuccessor.actions;
   if (journal.hashlessContinuation.actions.slice(0, 3).some(entry => entry.status !== "confirmed") || journal.hashlessContinuation.actions.slice(3).some(entry => entry.status !== "approved") || old[0]?.status !== "confirmed" || old[1]?.status !== "confirmed" || old[2]?.status !== "signed-simulated" || old[2]?.outerNonce !== 869 || old.slice(3).some(entry => entry.status !== "approved")) throw new Error("fresh USDC successor frozen predecessor rows changed");
 }
@@ -1186,7 +1188,9 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   } else if (DELAY_SUCCESS_KINDS.has(action.kind)) {
     if (confirmation.effect.kind !== "delay-lifecycle" || !confirmation.postState.queue || confirmation.effect.createdAt !== confirmation.postState.queue.createdAt) throw new Error("ordinary scenario Delay lifecycle createdAt mismatch");
   }
-  recordEntry.status = "confirmed"; recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState), basis: poststateBasis, observerEvidenceHash: confirmation.observerEvidenceHash });
+  recordEntry.status = "confirmed";
+  if (boundary.freshSuccessor !== undefined) recordEntry.observerEvidenceHash = confirmation.observerEvidenceHash;
+  recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState), basis: poststateBasis, observerEvidenceHash: confirmation.observerEvidenceHash });
   if (confirmation.effect.kind === "safe-execution" && confirmation.effect.queueCreatedAt !== undefined) recordEntry.queueCreatedAt = confirmation.effect.queueCreatedAt.toString();
   if (action.kind === "base-transfer") {
     const anchor = BigInt(proposal.periodAnchor);
@@ -1471,12 +1475,16 @@ function assertFreshSuccessorDurableLineage(attached: UsdcFreshSuccessorStorage,
     const expectsRejection = FRESH_SUCCESSOR_REJECTION_IDS.has(record.id);
     if (expectsRejection ? record.status !== "materialized" && record.status !== "rejection-proved" : record.status === "rejection-proved") throw new Error("fresh USDC successor action status contradicts its approved outcome");
     if (record.status === "rejection-proved") {
-      if (!record.evidenceHash || record.intentHash !== undefined) throw new Error("fresh USDC successor rejection evidence lineage is incomplete");
+      const required = [record.materializationHash, record.prestateHash, record.maxFeePerGas, record.maxPriorityFeePerGas, record.funderNativeBefore, record.evidenceHash];
+      if (record.outerNonce === undefined || record.outerNonce < attached.minimumOuterNonce || required.some(value => value === undefined) || !HASH.test(record.materializationHash!) || !HASH.test(record.prestateHash!) || !HASH.test(record.evidenceHash!) || record.intentHash !== undefined || record.transactionHash !== undefined || record.receipt !== undefined) throw new Error("fresh USDC successor rejection evidence lineage is incomplete");
       continue;
     }
     if (record.status === "materialized" || record.status === "signed-simulated") continue;
-    const required = [record.materializationHash, record.prestateHash, record.gas, record.maxFeePerGas, record.maxPriorityFeePerGas, record.requestHash, record.signedCalldataHash, record.simulationEvidenceHash, record.intentHash, record.transactionHash, record.outerTo, record.outerValue, record.outerDataHash, record.finalOuterMaterialization];
-    if (record.outerNonce === undefined || required.some(value => value === undefined) || !("signatureBundleHash" in record)) throw new Error("fresh USDC successor broadcast record lacks its full durable envelope binding");
+    const required = { materializationHash: record.materializationHash, prestateHash: record.prestateHash, gas: record.gas, maxFeePerGas: record.maxFeePerGas, maxPriorityFeePerGas: record.maxPriorityFeePerGas, requestHash: record.requestHash, signedCalldataHash: record.signedCalldataHash, simulationEvidenceHash: record.simulationEvidenceHash, intentHash: record.intentHash, transactionHash: record.transactionHash, outerTo: record.outerTo, outerValue: record.outerValue, outerDataHash: record.outerDataHash, finalOuterMaterialization: record.finalOuterMaterialization };
+    const missing = Object.entries(required).filter(([, value]) => value === undefined).map(([key]) => key);
+    if (record.outerNonce === undefined || record.outerNonce < attached.minimumOuterNonce || missing.length !== 0 || !("signatureBundleHash" in record) || !HASH.test(record.materializationHash!) || !HASH.test(record.prestateHash!) || !HASH.test(record.requestHash!) || !HASH.test(record.signedCalldataHash!) || !HASH.test(record.simulationEvidenceHash!) || !HASH.test(record.intentHash!) || !HASH.test(record.transactionHash!) || !HASH.test(record.outerDataHash!)) throw new Error(`fresh USDC successor broadcast record ${record.id} lacks its full durable envelope binding${missing.length === 0 ? "" : `: ${missing.join(",")}`}`);
+    const final = record.finalOuterMaterialization!; const { hash: finalHash, ...finalFacts } = final;
+    if (!HASH.test(finalHash) || !same(finalHash, publicHash(finalFacts)) || final.outerNonce !== record.outerNonce || final.gas !== record.gas || final.maxFeePerGas !== record.maxFeePerGas || final.maxPriorityFeePerGas !== record.maxPriorityFeePerGas) throw new Error("fresh USDC successor final materialization and durable envelope disagree");
     broadcast.push(record);
     const live = liveSuffix[broadcast.length - 1];
     if (!live || live.id !== record.id || !same(live.intentHash, record.intentHash!) || !same(live.transactionHash, record.transactionHash!) || live.nonce !== record.outerNonce) throw new Error("fresh USDC successor broadcast record is not bound to its durable live entry");
@@ -1493,14 +1501,15 @@ function assertFreshSuccessorDurableLineage(attached: UsdcFreshSuccessorStorage,
   if (liveSuffix.length !== broadcast.length) throw new Error("fresh USDC successor live journal suffix is orphaned, reordered, or mixed");
 }
 
-function assertUsdcFreshSuccessorJournal(journal: OrdinaryScenarioJournal, source: UsdcRecycleContinuationSource, successor: UsdcFreshSuccessorProposal, approval: UsdcFreshSuccessorApproval): void {
+export function assertUsdcFreshSuccessorJournal(journal: OrdinaryScenarioJournal, source: UsdcRecycleContinuationSource, successor: UsdcFreshSuccessorProposal, approval: UsdcFreshSuccessorApproval, options?: Readonly<{ inMemorySourceOnly?: boolean }>): void {
   assertUsdcFreshSuccessorAuthorization(successor, approval);
-  assertUsdcFreshSuccessorSourceBinding(source, successor);
+  assertUsdcFreshSuccessorSourceBinding(source, successor, options?.inMemorySourceOnly === true);
   const attached = journal.usdcFreshSuccessor;
   if (!attached || journal.usdcRecycleContinuation !== undefined || journal.repairContinuation !== undefined || journal.actions.length !== 19 || !journal.hashlessContinuation || !journal.usdcSuccessor || journal.liveJournal.entries.length < 15) throw new Error("fresh USDC successor journal source or attachment is incomplete");
   if (attached.schemaVersion !== 1 || attached.scope !== "ordinary-usdc-fresh-period-successor-v1" || !same(attached.sourceHash, successor.sourceHash) || !same(attached.certificateHash, successor.certificateHash) || !same(attached.proposalHash, successor.proposalHash) || !same(attached.approvalHash, approval.approvalHash) || attached.minimumOuterNonce !== successor.minimumOuterNonce || attached.effectivePeriod !== successor.effectivePeriod || attached.deadline !== successor.deadline || attached.maximumReservationWei !== successor.reservation.successorMaximumReservationWei || attached.maxBroadcastAttempts !== 1 || attached.repairAuthority !== "NONE" || attached.actionCommitments.length !== 18 || attached.actions.length !== 18) throw new Error("fresh USDC successor journal authority or immutable header mismatch");
   const sourceJournal = source.prior.journal;
-  if (publicHash(journal.actions) !== publicHash(sourceJournal.actions) || publicHash(journal.hashlessContinuation) !== publicHash(sourceJournal.hashlessContinuation) || publicHash(journal.usdcSuccessor) !== publicHash(sourceJournal.usdcSuccessor) || publicHash(journal.liveJournal.entries.slice(0, 15)) !== publicHash(sourceJournal.liveJournal.entries.slice(0, 15)) || !same(hashUsdcFreshSuccessorSource(source), successor.sourceHash)) throw new Error("fresh USDC successor frozen source prefix changed");
+  const sourceHash = options?.inMemorySourceOnly === true ? hashUsdcRecycleContinuationSourceValue(source) : hashUsdcFreshSuccessorSource(source);
+  if (publicHash(journal.actions) !== publicHash(sourceJournal.actions) || publicHash(journal.hashlessContinuation) !== publicHash(sourceJournal.hashlessContinuation) || publicHash(journal.usdcSuccessor) !== publicHash(sourceJournal.usdcSuccessor) || publicHash(journal.liveJournal.entries.slice(0, 15)) !== publicHash(sourceJournal.liveJournal.entries.slice(0, 15)) || !same(sourceHash, successor.sourceHash)) throw new Error("fresh USDC successor frozen source prefix changed");
   const progressed = new Map<string, OrdinaryScenarioActionRecord>();
   for (let index = 0; index < successor.actions.length; index++) {
     const expected = successor.actions[index]!, commitment = attached.actionCommitments[index]!, actual = attached.actions[index]!;
@@ -1753,9 +1762,10 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
       if (rawItem.status === "approved") { exactKeys(rawItem, ["id", "commitment", "status"], `fresh USDC successor action ${index}`); return { id: text(rawItem.id, "fresh USDC successor action id"), commitment: hash(rawItem.commitment, "fresh USDC successor action commitment"), status: "approved" as const }; }
       const item = rawItem as unknown as OrdinaryScenarioActionRecord;
       if (!item.id.startsWith("usdc-fresh-successor-") || !HASH.test(String(item.commitment)) || !["materialized", "signed-simulated", "outer-pending", "confirmed", "rejection-proved", "reverted", "stopped"].includes(item.status)) throw new Error("fresh USDC successor action identity or status mismatch");
-      const allowed = new Set(["id", "commitment", "status", "materializationHash", "finalOuterMaterialization", "prestateHash", "outerNonce", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerTo", "outerValue", "outerDataHash", "evidenceHash", "receipt", "receiptInclusion", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta", "externalFunderDeltaClassification"]);
+      const allowed = new Set(["id", "commitment", "status", "materializationHash", "finalOuterMaterialization", "prestateHash", "outerNonce", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerTo", "outerValue", "outerDataHash", "evidenceHash", "observerEvidenceHash", "receipt", "receiptInclusion", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta", "externalFunderDeltaClassification"]);
       if (Object.keys(item).some(key => !allowed.has(key))) throw new Error("fresh USDC successor action has unknown fields");
       for (const key of ["materializationHash", "prestateHash", "requestHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerDataHash", "evidenceHash"] as const) if (item[key] !== undefined) hash(item[key], `fresh USDC successor action ${key}`);
+      if (item.observerEvidenceHash !== undefined && item.observerEvidenceHash !== null) hash(item.observerEvidenceHash, "fresh USDC successor observer evidence hash");
       if (item.signatureBundleHash !== undefined && item.signatureBundleHash !== null) hash(item.signatureBundleHash, "fresh USDC successor signature bundle hash");
       for (const key of ["gas", "maxFeePerGas", "maxPriorityFeePerGas", "outerValue", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost"] as const) if (item[key] !== undefined) decimal(item[key], `fresh USDC successor action ${key}`);
       if (item.externalFunderDelta !== undefined && (typeof item.externalFunderDelta !== "string" || !SIGNED_DECIMAL.test(item.externalFunderDelta))) throw new Error("fresh USDC successor externalFunderDelta must be a canonical signed decimal string");

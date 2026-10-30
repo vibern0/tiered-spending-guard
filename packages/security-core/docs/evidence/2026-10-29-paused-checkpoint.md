@@ -2,6 +2,8 @@
 
 **Status: PAUSED at the user's request.** Stop implementation, live submissions, signing, approval generation, observer sends, and autonomous continuation. Saving this checkpoint to `main` is a progress snapshot, not acceptance of unfinished work. Resume only after the user asks. No new transaction was signed or broadcast during this closeout.
 
+**2026-10-30 resumption supplement:** the user explicitly resumed the work, approved the required fresh focused successor, approved raising the aggregate successor-attempt cap from 31 to 51 USDC when required for testing, directed one 20-USDC Circle Ethereum Sepolia faucet request, and confirmed it complete. The faucet receipt is transaction `0x6230026c81cc67ce4aa3cf713838875c7b1d770cbe0f9b48b7b4b3b49f1a59fa` in block `12026817`, hash `0x8bda9049010367bff921be7b89c281c6f30367af9534743463a61859aefe1d83`. The fresh successor preserves the unchanged ETH ceilings and prohibits repair. See [the 2026-10-30 fresh-successor evidence](2026-10-30-usdc-fresh-successor.md). This supplement does not rewrite any historical fact below and is not a claim that a fresh machine approval or live execution already occurred.
+
 **Product is not finished.** The current work is ordinary-Safe testnet baseline and recovery tooling needed before native ERC-4337 implementation. The client-only Pimlico wallet is still planned; native Tasks 1–13 have not started. This is security research and a Sepolia prototype, not production software or audited custody infrastructure.
 
 ## Intended product and selected design
