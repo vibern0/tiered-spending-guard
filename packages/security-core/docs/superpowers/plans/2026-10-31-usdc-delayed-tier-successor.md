@@ -86,9 +86,9 @@
 - [x] **Step 1: Document successor only.** Record stopped row, new sibling, three-broadcast/two-proof path, no repair.
 - [x] **Step 2: Run focused tests.** Expected: pass.
 - [x] **Step 3: Request fresh whole-change review.** Fix every Critical/Important via RED/GREEN. Expected: ACCEPT.
-- [ ] **Step 4: Run exact gate.** `npm --prefix packages/security-core run security:check`; normal build; backend tests; `git diff --check`. Expected: pass with documented baseline only.
-- [ ] **Step 5: Bind clean HEAD/tree/log hashes.** No signing or broadcast.
-- [ ] **Step 6: Commit.** Message: `docs: bind delayed tier successor gate`.
+- [x] **Step 4: Run exact gate.** `npm --prefix packages/security-core run security:check`; normal build; backend tests; `git diff --check`. Expected: pass with documented baseline only.
+- [x] **Step 5: Bind clean HEAD/tree/log hashes.** No signing or broadcast.
+- [x] **Step 6: Commit.** Message: `docs: bind delayed tier successor gate`.
 
 ### Task 4: Fresh Artifacts and Live Five-Row Evidence
 
@@ -98,13 +98,13 @@
 
 **Interfaces:** Consume exact Task 3 head. Produce fresh observer, certificate, unsigned proposal, proof bundle, independent artifact verdict, exact approval, three receipts, two rejection proofs, terminal report.
 
-- [ ] **Step 1: Revalidate observer coverage and current two-provider state.** Expected: exact source; fresh current/pending nonce agreement.
-- [ ] **Step 2: Generate unsigned certificate/proposal/RPC proof/binding.** Expected: five rows, no signing, no broadcast.
-- [ ] **Step 3: Independently replay artifacts.** Expected: ACCEPT; no Critical/Important.
-- [ ] **Step 4: Mint exact approval after ACCEPT.** Bind user authority, caps, code head, observer, no repair.
-- [ ] **Step 5: Execute one row per invocation.** Reconcile six confirmations and required observer acknowledgement before next broadcast. Preserve real 120-second wait.
-- [ ] **Step 6: Render and independently review terminal report.** Expected: 22 live entries; `14/7/7`; Safe/funder USDC `0/40`; old stopped rows unchanged.
-- [ ] **Step 7: Update evidence and completed checkboxes only.** Commit verified public evidence.
+- [x] **Step 1: Revalidate observer coverage and current two-provider state.** Expected: exact source; fresh current/pending nonce agreement.
+- [x] **Step 2: Generate unsigned certificate/proposal/RPC proof/binding.** Expected: five rows, no signing, no broadcast.
+- [x] **Step 3: Independently replay artifacts.** Expected: ACCEPT; no Critical/Important.
+- [x] **Step 4: Mint exact approval after ACCEPT.** Bind user authority, caps, code head, observer, no repair.
+- [x] **Step 5: Execute one row per invocation.** Reconcile six confirmations and required observer acknowledgement before next broadcast. Preserve real 120-second wait.
+- [x] **Step 6: Render and independently review terminal report.** Expected: 22 live entries; `14/7/7`; Safe/funder USDC `0/40`; old stopped rows unchanged.
+- [x] **Step 7: Update evidence and completed checkboxes only.** Commit verified public evidence.
 
 ## Completion Boundary
 

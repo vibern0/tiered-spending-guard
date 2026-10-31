@@ -95,4 +95,34 @@ The delayed-completion execution later reached 19 live entries and Safe/Delay `1
 
 The successor design and plan are `docs/superpowers/specs/2026-10-31-usdc-delayed-tier-successor-design.md` and `docs/superpowers/plans/2026-10-31-usdc-delayed-tier-successor.md`. It appends a distinct five-row sibling: skip the active expired queue; prove the skipped tuple rejects; queue the same exact 31-USDC primary-plus-contract-secondary transfer; prove early execution rejects; execute after the real 120-second cooldown. Exactly three rows may broadcast and two are read-only proofs. No additional USDC funding is authorized or required. The intended terminal state is Safe/Delay `14/7/7`, Safe/funder USDC `0/40`, 22 live entries, at most `2600000000000` wei reserved gas, and zero native principal.
 
-Commits `39f36f6` and `32d0cee` add the closed certificate/proposal and append-only executor/CLI/pure report. Focused predecessor and successor tests pass, including exact stopped-row binding, mixed-suffix rejection, zero-broadcast proofs, atomic one-row progress, durable-hash resume, receipt/inclusion/accounting validation, and terminal-state enforcement. This is implementation evidence only: a fresh observer, exact public artifacts, independent artifact acceptance, exact approval, three canonical receipts, two rejection proofs, lifecycle acknowledgements, and independently accepted terminal report are still required before completion can be claimed.
+Commits `39f36f6` and `32d0cee` add the closed certificate/proposal and append-only executor/CLI/pure report. Commit `a33b1c5` binds the independently accepted implementation and exact security/build/backend gate: 699 regular tests, 4 invariants, 697 coverage tests with 2 documented pending, reviewed Slither baseline, rehearsal, 51 compiled Solidity files, and 18 backend tests in 8 files. Focused predecessor and successor tests cover exact stopped-row binding, mixed-suffix rejection, zero-broadcast proofs, atomic one-row progress, durable-hash resume, receipt/inclusion/accounting validation, and terminal-state enforcement.
+
+## Five-row successor terminal evidence
+
+The fresh public review used fixed Thirdweb current and Tenderly archive providers and a new independent receiver. It produced exactly five unsigned rows with no signing or broadcast. Independent artifact replay returned `ACCEPT` with no Critical or Important findings before the exact approval was created.
+
+| Artifact | Bound value |
+| --- | --- |
+| Tested code HEAD / tree | `a33b1c525fd16d2b962cfa710ac3acd936a45d1b` / `c2ff1776f118dd860dfc624086d7a2079c025544` |
+| Certificate hash | `0xd331df575389d613c6e415c4a1f2ebde743d0b7a1ebdb3a1c31870c904219da4` |
+| Proposal hash | `0x6582abb24bb704430d6c4c92f89961b7c95514b1f676d5e72d1de8b1756c5312` |
+| Approval hash | `0xf1d5ffded9c28d80bc350a9c219b470a3137e9163e0da878326fc29ce671609a` |
+| Independent artifact review SHA-256 | `0x7e43d38a4917e37720ac2726085521c9246c436c629364a3f8f191c98151eded` |
+| Observer endpoint hash | `0x01a274eced2c468101a02489c9ec30da0561fa34f447b712b2ae333dbdd6b33c` |
+| Terminal report SHA-256 | `0x87029da983bc1e8590a0fd70378e0c6f6bb5f2ad9713c40eded26a7c3262034b` |
+| Independent terminal review SHA-256 | `0x5958262d5188d40ea3ea8e60d60db33b9d5b13b9c715ee0f443b07e9d95ce1a3` |
+| Terminal journal SHA-256 | `0xf322a76e77e2b1f484390d2002c77ac327799e8126fb48254fdc00666f6a0421` |
+
+Execution remained one row per invocation. Every broadcast row durably persisted its exact hash, reached six confirmations, passed canonical receipt inclusion, delivered through the independent watcher, and was acknowledged through the receiver API before finalization. The rejection rows contain no intent hash, signed calldata, transaction hash, receipt, live entry or observer evidence.
+
+| Row | Result | Transaction / proof | Block | Outer nonce | Actual gas cost |
+| --- | --- | --- | ---: | ---: | ---: |
+| Skip expired queue 5 | Confirmed; `delayed-expired` observed | `0xbf47bb8671cae56f1c4275ecdffd2adb50552b72f681728ced6168639fe72f51` | `12033356` | `928` | `842310` wei |
+| Execute skipped tuple | Rejection proved; zero broadcast | `0x4a7a8eec197207670b80d50f0c42b872c95ad35d68f451d61be9d215f4755729` | — | `929` proof prestate | `0` |
+| Queue exact 31 USDC | Confirmed; `delayed-queued` observed | `0xaea3e6b3029cfaa928557d2b243c8f688be7de2ad62d2d14431056d02056a01b` | `12033407` | `929` | `30073890` wei |
+| Execute before Z | Rejection proved; zero broadcast | `0x176fb6bb67bde7c3177ac8a5d27011ae07b38cc3f57a4e97e31572e642495009` | — | `930` proof prestate | `0` |
+| Execute after Z | Confirmed; `delayed-executed` observed | `0xb07b58592dfa61f45a340eb7e8ca10fa6fccac14fa2383db95854f37437275d5` | `12033447` | `930` | `2760408` wei |
+
+The queue block timestamp was `2026-10-31T11:02:12Z`; ready execution was mined at `2026-10-31T11:10:12Z`, preserving the real 120-second minimum. Terminal public reads agreed on Safe nonce `14`, Delay queue/transaction nonces `7/7`, Safe USDC `0`, and funder USDC `40,000,000`. The journal has exactly 22 successful live entries. Receipt gas totals `33,676,608` wei against the `2,600,000,000,000` wei reservation. Gross outflow is 31 USDC new and 51 USDC aggregate; inward funding and native principal are zero.
+
+The predecessor remains frozen: `usdc-delayed-completion-queue-expiry-skip` is still hashless `signed-simulated` at outer nonce `916`, and delayed-completion rows 10–13 remain exact three-field `approved` records. The terminal renderer and an independent two-provider review both returned `ACCEPT` with no Critical or Important findings. Claims remain deliberately false for repair completion, native Safe ERC-4337 completion, audit, mainnet readiness and production readiness.
