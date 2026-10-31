@@ -10,6 +10,7 @@ The reviewed baseline is narrow and intentional:
 - `unused-return`: signature decoder tuple fields are intentionally discarded after the decoder validates the exact signature shape; Safe performs the authoritative signature check immediately afterward.
 - `unused-return` in `replaceSigner` (2026-10-09): the first `config()` read selects only the primary to compare against the sole Safe owner. Before any mutation, `_matchesGuardConfiguration` independently reads and validates the Safe, Delay, period, and secondary bindings. Ignored tuple fields are not unchecked authorization results. Other baseline changes on this date only relocate existing findings after the single-owner refactor.
 - `cache-array-length`: `policyHash` is a read-only inventory loop over a bounded configuration array; this is an optimization-only finding.
+- `shadowing-local`: the Safe setup interface's decoded `ecdsaSecondary` return-field name matches its separate getter name; the contract-only Phase One setup verifies both values and the naming overlap creates no storage or authorization path.
 - `calls-loop` in `SafeAtomicSetupHelper.setup`: the loop is the fixed per-asset policy initialization sequence. Every target is the reviewed guard address, every call is checked, and any failed policy write reverts the whole Safe creation.
 
 This is a reviewed baseline, not an assertion that the code is audited or production-ready.
