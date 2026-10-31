@@ -186,7 +186,7 @@ git commit -m "feat: pin Sepolia USDC PWA profile"
 - Produces: `loadWalletEnvironmentProfile(env, observedOrigin): WalletEnvironmentProfile`.
 - Backend config gains same `id`, exact `rpId`, exact `origin`; host remains `127.0.0.1`.
 
-- [ ] **Step 1: Write RED matrix**
+- [x] **Step 1: Write RED matrix**
 
 ```ts
 expect(loadProfile(localEnv, "http://localhost:5173").rpId).toBe("localhost");
@@ -196,7 +196,7 @@ expect(() => loadProfile(httpsEnv, "https://preview.example")).toThrow();
 
 Reject wildcard origin/RP, HTTP non-localhost, embedded credentials, fragments, path/query, IP RP, app/RP mismatch, local/HTTPS mix, unknown mode. Backend health returns `{ok,chainId,profileId,origin,rpId}`. HTTPS CORS permits exact origin plus credentials; ingress supplies access control. Backend still rejects non-loopback direct sockets.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix apps/app test -- src/lib/environment-profile.test.ts`
 
@@ -204,11 +204,11 @@ Run: `npm --prefix apps/backend test -- tests/config.test.ts tests/server.test.t
 
 Expected: FAIL; profiles hardcoded localhost.
 
-- [ ] **Step 3: Implement exact profiles**
+- [x] **Step 3: Implement exact profiles**
 
 Use `VITE_WALLET_PROFILE`, `VITE_APP_ORIGIN`, `VITE_WEBAUTHN_RP_ID`, `VITE_BACKEND_ORIGIN`. Backend uses matching `BACKEND_PROFILE`, `BACKEND_ORIGIN`, `BACKEND_RP_ID`; all values explicit in HTTPS mode. No provider-specific ingress SDK.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `npm --prefix apps/app test -- src/lib/environment-profile.test.ts src/lib/vault-store.test.tsx`
 
@@ -216,7 +216,7 @@ Run: `npm --prefix apps/backend test -- tests/config.test.ts tests/server.test.t
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/app/src/lib/environment-profile* apps/app/src/lib/vault-store* apps/backend/src apps/backend/tests apps/app/README.md apps/backend/README.md

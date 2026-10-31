@@ -49,7 +49,7 @@ function pathSegments(value: string): string[] {
 }
 
 export function createBackendServer(config: BackendConfig, handlers: BackendHandlers): BackendServer {
-  const sessions = new RegistrationSessionStore(config.origin);
+  const sessions = new RegistrationSessionStore(config);
   const journal = new SubmissionJournal(config.journalPath);
   const server = createServer(async (req, res) => {
     try {
@@ -60,10 +60,11 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         res.setHeader("access-control-allow-origin", config.origin);
         res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
         res.setHeader("access-control-allow-headers", "content-type");
+        if (config.id === "https") res.setHeader("access-control-allow-credentials", "true");
         res.setHeader("vary", "Origin");
       }
       if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-      if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") return json(res, 200, { ok: true, chainId: config.chainId, origin: config.origin });
+      if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") return json(res, 200, { ok: true, chainId: config.chainId, profileId: config.id, origin: config.origin, rpId: config.rpId });
       const segments = pathSegments(req.url ?? "/");
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";

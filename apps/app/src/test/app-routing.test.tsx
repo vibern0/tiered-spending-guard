@@ -19,6 +19,7 @@ async function renderAt(path: string) {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -55,6 +56,7 @@ describe("Account access", () => {
 });
 
 it("keeps an existing account accessible when RPC is unavailable", async () => {
+  vi.stubEnv("VITE_SEPOLIA_RPC_URL", "");
   localStorage.setItem(
     "usdc-vault-demo-v1",
     JSON.stringify({

@@ -13,7 +13,7 @@ const USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
 const FORGED_USDC = "0x7777777777777777777777777777777777777777" as Address;
 const HASH = `0x${"aa".repeat(32)}` as Hex;
 const config = {
-  host: "127.0.0.1", port: 8787, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
+  id: "local", host: "127.0.0.1", port: 8787, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
   rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
   provisionerModulePath: "/tmp/provisioner.mjs",
 } satisfies BackendConfig;

@@ -30,6 +30,14 @@ describe("backend WebAuthn binding", () => {
     await expect(verifyPasskeyRegistration({ ...registration, origin: "https://evil.invalid" }, async () => ({ verified: true, credentialId: "primary-credential", publicKey: "primary-key", counter: 0 }))).rejects.toThrow();
   });
 
+  it("accepts an exact HTTPS RP and rejects mixed or unsafe WebAuthn identity", async () => {
+    const https = { ...registration, rpId: "vault.example", origin: "https://vault.example" };
+    await expect(verifyPasskeyRegistration(https, async () => ({ verified: true, credentialId: "primary-credential", publicKey: "primary-key", counter: 0 }))).resolves.toMatchObject({ credentialId: "primary-credential" });
+    await expect(verifyPasskeyRegistration({ ...https, origin: "https://preview.example" }, async () => ({ verified: true, credentialId: "primary-credential", publicKey: "primary-key", counter: 0 }))).rejects.toThrow();
+    await expect(verifyPasskeyRegistration({ ...https, origin: "http://vault.example" }, async () => ({ verified: true, credentialId: "primary-credential", publicKey: "primary-key", counter: 0 }))).rejects.toThrow();
+    await expect(verifyPasskeyRegistration({ ...https, rpId: "192.0.2.1", origin: "https://192.0.2.1" }, async () => ({ verified: true, credentialId: "primary-credential", publicKey: "primary-key", counter: 0 }))).rejects.toThrow();
+  });
+
   it("rejects an invalid P-256 assertion and any changed Safe, chain, credential, or digest binding", async () => {
     const input = {
       role: "primary" as const,

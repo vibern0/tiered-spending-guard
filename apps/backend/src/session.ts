@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
+import { assertBackendWebAuthnIdentity } from "./config";
 import type { BackendPasskeyRole } from "./webauthn";
 
 export type RegistrationSession = Readonly<{
   id: string;
   role: BackendPasskeyRole;
   challenge: string;
-  rpId: "localhost";
+  rpId: string;
   origin: string;
   used: boolean;
 }>;
@@ -22,14 +23,14 @@ export class RegistrationSessionStore {
   private readonly sessions = new Map<string, RegistrationSession>();
   private readonly roles = new Set<BackendPasskeyRole>();
 
-  constructor(private readonly origin: string) {
-    if (!/^https?:\/\/localhost(?::\d+)?$/.test(origin)) throw new Error("registration origin must be local");
+  constructor(private readonly profile: Readonly<{ id: "local" | "https"; origin: string; rpId: string }>) {
+    assertBackendWebAuthnIdentity(profile.id, profile.origin, profile.rpId);
   }
 
   create(role: BackendPasskeyRole): RegistrationSession {
     if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
     if (this.roles.has(role)) throw new Error(`${role} passkey is already registered`);
-    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: "localhost" as const, origin: this.origin, used: false });
+    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, used: false });
     this.sessions.set(session.id, session);
     this.roles.add(role);
     return session;

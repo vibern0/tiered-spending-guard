@@ -5,6 +5,7 @@ import { usdc } from "./usdc";
 import { fingerprintOf, type ActivityItem, type Lane } from "./activity-model";
 import { readVaultSnapshot, type HealthFailure, type VaultConfig, type VaultSnapshot } from "./vault-chain";
 import { challengeForSafeDigest, createVaultPasskey, signSafeDigest, type PasskeyRegistration } from "./webauthn-passkey";
+import { loadWalletEnvironmentProfile, type WalletEnvironmentProfile } from "./environment-profile";
 
 export type Recipient = { name: string; address: string };
 export type Policy = { basePerTxCap: bigint; firstSignerDaily: bigint; instantDaily: bigint; perTxCap: bigint; delayHours: number; delaySeconds: bigint };
@@ -93,28 +94,37 @@ function defaultClient(): PublicClient | undefined {
   return rpcUrl ? createPublicClient({ chain: sepolia, transport: http(rpcUrl) }) : undefined;
 }
 
-export async function checkBackendHealth(origin: string, requester: typeof fetch = fetch): Promise<void> {
-  const response = await requester(`${origin.replace(/\/$/, "")}/health`, { headers: { accept: "application/json" } });
-  let payload: { ok?: unknown; error?: unknown } = {};
+export async function checkBackendHealth(profile: WalletEnvironmentProfile, requester: typeof fetch = fetch): Promise<void> {
+  const response = await requester(`${profile.backendOrigin}/health`, { headers: { accept: "application/json" }, credentials: profile.credentials });
+  let payload: { ok?: unknown; error?: unknown; chainId?: unknown; profileId?: unknown; origin?: unknown; rpId?: unknown } = {};
   try { payload = await response.json() as typeof payload; } catch { /* bounded error below */ }
   if (!response.ok || payload.ok !== true) throw new Error(`Backend health check failed: ${typeof payload.error === "string" ? payload.error : `HTTP ${response.status}`}`);
+  if (payload.chainId !== profile.chainId || payload.profileId !== profile.id || payload.origin !== profile.appOrigin || payload.rpId !== profile.rpId) throw new Error("Backend health profile does not match the active wallet environment");
+}
+
+function activeEnvironmentProfile(): WalletEnvironmentProfile {
+  const configuredOrigin = (import.meta.env["VITE_APP_ORIGIN"] as string | undefined)?.trim() || "http://localhost:5173";
+  const observedOrigin = typeof window === "undefined" || window.location.origin === "null" ? configuredOrigin : window.location.origin;
+  return loadWalletEnvironmentProfile(import.meta.env, observedOrigin);
 }
 
 function defaultBackend(): VaultBackend {
-  const origin = ((import.meta.env["VITE_BACKEND_ORIGIN"] as string | undefined)?.trim() || "http://127.0.0.1:8787").replace(/\/$/, "");
   const json = async (url: string, init?: RequestInit): Promise<any> => {
-    const response = await fetch(`${origin}${url}`, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
+    const profile = activeEnvironmentProfile();
+    const response = await fetch(`${profile.backendOrigin}${url}`, { ...init, credentials: profile.credentials, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
     const payload = JSON.parse(await response.text(), (key, value) => ["amount", "nonce", "window", "baseSpent", "instantSpent", "safeTxGas", "baseGas", "gasPrice"].includes(key) && typeof value === "string" && /^\d+n$/.test(value) ? BigInt(value.slice(0, -1)) : value) as { error?: string; request?: SafeExecutionRequest };
     if (!response.ok) throw new Error(payload.error ?? `Backend request failed (${response.status})`);
     return payload;
   };
   return {
-    async health() { await checkBackendHealth(origin); },
+    async health() { await checkBackendHealth(activeEnvironmentProfile()); },
     async registerPasskey(role) {
+      const profile = activeEnvironmentProfile();
       const options = await json(`/v1/registrations/${role}/options`, { method: "POST", body: "{}" }) as BackendRegistrationOptions;
+      if (options.role !== role || options.origin !== profile.appOrigin || options.rpId !== profile.rpId) throw new Error("Backend registration profile does not match the active wallet environment");
       const registrationOptions = {
         challenge: options.challenge, rp: { id: options.rpId, name: "USDC Vault Demo" },
-        user: { id: `${role}-${options.sessionId}`, name: `${role}@localhost`, displayName: role === "primary" ? "First signer" : "Second signer" },
+        user: { id: `${role}-${options.sessionId}`, name: `${role}@${profile.rpId}`, displayName: role === "primary" ? "First signer" : "Second signer" },
         pubKeyCredParams: [{ alg: -7, type: "public-key" }],
         authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" }, timeout: 60_000, attestation: "none",
       };
@@ -200,8 +210,8 @@ export function VaultProvider({ children, client: providedClient, config: provid
     if (!ui.primaryCredentialId || !ui.deploymentHash || !ui.policyHash) throw new Error("passkey session and reviewed deployment evidence are required");
     const idempotencyKey = keccak256(toHex(`${state.safe}:${recipient}:${amount.toString()}:${state.safeNonce?.toString() ?? ""}:${Date.now()}`));
     const prepared = await backend.prepareTransfer({ chainId: 11155111, safe: state.safe as Address, guard: state.guard as Address, usdc: state.usdc as Address, configuredUsdc: state.usdc as Address, recipient, amount, nonce: state.safeNonce ?? 0n, deploymentHash: ui.deploymentHash, policyHash: ui.policyHash, idempotencyKey, expectedSpend: { window: BigInt(Math.max(0, Math.floor(state.resetsAt / 1000) - 86_400)), baseSpent: state.spentFirstSigner, instantSpent: state.spentInstant }, allowedRecipients: state.recipients.map((entry) => entry.address as Address) });
-    const origin = typeof window === "undefined" ? "http://localhost:5173" : window.location.origin;
-    const assertion = (role: "primary" | "secondary", credentialId: string) => signSafeDigest({ role, safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash, challenge: challengeForSafeDigest(prepared.safeTxHash), challengeBinding: { safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash }, rpId: "localhost", origin, credentialId });
+    const environment = activeEnvironmentProfile();
+    const assertion = (role: "primary" | "secondary", credentialId: string) => signSafeDigest({ role, safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash, challenge: challengeForSafeDigest(prepared.safeTxHash), challengeBinding: { safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash }, rpId: environment.rpId, origin: environment.appOrigin, credentialId });
     const primary = await backend.submitPrimary(prepared.idempotencyKey, await assertion("primary", ui.primaryCredentialId));
     if (primary.state !== "awaiting_secondary") { await refresh(); return primary; }
     if (!ui.secondaryCredentialId) throw new Error("secondary passkey session is required for this tier");

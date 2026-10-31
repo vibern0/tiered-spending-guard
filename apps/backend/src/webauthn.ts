@@ -1,5 +1,6 @@
 import { verifyAuthenticationResponse, verifyRegistrationResponse } from "@simplewebauthn/server";
 import { hexToBytes, type Address, type Hex } from "viem";
+import { assertBackendWebAuthnIdentity } from "./config";
 
 export type BackendPasskeyRole = "primary" | "secondary";
 export type RegistrationResponse = Readonly<{
@@ -73,7 +74,7 @@ async function defaultAssertionVerifier(input: Readonly<{ response: unknown; cre
 
 export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>> {
   role(input.role);
-  if (input.rpId !== "localhost" || !/^https?:\/\/localhost(?::\d+)?$/.test(input.origin)) throw new Error("registration RP or origin is not local and configured");
+  assertBackendWebAuthnIdentity(input.rpId === "localhost" ? "local" : "https", input.origin, input.rpId);
   if (!input.credentialId || input.credentialId !== (input.response as { id?: unknown })["id"]) throw new Error("registration credential binding mismatch");
   const result = await verifier({ response: input.response, challenge: input.challenge, rpId: input.rpId, origin: input.origin });
   if (!result.verified || result.credentialId !== input.credentialId || !Number.isSafeInteger(result.counter) || result.counter < 0) throw new Error("WebAuthn registration was not verified");

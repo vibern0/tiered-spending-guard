@@ -13,6 +13,7 @@ afterEach(() => {
   localStorage.clear();
 });
 import { checkBackendHealth, useVault, VaultProvider, type VaultBackend } from "./vault-store";
+import type { WalletEnvironmentProfile } from "./environment-profile";
 import type { VaultConfig } from "./vault-chain";
 import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
 
@@ -87,12 +88,22 @@ function wrapper(
 
 describe("VaultProvider", () => {
   it("blocks writes when backend readiness is unhealthy", async () => {
+    const profile: WalletEnvironmentProfile = {
+      id: "local", chainId: 11155111, appOrigin: "http://localhost:5173", rpId: "localhost", backendOrigin: "http://127.0.0.1:8787", credentials: "omit",
+    };
     await expect(
       checkBackendHealth(
-        "http://127.0.0.1:8787",
+        profile,
         async () => new Response(JSON.stringify({ error: "RPC unavailable" }), { status: 503 }),
       ),
     ).rejects.toThrow(/Backend health check failed: RPC unavailable/);
+
+    await expect(
+      checkBackendHealth(
+        profile,
+        async () => new Response(JSON.stringify({ ok: true, chainId: 11155111, profileId: "https", origin: "https://vault.example", rpId: "vault.example" })),
+      ),
+    ).rejects.toThrow(/profile/i);
   });
 
   it("starts unprovisioned and directs the user to onboarding", async () => {
