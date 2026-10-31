@@ -14,11 +14,12 @@ afterEach(() => {
 });
 import { checkBackendHealth, useVault, VaultProvider, type VaultBackend } from "./vault-store";
 import type { VaultConfig } from "./vault-chain";
+import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
 const DELAY = "0x3333333333333333333333333333333333333333" as Address;
-const EURC = "0x4444444444444444444444444444444444444444" as Address;
+const USDC = TEST_USDC_ADDRESS;
 const RECIPIENT = "0x7777777777777777777777777777777777777777" as Address;
 
 const config: VaultConfig = {
@@ -26,8 +27,8 @@ const config: VaultConfig = {
   safe: SAFE,
   guard: GUARD,
   delay: DELAY,
-  eurc: EURC,
-  eurcCandidates: [EURC],
+  usdc: USDC,
+  usdcCandidates: [USDC],
 };
 
 function makeClient(
@@ -35,7 +36,7 @@ function makeClient(
 ): PublicClient {
   return {
     getChainId: vi.fn().mockResolvedValue(values.chainId ?? 11155111),
-    getBytecode: vi.fn().mockResolvedValue("0x6001600155"),
+    getBytecode: vi.fn().mockResolvedValue(TEST_USDC_RUNTIME),
     getBalance: vi.fn().mockResolvedValue(values.balance ?? 2_000_000_000_000_000n),
     getTransactionCount: vi.fn().mockResolvedValue(values.safeNonce ?? 7),
     getStorageAt: vi.fn().mockImplementation(async ({ slot }: { slot: string }) => {
@@ -45,8 +46,8 @@ function makeClient(
     }),
     readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
       const valuesByFunction: Record<string, unknown> = {
-        name: "Euro Coin",
-        symbol: "EURC",
+        name: "USDC",
+        symbol: "USDC",
         decimals: 6,
         balanceOf: 12_345_678n,
         nonce: BigInt(values.safeNonce ?? 7),
@@ -60,7 +61,7 @@ function makeClient(
           0n,
         ],
         frozen: false,
-        getConfiguredTokens: [EURC],
+        getConfiguredTokens: [USDC],
         assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n],
         getPolicyRecipients: [RECIPIENT],
         spendState: [0n, values.baseSpent ?? 0n, 0n],
@@ -113,7 +114,7 @@ describe("VaultProvider", () => {
     await waitFor(() => expect(result.current.state.writable).toBe(true));
 
     expect(result.current.state.safe).toBe(SAFE);
-    expect(result.current.state.eurc).toBe(EURC);
+    expect(result.current.state.usdc).toBe(USDC);
     expect(result.current.state.balance).toBe(12_345_678n);
     expect(result.current.state.nativeBalance).toBe(2_000_000_000_000_000n);
     expect(result.current.state.safeNonce).toBe(7n);
@@ -146,7 +147,7 @@ describe("VaultProvider", () => {
     const client = first as PublicClient;
     let nonce = 7n;
     let baseSpent = 1_000_000n;
-    let eurcBalance = 12_345_678n;
+    let usdcBalance = 12_345_678n;
     const getBalance = vi
       .spyOn(client, "getBalance")
       .mockResolvedValueOnce(2_000_000_000_000_000n)
@@ -155,7 +156,7 @@ describe("VaultProvider", () => {
     readContract.mockImplementation(async (args) => {
       if (args.functionName === "nonce") return nonce as never;
       if (args.functionName === "spendState") return [0n, baseSpent, 0n] as never;
-      if (args.functionName === "balanceOf") return eurcBalance as never;
+      if (args.functionName === "balanceOf") return usdcBalance as never;
       return (fallback.readContract as unknown as (input: unknown) => Promise<unknown>)(
         args,
       ) as never;
@@ -167,7 +168,7 @@ describe("VaultProvider", () => {
 
     nonce = 8n;
     baseSpent = 3_000_000n;
-    eurcBalance = 8_000_000n;
+    usdcBalance = 8_000_000n;
     await act(async () => {
       await result.current.refresh();
     });
@@ -211,7 +212,7 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
       safe: SAFE,
       guard: GUARD,
       delay: DELAY,
-      eurc: EURC,
+      usdc: USDC,
       primaryPasskey: SAFE,
       secondaryPasskey: GUARD,
       evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
@@ -228,14 +229,14 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
     await result.current.provision();
   });
   await waitFor(() =>
-    expect(JSON.parse(localStorage.getItem("eurc-vault-ui-v1") ?? "{}")).toMatchObject({
+    expect(JSON.parse(localStorage.getItem("usdc-vault-ui-v1") ?? "{}")).toMatchObject({
       primaryCredentialId: "primary-credential",
       secondaryCredentialId: "secondary-credential",
     }),
   );
   act(() => result.current.finishSetup());
   await waitFor(() =>
-    expect(JSON.parse(localStorage.getItem("eurc-vault-ui-v1") ?? "{}")).toMatchObject({
+    expect(JSON.parse(localStorage.getItem("usdc-vault-ui-v1") ?? "{}")).toMatchObject({
       primaryCredentialId: "primary-credential",
       secondaryCredentialId: "secondary-credential",
       deploymentHash: "0x11",

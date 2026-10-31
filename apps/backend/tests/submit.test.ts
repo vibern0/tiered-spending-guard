@@ -1,19 +1,19 @@
 import type { Address, Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { SubmissionJournal } from "../src/journal";
-import { prepareEurcTransfer, SafeSubmissionService } from "../src/vault";
+import { prepareUsdcTransfer, SafeSubmissionService } from "../src/vault";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
-const EURC = "0x3333333333333333333333333333333333333333" as Address;
+const USDC = "0x3333333333333333333333333333333333333333" as Address;
 const RECIPIENT = "0x4444444444444444444444444444444444444444" as Address;
 const HASH = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hex;
 const PRIMARY = `0x${"11".repeat(65)}` as Hex;
 const SECONDARY = `0x${"22".repeat(65)}` as Hex;
 
 async function request(amount: bigint) {
-  return prepareEurcTransfer({
-    chainId: 11155111, safe: SAFE, guard: GUARD, eurc: EURC, configuredEurc: EURC, recipient: RECIPIENT, amount, nonce: 3n,
+  return prepareUsdcTransfer({
+    chainId: 11155111, safe: SAFE, guard: GUARD, usdc: USDC, configuredUsdc: USDC, recipient: RECIPIENT, amount, nonce: 3n,
     deploymentHash: HASH, policyHash: HASH, idempotencyKey: (`0x${amount.toString(16).padStart(64, "0")}`) as Hex,
     signatures: PRIMARY, expectedSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n }, allowedRecipients: [RECIPIENT],
   });

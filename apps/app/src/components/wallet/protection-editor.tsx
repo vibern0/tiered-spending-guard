@@ -22,9 +22,9 @@ function initialDraft(state: VaultState): ProtectionDraft {
   };
 }
 
-function exactEuro(value: bigint): string {
+function exactUsdc(value: bigint): string {
   const [whole, fraction = ""] = editableAmount(value).split(".");
-  return `€${whole}.${fraction.padEnd(2, "0")}`;
+  return `${whole}.${fraction.padEnd(2, "0")} USDC`;
 }
 
 /** Edits an unsigned draft only; the chain snapshot remains the displayed source of truth. */
@@ -84,10 +84,10 @@ export function ProtectionEditor({
       {review ? (
         <div className="space-y-4">
           <dl className="space-y-3 text-sm">
-            <DRow k="First-signer daily limit" v={exactEuro(review.firstSignerDaily)} />
-            <DRow k="Instant daily limit" v={exactEuro(review.instantDaily)} />
-            <DRow k="First-signer maximum per transfer" v={exactEuro(review.basePerTxCap)} />
-            <DRow k="Second-signer maximum per transfer" v={exactEuro(review.perTxCap)} />
+            <DRow k="First-signer daily limit" v={exactUsdc(review.firstSignerDaily)} />
+            <DRow k="Instant daily limit" v={exactUsdc(review.instantDaily)} />
+            <DRow k="First-signer maximum per transfer" v={exactUsdc(review.basePerTxCap)} />
+            <DRow k="Second-signer maximum per transfer" v={exactUsdc(review.perTxCap)} />
             <DRow k="Waiting period" v={`${review.delaySeconds} seconds`} />
             <DRow k="Allowed recipients" v={review.recipients.join("\n")} />
             <DRow k="Replace first signer" v={review.firstSigner ?? "Keep current"} />
@@ -107,10 +107,10 @@ export function ProtectionEditor({
         <form id="protection-form" onSubmit={submit} className="space-y-5">
           <fieldset className="space-y-3">
             <legend className="mb-3 font-semibold">Spending limits</legend>
-            {field("firstSignerDaily", "First-signer daily limit (EURC)")}
-            {field("instantDaily", "Instant daily limit (EURC)")}
-            {field("basePerTxCap", "First-signer maximum per transfer (EURC)")}
-            {field("perTxCap", "Second-signer maximum per transfer (EURC)")}
+            {field("firstSignerDaily", "First-signer daily limit (USDC)")}
+            {field("instantDaily", "Instant daily limit (USDC)")}
+            {field("basePerTxCap", "First-signer maximum per transfer (USDC)")}
+            {field("perTxCap", "Second-signer maximum per transfer (USDC)")}
             {field("delaySeconds", "Waiting period (seconds)", "numeric")}
           </fieldset>
           <label className="block space-y-1 text-sm" htmlFor="protection-recipients">

@@ -80,8 +80,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Euro Account — Test wallet" },
-      { name: "description", content: "A simple euro account prototype with role-based signer approvals and spending limits." },
+      { title: "USDC Vault — Test wallet" },
+      { name: "description", content: "A Sepolia USDC vault prototype with role-based signer approvals and spending limits." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

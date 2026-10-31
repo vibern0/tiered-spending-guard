@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Sepolia `11155111` only. Circle USDC `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`; `USD Coin`; `USDC`; 6 decimals.
+- Sepolia `11155111` only. Circle USDC `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`; onchain name `USDC`; symbol `USDC`; 6 decimals. The original `USD Coin` name assumption was corrected from two-provider reads at block `12034092`; both providers agreed on block hash, runtime hash `0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb`, and metadata, and [Circle's official testnet registry](https://developers.circle.com/stablecoins/usdc-contract-addresses) confirms the address.
 - Policy: 86,400-second epoch-aligned period; X `1_000_000`; Y `3_000_000`; Z 120 seconds; expiration 600 seconds.
 - Sole recipient: `0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc`. Rehearsal: 1, 2, 4 USDC. Fund 8 USDC per vault.
 - Primary platform passkey. Final evidence needs distinct cross-platform secondary. Same-device secondary never passes completion gate.
@@ -129,7 +129,7 @@ git commit -m "feat: add contract-only secondary profile"
 - Profile pins chain/token/metadata/X/Y/Z/expiration/recipient/amounts/contract-only mode. Runtime hash comes from reviewed two-provider artifact, never browser input.
 - Renames active `eurc` fields/functions/types to `usdc`; historical evidence files unchanged.
 
-- [ ] **Step 1: Write RED profile tests**
+- [x] **Step 1: Write RED profile tests**
 
 ```ts
 expect(profile).to.include({ chainId: 11155111, symbol: "USDC", decimals: 6 });
@@ -140,17 +140,17 @@ expect(profile.delay).to.deep.equal({ cooldownSeconds: 120, expirationSeconds: 6
 
 Reject extra keys, wrong metadata/address/hash/recipient, floats, negative/noncanonical decimals, X/Y drift, non-contract-only mode.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix packages/security-core run test:unit -- test/unit/pwa/profile.test.ts`
 
 Expected: FAIL; profile loader absent.
 
-- [ ] **Step 3: Implement profile; rename active EURC surface**
+- [x] **Step 3: Implement profile; rename active EURC surface**
 
-Use bigint throughout. `validateUsdc` verifies address, nonempty runtime, reviewed runtime hash, `USD Coin`, `USDC`, 6 decimals. Add `pwa:capture-usdc-profile`; capture at one six-confirmation block with two providers; commit exact hash/artifact provenance. Run `rg -n "EURC|eurc|Euro Coin" apps/app apps/backend`; remaining matches allowed only explicit historical/migration comments.
+Use bigint throughout. `validateUsdc` verifies address, nonempty runtime, reviewed runtime hash, onchain name `USDC`, symbol `USDC`, and 6 decimals. Add `pwa:capture-usdc-profile`; capture at one six-confirmation block with two providers; commit exact hash/artifact provenance. Run `rg -n "EURC|eurc|Euro Coin" apps/app apps/backend`; remaining matches allowed only explicit historical/migration comments.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `npm --prefix packages/security-core run test:unit -- test/unit/pwa/profile.test.ts`
 
@@ -160,7 +160,7 @@ Run: `npm --prefix apps/backend test`
 
 Expected: PASS; active UI/API says USDC.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/security-core/config/sepolia.pwa-phase-one.json packages/security-core/src/pwa packages/security-core/scripts/pwa packages/security-core/test/unit/pwa packages/security-core/package.json apps/app apps/backend

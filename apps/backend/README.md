@@ -1,4 +1,4 @@
-# Local EURC wallet backend
+# Local USDC wallet backend
 
 `apps/backend` is a loopback-only Ethereum Sepolia testnet backend for the browser wallet. It is required for passkey registration, reviewed vault provisioning, exact Safe transaction preparation, relay submission, and uncertain-broadcast reconciliation.
 
@@ -18,7 +18,7 @@ export BACKEND_ORIGIN=http://localhost:5173
 npm --prefix apps/backend run dev
 ```
 
-The server binds to `127.0.0.1:8787`. `BACKEND_PROVISIONER_MODULE` must export the pinned Sepolia EURC address, a reviewed provisioner, and exact preparation, submission, and receipt-reconciliation adapters. Startup must fail when any required configuration, reviewed deployment evidence, or adapter is missing. The browser's EURC field is advisory and is never selected for deployment.
+The server binds to `127.0.0.1:8787`. `BACKEND_PROVISIONER_MODULE` must export the pinned Sepolia USDC address, a reviewed provisioner, and exact preparation, submission, and receipt-reconciliation adapters. Startup must fail when any required configuration, reviewed deployment evidence, or adapter is missing. The browser's USDC field is advisory and is never selected for deployment. The canonical token/runtime/X/Y/Z values are pinned by `packages/security-core/config/sepolia.pwa-phase-one.json`; runtime identity is not accepted from browser input.
 
 ## HTTP contract
 
@@ -27,12 +27,12 @@ All responses are JSON with `cache-control: no-store`. Errors use `{ "error": st
 - `GET /health` returns process readiness, `{ ok, chainId, origin }`. It does not claim that a vault is provisioned or that chain state is healthy.
 - `POST /v1/registrations/{primary|secondary}/options` creates a one-use platform, user-verified WebAuthn registration session.
 - `POST /v1/registrations/{primary|secondary}/verify` verifies the matching registration ceremony and stores only credential metadata.
-- `POST /v1/vaults` provisions a fresh reviewed Safe topology from the two verified credential IDs and the pinned Sepolia EURC candidate. Browser deployment addresses and hashes are ignored.
-- `POST /v1/submissions/prepare` re-reads the server-held vault and chain state, then journals one exact allowlisted EURC `transfer(address,uint256)` Safe `CALL`.
+- `POST /v1/vaults` provisions a fresh reviewed Safe topology from the two verified credential IDs and the pinned Sepolia USDC candidate. Browser deployment addresses and hashes are ignored.
+- `POST /v1/submissions/prepare` re-reads the server-held vault and chain state, then journals one exact allowlisted USDC `transfer(address,uint256)` Safe `CALL`.
 - `POST /v1/submissions/{id}/submit` verifies the role signature over the journaled Safe digest, requires primary before secondary, and relays only the unchanged prepared request.
 - `GET /v1/submissions/{id}` returns journal state. It never authorizes a retry.
 
-The backend relay account pays gas only. Safe owners, the spending guard, Delay, EURC metadata, topology, nonce, limits, recipient policy, receipts, and cancellation remain authoritative onchain or in reviewed security-core adapters. Preparation passes only recipient, amount, and idempotency intent from the browser; the adapter must derive the exact Safe transaction from the server-held vault and fresh chain reads.
+The backend relay account pays gas only. Safe owners, the spending guard, Delay, USDC metadata, topology, nonce, limits, recipient policy, receipts, and cancellation remain authoritative onchain or in reviewed security-core adapters. Preparation passes only recipient, amount, and idempotency intent from the browser; the adapter must derive the exact Safe transaction from the server-held vault and fresh chain reads.
 
 ## Verify
 

@@ -14,7 +14,7 @@ const valid = {
 };
 
 describe("protection drafts", () => {
-  it("preserves all six EURC decimals and exact delay seconds", () => {
+  it("preserves all six USDC decimals and exact delay seconds", () => {
     expect(validateProtectionDraft({ ...valid, firstSignerDaily: "250.000001" })).toMatchObject({
       firstSignerDaily: 250000001n,
       delaySeconds: 120n,

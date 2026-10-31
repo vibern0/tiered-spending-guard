@@ -6,21 +6,21 @@ import type { VaultSnapshot } from "./vault-chain";
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
 const DELAY = "0x3333333333333333333333333333333333333333" as Address;
-const EURC = "0x4444444444444444444444444444444444444444" as Address;
+const USDC = "0x4444444444444444444444444444444444444444" as Address;
 const RECIPIENT = "0x5555555555555555555555555555555555555555" as Address;
 const TX = `0x${"aa".repeat(32)}` as Hex;
 
 const snapshot: VaultSnapshot = {
-  chainId: 11155111, safe: SAFE, eurc: { address: EURC, runtimeCodeHash: TX, name: "Euro Coin", symbol: "EURC", decimals: 6 }, eurcBalance: 100000000n,
+  chainId: 11155111, safe: SAFE, usdc: { address: USDC, runtimeCodeHash: TX, name: "USDC", symbol: "USDC", decimals: 6 }, usdcBalance: 100000000n,
   safeNonce: 4n, nativeBalance: 1n, topology: { guard: GUARD, moduleGuard: GUARD, modules: [DELAY], fallbackHandler: "0x0000000000000000000000000000000000000000", delay: { address: DELAY, owner: SAFE, avatar: SAFE, target: SAFE, cooldownSeconds: 120n, expirationSeconds: 600n }, frozen: false },
-  policy: { token: EURC, basePerTransaction: 100000000n, stepUpPerTransaction: 200000000n, baseDailyLimit: 250000000n, instantDailyLimit: 1000000000n, recipients: [] }, spendState: { window: 0n, baseSpent: 0n, instantSpent: 900000000n }, queueItems: [{ queueNonce: 1n, txHash: TX, createdAt: 1n, status: "pending" }], health: [], writable: true,
+  policy: { token: USDC, basePerTransaction: 100000000n, stepUpPerTransaction: 200000000n, baseDailyLimit: 250000000n, instantDailyLimit: 1000000000n, recipients: [] }, spendState: { window: 0n, baseSpent: 0n, instantSpent: 900000000n }, queueItems: [{ queueNonce: 1n, txHash: TX, createdAt: 1n, status: "pending" }], health: [], writable: true,
 };
 
 describe("vault activity and policy boundaries", () => {
   it("projects verified guard and Delay logs and deduplicates transaction/log identity", () => {
     const logs: VaultActivityLog[] = [
-      { address: GUARD, eventName: "TransferAuthorized", transactionHash: TX, logIndex: 0, blockTimestamp: 100, args: { tier: 1, token: EURC, recipient: RECIPIENT, amount: 200000000n } },
-      { address: GUARD, eventName: "TransferAuthorized", transactionHash: TX, logIndex: 0, blockTimestamp: 100, args: { tier: 1, token: EURC, recipient: RECIPIENT, amount: 200000000n } },
+      { address: GUARD, eventName: "TransferAuthorized", transactionHash: TX, logIndex: 0, blockTimestamp: 100, args: { tier: 1, token: USDC, recipient: RECIPIENT, amount: 200000000n } },
+      { address: GUARD, eventName: "TransferAuthorized", transactionHash: TX, logIndex: 0, blockTimestamp: 100, args: { tier: 1, token: USDC, recipient: RECIPIENT, amount: 200000000n } },
       { address: DELAY, eventName: "TransactionAdded", transactionHash: `0x${"bb".repeat(32)}`, logIndex: 1, blockTimestamp: 100, args: { queueNonce: 2n, txHash: `0x${"cc".repeat(32)}`, to: RECIPIENT, value: 0n, data: "0x", operation: 0 } },
     ];
 
@@ -41,6 +41,6 @@ describe("vault activity and policy boundaries", () => {
     expect(repair.transaction.to).toBe(DELAY);
     expect(repair.transaction.value).toBe(0n);
     expect(repair.transaction.data.slice(0, 10)).not.toBe("0x");
-    await expect(prepareRecipientPolicyRepair({ snapshot: { ...snapshot, policy: { token: EURC, basePerTransaction: 100000000n, stepUpPerTransaction: 200000000n, baseDailyLimit: 250000000n, instantDailyLimit: 1000000000n, recipients: [RECIPIENT] } }, recipient: RECIPIENT })).rejects.toThrow(/already/i);
+    await expect(prepareRecipientPolicyRepair({ snapshot: { ...snapshot, policy: { token: USDC, basePerTransaction: 100000000n, stepUpPerTransaction: 200000000n, baseDailyLimit: 250000000n, instantDailyLimit: 1000000000n, recipients: [RECIPIENT] } }, recipient: RECIPIENT })).rejects.toThrow(/already/i);
   });
 });

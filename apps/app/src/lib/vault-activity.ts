@@ -28,7 +28,7 @@ export function projectVaultActivity(logs: readonly VaultActivityLog[], snapshot
     const identity = `${log.transactionHash}:${log.logIndex}`; if (seen.has(identity)) continue; seen.add(identity);
     if (same(log.address, snapshot.topology?.guard) && log.eventName === "TransferAuthorized") {
       const token = readArg<Address>(log.args, "token", 1); const recipient = readArg<Address>(log.args, "recipient", 2); const amount = readArg<bigint>(log.args, "amount", 3); const tier = Number(readArg<number | bigint>(log.args, "tier", 0));
-      if (!same(token, snapshot.eurc?.address) || !recipient || amount === undefined) continue;
+      if (!same(token, snapshot.usdc?.address) || !recipient || amount === undefined) continue;
       result.push({ id: identity, direction: "out", amount, counterparty: recipient, address: recipient, lane: tier === 0 ? "base" : "step-up", status: "executed", createdAt: log.blockTimestamp * 1000, txHash: log.transactionHash, approvers: tier === 0 ? ["First signer"] : ["First signer", "Second signer"], fingerprint: fingerprintOf([snapshot.chainId, snapshot.safe, recipient, amount, log.transactionHash]) });
       continue;
     }
@@ -45,7 +45,7 @@ export function projectVaultActivity(logs: readonly VaultActivityLog[], snapshot
 export function projectAlerts(snapshot: VaultSnapshot): WalletAlert[] {
   const alerts: WalletAlert[] = snapshot.health.map((failure) => ({ code: failure.code, severity: "blocking", message: failure.message }));
   const policy = snapshot.policy; const spend = snapshot.spendState;
-  if (policy && spend && policy.instantDailyLimit > 0n && spend.instantSpent * 100n >= policy.instantDailyLimit * 80n) alerts.push({ code: "near-instant-limit", severity: "warning", message: "Instant EURC spending is near its daily limit." });
+  if (policy && spend && policy.instantDailyLimit > 0n && spend.instantSpent * 100n >= policy.instantDailyLimit * 80n) alerts.push({ code: "near-instant-limit", severity: "warning", message: "Instant USDC spending is near its daily limit." });
   if (snapshot.queueItems.some((item) => item.status === "pending")) alerts.push({ code: "queued-delay", severity: "warning", message: "A delayed operation is waiting in the verified Delay queue." });
   return alerts;
 }
@@ -55,7 +55,7 @@ export type RecipientPolicyRepair = Readonly<{ snapshot: VaultSnapshot; recipien
 export async function prepareRecipientPolicyRepair({ snapshot, recipient }: RecipientPolicyRepair): Promise<SafeExecutionRequest> {
   if (!snapshot.writable || snapshot.health.length > 0) throw new Error("vault health checks are blocking policy repair");
   const policy = snapshot.policy; const topology = snapshot.topology;
-  if (!policy || !topology) throw new Error("verified EURC policy and Delay topology are required");
+  if (!policy || !topology) throw new Error("verified USDC policy and Delay topology are required");
   if (recipient === ZERO || policy.recipients.some((entry) => same(entry, recipient))) throw new Error("recipient is already allowlisted or invalid");
   const repair = encodeFunctionData({ abi: [{ name: "repairPolicy", type: "function", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "basePerTx", type: "uint256" }, { name: "stepUpPerTx", type: "uint256" }, { name: "baseDaily", type: "uint256" }, { name: "instantDaily", type: "uint256" }, { name: "recipients", type: "address[]" }], outputs: [] }], functionName: "repairPolicy", args: [policy.token, policy.basePerTransaction, policy.stepUpPerTransaction, policy.baseDailyLimit, policy.instantDailyLimit, [...policy.recipients, recipient]] });
   const data = encodeFunctionData({ abi: [{ name: "execTransactionFromModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" }], outputs: [{ name: "success", type: "bool" }] }], functionName: "execTransactionFromModule", args: [topology.guard, 0n, repair, 0] });

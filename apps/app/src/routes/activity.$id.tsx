@@ -2,15 +2,15 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { Card, DRow, Details, PrimaryButton, SecondaryButton, StatusBadge } from "@/components/wallet/ui";
 import { LANE_COPY, effectiveStatus, formatCountdown } from "@/lib/activity-model";
-import { formatEuro } from "@/lib/euro";
+import { formatUsdc } from "@/lib/usdc";
 import { useNow, useVault } from "@/lib/vault-store";
 
 export const Route = createFileRoute("/activity/$id")({
   head: () => ({
     meta: [
-      { title: "Transfer details — Euro Account" },
+      { title: "Transfer details — USDC Vault" },
       { name: "description", content: "Status, approvals and technical details for one transfer." },
-      { property: "og:title", content: "Transfer details — Euro Account" },
+      { property: "og:title", content: "Transfer details — USDC Vault" },
       { property: "og:description", content: "Status, approvals and technical details for one transfer." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -49,7 +49,7 @@ function DetailPage() {
         <p className="text-sm text-muted-foreground">{item.direction === "in" ? "From" : "To"} {item.counterparty}</p>
         <p className="my-2 font-display text-4xl font-extrabold tabular-nums">
           {item.direction === "in" ? "+" : "−"}
-          {formatEuro(item.amount)}
+          {formatUsdc(item.amount)}
         </p>
         <StatusBadge status={status} />
         {status === "queued" && item.earliestExecution && (
@@ -97,7 +97,7 @@ function DetailPage() {
         <DRow k="Counterparty" v={item.address} />
         <DRow k="Transaction hash" v={item.txHash ?? "—"} />
         <DRow k="Queue nonce" v={item.queueNonce ?? "—"} />
-        <DRow k="Call" v={`EURC.transfer(${item.address.slice(0, 10)}…, ${item.amount.toString()})`} />
+        <DRow k="Call" v={`USDC.transfer(${item.address.slice(0, 10)}…, ${item.amount.toString()})`} />
         <DRow k="Fingerprint" v={item.fingerprint} />
       </Details>
     </div>

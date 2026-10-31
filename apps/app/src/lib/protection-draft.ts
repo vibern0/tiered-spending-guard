@@ -16,7 +16,7 @@ export type ProtectionDraft = {
 function amount(value: string): bigint {
   if (!/^\d+(?:\.\d{1,6})?$/.test(value.trim()))
     throw new Error(
-      "Enter EURC amounts with up to six decimal places, without grouping separators.",
+      "Enter USDC amounts with up to six decimal places, without grouping separators.",
     );
   const [whole = "0", fraction = ""] = value.trim().split(".");
   return BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, "0"));

@@ -4,7 +4,7 @@
   "scripts": {
     "build": "hardhat clean && hardhat compile",
     "test": "hardhat test",
-    "test:unit": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/unit';const files=[];const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files,...process.argv.slice(1)],{stdio:'inherit'});else console.log('matching test/unit files not present; skipped until a later task adds them')\" --",
+    "test:unit": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/unit';const files=process.argv.slice(1);const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};if(!files.length)walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files],{stdio:'inherit'});else console.log('matching test/unit files not present; skipped until a later task adds them')\" --",
     "test:integration": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/integration';const files=[];const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files,...process.argv.slice(1)],{stdio:'inherit'});else console.log('matching test/integration files not present; skipped until a later task adds them')\" --",
     "test:invariant": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/invariant';const files=[];const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files,...process.argv.slice(1)],{stdio:'inherit'});else console.log('matching test/invariant files not present; skipped until a later task adds them')\" --",
     "test:headless": "tsx scripts/headless-test.ts",
@@ -25,7 +25,8 @@
     "scenario:review": "tsx scripts/live/ordinary-scenario-review-cli.ts",
     "scenario:execute": "tsx scripts/live/ordinary-scenario-executor-cli.ts",
     "scenario:repair": "tsx scripts/live/ordinary-scenario-repair-session.ts",
-    "scenario:usdc-fresh": "tsx scripts/live/ordinary-scenario-usdc-fresh-successor-cli.ts"
+    "scenario:usdc-fresh": "tsx scripts/live/ordinary-scenario-usdc-fresh-successor-cli.ts",
+    "pwa:capture-usdc-profile": "tsx scripts/pwa/capture-usdc-profile.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "0.15.5",

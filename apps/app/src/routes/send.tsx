@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowLeft, Clock, Fingerprint, KeyRound, Ban } from "luc
 import { useState } from "react";
 import { Card, DRow, Details, PrimaryButton, SecondaryButton } from "@/components/wallet/ui";
 import { LANE_COPY, fingerprintOf, type Lane } from "@/lib/activity-model";
-import { formatEuro, parseEuro } from "@/lib/euro";
+import { formatUsdc, parseUsdc } from "@/lib/usdc";
 import { useApproval } from "@/lib/use-approval";
 import { classify, isAddress, shortAddr, useVault, type Recipient } from "@/lib/vault-store";
 import { cn } from "@/lib/utils";
@@ -11,10 +11,10 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/send")({
   head: () => ({
     meta: [
-      { title: "Send euros — Euro Account" },
-      { name: "description", content: "Send euros and see exactly which approvals are needed first." },
-      { property: "og:title", content: "Send euros — Euro Account" },
-      { property: "og:description", content: "Send euros and see exactly which approvals are needed first." },
+      { title: "Send USDC — USDC Vault" },
+      { name: "description", content: "Send USDC and see exactly which approvals are needed first." },
+      { property: "og:title", content: "Send USDC — USDC Vault" },
+      { property: "og:description", content: "Send USDC and see exactly which approvals are needed first." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/send")({
 const LANE_ICON: Record<Lane, typeof Fingerprint> = { base: Fingerprint, "step-up": KeyRound, delayed: Clock, blocked: Ban };
 
 function SendPage() {
-  const { state, sendEurc } = useVault();
+  const { state, sendUsdc } = useVault();
   const nav = useNavigate();
   const { busy } = useApproval();
   const [step, setStep] = useState<"to" | "amount" | "review">("to");
@@ -33,7 +33,7 @@ function SendPage() {
   const [manual, setManual] = useState("");
   const [amountStr, setAmountStr] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const amount = parseEuro(amountStr);
+  const amount = parseUsdc(amountStr);
   const [snapshot, setSnapshot] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,7 +63,7 @@ function SendPage() {
     }
     setSubmitting(true);
     try {
-      await sendEurc({ recipient: to.address as `0x${string}`, amount });
+      await sendUsdc({ recipient: to.address as `0x${string}`, amount });
       nav({ to: "/activity" });
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "The Safe submission was rejected.");
@@ -125,7 +125,7 @@ function SendPage() {
           <Card className="space-y-3">
             <label htmlFor="amt" className="text-sm font-semibold">Amount</label>
             <div className="flex items-center gap-2 border-b-2 border-primary pb-2">
-              <span className="font-display text-4xl font-bold">€</span>
+              <span className="font-display text-sm font-bold">USDC</span>
               <input
                 id="amt"
                 inputMode="decimal"
@@ -137,7 +137,7 @@ function SendPage() {
               />
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Available {formatEuro(state.balance)}</span>
+              <span className="text-muted-foreground">Available {formatUsdc(state.balance)}</span>
               <Link to="/receive" search={{ mode: "topup" }} className="font-semibold text-primary">Need more? Top up</Link>
             </div>
           </Card>
@@ -154,7 +154,7 @@ function SendPage() {
       {step === "review" && to && amount !== null && lane && (
         <>
           <Card className="space-y-3">
-            <p className="text-center font-display text-4xl font-extrabold tabular-nums">{formatEuro(amount)}</p>
+            <p className="text-center font-display text-4xl font-extrabold tabular-nums">{formatUsdc(amount)}</p>
             <p className="text-center text-muted-foreground">to {to.name}</p>
             <dl className="space-y-2 border-t border-border pt-3 text-sm">
               <DRow k="Full address" v={to.address} />
@@ -172,7 +172,7 @@ function SendPage() {
           <Details>
             <DRow k="Account (Safe)" v={state.safe} />
             <DRow k="Chain ID" v={state.chainId} />
-            <DRow k="Call" v={`EURC.transfer(${to.address.slice(0, 10)}…, ${amount.toString()})`} />
+            <DRow k="Call" v={`USDC.transfer(${to.address.slice(0, 10)}…, ${amount.toString()})`} />
           </Details>
           <PrimaryButton onClick={submit} disabled={!!busy || submitting}>
             <Fingerprint className="size-5" aria-hidden /> {submitting ? "Signing exact Safe transaction…" : "Approve with first signer"}

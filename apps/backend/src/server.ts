@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { isLoopbackAddress, type BackendConfig } from "./config";
 import { RegistrationSessionStore } from "./session";
 import { verifyPasskeyRegistration, type RegistrationResponse } from "./webauthn";
-import type { PreparedEurcTransfer, SafeExecutionRequest } from "./vault";
+import type { PreparedUsdcTransfer, SafeExecutionRequest } from "./vault";
 import { SubmissionJournal } from "./journal";
 
 export type VaultProvisioningResult = Readonly<{
@@ -12,7 +12,7 @@ export type VaultProvisioningResult = Readonly<{
   delay: `0x${string}`;
   primaryPasskey: `0x${string}`;
   secondaryPasskey: `0x${string}`;
-  eurc: `0x${string}`;
+  usdc: `0x${string}`;
   evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}` }>;
 }>;
 
@@ -82,7 +82,7 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));
       if (req.method === "POST" && segments.join("/") === "v1/submissions/prepare") {
         if (!handlers.prepareTransfer) throw new Error("submission preparation unavailable");
-        const request = await handlers.prepareTransfer(await body(req) as PreparedEurcTransfer);
+        const request = await handlers.prepareTransfer(await body(req) as PreparedUsdcTransfer);
         const id = request.idempotencyKey;
         journal.prepare(id, request.safeTxHash);
         return json(res, 200, { id, request });

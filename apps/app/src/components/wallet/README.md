@@ -36,7 +36,7 @@ its opener so draft input survives closing/reopening it.
 `ProtectionEditor` owns an **unsigned, in-memory draft**, validated by
 `lib/protection-draft.ts`. It exposes both per-transfer caps, both daily limits,
 the exact waiting period in seconds, recipients, proposed signer replacements,
-and freeze state. EURC values preserve all six decimals using bigint arithmetic.
+and freeze state. USDC values preserve all six decimals using bigint arithmetic.
 The Limits screen keeps displaying active onchain values beneath the sheet.
 Chain snapshot changes remount the editor, discarding stale drafts.
 

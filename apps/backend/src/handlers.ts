@@ -22,7 +22,7 @@ export type BackendSubmissionReader = (input: Readonly<{ vault: BackendVaultReco
 export type BackendHandlerOptions = Readonly<{
   config: BackendConfig;
   artifacts: ReviewedDeploymentEvidence;
-  eurc: Address;
+  usdc: Address;
   provisioner: FreshVaultProvisioner;
   prepareTransfer?: BackendPreparation;
   submit?: BackendSubmission;
@@ -31,7 +31,7 @@ export type BackendHandlerOptions = Readonly<{
 
 type ProvisioningInput = Readonly<{
   chainId?: unknown;
-  eurc?: unknown;
+  usdc?: unknown;
   primaryCredentialId?: unknown;
   secondaryCredentialId?: unknown;
 }>;
@@ -79,7 +79,7 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     if (credentials.get("primary")?.id !== primaryCredentialId || credentials.get("secondary")?.id !== secondaryCredentialId) throw new Error("verified primary and secondary credentials are required");
     const result = await provisionFreshVault({
       chainId: options.config.chainId,
-      eurc: options.eurc,
+      usdc: options.usdc,
       primaryCredentialId,
       secondaryCredentialId,
       relayPrivateKey: options.config.relayPrivateKey,
@@ -100,7 +100,7 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     const request = record(input, "transfer request");
     const intent: BackendTransferIntent = { recipient: request.recipient, amount: request.amount, idempotencyKey: request.idempotencyKey };
     const prepared = await options.prepareTransfer({ vault: requireVault(), request: intent });
-    if (prepared.chainId !== options.config.chainId || prepared.safe.toLowerCase() !== requireVault().safe.toLowerCase() || prepared.asset.toLowerCase() !== requireVault().eurc.toLowerCase()) throw new Error("prepared request does not match the server-held vault");
+    if (prepared.chainId !== options.config.chainId || prepared.safe.toLowerCase() !== requireVault().safe.toLowerCase() || prepared.asset.toLowerCase() !== requireVault().usdc.toLowerCase()) throw new Error("prepared request does not match the server-held vault");
     return prepared;
   };
 

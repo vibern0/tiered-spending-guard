@@ -10,7 +10,8 @@ import {
 } from "viem";
 
 export const SEPOLIA_CHAIN_ID = 11155111 as const;
-export const CIRCLE_EURC_SEPOLIA = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+export const CIRCLE_USDC_SEPOLIA = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+export const REVIEWED_USDC_RUNTIME_CODE_HASH = "0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb" as Hex;
 
 const ZERO = zeroAddress;
 const SENTINEL_MODULES = "0x0000000000000000000000000000000000000001" as Address;
@@ -58,17 +59,17 @@ export type VaultConfig = Readonly<{
   safe: Address;
   guard: Address;
   delay: Address;
-  eurc: Address;
-  /** Reviewed Sepolia EURC candidates; an omitted candidate set is unhealthy. */
-  eurcCandidates: readonly Address[];
+  usdc: Address;
+  /** Reviewed Sepolia USDC candidates; an omitted candidate set is unhealthy. */
+  usdcCandidates: readonly Address[];
   fromBlock?: bigint;
 }>;
 
-export type EurcMetadata = Readonly<{
+export type UsdcMetadata = Readonly<{
   address: Address;
   runtimeCodeHash: Hex;
-  name: "Euro Coin";
-  symbol: "EURC";
+  name: "USDC";
+  symbol: "USDC";
   decimals: 6;
 }>;
 
@@ -123,9 +124,9 @@ export type VaultTopology = Readonly<{
 export type VaultSnapshot = Readonly<{
   chainId: typeof SEPOLIA_CHAIN_ID;
   safe: Address;
-  eurc?: EurcMetadata;
+  usdc?: UsdcMetadata;
   nativeBalance?: bigint;
-  eurcBalance?: bigint;
+  usdcBalance?: bigint;
   safeNonce?: bigint;
   topology?: VaultTopology;
   policy?: VaultAssetPolicy;
@@ -152,20 +153,22 @@ const health = (error: unknown): HealthFailure => {
   return { code: "rpc-inconsistent", message: error instanceof Error ? error.message : "Chain read failed", blocking: true };
 };
 
-export async function validateEurc(client: PublicClient, candidate: Address): Promise<EurcMetadata> {
-  if (!isAddress(candidate) || candidate === ZERO) throw new VaultHealthError("eurc-address-invalid", "EURC candidate is not a contract address");
+export async function validateUsdc(client: PublicClient, candidate: Address): Promise<UsdcMetadata> {
+  if (!isAddress(candidate) || candidate === ZERO || !sameAddress(candidate, CIRCLE_USDC_SEPOLIA)) throw new VaultHealthError("usdc-address-invalid", "USDC candidate is not the reviewed Circle Sepolia contract");
   const reader = client as unknown as ChainReader;
   const runtime = await reader.getBytecode({ address: candidate });
-  if (!runtime || runtime === "0x") throw new VaultHealthError("eurc-runtime-missing", "EURC candidate has no runtime bytecode");
+  if (!runtime || runtime === "0x") throw new VaultHealthError("usdc-runtime-missing", "USDC candidate has no runtime bytecode");
+  const runtimeCodeHash = keccak256(runtime);
+  if (runtimeCodeHash !== REVIEWED_USDC_RUNTIME_CODE_HASH) throw new VaultHealthError("usdc-runtime-mismatch", "USDC runtime does not match the reviewed two-provider artifact");
   const [name, symbol, decimals] = await Promise.all([
     read<string>(reader, candidate, ERC20_ABI, "name"),
     read<string>(reader, candidate, ERC20_ABI, "symbol"),
     read<number>(reader, candidate, ERC20_ABI, "decimals"),
   ]);
-  if (name !== "Euro Coin" || symbol !== "EURC" || decimals !== 6) {
-    throw new VaultHealthError("eurc-metadata-mismatch", "EURC metadata does not match reviewed Circle EURC metadata");
+  if (name !== "USDC" || symbol !== "USDC" || decimals !== 6) {
+    throw new VaultHealthError("usdc-metadata-mismatch", "USDC metadata does not match reviewed Circle USDC metadata");
   }
-  return { address: getAddress(candidate), runtimeCodeHash: keccak256(runtime), name, symbol, decimals };
+  return { address: getAddress(candidate), runtimeCodeHash, name, symbol, decimals };
 }
 
 function emptySnapshot(config: VaultConfig, failure: HealthFailure): VaultSnapshot {
@@ -179,13 +182,13 @@ export async function readVaultSnapshot(client: PublicClient, config: VaultConfi
   try {
     const chainId = await reader.getChainId();
     if (chainId !== config.chainId) throw new VaultHealthError("wrong-chain", `Connected chain is ${chainId}, expected ${config.chainId}`);
-    if (config.eurcCandidates.length === 0 || !config.eurcCandidates.some((candidate) => sameAddress(candidate, config.eurc))) {
-      throw new VaultHealthError("eurc-address-unapproved", "EURC address is not in the reviewed candidate set");
+    if (config.usdcCandidates.length === 0 || !config.usdcCandidates.some((candidate) => sameAddress(candidate, config.usdc))) {
+      throw new VaultHealthError("usdc-address-unapproved", "USDC address is not in the reviewed candidate set");
     }
-    const eurc = await validateEurc(client, config.eurc);
-    const [nativeBalance, eurcBalance, safeNonce, guardSlot, moduleGuardSlot, fallbackSlot, modulesPage, guardConfig, frozen, configuredTokens, delayOwner, delayAvatar, delayTarget, cooldownSeconds, expirationSeconds, txNonce, queueNonce, observedBlock] = await Promise.all([
+    const usdc = await validateUsdc(client, config.usdc);
+    const [nativeBalance, usdcBalance, safeNonce, guardSlot, moduleGuardSlot, fallbackSlot, modulesPage, guardConfig, frozen, configuredTokens, delayOwner, delayAvatar, delayTarget, cooldownSeconds, expirationSeconds, txNonce, queueNonce, observedBlock] = await Promise.all([
       reader.getBalance({ address: config.safe }),
-      read<bigint>(reader, config.eurc, ERC20_ABI, "balanceOf", [config.safe]),
+      read<bigint>(reader, config.usdc, ERC20_ABI, "balanceOf", [config.safe]),
       read<bigint>(reader, config.safe, SAFE_ABI, "nonce"),
       reader.getStorageAt({ address: config.safe, slot: GUARD_SLOT }),
       reader.getStorageAt({ address: config.safe, slot: MODULE_GUARD_SLOT }),
@@ -215,17 +218,17 @@ export async function readVaultSnapshot(client: PublicClient, config: VaultConfi
     if (modules.length !== 1 || !sameAddress(modules[0], config.delay) || modulesPage[1] !== SENTINEL_MODULES) failures.push({ code: "module-topology-drift", message: "Configured Delay is not the only enabled Safe module", blocking: true });
     if (!sameAddress(guardConfig[0], config.safe) || !sameAddress(guardConfig[3], config.delay) || guardConfig[4] !== 86400n) failures.push({ code: "guard-config-drift", message: "Guard configuration does not match this Safe or its daily period", blocking: true });
     if (!sameAddress(delayOwner, config.safe) || !sameAddress(delayAvatar, config.safe) || !sameAddress(delayTarget, config.safe)) failures.push({ code: "delay-topology-drift", message: "Delay owner, avatar, or target does not match the Safe", blocking: true });
-    if (configuredTokens.length === 0 || !configuredTokens.some((token) => sameAddress(token, config.eurc))) failures.push({ code: "eurc-policy-missing", message: "EURC is not configured in the guard policy", blocking: true });
+    if (configuredTokens.length === 0 || !configuredTokens.some((token) => sameAddress(token, config.usdc))) failures.push({ code: "usdc-policy-missing", message: "USDC is not configured in the guard policy", blocking: true });
 
     let policy: VaultAssetPolicy | undefined;
     let spendState: VaultSpendState | undefined;
-    if (configuredTokens.some((token) => sameAddress(token, config.eurc))) {
+    if (configuredTokens.some((token) => sameAddress(token, config.usdc))) {
       const [asset, recipients, spend] = await Promise.all([
-        read<readonly [bigint, bigint, bigint, bigint]>(reader, config.guard, GUARD_ABI, "assetPolicy", [config.eurc]),
-        read<readonly Address[]>(reader, config.guard, GUARD_ABI, "getPolicyRecipients", [config.eurc]),
-        read<readonly [bigint, bigint, bigint]>(reader, config.guard, GUARD_ABI, "spendState", [config.eurc]),
+        read<readonly [bigint, bigint, bigint, bigint]>(reader, config.guard, GUARD_ABI, "assetPolicy", [config.usdc]),
+        read<readonly Address[]>(reader, config.guard, GUARD_ABI, "getPolicyRecipients", [config.usdc]),
+        read<readonly [bigint, bigint, bigint]>(reader, config.guard, GUARD_ABI, "spendState", [config.usdc]),
       ]);
-      policy = { token: eurc.address, basePerTransaction: asset[0], stepUpPerTransaction: asset[1], baseDailyLimit: asset[2], instantDailyLimit: asset[3], recipients };
+      policy = { token: usdc.address, basePerTransaction: asset[0], stepUpPerTransaction: asset[1], baseDailyLimit: asset[2], instantDailyLimit: asset[3], recipients };
       spendState = { window: spend[0], baseSpent: spend[1], instantSpent: spend[2] };
     }
 
@@ -243,9 +246,9 @@ export async function readVaultSnapshot(client: PublicClient, config: VaultConfi
     return {
       chainId: config.chainId,
       safe: config.safe,
-      eurc,
+      usdc,
       nativeBalance,
-      eurcBalance,
+      usdcBalance,
       safeNonce: typeof safeNonce === "bigint" ? safeNonce : BigInt(safeNonce),
       topology: { guard, moduleGuard, modules, fallbackHandler, delay: { address: config.delay, owner: delayOwner, avatar: delayAvatar, target: delayTarget, cooldownSeconds, expirationSeconds }, frozen },
       ...(policy === undefined ? {} : { policy }),

@@ -3,19 +3,19 @@ import { ProtectionEditor } from "@/components/wallet/protection-editor";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2, Pencil, Snowflake } from "lucide-react";
 import { Card, PageHeader, SecondaryButton, NetworkPill } from "@/components/wallet/ui";
-import { formatEuro } from "@/lib/euro";
+import { formatUsdc } from "@/lib/usdc";
 import { shortAddr, useNow, useVault } from "@/lib/vault-store";
 import { formatCountdown } from "@/lib/activity-model";
 
 export const Route = createFileRoute("/limits")({
   head: () => ({
     meta: [
-      { title: "Limits & security — Euro Account" },
+      { title: "Limits & security — USDC Vault" },
       {
         name: "description",
         content: "Daily limits, waiting period, allowed recipients and approval devices.",
       },
-      { property: "og:title", content: "Limits & security — Euro Account" },
+      { property: "og:title", content: "Limits & security — USDC Vault" },
       {
         property: "og:description",
         content: "Daily limits, waiting period, allowed recipients and approval devices.",
@@ -44,7 +44,7 @@ function Usage({
       <div className="flex justify-between text-sm">
         <span className="font-semibold">{label}</span>
         <span className="tabular-nums">
-          {formatEuro(used)} of {formatEuro(limit)}
+          {formatUsdc(used)} of {formatUsdc(limit)}
         </span>
       </div>
       <div
@@ -97,11 +97,11 @@ function LimitsPage() {
       <Card className="space-y-2 text-sm">
         <div className="flex justify-between gap-3">
           <span className="text-muted-foreground">First-signer maximum per transfer</span>
-          <span className="font-semibold">{formatEuro(p.basePerTxCap)}</span>
+          <span className="font-semibold">{formatUsdc(p.basePerTxCap)}</span>
         </div>
         <div className="flex justify-between gap-3">
           <span className="text-muted-foreground">Second-signer maximum per transfer</span>
-          <span className="font-semibold">{formatEuro(p.perTxCap)}</span>
+          <span className="font-semibold">{formatUsdc(p.perTxCap)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Waiting period</span>

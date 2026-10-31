@@ -3,7 +3,8 @@ import { SubmissionJournal, type Reconciliation } from "./journal";
 import type { VaultProvisioningResult } from "./server";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-const EURC_ABI = parseAbi(["function transfer(address to,uint256 amount) returns (bool)"]);
+export const SEPOLIA_USDC_ADDRESS = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+const USDC_ABI = parseAbi(["function transfer(address to,uint256 amount) returns (bool)"]);
 const SAFE_TX_TYPES = [
   { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" },
   { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" }, { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "nonce", type: "uint256" },
@@ -25,12 +26,12 @@ export type SafeExecutionRequest = Readonly<{
   expectedSpend: Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>;
 }>;
 
-export type PreparedEurcTransfer = Readonly<{
+export type PreparedUsdcTransfer = Readonly<{
   chainId: number;
   safe: Address;
   guard: Address;
-  eurc: Address;
-  configuredEurc: Address;
+  usdc: Address;
+  configuredUsdc: Address;
   recipient: Address;
   amount: bigint;
   nonce: bigint;
@@ -52,7 +53,7 @@ export type ReviewedDeploymentEvidence = Readonly<{
 }>;
 
 export type FreshVaultProvisioner = Readonly<{
-  deploy: (input: Readonly<{ chainId: 11155111; eurc: Address; primaryCredentialId: string; secondaryCredentialId: string; artifacts: ReviewedDeploymentEvidence }>) => Promise<VaultProvisioningResult>;
+  deploy: (input: Readonly<{ chainId: 11155111; usdc: Address; primaryCredentialId: string; secondaryCredentialId: string; artifacts: ReviewedDeploymentEvidence }>) => Promise<VaultProvisioningResult>;
 }>;
 
 function assertHex(value: Hex, label: string): void {
@@ -63,24 +64,24 @@ function assertAddress(value: Address, label: string): void {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) throw new Error(`${label} is invalid`);
 }
 
-function assertExactInput(input: PreparedEurcTransfer): void {
-  const allowed = new Set(["chainId", "safe", "guard", "eurc", "configuredEurc", "recipient", "amount", "nonce", "deploymentHash", "policyHash", "idempotencyKey", "signatures", "expectedSpend", "allowedRecipients"]);
+function assertExactInput(input: PreparedUsdcTransfer): void {
+  const allowed = new Set(["chainId", "safe", "guard", "usdc", "configuredUsdc", "recipient", "amount", "nonce", "deploymentHash", "policyHash", "idempotencyKey", "signatures", "expectedSpend", "allowedRecipients"]);
   for (const key of Object.keys(input)) if (!allowed.has(key)) throw new Error(`unknown transfer field: ${key}`);
 }
 
-export async function prepareEurcTransfer(input: PreparedEurcTransfer): Promise<SafeExecutionRequest> {
+export async function prepareUsdcTransfer(input: PreparedUsdcTransfer): Promise<SafeExecutionRequest> {
   assertExactInput(input);
   if (input.chainId !== 11155111) throw new Error("only Sepolia is supported");
-  assertAddress(input.safe, "safe"); assertAddress(input.guard, "guard"); assertAddress(input.eurc, "eurc"); assertAddress(input.recipient, "recipient");
-  if (input.eurc.toLowerCase() !== input.configuredEurc.toLowerCase()) throw new Error("EURC address is not the configured Circle EURC candidate");
-  if (input.eurc === ZERO || input.recipient === ZERO || input.amount <= 0n || input.nonce < 0n) throw new Error("invalid EURC transfer bounds");
+  assertAddress(input.safe, "safe"); assertAddress(input.guard, "guard"); assertAddress(input.usdc, "usdc"); assertAddress(input.recipient, "recipient");
+  if (input.usdc.toLowerCase() !== input.configuredUsdc.toLowerCase()) throw new Error("USDC address is not the configured Circle USDC candidate");
+  if (input.usdc === ZERO || input.recipient === ZERO || input.amount <= 0n || input.nonce < 0n) throw new Error("invalid USDC transfer bounds");
   if (!input.allowedRecipients.some((address) => address.toLowerCase() === input.recipient.toLowerCase())) throw new Error("recipient is not allowlisted");
   assertHex(input.deploymentHash, "deploymentHash"); assertHex(input.policyHash, "policyHash"); assertHex(input.idempotencyKey, "idempotencyKey");
   if (input.signatures !== undefined) { assertHex(input.signatures, "signatures"); if (input.signatures.length < 132) throw new Error("primary Safe signature is invalid"); }
-  const data = encodeFunctionData({ abi: EURC_ABI, functionName: "transfer", args: [input.recipient, input.amount] });
-  const transaction = { to: input.eurc, value: 0n, data, operation: 0 as const, safeTxGas: 0n as const, baseGas: 0n as const, gasPrice: 0n as const, gasToken: ZERO, refundReceiver: ZERO, nonce: input.nonce };
+  const data = encodeFunctionData({ abi: USDC_ABI, functionName: "transfer", args: [input.recipient, input.amount] });
+  const transaction = { to: input.usdc, value: 0n, data, operation: 0 as const, safeTxGas: 0n as const, baseGas: 0n as const, gasPrice: 0n as const, gasToken: ZERO, refundReceiver: ZERO, nonce: input.nonce };
   const safeTxHash = hashTypedData({ domain: { chainId: input.chainId, verifyingContract: input.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: transaction });
-  return Object.freeze({ version: 1, kind: "safe-execution", idempotencyKey: input.idempotencyKey, chainId: input.chainId, deploymentsHash: input.deploymentHash, policyHash: input.policyHash, safe: input.safe, guard: input.guard, asset: input.eurc, transaction, safeTxHash, signatures: input.signatures ?? "0x", expectedSpend: input.expectedSpend });
+  return Object.freeze({ version: 1, kind: "safe-execution", idempotencyKey: input.idempotencyKey, chainId: input.chainId, deploymentsHash: input.deploymentHash, policyHash: input.policyHash, safe: input.safe, guard: input.guard, asset: input.usdc, transaction, safeTxHash, signatures: input.signatures ?? "0x", expectedSpend: input.expectedSpend });
 }
 
 export type SubmissionStatus = Readonly<{
@@ -107,7 +108,7 @@ const exactRequest = (request: SafeExecutionRequest): SafeExecutionRequest => Ob
 
 function assertCanonicalRequest(request: SafeExecutionRequest): void {
   if (request.chainId !== 11155111 || request.transaction.operation !== 0 || request.transaction.value !== 0n) throw new Error("only zero-value CALLs on Sepolia are supported");
-  if (request.asset.toLowerCase() !== request.transaction.to.toLowerCase()) throw new Error("Safe target must be the configured EURC asset");
+  if (request.asset.toLowerCase() !== request.transaction.to.toLowerCase()) throw new Error("Safe target must be the configured USDC asset");
   if (request.transaction.safeTxGas !== 0n || request.transaction.baseGas !== 0n || request.transaction.gasPrice !== 0n || request.transaction.gasToken !== ZERO || request.transaction.refundReceiver !== ZERO) throw new Error("Safe gas and refund fields must be zero");
   const digest = hashTypedData({ domain: { chainId: request.chainId, verifyingContract: request.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: request.transaction });
   if (digest.toLowerCase() !== request.safeTxHash.toLowerCase()) throw new Error("Safe transaction digest does not match the exact request");
@@ -191,8 +192,8 @@ export class SafeSubmissionService {
   }
 
   private requiredApprovals(request: SafeExecutionRequest): SubmissionStatus["requiredApprovals"] {
-    const decoded = decodeFunctionData({ abi: EURC_ABI, data: request.transaction.data });
-    if (decoded.functionName !== "transfer") throw new Error("only EURC transfer calls are supported");
+    const decoded = decodeFunctionData({ abi: USDC_ABI, data: request.transaction.data });
+    if (decoded.functionName !== "transfer") throw new Error("only USDC transfer calls are supported");
     const amount = decoded.args[1] as bigint;
     const base = request.expectedSpend.baseSpent + amount;
     const instant = request.expectedSpend.instantSpent + amount;
@@ -214,7 +215,7 @@ export class SafeSubmissionService {
 
 export async function provisionFreshVault(input: Readonly<{
   chainId: number;
-  eurc: Address;
+  usdc: Address;
   primaryCredentialId: string;
   secondaryCredentialId: string;
   relayPrivateKey?: string;
@@ -223,7 +224,8 @@ export async function provisionFreshVault(input: Readonly<{
 }>): Promise<VaultProvisioningResult> {
   if (input.chainId !== 11155111) throw new Error("only Sepolia vault provisioning is supported");
   if (!input.relayPrivateKey || !/^0x[0-9a-fA-F]{64}$/.test(input.relayPrivateKey)) throw new Error("local relay secret is required");
+  if (input.usdc.toLowerCase() !== SEPOLIA_USDC_ADDRESS.toLowerCase()) throw new Error("reviewed Sepolia USDC address is required");
   if (!input.primaryCredentialId || !input.secondaryCredentialId || input.primaryCredentialId === input.secondaryCredentialId) throw new Error("distinct primary and secondary credentials are required");
   if (input.artifacts.verified !== true || input.artifacts.chainId !== 11155111) throw new Error("reviewed deployment evidence is required");
-  return input.provisioner.deploy({ chainId: 11155111, eurc: input.eurc, primaryCredentialId: input.primaryCredentialId, secondaryCredentialId: input.secondaryCredentialId, artifacts: input.artifacts });
+  return input.provisioner.deploy({ chainId: 11155111, usdc: input.usdc, primaryCredentialId: input.primaryCredentialId, secondaryCredentialId: input.secondaryCredentialId, artifacts: input.artifacts });
 }

@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Address, PublicClient } from "viem";
-import { readVaultSnapshot, validateEurc, type VaultConfig } from "./vault-chain";
+import { readVaultSnapshot, validateUsdc, type VaultConfig } from "./vault-chain";
+import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
 const DELAY = "0x3333333333333333333333333333333333333333" as Address;
-const EURC = "0x4444444444444444444444444444444444444444" as Address;
+const USDC = TEST_USDC_ADDRESS;
 
 function client(overrides: Record<string, unknown> = {}): PublicClient {
   return {
     getChainId: vi.fn().mockResolvedValue(11155111),
-    getBytecode: vi.fn().mockResolvedValue("0x6001600155"),
+    getBytecode: vi.fn().mockResolvedValue(TEST_USDC_RUNTIME),
     getBalance: vi.fn().mockResolvedValue(2_000_000_000_000_000n),
     getTransactionCount: vi.fn().mockResolvedValue(7),
     getStorageAt: vi.fn().mockImplementation(async ({ slot }: { slot: string }) => {
@@ -19,8 +20,8 @@ function client(overrides: Record<string, unknown> = {}): PublicClient {
     }),
     readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
       const values: Record<string, unknown> = {
-        name: "Euro Coin",
-        symbol: "EURC",
+        name: "USDC",
+        symbol: "USDC",
         decimals: 6,
         balanceOf: 12_345_678n,
         nonce: 7n,
@@ -29,7 +30,7 @@ function client(overrides: Record<string, unknown> = {}): PublicClient {
         getModulesPaginated: [[DELAY], "0x0000000000000000000000000000000000000001"],
         fallbackHandler: "0x0000000000000000000000000000000000000000",
         config: [SAFE, "0x5555555555555555555555555555555555555555", "0x6666666666666666666666666666666666666666", DELAY, 86400n, 0n],
-        getConfiguredTokens: [EURC],
+        getConfiguredTokens: [USDC],
         assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n],
         getPolicyRecipients: ["0x7777777777777777777777777777777777777777"],
         spendState: [0n, 0n, 0n],
@@ -53,15 +54,15 @@ const config: VaultConfig = {
   safe: SAFE,
   guard: GUARD,
   delay: DELAY,
-  eurc: EURC,
-  eurcCandidates: [EURC],
+  usdc: USDC,
+  usdcCandidates: [USDC],
 };
 
-describe("validateEurc", () => {
-  it("accepts Sepolia EURC only when runtime code and metadata match", async () => {
-    await expect(validateEurc(client(), EURC)).resolves.toMatchObject({
-      address: EURC,
-      symbol: "EURC",
+describe("validateUsdc", () => {
+  it("accepts Sepolia USDC only when runtime code and metadata match", async () => {
+    await expect(validateUsdc(client(), USDC)).resolves.toMatchObject({
+      address: USDC,
+      symbol: "USDC",
       decimals: 6,
     });
   });
@@ -69,15 +70,22 @@ describe("validateEurc", () => {
   it("rejects wrong symbol or decimals as a blocking health failure", async () => {
     const invalid = client({
       readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
-        if (functionName === "name") return "Not EURC";
+        if (functionName === "name") return "Not USDC";
         if (functionName === "symbol") return "NOPE";
         if (functionName === "decimals") return 18;
         return undefined;
       }),
     });
 
-    await expect(validateEurc(invalid, EURC)).rejects.toMatchObject({
-      code: "eurc-metadata-mismatch",
+    await expect(validateUsdc(invalid, USDC)).rejects.toMatchObject({
+      code: "usdc-metadata-mismatch",
+      blocking: true,
+    });
+  });
+
+  it("rejects runtime bytecode that differs from the reviewed two-provider artifact", async () => {
+    await expect(validateUsdc(client({ getBytecode: vi.fn().mockResolvedValue("0x6001600155") }), USDC)).rejects.toMatchObject({
+      code: "usdc-runtime-mismatch",
       blocking: true,
     });
   });
@@ -90,7 +98,7 @@ describe("readVaultSnapshot", () => {
     expect(snapshot.writable).toBe(true);
     expect(snapshot.health).toEqual([]);
     expect(snapshot.safeNonce).toBe(7n);
-    expect(snapshot.eurcBalance).toBe(12_345_678n);
+    expect(snapshot.usdcBalance).toBe(12_345_678n);
     if (!snapshot.topology || !snapshot.policy) throw new Error("healthy snapshot is incomplete");
     expect(snapshot.topology).toMatchObject({ guard: GUARD, moduleGuard: GUARD, delay: { address: DELAY } });
     expect(snapshot.topology.modules).toEqual([DELAY]);
@@ -104,16 +112,16 @@ describe("readVaultSnapshot", () => {
     expect(snapshot.health).toEqual([
       expect.objectContaining({ code: "wrong-chain", blocking: true }),
     ]);
-    expect(snapshot.eurcBalance).toBeUndefined();
+    expect(snapshot.usdcBalance).toBeUndefined();
   });
 
-  it("blocks writes when EURC has no runtime bytecode", async () => {
+  it("blocks writes when USDC has no runtime bytecode", async () => {
     const snapshot = await readVaultSnapshot(client({ getBytecode: vi.fn().mockResolvedValue(undefined) }), config);
 
     expect(snapshot.writable).toBe(false);
     expect(snapshot.health).toEqual([
-      expect.objectContaining({ code: "eurc-runtime-missing", blocking: true }),
+      expect.objectContaining({ code: "usdc-runtime-missing", blocking: true }),
     ]);
-    expect(snapshot.eurcBalance).toBeUndefined();
+    expect(snapshot.usdcBalance).toBeUndefined();
   });
 });

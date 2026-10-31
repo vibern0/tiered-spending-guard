@@ -11,10 +11,10 @@ export const Route = createFileRoute("/receive")({
   validateSearch: z.object({ mode: z.enum(["topup", "receive"]).optional() }),
   head: () => ({
     meta: [
-      { title: "Add euros — Euro Account" },
-      { name: "description", content: "Get free test euros or receive from another account." },
-      { property: "og:title", content: "Add euros — Euro Account" },
-      { property: "og:description", content: "Get free test euros or receive from another account." },
+      { title: "Add USDC — USDC Vault" },
+      { name: "description", content: "Get free test USDC or receive from another account." },
+      { property: "og:title", content: "Add USDC — USDC Vault" },
+      { property: "og:description", content: "Get free test USDC or receive from another account." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -32,10 +32,10 @@ function ReceivePage() {
       <Link to="/" className="flex items-center gap-2 pt-6 text-sm font-semibold text-muted-foreground">
         <ArrowLeft className="size-4" aria-hidden /> Home
       </Link>
-      <h1 className="font-display text-2xl font-bold">Add euros</h1>
+      <h1 className="font-display text-2xl font-bold">Add USDC</h1>
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary p-1" role="tablist">
         {([
-          ["topup", "Get test euros", Gift],
+          ["topup", "Get test USDC", Gift],
           ["receive", "From another account", Wallet],
         ] as const).map(([id, label, Icon]) => (
           <button
@@ -76,10 +76,10 @@ function TopUp() {
   const [phase, setPhase] = useState<"idle" | "waiting" | "arrived">("idle");
   return (
     <Card className="space-y-4">
-      <p>Test euros have no real value. Use them to try sending, limits and approvals safely.</p>
+      <p>Test USDC have no real value. Use them to try sending, limits and approvals safely.</p>
       <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
         <li>Copy your account address.</li>
-        <li>Open the official test-euro faucet, paste it and request funds.</li>
+        <li>Open the official test-usdc faucet, paste it and request funds.</li>
         <li>Come back — we show the funds once they arrive.</li>
       </ol>
       <CopyAddress />
@@ -89,7 +89,7 @@ function TopUp() {
           setPhase("waiting");
         }}
       >
-        Open test-euro faucet <ExternalLink className="size-4" aria-hidden />
+        Open test-usdc faucet <ExternalLink className="size-4" aria-hidden />
       </PrimaryButton>
       {phase === "waiting" && (
         <div className="space-y-3 rounded-2xl bg-approval-soft p-4 text-sm text-approval-ink">
@@ -99,7 +99,7 @@ function TopUp() {
         </div>
       )}
       {phase === "arrived" && (
-        <p className="rounded-2xl bg-success-soft p-4 text-sm font-semibold text-success">€100.00 test euros arrived.</p>
+        <p className="rounded-2xl bg-success-soft p-4 text-sm font-semibold text-success">100.00 test USDC arrived.</p>
       )}
       <Details>
         <TechRows />
@@ -114,8 +114,8 @@ function TechRows() {
     <>
       <DRow k="Account (Safe)" v={state.safe} />
       <DRow k="Network" v={state.network} />
-      <DRow k="Asset" v="EURC only" />
-      <DRow k="EURC contract" v={state.eurc} />
+      <DRow k="Asset" v="USDC only" />
+      <DRow k="USDC contract" v={state.usdc} />
     </>
   );
 }
@@ -130,7 +130,7 @@ function ReceiveFrom() {
       <p className="break-all text-center font-mono text-sm">{state.safe}</p>
       <CopyAddress />
       <p className="rounded-2xl bg-danger-soft p-3 text-sm text-danger-ink">
-        Only send test euros on the test network. Other currencies or networks may be lost in this prototype.
+        Only send test USDC on the test network. Other currencies or networks may be lost in this prototype.
       </p>
       <Details>
         <TechRows />

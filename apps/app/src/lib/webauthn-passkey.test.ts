@@ -44,7 +44,7 @@ function assertion(overrides: Record<string, unknown> = {}) {
 
 const registrationOptions = {
   challenge: CHALLENGE,
-  rp: { id: "localhost", name: "EURC demo" },
+  rp: { id: "localhost", name: "USDC demo" },
   user: { id: encoded("user-primary"), name: "primary", displayName: "Primary passkey" },
   pubKeyCredParams: [{ alg: -7, type: "public-key" }],
   authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },

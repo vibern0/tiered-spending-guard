@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isAddress, type Address, type Hex } from "viem";
 import { assertConfiguredAddress } from "./config";
-import type { FreshVaultProvisioner, ReviewedDeploymentEvidence } from "./vault";
+import { SEPOLIA_USDC_ADDRESS, type FreshVaultProvisioner, type ReviewedDeploymentEvidence } from "./vault";
 import type { BackendPreparation, BackendSubmission, BackendSubmissionReader } from "./handlers";
 
 function outsideRepository(path: string): void {
@@ -38,7 +38,7 @@ export function loadReviewedDeploymentEvidence(path: string): ReviewedDeployment
 }
 
 export type ReviewedBackendModule = Readonly<{
-  eurc: Address;
+  usdc: Address;
   provisioner: FreshVaultProvisioner;
   prepareTransfer: BackendPreparation;
   submit: BackendSubmission;
@@ -49,7 +49,7 @@ export async function loadReviewedBackendModule(path: string): Promise<ReviewedB
   outsideRepository(path);
   const imported = await import(pathToFileURL(path).href) as {
     createBackendModule?: () => ReviewedBackendModule | Promise<ReviewedBackendModule>;
-    eurc?: Address;
+    usdc?: Address;
     createProvisioner?: () => FreshVaultProvisioner;
     provisioner?: FreshVaultProvisioner;
     prepareTransfer?: BackendPreparation;
@@ -57,13 +57,13 @@ export async function loadReviewedBackendModule(path: string): Promise<ReviewedB
     submission?: BackendSubmissionReader;
   };
   const module = imported.createBackendModule ? await imported.createBackendModule() : {
-    eurc: imported.eurc,
+    usdc: imported.usdc,
     provisioner: imported.createProvisioner?.() ?? imported.provisioner,
     prepareTransfer: imported.prepareTransfer,
     submit: imported.submit,
     submission: imported.submission,
   };
-  if (!module.eurc || !isAddress(module.eurc) || !module.provisioner || typeof module.provisioner.deploy !== "function" || typeof module.prepareTransfer !== "function" || typeof module.submit !== "function" || typeof module.submission !== "function") throw new Error("reviewed backend module must provide pinned EURC, provisioner, prepareTransfer, submit, and submission");
+  if (!module.usdc || !isAddress(module.usdc) || module.usdc.toLowerCase() !== SEPOLIA_USDC_ADDRESS.toLowerCase() || !module.provisioner || typeof module.provisioner.deploy !== "function" || typeof module.prepareTransfer !== "function" || typeof module.submit !== "function" || typeof module.submission !== "function") throw new Error("reviewed backend module must provide pinned Sepolia USDC, provisioner, prepareTransfer, submit, and submission");
   return module as ReviewedBackendModule;
 }
 

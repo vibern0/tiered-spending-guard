@@ -56,12 +56,12 @@ describe("Account access", () => {
 
 it("keeps an existing account accessible when RPC is unavailable", async () => {
   localStorage.setItem(
-    "eurc-vault-demo-v1",
+    "usdc-vault-demo-v1",
     JSON.stringify({
       safe: "0x1111111111111111111111111111111111111111",
       guard: "0x2222222222222222222222222222222222222222",
       delay: "0x3333333333333333333333333333333333333333",
-      eurc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     }),
   );
   await renderAt("/limits");

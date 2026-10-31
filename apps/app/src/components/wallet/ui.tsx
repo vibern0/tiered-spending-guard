@@ -8,7 +8,7 @@ import {
   type ActivityItem,
   type ActivityStatus,
 } from "@/lib/activity-model";
-import { formatEuro } from "@/lib/euro";
+import { formatUsdc } from "@/lib/usdc";
 import { useVault } from "@/lib/vault-store";
 
 const TONE: Record<string, string> = {
@@ -104,7 +104,7 @@ export function ActivityRow({ item, now }: { item: ActivityItem; now: number }) 
             )}
           >
             {item.direction === "in" ? "+" : "−"}
-            {formatEuro(item.amount)}
+            {formatUsdc(item.amount)}
           </span>
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">

@@ -3,16 +3,16 @@ import { AlertCircle, ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from "lu
 import { ActivityRow, Card, NetworkPill } from "@/components/wallet/ui";
 import { TopologyAlert } from "@/components/wallet/topology-alert";
 import { effectiveStatus, needsAttention } from "@/lib/activity-model";
-import { formatEuro } from "@/lib/euro";
+import { formatUsdc } from "@/lib/usdc";
 import { useNow, useVault } from "@/lib/vault-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Home — Euro Account" },
-      { name: "description", content: "Your euro balance, quick actions and recent activity." },
-      { property: "og:title", content: "Home — Euro Account" },
-      { property: "og:description", content: "Your euro balance, quick actions and recent activity." },
+      { title: "Home — USDC Vault" },
+      { name: "description", content: "Your Sepolia USDC balance, quick actions and recent activity." },
+      { property: "og:title", content: "Home — USDC Vault" },
+      { property: "og:description", content: "Your Sepolia USDC balance, quick actions and recent activity." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -53,7 +53,7 @@ function HomePage() {
 
       <Card className="p-6">
         <p className="text-sm text-muted-foreground">Balance</p>
-        <p className="mt-1 font-display text-4xl font-extrabold tabular-nums tracking-tight">{formatEuro(state.balance)}</p>
+        <p className="mt-1 font-display text-4xl font-extrabold tabular-nums tracking-tight">{formatUsdc(state.balance)}</p>
         {funded ? (
           <div className="mt-6 grid grid-cols-2 gap-3">
             <Link to="/send" aria-disabled={!canWrite} className="flex items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 font-semibold text-primary-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50">
@@ -65,7 +65,7 @@ function HomePage() {
           </div>
         ) : (
           <div className="mt-6 space-y-3">
-            <p className="text-sm">Add test euros to get started</p>
+            <p className="text-sm">Add test USDC to get started</p>
             <Link to="/receive" search={{ mode: "topup" }} className="flex items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 font-semibold text-primary-foreground">
               <Plus className="size-5" aria-hidden /> Top up
             </Link>
@@ -77,8 +77,8 @@ function HomePage() {
         <Card className="grid grid-cols-2 gap-3 p-4 text-sm">
           <div><p className="text-muted-foreground">Native gas</p><p className="font-semibold tabular-nums">{state.nativeBalance.toString()} wei</p></div>
           <div><p className="text-muted-foreground">Safe nonce</p><p className="font-semibold tabular-nums">{state.safeNonce?.toString() ?? "—"}</p></div>
-          <div><p className="text-muted-foreground">First signer today</p><p className="font-semibold tabular-nums">{formatEuro(state.spentFirstSigner)} / {formatEuro(state.policy.firstSignerDaily)}</p></div>
-          <div><p className="text-muted-foreground">Instant today</p><p className="font-semibold tabular-nums">{formatEuro(state.spentInstant)} / {formatEuro(state.policy.instantDaily)}</p></div>
+          <div><p className="text-muted-foreground">First signer today</p><p className="font-semibold tabular-nums">{formatUsdc(state.spentFirstSigner)} / {formatUsdc(state.policy.firstSignerDaily)}</p></div>
+          <div><p className="text-muted-foreground">Instant today</p><p className="font-semibold tabular-nums">{formatUsdc(state.spentInstant)} / {formatUsdc(state.policy.instantDaily)}</p></div>
         </Card>
       )}
 

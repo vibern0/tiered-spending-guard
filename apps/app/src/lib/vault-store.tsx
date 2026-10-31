@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPublicClient, http, keccak256, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { sepolia } from "viem/chains";
-import { euro } from "./euro";
+import { usdc } from "./usdc";
 import { fingerprintOf, type ActivityItem, type Lane } from "./activity-model";
 import { readVaultSnapshot, type HealthFailure, type VaultConfig, type VaultSnapshot } from "./vault-chain";
 import { challengeForSafeDigest, createVaultPasskey, signSafeDigest, type PasskeyRegistration } from "./webauthn-passkey";
@@ -11,7 +11,7 @@ export type Policy = { basePerTxCap: bigint; firstSignerDaily: bigint; instantDa
 export type Onboarding = { firstSigner: boolean; secondSigner: boolean; limits: boolean; rehearsed: boolean };
 
 export type VaultState = {
-  chainId: number; network: string; safe: string; guard: string; delay: string; eurc: string;
+  chainId: number; network: string; safe: string; guard: string; delay: string; usdc: string;
   balance: bigint; nativeBalance: bigint; safeNonce: bigint | null; policy: Policy;
   spentFirstSigner: bigint; spentInstant: bigint; resetsAt: number; secondSignerName: string; frozen: boolean;
   writable: boolean; health: readonly HealthFailure[]; onboarding: Onboarding; recipients: Recipient[];
@@ -19,7 +19,7 @@ export type VaultState = {
 };
 
 export type VaultProvisioningResult = Readonly<{
-  chainId: 11155111; safe: Address; guard: Address; delay: Address; primaryPasskey: Address; secondaryPasskey: Address; eurc: Address;
+  chainId: 11155111; safe: Address; guard: Address; delay: Address; primaryPasskey: Address; secondaryPasskey: Address; usdc: Address;
   evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}` }>;
 }>;
 
@@ -31,14 +31,14 @@ export type BackendRegistrationOptions = Readonly<{
 export type VaultBackend = Readonly<{
   health?: () => Promise<void>;
   registerPasskey: (role: "primary" | "secondary") => Promise<PasskeyRegistration>;
-  provisionVault: (input: Readonly<{ primaryCredentialId: string; secondaryCredentialId: string; eurc: Address; chainId: 11155111 }>) => Promise<VaultProvisioningResult>;
+  provisionVault: (input: Readonly<{ primaryCredentialId: string; secondaryCredentialId: string; usdc: Address; chainId: 11155111 }>) => Promise<VaultProvisioningResult>;
   prepareTransfer: (input: PreparedTransferInput) => Promise<SafeExecutionRequest>;
   submitPrimary: (id: Hex, signature: Hex) => Promise<SubmissionStatus>;
   submitSecondary: (id: Hex, signature: Hex) => Promise<SubmissionStatus>;
 }>;
 
 export type PreparedTransferInput = Readonly<{
-  chainId: 11155111; safe: Address; guard: Address; eurc: Address; configuredEurc: Address; recipient: Address; amount: bigint; nonce: bigint;
+  chainId: 11155111; safe: Address; guard: Address; usdc: Address; configuredUsdc: Address; recipient: Address; amount: bigint; nonce: bigint;
   deploymentHash: Hex; policyHash: Hex; idempotencyKey: Hex; expectedSpend: Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>;
   allowedRecipients: readonly Address[];
 }>;
@@ -47,17 +47,17 @@ export type SubmissionStatus = Readonly<{ id: Hex; state: "awaiting_secondary" |
 
 export type VaultProviderProps = { children: ReactNode; client?: PublicClient; config?: VaultConfig; backend?: VaultBackend };
 
-const KEY = "eurc-vault-demo-v1";
-const UI_KEY = "eurc-vault-ui-v1";
-const DEFAULT_EURC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+const KEY = "usdc-vault-demo-v1";
+const UI_KEY = "usdc-vault-ui-v1";
+const DEFAULT_USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
 const nextReset = () => { const d = new Date(); d.setUTCHours(24, 0, 0, 0); return d.getTime(); };
 const randAddr = () => "0x" + Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
 const unprovisionedHealth: readonly HealthFailure[] = [{ code: "unprovisioned", message: "Provision a fresh guarded Safe before using this wallet", blocking: true }];
 
 export function emptyState(): VaultState {
   return {
-    chainId: 11155111, network: "Ethereum Sepolia (testnet)", safe: "", guard: "", delay: "", eurc: "", balance: 0n, nativeBalance: 0n, safeNonce: null,
-    policy: { basePerTxCap: euro(250), firstSignerDaily: euro(250), instantDaily: euro(1000), perTxCap: euro(2500), delayHours: 24, delaySeconds: 86_400n },
+    chainId: 11155111, network: "Ethereum Sepolia (testnet)", safe: "", guard: "", delay: "", usdc: "", balance: 0n, nativeBalance: 0n, safeNonce: null,
+    policy: { basePerTxCap: usdc(250), firstSignerDaily: usdc(250), instantDaily: usdc(1000), perTxCap: usdc(2500), delayHours: 24, delaySeconds: 86_400n },
     spentFirstSigner: 0n, spentInstant: 0n, resetsAt: nextReset(), secondSignerName: "Second signer", frozen: false, writable: false,
     health: unprovisionedHealth, onboarding: { firstSigner: false, secondSigner: false, limits: false, rehearsed: false }, recipients: [], activity: [], notifications: { email: true, push: false }, deploymentHash: "0x", policyHash: "0x",
   };
@@ -66,8 +66,8 @@ export function emptyState(): VaultState {
 /** Compatibility fixture retained for unit tests; production screens never load simulated balances. */
 export function demoState(): VaultState {
   const s = emptyState(); const now = Date.now(); const address = randAddr();
-  const item: ActivityItem = { id: crypto.randomUUID(), direction: "in", amount: euro(100), counterparty: "Test euros", address, lane: "base", status: "executed", createdAt: now, approvers: [], fingerprint: fingerprintOf([address, now]) };
-  return { ...s, balance: euro(100), activity: [item] };
+  const item: ActivityItem = { id: crypto.randomUUID(), direction: "in", amount: usdc(100), counterparty: "Test USDC", address, lane: "base", status: "executed", createdAt: now, approvers: [], fingerprint: fingerprintOf([address, now]) };
+  return { ...s, balance: usdc(100), activity: [item] };
 }
 
 function readUiState(): { notifications: VaultState["notifications"]; rehearsed: boolean; primaryCredentialId?: string | undefined; secondaryCredentialId?: string | undefined; deploymentHash?: Hex | undefined; policyHash?: Hex | undefined } {
@@ -80,13 +80,13 @@ function readUiState(): { notifications: VaultState["notifications"]; rehearsed:
 function readConfig(): VaultConfig | undefined {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<Record<keyof VaultConfig, string>> | null;
-    if (!parsed || !parsed.safe || !parsed.guard || !parsed.delay || !parsed.eurc) return undefined;
-    if (![parsed.safe, parsed.guard, parsed.delay, parsed.eurc].every((value) => typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value))) return undefined;
-    return { chainId: 11155111, safe: parsed.safe as Address, guard: parsed.guard as Address, delay: parsed.delay as Address, eurc: parsed.eurc as Address, eurcCandidates: [DEFAULT_EURC] };
+    if (!parsed || !parsed.safe || !parsed.guard || !parsed.delay || !parsed.usdc) return undefined;
+    if (![parsed.safe, parsed.guard, parsed.delay, parsed.usdc].every((value) => typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value))) return undefined;
+    return { chainId: 11155111, safe: parsed.safe as Address, guard: parsed.guard as Address, delay: parsed.delay as Address, usdc: parsed.usdc as Address, usdcCandidates: [DEFAULT_USDC] };
   } catch { return undefined; }
 }
 
-function saveConfig(config: VaultConfig): void { localStorage.setItem(KEY, JSON.stringify({ chainId: config.chainId, safe: config.safe, guard: config.guard, delay: config.delay, eurc: config.eurc, eurcCandidates: config.eurcCandidates })); }
+function saveConfig(config: VaultConfig): void { localStorage.setItem(KEY, JSON.stringify({ chainId: config.chainId, safe: config.safe, guard: config.guard, delay: config.delay, usdc: config.usdc, usdcCandidates: config.usdcCandidates })); }
 
 function defaultClient(): PublicClient | undefined {
   const rpcUrl = (import.meta.env["VITE_SEPOLIA_RPC_URL"] as string | undefined)?.trim();
@@ -113,7 +113,7 @@ function defaultBackend(): VaultBackend {
     async registerPasskey(role) {
       const options = await json(`/v1/registrations/${role}/options`, { method: "POST", body: "{}" }) as BackendRegistrationOptions;
       const registrationOptions = {
-        challenge: options.challenge, rp: { id: options.rpId, name: "EURC Vault Demo" },
+        challenge: options.challenge, rp: { id: options.rpId, name: "USDC Vault Demo" },
         user: { id: `${role}-${options.sessionId}`, name: `${role}@localhost`, displayName: role === "primary" ? "First signer" : "Second signer" },
         pubKeyCredParams: [{ alg: -7, type: "public-key" }],
         authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" }, timeout: 60_000, attestation: "none",
@@ -142,11 +142,11 @@ function project(snapshot: VaultSnapshot, ui: { notifications: VaultState["notif
     const earliestExecution = createdAt + Number(delaySeconds) * 1000;
     const expiresAt = earliestExecution + Number(snapshot.topology?.delay.expirationSeconds ?? 0n) * 1000;
     const status = expiresAt > createdAt && Date.now() >= expiresAt ? "expired" : Date.now() >= earliestExecution ? "ready" : "queued";
-    return { id: `${item.txHash}:${item.queueNonce.toString()}`, direction: "out", amount: 0n, counterparty: "Delayed EURC operation", address: snapshot.safe, lane: "delayed", status, createdAt, earliestExecution, expiresAt, txHash: item.txHash, queueNonce: Number(item.queueNonce), approvers: ["First signer", "Second signer"], fingerprint: fingerprintOf([snapshot.safe, item.txHash, item.queueNonce]) } satisfies ActivityItem;
+    return { id: `${item.txHash}:${item.queueNonce.toString()}`, direction: "out", amount: 0n, counterparty: "Delayed USDC operation", address: snapshot.safe, lane: "delayed", status, createdAt, earliestExecution, expiresAt, txHash: item.txHash, queueNonce: Number(item.queueNonce), approvers: ["First signer", "Second signer"], fingerprint: fingerprintOf([snapshot.safe, item.txHash, item.queueNonce]) } satisfies ActivityItem;
   });
   return {
-    chainId: snapshot.chainId, network: "Ethereum Sepolia (testnet)", safe: snapshot.safe, guard: snapshot.topology?.guard ?? "", delay: snapshot.topology?.delay.address ?? "", eurc: snapshot.eurc?.address ?? "",
-    balance: snapshot.eurcBalance ?? 0n, nativeBalance: snapshot.nativeBalance ?? 0n, safeNonce: snapshot.safeNonce ?? null,
+    chainId: snapshot.chainId, network: "Ethereum Sepolia (testnet)", safe: snapshot.safe, guard: snapshot.topology?.guard ?? "", delay: snapshot.topology?.delay.address ?? "", usdc: snapshot.usdc?.address ?? "",
+    balance: snapshot.usdcBalance ?? 0n, nativeBalance: snapshot.nativeBalance ?? 0n, safeNonce: snapshot.safeNonce ?? null,
     policy: { basePerTxCap: configured?.basePerTransaction ?? 0n, firstSignerDaily: configured?.baseDailyLimit ?? 0n, instantDaily: configured?.instantDailyLimit ?? 0n, perTxCap: configured?.stepUpPerTransaction ?? 0n, delayHours, delaySeconds },
     spentFirstSigner: snapshot.spendState?.baseSpent ?? 0n, spentInstant: snapshot.spendState?.instantSpent ?? 0n, resetsAt: periodAnchor && periodAnchor > 0n ? Number(periodAnchor) * 1000 : nextReset(),
     secondSignerName: "Second signer", frozen: snapshot.topology?.frozen ?? false, writable: snapshot.writable, health: snapshot.health, onboarding, recipients, activity, notifications: ui.notifications, deploymentHash: "0x", policyHash: "0x",
@@ -157,7 +157,7 @@ export type Classification = { lane: Lane; reason?: string };
 /** Advisory only; the onchain guard remains authoritative. */
 export function classify(s: VaultState, to: string, amount: bigint): Classification {
   if (!s.writable || s.frozen) return { lane: "blocked", reason: s.frozen ? "Your account is frozen. Unfreeze it in Limits & security first." : "The vault is not healthy or provisioned yet." };
-  if (amount <= 0n) return { lane: "blocked", reason: "Enter an amount above €0.00." };
+  if (amount <= 0n) return { lane: "blocked", reason: "Enter an amount above 0 USDC." };
   if (amount > s.balance) return { lane: "blocked", reason: "This is more than your available balance." };
   if (!s.recipients.some((r) => r.address.toLowerCase() === to.toLowerCase())) return { lane: "blocked", reason: "This recipient is not on your allowed list." };
   if (amount > s.policy.perTxCap) return { lane: "blocked", reason: "This is above the maximum for a single transfer." };
@@ -166,7 +166,7 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
   return { lane: "base" };
 }
 
-type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; hasAccount: boolean; canWrite: boolean; finishSetup: () => void; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
+type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; hasAccount: boolean; canWrite: boolean; finishSetup: () => void; refresh: () => Promise<void>; provision: () => Promise<void>; sendUsdc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
 const VaultCtx = createContext<Ctx | null>(null);
 
 export function VaultProvider({ children, client: providedClient, config: providedConfig, backend: providedBackend }: VaultProviderProps) {
@@ -191,15 +191,15 @@ export function VaultProvider({ children, client: providedClient, config: provid
     await backend.health?.();
     const primary = await backend.registerPasskey("primary"); const secondary = await backend.registerPasskey("secondary");
     if (primary.credentialId === secondary.credentialId) throw new Error("Primary and secondary passkeys must be distinct");
-    const result = await backend.provisionVault({ chainId: 11155111, eurc: providedConfig?.eurc ?? DEFAULT_EURC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
-    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc, eurcCandidates: [DEFAULT_EURC] }; saveConfig(next); setUi((current) => ({ ...current, rehearsed: false, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
+    const result = await backend.provisionVault({ chainId: 11155111, usdc: providedConfig?.usdc ?? DEFAULT_USDC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
+    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, usdc: result.usdc, usdcCandidates: [DEFAULT_USDC] }; saveConfig(next); setUi((current) => ({ ...current, rehearsed: false, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
   }, [backend, client, providedConfig, ui]);
-  const sendEurc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
+  const sendUsdc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
     if (!state.writable || state.health.length > 0) throw new Error("vault health checks are blocking writes");
     await backend.health?.();
     if (!ui.primaryCredentialId || !ui.deploymentHash || !ui.policyHash) throw new Error("passkey session and reviewed deployment evidence are required");
     const idempotencyKey = keccak256(toHex(`${state.safe}:${recipient}:${amount.toString()}:${state.safeNonce?.toString() ?? ""}:${Date.now()}`));
-    const prepared = await backend.prepareTransfer({ chainId: 11155111, safe: state.safe as Address, guard: state.guard as Address, eurc: state.eurc as Address, configuredEurc: state.eurc as Address, recipient, amount, nonce: state.safeNonce ?? 0n, deploymentHash: ui.deploymentHash, policyHash: ui.policyHash, idempotencyKey, expectedSpend: { window: BigInt(Math.max(0, Math.floor(state.resetsAt / 1000) - 86_400)), baseSpent: state.spentFirstSigner, instantSpent: state.spentInstant }, allowedRecipients: state.recipients.map((entry) => entry.address as Address) });
+    const prepared = await backend.prepareTransfer({ chainId: 11155111, safe: state.safe as Address, guard: state.guard as Address, usdc: state.usdc as Address, configuredUsdc: state.usdc as Address, recipient, amount, nonce: state.safeNonce ?? 0n, deploymentHash: ui.deploymentHash, policyHash: ui.policyHash, idempotencyKey, expectedSpend: { window: BigInt(Math.max(0, Math.floor(state.resetsAt / 1000) - 86_400)), baseSpent: state.spentFirstSigner, instantSpent: state.spentInstant }, allowedRecipients: state.recipients.map((entry) => entry.address as Address) });
     const origin = typeof window === "undefined" ? "http://localhost:5173" : window.location.origin;
     const assertion = (role: "primary" | "secondary", credentialId: string) => signSafeDigest({ role, safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash, challenge: challengeForSafeDigest(prepared.safeTxHash), challengeBinding: { safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash }, rpId: "localhost", origin, credentialId });
     const primary = await backend.submitPrimary(prepared.idempotencyKey, await assertion("primary", ui.primaryCredentialId));
@@ -208,7 +208,7 @@ export function VaultProvider({ children, client: providedClient, config: provid
     const secondary = await backend.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
     await refresh(); return secondary;
   }, [backend, refresh, state, ui]);
-  const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, finishSetup, refresh, provision, sendEurc }), [state, hydrated, loading, config, finishSetup, refresh, provision, sendEurc]);
+  const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, finishSetup, refresh, provision, sendUsdc }), [state, hydrated, loading, config, finishSetup, refresh, provision, sendUsdc]);
   return <VaultCtx.Provider value={value}>{children}</VaultCtx.Provider>;
 }
 

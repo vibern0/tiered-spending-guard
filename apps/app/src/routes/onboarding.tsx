@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Circle, Fingerprint, KeyRound, ShieldCheck, ListChecks } from "lucide-react";
 import { useState } from "react";
 import { Card, DRow, PrimaryButton, NetworkPill } from "@/components/wallet/ui";
-import { formatEuro, parseEuro } from "@/lib/euro";
+import { formatUsdc, parseUsdc } from "@/lib/usdc";
 import { describeProvisioningError } from "@/lib/provisioning-errors";
 import { useApproval } from "@/lib/use-approval";
 import { useVault, type Onboarding } from "@/lib/vault-store";
@@ -11,9 +11,9 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/onboarding")({
   head: () => ({
     meta: [
-      { title: "Set up your account — Euro Account" },
+      { title: "Set up your account — USDC Vault" },
       { name: "description", content: "Set up your first and second signers, protection limits, and safety rehearsal." },
-      { property: "og:title", content: "Set up your account — Euro Account" },
+      { property: "og:title", content: "Set up your account — USDC Vault" },
       { property: "og:description", content: "Set up your first and second signers, protection limits, and safety rehearsal." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -42,9 +42,9 @@ function OnboardingPage() {
     finishSetup();
   };
 
-  const [x, setX] = useState(formatEuro(state.policy.firstSignerDaily).slice(1));
-  const [y, setY] = useState(formatEuro(state.policy.instantDaily).slice(1));
-  const [cap, setCap] = useState(formatEuro(state.policy.perTxCap).slice(1));
+  const [x, setX] = useState(formatUsdc(state.policy.firstSignerDaily).slice(1));
+  const [y, setY] = useState(formatUsdc(state.policy.instantDaily).slice(1));
+  const [cap, setCap] = useState(formatUsdc(state.policy.perTxCap).slice(1));
   const [z, setZ] = useState(String(state.policy.delayHours));
   const [err, setErr] = useState<string | null>(null);
   const [ex, setEx] = useState<string[]>([]);
@@ -63,16 +63,16 @@ function OnboardingPage() {
   };
 
   const saveLimits = () => {
-    const X = parseEuro(x), Y = parseEuro(y), C = parseEuro(cap), Z = Number(z);
-    if (X === null || Y === null || C === null) return setErr("Enter valid euro amounts.");
-    if (!(X > 0n && X < Y)) return setErr("First-signer limit must be above €0 and below the instant limit.");
+    const X = parseUsdc(x), Y = parseUsdc(y), C = parseUsdc(cap), Z = Number(z);
+    if (X === null || Y === null || C === null) return setErr("Enter valid usdc amounts.");
+    if (!(X > 0n && X < Y)) return setErr("First-signer limit must be above 0 USDC and below the instant limit.");
     if (C < Y) return setErr("The per-transfer maximum must be at least the instant limit.");
     if (!Number.isInteger(Z) || Z < 1 || Z > 168) return setErr("Waiting period must be 1–168 hours.");
     setErr(null);
     setErr("Limits are read from the verified onchain guard. Change requests use the delayed policy flow.");
   };
 
-  const field = (id: string, label: string, v: string, set: (s: string) => void, suffix = "€") => (
+  const field = (id: string, label: string, v: string, set: (s: string) => void, suffix = "USDC") => (
     <label htmlFor={id} className="block text-sm">
       <span className="font-semibold">{label}</span>
       <div className="mt-1 flex items-center rounded-xl border border-input bg-background px-3">
@@ -134,7 +134,7 @@ function OnboardingPage() {
                       <DRow k="Account" v={state.safe} />
                       <DRow k="First signer" v="Active" />
                       <DRow k="Second signer" v={state.secondSignerName} />
-                      <DRow k="Limits" v={`${formatEuro(state.policy.firstSignerDaily)} / ${formatEuro(state.policy.instantDaily)}`} />
+                      <DRow k="Limits" v={`${formatUsdc(state.policy.firstSignerDaily)} / ${formatUsdc(state.policy.instantDaily)}`} />
                       <DRow k="Waiting period" v={`${state.policy.delayHours} h`} />
                       <DRow k="Network" v={state.network} />
                     </dl>
