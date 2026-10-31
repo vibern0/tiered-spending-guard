@@ -8,7 +8,6 @@ import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../../sr
 import { deriveComponentAddresses } from "../../src/topology/addressing";
 import { buildVaultPlan, deriveVaultSafeProxyAddress, verifyVaultPrerequisites } from "../../src/topology/build";
 import { resolveReviewedVaultArtifacts } from "../../src/topology/reviewed-artifacts";
-import { ZODIAC_DELAY_V1_1_1 } from "../../src/config/zodiac-delay";
 import { executeVaultPrerequisites } from "./vault-runner";
 import { buildOrdinaryReviewPolicyDraft, ORDINARY_REVIEW_SIGNER_SOURCE, readOrdinaryReviewConfig, selectApprovedFees } from "./ordinary-review-profile";
 import { prepareOrdinaryReviewExecutionPreflight, runOnlyWithLiveSubmitAuthorization } from "./ordinary-review-execution";
@@ -48,8 +47,7 @@ async function main(): Promise<void> {
   const components = deriveComponentAddresses({ deployer: config.funder, startingNonce });
   const draft = buildOrdinaryReviewPolicyDraft(config, startingNonce);
   const safe = deriveVaultSafeProxyAddress({ policy: draft, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, safeProxyCreationCode: proxyCode, deployments });
-  const response = await fetch(ZODIAC_DELAY_V1_1_1.sourceUrl); if (!response.ok) throw new Error("pinned Delay artifact fetch failed");
-  const artifacts = await resolveReviewedVaultArtifacts({ client, deployments, safe, primaryPasskey: config.primaryPasskey, ecdsaSecondary: config.ecdsaSecondary, delay: components.delay, maintenance: components.maintenance, periodAnchor: config.periodAnchor, cooldownSeconds: 120n, expirationSeconds: 600n, delayArtifactSource: await response.text() });
+  const artifacts = await resolveReviewedVaultArtifacts({ client, deployments, safe, primaryPasskey: config.primaryPasskey, ecdsaSecondary: config.ecdsaSecondary, delay: components.delay, maintenance: components.maintenance, periodAnchor: config.periodAnchor, cooldownSeconds: 120n, expirationSeconds: 600n });
   const plan = buildVaultPlan({ policy: { ...draft, safe }, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, artifacts, deployments, completedPrerequisites: completed });
   const packageDirectory = process.env.VAULT_REVIEW_PACKAGE_DIR;
   const packageHash = process.env.VAULT_REVIEW_PACKAGE_HASH;

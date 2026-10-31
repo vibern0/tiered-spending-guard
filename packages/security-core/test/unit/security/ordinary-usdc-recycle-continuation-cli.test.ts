@@ -32,6 +32,7 @@ import { attachUsdcRecycleContinuation } from "../../../scripts/live/ordinary-sc
 import { safePasskeyArtifact, safeSmartAccountArtifact } from "../../helpers/safe-artifact";
 
 const fixtureDirectory = join(__dirname, "../../fixtures");
+const committedDelayArtifact = join(__dirname, "../../../config/artifacts/zodiac-delay-v1.1.1-mastercopies.json");
 const repositoryDirectory = join(__dirname, "../../../../..");
 const externalOrdinaryScenarioArtifacts = [
   ".superpowers/sdd/2026-10-19-native-safe-4337/task-0-package-2026-10-24-nonce-673/decoded-review.json",
@@ -187,7 +188,7 @@ describe("ordinary USDC recycle continuation CLI", function () {
   });
 
   it("pins the vetted Zodiac Delay source bytes without credential-shaped content", function () {
-    const raw = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8");
+    const raw = readFileSync(committedDelayArtifact, "utf8");
     expect(createHash("sha256").update(raw).digest("hex")).to.equal("ad367f67b4c8b691d93417ecd740eeefc9abfff50a789469ba5899c0b5aa9201");
     expect(raw).not.to.match(/private[_ -]?key|mnemonic|seed phrase|secret[_ -]?key/i);
   });
@@ -291,8 +292,6 @@ describe("ordinary USDC recycle continuation CLI", function () {
   externalOrdinaryScenarioIt("runs the actual default reader and context to one fail-closed funder-signing boundary", async function () {
     const prepared = await preparePublicCli();
     const counters = { codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 };
-    const delaySource = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8"), savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(delaySource, { status: 200 })) as typeof fetch;
     const dependencies = (argv: readonly string[], environment: Record<string, string>) => {
       const harness = createDefaultCompositionHarness(prepared, counters);
       const production = createUsdcRecycleContinuationProductionDependencies(repositoryDirectory, argv, { createHarness: () => harness, wait: async () => undefined, now: prepared.providers.now });
@@ -304,14 +303,12 @@ describe("ordinary USDC recycle continuation CLI", function () {
       const after = JSON.parse(readFileSync(prepared.tracked.path, "utf8"));
       expect(after.usdcRecycleContinuation.actions[0].status).to.equal("signed-simulated"); expect(after.usdcRecycleContinuation.actions[0].finalOuterMaterialization).to.be.an("object");
       expect(after.usdcSuccessor.actions[2].status).to.equal("signed-simulated"); expect(after.liveJournal.entries).to.have.length(15);
-    } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
+    } finally { prepared.cleanup(); }
   });
 
   externalOrdinaryScenarioIt("composes the actual recycle loader, production repair adapter, and atomic store", async function () {
     const prepared = await preparePublicCli();
     const counters = { codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 };
-    const delaySource = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8"), savedFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(delaySource, { status: 200 })) as typeof fetch;
     try {
       const inputs = await loadUsdcRecycleContinuationPublicInputs(parseUsdcRecycleContinuationCliArguments(prepared.submitArgs), prepared.providers);
       if (!inputs.approval) throw new Error("approved recycle fixture required");
@@ -368,7 +365,7 @@ describe("ordinary USDC recycle continuation CLI", function () {
       expect(await runRepairCommand(["tail-resume-one", ...resumeArgs], resumeRuntime)).to.deep.equal({ status: "PENDING", actionId: "repair-signer-create" });
       expect({ recovered, liveContexts, financialCallbacks }).to.deep.equal({ recovered: 1, liveContexts: 1, financialCallbacks: 0 });
       expect(counters).to.deep.equal({ codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 });
-    } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
+    } finally { prepared.cleanup(); }
   });
 
   it("rejects resume credentials and cannot select the stopped old row without one new pending hash", async function () {

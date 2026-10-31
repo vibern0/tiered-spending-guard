@@ -8,7 +8,6 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { resolveVerifiedDeploymentInfrastructure } from "../src/config/deployments";
-import { ZODIAC_DELAY_V1_1_1 } from "../src/config/zodiac-delay";
 import { deriveComponentAddresses } from "../src/topology/addressing";
 import { buildVaultPlan, deriveVaultSafeProxyAddress, planHash } from "../src/topology/build";
 import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../src/topology/evidence";
@@ -83,8 +82,6 @@ async function main(): Promise<void> {
   const components = deriveComponentAddresses({ deployer: config.funder, startingNonce });
   const draft = buildOrdinaryReviewPolicyDraft(config, startingNonce);
   const safe = deriveVaultSafeProxyAddress({ policy: draft, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, safeProxyCreationCode: proxyCreationCode, deployments });
-  const delayResponse = await fetch(ZODIAC_DELAY_V1_1_1.sourceUrl);
-  if (!delayResponse.ok) throw new Error("pinned Delay artifact fetch failed");
   const artifacts = await resolveReviewedVaultArtifacts({
     client: snapshotClient,
     deployments,
@@ -96,7 +93,6 @@ async function main(): Promise<void> {
     periodAnchor: config.periodAnchor,
     cooldownSeconds: 120n,
     expirationSeconds: 600n,
-    delayArtifactSource: await delayResponse.text(),
   });
   const plan = buildVaultPlan({ policy: { ...draft, safe }, deployer: config.funder, startingNonce, safeProxySaltNonce: config.safeProxySaltNonce, artifacts, deployments });
   const erc20Runtime = await snapshotClient.getBytecode({ address: config.erc20 });

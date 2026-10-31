@@ -1,7 +1,8 @@
-import { keccak256, type Address, type Hex } from "viem";
+import { concatHex, encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
 import Safe150 from "@safe-global/safe-deployments/src/assets/v1.5.0/safe.json";
 import SafeProxyFactory150 from "@safe-global/safe-deployments/src/assets/v1.5.0/safe_proxy_factory.json";
 import MultiSendCallOnly150 from "@safe-global/safe-deployments/src/assets/v1.5.0/multi_send_call_only.json";
+import SafeWebAuthnSignerProxyArtifact from "@safe-global/safe-passkey/build/artifacts/contracts/SafeWebAuthnSignerProxy.sol/SafeWebAuthnSignerProxy.json";
 import { DEPENDENCIES, deploymentAddressError, deploymentReleaseError, validatedDeploymentAddress } from "./deployment-validation";
 import { passkeySignerBindingHash, verifyPasskeySignerComponent, type VerifiedComponent } from "../topology/evidence";
 
@@ -110,6 +111,34 @@ export function isPwaPlanningInfrastructure(value: unknown): value is PwaPlannin
 
 const SAFE_DEPLOYMENTS_PACKAGE = "@safe-global/safe-deployments@1.37.63";
 const SAFE_PASSKEY_DEPLOYMENTS = "https://github.com/safe-global/safe-modules-deployments/blob/main/src/assets/safe-passkey-module/v0.2.0";
+export const SAFE_PASSKEY_SIGNER_PROXY_CREATION_CODE_HASH = "0x24eb5cf1cb02e3bc5ef6917bcd59e2cb1a7f02b257284dc89daeac1c37dada50" as Hex;
+
+type SafePasskeySignerProxyArtifact = Readonly<{ contractName?: unknown; sourceName?: unknown; bytecode?: unknown }>;
+
+export function assertReviewedSafePasskeySignerProxyArtifact(value: SafePasskeySignerProxyArtifact): Hex {
+  if (value.contractName !== "SafeWebAuthnSignerProxy" || value.sourceName !== "contracts/SafeWebAuthnSignerProxy.sol") failClosed("Safe passkey signer proxy artifact identity mismatch");
+  if (typeof value.bytecode !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(value.bytecode)) failClosed("Safe passkey signer proxy creation code is invalid");
+  if (!same(keccak256(value.bytecode as Hex), SAFE_PASSKEY_SIGNER_PROXY_CREATION_CODE_HASH)) failClosed("Safe passkey signer proxy creation code hash mismatch");
+  return value.bytecode as Hex;
+}
+
+export async function resolvePasskeySignerRuntimeCodeHash(input: Readonly<{
+  client: Readonly<{ call(args: { data: Hex }): Promise<{ data?: Hex }> }>;
+  singleton: Address;
+  credential: Readonly<{ x: bigint; y: bigint }>;
+  verifiers: bigint;
+}>): Promise<Hex> {
+  const creationCode = concatHex([
+    assertReviewedSafePasskeySignerProxyArtifact(SafeWebAuthnSignerProxyArtifact),
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }],
+      [input.singleton, input.credential.x, input.credential.y, input.verifiers],
+    ),
+  ]);
+  const result = await input.client.call({ data: creationCode });
+  if (!result.data || !/^0x(?:[0-9a-fA-F]{2})+$/.test(result.data)) failClosed("Safe passkey signer proxy constructor simulation returned no runtime code");
+  return keccak256(result.data);
+}
 
 type SafeDeploymentAsset = Readonly<{
   contractName: string;

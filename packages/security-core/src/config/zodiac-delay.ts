@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { concatHex, encodeAbiParameters, isAddress, type Address, type Hex } from "viem";
 
 export const ZODIAC_DELAY_V1_1_1 = Object.freeze({
@@ -73,6 +75,12 @@ function parseZodiacDelayArtifactWithDigest(source: string, expectedSourceSha256
 /** Parses only the committed upstream artifact in production. */
 export function parseZodiacDelayArtifact(source: string): ZodiacDelayArtifact {
   return parseZodiacDelayArtifactWithDigest(source, ZODIAC_DELAY_V1_1_1.sourceSha256);
+}
+
+/** Loads the exact reviewed upstream bytes committed with the repository. */
+export function loadCommittedZodiacDelayArtifact(): ZodiacDelayArtifact {
+  const source = readFileSync(join(__dirname, "../../config/artifacts/zodiac-delay-v1.1.1-mastercopies.json"), "utf8");
+  return parseZodiacDelayArtifact(source);
 }
 
 /** Test fixture escape hatch for adversarial parser coverage. */

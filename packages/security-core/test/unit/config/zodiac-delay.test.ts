@@ -2,6 +2,7 @@ import { expect } from "chai";
 import { createHash } from "node:crypto";
 import { encodeAbiParameters, type Address } from "viem";
 import {
+  loadCommittedZodiacDelayArtifact,
   parseZodiacDelayArtifact,
   parseZodiacDelayArtifactForTestsOnly,
   zodiacDelayCreationCode,
@@ -33,6 +34,15 @@ const source = JSON.stringify({
 const digest = (value: string) => `0x${createHash("sha256").update(value).digest("hex")}` as `0x${string}`;
 
 describe("pinned Zodiac Delay artifact", () => {
+  it("loads the exact committed v1.1.1 deployment artifact for production planning", () => {
+    const artifact = loadCommittedZodiacDelayArtifact();
+
+    expect(artifact.contractVersion).to.equal("1.1.1");
+    expect(artifact.compilerVersion).to.equal("v0.8.20+commit.a1b79de6");
+    expect(artifact.mastercopy).to.equal("0x824175b945838d127C1ca83CbcE11D8e44F6dF01");
+    expect(artifact.creationBytecode).to.match(/^0x[0-9a-f]+$/i);
+  });
+
   it("accepts only the exact source digest and v1.1.1 artifact shape", () => {
     const artifact = parseZodiacDelayArtifactForTestsOnly(source, digest(source));
 

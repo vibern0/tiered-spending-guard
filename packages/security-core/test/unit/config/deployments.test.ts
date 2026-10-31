@@ -1,10 +1,44 @@
 import { expect } from "chai";
-import { OFFICIAL_DEPLOYMENT_REGISTRY, isVerifiedDeploymentInfrastructure, verifyOfficialDeploymentDependencies } from "../../../src/config/deployments";
+import {
+  OFFICIAL_DEPLOYMENT_REGISTRY,
+  assertReviewedSafePasskeySignerProxyArtifact,
+  isVerifiedDeploymentInfrastructure,
+  resolvePasskeySignerRuntimeCodeHash,
+  verifyOfficialDeploymentDependencies,
+} from "../../../src/config/deployments";
+import SafeWebAuthnSignerProxyArtifact from "@safe-global/safe-passkey/build/artifacts/contracts/SafeWebAuthnSignerProxy.sol/SafeWebAuthnSignerProxy.json";
+import { network } from "hardhat";
 import { keccak256, type Address, type Hex } from "viem";
 
 const CHAIN_ID = 11155111;
 
 describe("deployment registry", () => {
+  it("rejects substituted Safe passkey signer proxy creation code", () => {
+    expect(assertReviewedSafePasskeySignerProxyArtifact(SafeWebAuthnSignerProxyArtifact)).to.equal(SafeWebAuthnSignerProxyArtifact.bytecode);
+    expect(() => assertReviewedSafePasskeySignerProxyArtifact({ ...SafeWebAuthnSignerProxyArtifact, bytecode: "0x6000" })).to.throw(/creation code hash/i);
+  });
+
+  it("derives distinct credential-bound signer runtime hashes through EVM creation simulation", async () => {
+    const client = {
+      async call({ data }: { data: Hex }) {
+        const result = await network.provider.send("eth_call", [{ data }, "latest"]);
+        return { data: result as Hex };
+      },
+    };
+    const common = {
+      client,
+      singleton: "0x0000000000000000000000000000000000000011" as Address,
+      verifiers: 0x22n,
+    };
+
+    const primary = await resolvePasskeySignerRuntimeCodeHash({ ...common, credential: { x: 1n, y: 2n } });
+    const secondary = await resolvePasskeySignerRuntimeCodeHash({ ...common, credential: { x: 3n, y: 4n } });
+
+    expect(primary).to.match(/^0x[0-9a-f]{64}$/);
+    expect(secondary).to.match(/^0x[0-9a-f]{64}$/);
+    expect(primary).not.to.equal(secondary);
+  });
+
   it("pins the Safe 1.5 Sepolia MultiSendCallOnly official deployment evidence", () => {
     const entry = OFFICIAL_DEPLOYMENT_REGISTRY[CHAIN_ID]!.multiSendCallOnly;
 

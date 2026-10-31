@@ -1,5 +1,5 @@
 import { concatHex, encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
-import { parseZodiacDelayArtifact } from "../config/zodiac-delay";
+import { loadCommittedZodiacDelayArtifact } from "../config/zodiac-delay";
 import { buildVaultPrerequisiteCreationCodes } from "../live/vault-deployment";
 import type { PwaPlanningInfrastructure, VerifiedDeploymentInfrastructure } from "../config/deployments";
 
@@ -50,7 +50,6 @@ export async function resolveReviewedVaultArtifacts(input: Readonly<{
   periodAnchor: bigint;
   cooldownSeconds: bigint;
   expirationSeconds: bigint;
-  delayArtifactSource: string;
 }>): Promise<ReviewedVaultArtifacts> {
   const proxyCreationCode = await input.client.readContract({
     address: input.deployments.safeProxyFactory.address,
@@ -61,7 +60,7 @@ export async function resolveReviewedVaultArtifacts(input: Readonly<{
     throw new Error("fail closed: Safe proxy factory returned invalid creation code");
   }
   const safeProxyCreationCode = proxyCreationCode as Hex;
-  const delayArtifact = parseZodiacDelayArtifact(input.delayArtifactSource);
+  const delayArtifact = loadCommittedZodiacDelayArtifact();
   const prerequisites = buildVaultPrerequisiteCreationCodes({
     safe: input.safe,
     primaryPasskey: input.primaryPasskey,

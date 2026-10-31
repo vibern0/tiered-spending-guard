@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { createPublicClient, http, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { resolveVerifiedDeploymentInfrastructure } from "../../src/config/deployments";
-import { ZODIAC_DELAY_V1_1_1 } from "../../src/config/zodiac-delay";
 import { deriveComponentAddresses } from "../../src/topology/addressing";
 import { buildVaultPlan, deriveVaultSafeProxyAddress, verifyVaultPrerequisites } from "../../src/topology/build";
 import { passkeySignerBindingHash, verifyPasskeySignerComponent } from "../../src/topology/evidence";
@@ -126,9 +125,7 @@ export async function reconstructReviewedPlan(repository: string, client: Return
   const components = deriveComponentAddresses({ deployer: config.funder, startingNonce: STARTING_NONCE });
   const draft = buildOrdinaryReviewPolicyDraft(config, STARTING_NONCE);
   const safe = deriveVaultSafeProxyAddress({ policy: draft, deployer: config.funder, startingNonce: STARTING_NONCE, safeProxySaltNonce: config.safeProxySaltNonce, safeProxyCreationCode: proxyCode, deployments });
-  const response = await fetch(ZODIAC_DELAY_V1_1_1.sourceUrl);
-  if (!response.ok) throw new Error("pinned Delay artifact fetch failed");
-  const artifacts = await resolveReviewedVaultArtifacts({ client: historical, deployments, safe, primaryPasskey: config.primaryPasskey, ecdsaSecondary: config.ecdsaSecondary, delay: components.delay, maintenance: components.maintenance, periodAnchor: config.periodAnchor, cooldownSeconds: 120n, expirationSeconds: 600n, delayArtifactSource: await response.text() });
+  const artifacts = await resolveReviewedVaultArtifacts({ client: historical, deployments, safe, primaryPasskey: config.primaryPasskey, ecdsaSecondary: config.ecdsaSecondary, delay: components.delay, maintenance: components.maintenance, periodAnchor: config.periodAnchor, cooldownSeconds: 120n, expirationSeconds: 600n });
   const policy = { ...draft, safe };
   const plan = buildVaultPlan({ policy, deployer: config.funder, startingNonce: STARTING_NONCE, safeProxySaltNonce: config.safeProxySaltNonce, artifacts, deployments });
   bindSafeCreationPrerequisitePackage(plan, packageDirectory, PACKAGE_HASH);
