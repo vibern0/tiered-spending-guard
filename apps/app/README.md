@@ -55,6 +55,8 @@ This is a Sepolia prototype with no signer recovery and no independent notificat
 
 The Activity screen is an in-app projection, not independent monitoring. Phase One evidence is valid only when the separate read-only security-core observer verifies the canonical receipt and post-state through two independent public sources. That observer does not deliver notifications and cannot authorize a wallet action.
 
+The HTTPS/mobile gate must use a fresh HTTPS-profile installation, fresh credentials, and a fresh Safe. Do not import or relabel localhost storage. Before funding, verify standalone launch, exact origin/RP/backend identity, a genuinely distinct secondary authenticator, verified topology, and an offline write that blocks. After the approved X/Y/Z sequence, retain only public evidence and remove the temporary backend ingress; mobile UI screenshots or Activity entries are never receipt/observer proof.
+
 ## Built with
 
 - TanStack Start

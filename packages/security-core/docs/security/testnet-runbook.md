@@ -344,6 +344,34 @@ npm run pwa:rehearse:local -- resume-one \
 
 `resume-one` rejects submit flags and signing material, admits only a single `reconcile` capability, and cannot sign or rebroadcast. Do not create the localhost evidence document or check Task 11 complete until every approved action, early-rejection proof, observer record, terminal state, install/reload proof, and full deterministic gate output actually exists.
 
+## HTTPS/mobile proof and closeout (not run)
+
+Do not begin this gate until the complete localhost evidence above has passed independent review. The HTTPS proof uses the same committed app/backend/security-core revision but a new exact HTTPS RP, fresh primary and distinct secondary credentials, and a fresh disposable Safe. Localhost credentials, Safe addresses, storage records, approvals, journals, or observer records are not portable to the HTTPS profile.
+
+Before exposing ingress, record a public, secret-free worksheet with:
+
+- one stable exact HTTPS app origin and its exact hostname as RP ID;
+- one exact HTTPS backend origin that terminates TLS and forwards only to the developer machine's `127.0.0.1` backend;
+- access-policy identifier/configuration hash, authenticated developer identity class, cookie policy, expiry, and ingress shutdown deadline;
+- exact CORS origin, allowed methods/headers, redirect policy, and proof that wildcard origins, URL credentials/secrets, admin/debug routes, and public unauthenticated access are absent;
+- source revision plus hashes of the built app, manifest, service worker, public environment profile, backend configuration projection, reviewed artifacts, observer executable, deployment package, policy, and topology report.
+
+Never record provider tokens, access cookies, headers, passkey assertions, signatures, relay/deployer keys, RPC credentials, or raw ingress configuration containing secrets. Hash the reviewed provider configuration after redaction and retain the redaction rule.
+
+With ingress active but before funding, verify from the target mobile device: exact origin/RP/backend health identity; access policy challenge; clean HTTPS-profile storage; no localhost vault import; standalone installation and launch; a fresh platform primary plus genuinely distinct cross-platform secondary; fresh verified Safe topology/profile; and an offline write blocked before WebAuthn or backend submission. Record screen/device/browser facts without biometric or credential material. Stop and obtain a separate unsigned review plus one-action approval.
+
+The essential approved sequence is fresh provisioning, exactly 8 USDC funding, X=1 USDC, Y=2 USDC, queue 4 USDC, canonical-time UI early block with no broadcast, and ready execution after Z. The localhost cancellation proof is not repeated. Apply the same one-action rules: exact review, ceremony, durable hash, canonical receipt, six confirmations, independent observer record, terminal state review, then the next approval. Terminal state is exactly 1 USDC in the Safe, 7 USDC delivered, no queue, X/Y counters 1/3 USDC, and unchanged topology/profile.
+
+Closeout order is mandatory:
+
+1. Stop all submission work and reconcile the one durable journal; no pending or uncertain action may remain.
+2. Package public receipts, observer records/manifest, early-block proof, terminal chain snapshot, install/reload/offline proof, and gate outputs. Redact and scan for secrets/authority-shaped fields.
+3. Disable and delete the temporary ingress/access route at the provider. Keep the loopback backend unreachable from non-loopback interfaces.
+4. From a network outside the developer machine, prove the former backend origin is unavailable; from the developer machine, prove only the loopback listener remains. Record timestamps, status/error class, DNS result, and redacted provider deletion/configuration hashes.
+5. Run the final Task 12 commands exactly. Create `docs/evidence/YYYY-MM-DD-pwa-https-mobile.md` only from the actual collected bundle.
+
+The evidence heading and conclusion must say `Sepolia testnet prototype`, `no signer recovery`, `no independent notification delivery`, `no ERC-4337`, `no WalletConnect`, `not mainnet`, `not production-ready`, and `not audited`. Phase One may be checked only when every completion criterion is backed by the fresh HTTPS/mobile bundle. Repair, notification delivery, hosted relay, native/account-abstraction work, mainnet, audit, and native mobile wrappers remain Phase Two/open.
+
 ## Forbidden paths
 
 Direct owner transfers that do not satisfy the guard tier, unlisted modules, fallback handlers, delegatecalls outside the fixed maintenance path, batches, approvals, Permit/Permit2, arbitrary messages, approved-hash authorization, unknown calldata, unknown recipients, broad recovery fields, signer-only shortcuts, relayer discretion, and UI-only authorization are forbidden. Monitoring is mandatory evidence, not an authorizer.
