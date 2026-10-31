@@ -298,21 +298,21 @@ git commit -m "feat: verify real browser passkey approvals"
 - Produces: `registerWalletServiceWorker(): Promise<ServiceWorkerRegistration | undefined>`.
 - Produces: `PwaStatus` with online/install/update states. Update activation waits until no active ceremony/submission.
 
-- [ ] **Step 1: Write RED cache/install tests**
+- [x] **Step 1: Write RED cache/install tests**
 
 Assert manifest fields, 192/512/maskable icons, standalone display, theme/background. Simulate install/update/offline. Test direct `/send` and `/activity/:id` navigation plus offline shell fallback. Inspect service-worker source/behavior: only same-origin navigation/static assets cached; `/v1/`, backend origin, RPC, cross-origin, non-GET, `cache-control:no-store` never cached. Offline write controls disabled; stale success absent.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix apps/app test -- src/lib/pwa.test.ts src/components/wallet/pwa-status.test.tsx`
 
 Expected: FAIL; PWA files absent.
 
-- [ ] **Step 3: Implement minimal PWA**
+- [x] **Step 3: Implement minimal PWA**
 
 No new PWA dependency. Version cache explicitly. Network-first navigation; static immutable cache only. Render clear offline/read-only state. Add safe-area CSS, 44px touch targets, reduced-motion rules.
 
-- [ ] **Step 4: Run GREEN and build**
+- [x] **Step 4: Run GREEN and build**
 
 Run: `npm --prefix apps/app test -- src/lib/pwa.test.ts src/components/wallet/pwa-status.test.tsx`
 
@@ -320,7 +320,7 @@ Run: `npm --prefix apps/app run build`
 
 Expected: PASS; build contains manifest, worker, icons.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/app
@@ -352,13 +352,13 @@ git commit -m "feat: make wallet installable as PWA"
 - `PwaProvisioningResult` binds Safe, guard, Delay, two signer contracts, USDC, setup receipt, topology report hash.
 - Backend endpoints: `POST /v1/vaults/plan`; `POST /v1/vaults` executes only exact approval file hash.
 
-- [ ] **Step 1: Write RED deterministic/atomic tests**
+- [x] **Step 1: Write RED deterministic/atomic tests**
 
 Plan two factory-bound signer creations, four existing prerequisites, one Safe proxy. Primary sole owner. Contract secondary guard-only. Zero ECDSA/fallback. Delay sole module. Fixed USDC profile. Same inputs serialize identically. Mutate credential coordinates, verifier, factory, token, recipient, X/Y/Z, nonce, salt, artifact/runtime hash, approval hash: reject.
 
 Prove failed setup leaves no Safe. Prove browser body cannot supply address, hash, policy, signer, nonce, fee, artifact, or approval.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix packages/security-core test -- test/integration/pwa-provisioning.test.ts test/unit/pwa/provisioning-approval.test.ts`
 
@@ -366,15 +366,15 @@ Run: `npm --prefix apps/backend test -- tests/handlers.test.ts tests/server.test
 
 Expected: FAIL; PWA provisioning boundary absent.
 
-- [ ] **Step 3: Implement reviewed adapter**
+- [x] **Step 3: Implement reviewed adapter**
 
 Reuse verified Safe/passkey factory, `buildVaultPlan`, prerequisite verifier, topology verifier, durable-before-broadcast journal. Add internal workspace export; remove executable external `BACKEND_PROVISIONER_MODULE`. Keep `BACKEND_*` RPC/key/journal/review/approval paths external. Plan endpoint never broadcasts. Execution requires exact locally reviewed approval file and fresh nonce/code/state checks.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run same commands. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/security-core/src/pwa packages/security-core/test packages/security-core/package.json apps/backend package-lock.json packages/security-core/docs/security
@@ -398,7 +398,7 @@ git commit -m "feat: add reviewed PWA vault provisioning"
 - Signed intents produce exact `SafeTx`; execute/skip produce exact Delay call. All carry canonical queue/time/policy bindings.
 - `simulatePwaIntent(prepared, client): Promise<SimulationEvidence>` never broadcasts.
 
-- [ ] **Step 1: Write RED X/Y/Z vectors**
+- [x] **Step 1: Write RED X/Y/Z vectors**
 
 ```ts
 expect(prepare(1_000_000n).requiredApprovals).toEqual(["primary"]);
@@ -408,21 +408,21 @@ expect(prepare(4_000_000n).kind).toBe("queue-transfer");
 
 Assert above-Y direct transfer denied. Queue exact USDC transfer through Delay. Cancel exact `setTxNonce`. Ready exact `executeNextTx`. Early execute rejects in `eth_call`; no broadcast object returned. Expired exact head permits only `skipExpired`. Mutate every Safe/Delay/USDC/recipient/amount/nonce/fingerprint/time/operation/calldata/signature field: reject.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix packages/security-core test -- test/unit/pwa/intents.test.ts test/integration/pwa-intents.test.ts`
 
 Expected: FAIL; PWA intent API absent.
 
-- [ ] **Step 3: Implement builders**
+- [x] **Step 3: Implement builders**
 
 Reuse policy classifier, Safe typed data, queue fingerprint, transport validator. Keep one snapshot block. Re-read block hash after reads. Never accept browser calldata.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run same command. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/security-core/src/pwa packages/security-core/src/transport packages/security-core/test packages/security-core/docs/security/call-graph.md
