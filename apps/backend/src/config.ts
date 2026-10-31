@@ -16,7 +16,6 @@ export type BackendConfig = Readonly<{
   relayPrivateKey: `0x${string}`;
   journalPath: string;
   provisioningJournalPath: string;
-  reviewedArtifactsPath: string;
   provisioningApprovalPath: string;
   provisioningApprovalHashPath: string;
   provisioningReviewDirectory: string;
@@ -71,6 +70,7 @@ export function assertBackendWebAuthnIdentity(id: "local" | "https", origin: str
 }
 
 export function loadBackendConfig(env: BackendEnvironment = process.env): BackendConfig {
+  if (env["BACKEND_REVIEWED_ARTIFACTS"] !== undefined) throw new Error("BACKEND_REVIEWED_ARTIFACTS is retired; remove it because reviewed policy and artifacts are committed in security-core");
   const id = env["BACKEND_PROFILE"];
   if (id !== "local" && id !== "https") throw new Error("BACKEND_PROFILE must be local or https");
   const relayPrivateKey = env["BACKEND_RELAY_PRIVATE_KEY"];
@@ -87,11 +87,10 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   const journalPath = assertExternalBackendPath(env["BACKEND_JOURNAL_PATH"], "BACKEND_JOURNAL_PATH");
   const provisioningJournalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_JOURNAL_PATH"], "BACKEND_PROVISIONING_JOURNAL_PATH");
   if (provisioningJournalPath === journalPath) throw new Error("submission and provisioning journals must use different paths");
-  const reviewedArtifactsPath = assertExternalBackendPath(env["BACKEND_REVIEWED_ARTIFACTS"], "BACKEND_REVIEWED_ARTIFACTS");
   const provisioningApprovalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_APPROVAL"], "BACKEND_PROVISIONING_APPROVAL");
   const provisioningApprovalHashPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_APPROVAL_HASH_FILE"], "BACKEND_PROVISIONING_APPROVAL_HASH_FILE");
   const provisioningReviewDirectory = assertExternalBackendPath(env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"], "BACKEND_PROVISIONING_REVIEW_DIRECTORY");
-  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, reviewedArtifactsPath, provisioningApprovalPath, provisioningApprovalHashPath, provisioningReviewDirectory });
+  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, provisioningApprovalPath, provisioningApprovalHashPath, provisioningReviewDirectory });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { keccak256, type Address, type Hex } from "viem";
 import {
   captureUsdcIdentity,
+  loadCommittedPwaPhaseOneProfile,
   loadPwaPhaseOneProfile,
   REVIEWED_USDC_RUNTIME_CODE_HASH,
   SEPOLIA_USDC_ADDRESS,
@@ -48,6 +49,10 @@ const mutate = (change: (value: ReturnType<typeof profileInput>) => void) => {
 };
 
 describe("Sepolia PWA Phase One profile", () => {
+  it("exposes the reviewed repository profile without operator input", () => {
+    expect(loadCommittedPwaPhaseOneProfile()).to.deep.equal(loadPwaPhaseOneProfile(profileInput()));
+  });
+
   it("loads the committed canonical profile artifact", () => {
     const profile = loadPwaPhaseOneProfile(JSON.parse(readFileSync("config/sepolia.pwa-phase-one.json", "utf8")));
 

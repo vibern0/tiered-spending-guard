@@ -93,6 +93,7 @@ export type PwaPlanningInfrastructure = Readonly<{
   passkeySignerVerifier: VerifiedDependency;
   multiSendCallOnly: VerifiedDependency;
   primaryPasskeySigner: PlannedPasskeySigner;
+  secondaryPasskeySigner: PlannedPasskeySigner;
   dependencies: DependencyMap;
 }>;
 
@@ -255,25 +256,21 @@ export async function verifyOfficialDeploymentDependencies(
   return resolveInfrastructureDependencies(client, chainId, registry, { requireEvidence: true });
 }
 
-const PASSKEY_FACTORY_ABI = [{
-  name: "getSigner",
-  type: "function",
-  stateMutability: "view",
-  inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }],
-  outputs: [{ type: "address" }],
-}] as const;
+const PASSKEY_FACTORY_ABI = [
+  { name: "getSigner", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }], outputs: [{ type: "address" }] },
+  { name: "SINGLETON", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+] as const;
 
 export async function resolvePwaPlanningInfrastructure(
-  client: ReadOnlyDeploymentClient,
+  client: ReadOnlyDeploymentClient & Readonly<{ call(args: { data: Hex }): Promise<{ data?: Hex }> }>,
   input: Readonly<{
     chainId: number;
     deployer: Address;
     expectedDeployerNonce: bigint;
     primaryCredential: Readonly<{ x: bigint; y: bigint }>;
-    expectedSignerRuntimeCodeHash: Hex;
+    secondaryCredential: Readonly<{ x: bigint; y: bigint }>;
   }>,
 ): Promise<PwaPlanningInfrastructure> {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(input.expectedSignerRuntimeCodeHash)) failClosed("expected passkey signer runtime code hash is invalid");
   if (typeof client.getTransactionCount !== "function") failClosed("deployer nonce reader is required");
   if (typeof client.readContract !== "function") failClosed("passkey factory reader is required");
   const dependencies = await resolveInfrastructureDependencies(client, input.chainId, OFFICIAL_DEPLOYMENT_REGISTRY, { requireEvidence: true });
@@ -281,16 +278,23 @@ export async function resolvePwaPlanningInfrastructure(
   const observedDeployerNonce = typeof nonce === "bigint" ? nonce : BigInt(nonce);
   if (observedDeployerNonce !== input.expectedDeployerNonce) failClosed(`deployer nonce changed: expected ${input.expectedDeployerNonce}, observed ${observedDeployerNonce}`);
   const verifiers = BigInt(dependencies.passkeySignerVerifier.address);
-  const predicted = await client.readContract({
-    address: dependencies.passkeySignerFactory.address,
-    abi: PASSKEY_FACTORY_ABI,
-    functionName: "getSigner",
-    args: [input.primaryCredential.x, input.primaryCredential.y, verifiers],
-  });
-  if (typeof predicted !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(predicted)) failClosed("passkey factory returned an invalid signer address");
-  const existing = await client.getBytecode({ address: predicted as Address });
-  if (existing && existing !== "0x") failClosed("primary passkey signer already exists");
-  const binding = Object.freeze({ ...input.primaryCredential, verifiers });
+  const predict = async (credential: Readonly<{ x: bigint; y: bigint }>, label: "primary" | "secondary"): Promise<Address> => {
+    const predicted = await client.readContract!({ address: dependencies.passkeySignerFactory.address, abi: PASSKEY_FACTORY_ABI, functionName: "getSigner", args: [credential.x, credential.y, verifiers] });
+    if (typeof predicted !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(predicted)) failClosed(`passkey factory returned an invalid ${label} signer address`);
+    const existing = await client.getBytecode({ address: predicted as Address });
+    if (existing && existing !== "0x") failClosed(`${label} passkey signer already exists`);
+    return predicted as Address;
+  };
+  const singleton = await client.readContract({ address: dependencies.passkeySignerFactory.address, abi: PASSKEY_FACTORY_ABI, functionName: "SINGLETON" });
+  if (typeof singleton !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(singleton)) failClosed("passkey factory returned an invalid singleton address");
+  const [primaryAddress, secondaryAddress] = await Promise.all([predict(input.primaryCredential, "primary"), predict(input.secondaryCredential, "secondary")]);
+  if (same(primaryAddress, secondaryAddress)) failClosed("primary and secondary passkey signers must be distinct");
+  const [primaryRuntimeCodeHash, secondaryRuntimeCodeHash] = await Promise.all([
+    resolvePasskeySignerRuntimeCodeHash({ client, singleton: singleton as Address, credential: input.primaryCredential, verifiers }),
+    resolvePasskeySignerRuntimeCodeHash({ client, singleton: singleton as Address, credential: input.secondaryCredential, verifiers }),
+  ]);
+  const primaryBinding = Object.freeze({ ...input.primaryCredential, verifiers });
+  const secondaryBinding = Object.freeze({ ...input.secondaryCredential, verifiers });
   const result = Object.freeze({
     chainId: input.chainId,
     deployer: input.deployer,
@@ -302,11 +306,19 @@ export async function resolvePwaPlanningInfrastructure(
     multiSendCallOnly: dependencies.multiSendCallOnly,
     primaryPasskeySigner: Object.freeze({
       name: "passkeySigner" as const,
-      address: predicted as Address,
-      bindingHash: passkeySignerBindingHash({ factory: dependencies.passkeySignerFactory.address, ...binding }),
-      expectedRuntimeCodeHash: input.expectedSignerRuntimeCodeHash,
+      address: primaryAddress,
+      bindingHash: passkeySignerBindingHash({ factory: dependencies.passkeySignerFactory.address, ...primaryBinding }),
+      expectedRuntimeCodeHash: primaryRuntimeCodeHash,
       source: "official Safe WebAuthn signer factory prediction",
-      binding,
+      binding: primaryBinding,
+    }),
+    secondaryPasskeySigner: Object.freeze({
+      name: "passkeySigner" as const,
+      address: secondaryAddress,
+      bindingHash: passkeySignerBindingHash({ factory: dependencies.passkeySignerFactory.address, ...secondaryBinding }),
+      expectedRuntimeCodeHash: secondaryRuntimeCodeHash,
+      source: "official Safe WebAuthn signer factory prediction",
+      binding: secondaryBinding,
     }),
     dependencies,
   });

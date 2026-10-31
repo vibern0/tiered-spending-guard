@@ -17,7 +17,7 @@ const FORGED_USDC = "0x7777777777777777777777777777777777777777" as Address;
 const HASH = `0x${"aa".repeat(32)}` as Hex;
 const config = {
   id: "local", host: "127.0.0.1", port: 8787, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
-  rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", provisioningJournalPath: "/tmp/backend-provisioning-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
+  rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", provisioningJournalPath: "/tmp/backend-provisioning-journal.json",
   provisioningApprovalPath: "/tmp/provisioning-approval.json", provisioningApprovalHashPath: "/tmp/provisioning-approval.sha256", provisioningReviewDirectory: "/tmp/provisioning-reviews",
 } satisfies BackendConfig;
 const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH, deploymentsHash: HASH, policyHash: HASH } } as const;

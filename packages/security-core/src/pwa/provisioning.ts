@@ -14,6 +14,7 @@ import {
   isPwaPlanningInfrastructure,
   resolvePwaPlanningInfrastructure,
   resolveVerifiedDeploymentInfrastructure,
+  type PlannedPasskeySigner,
   type PwaPlanningInfrastructure,
   type ReadOnlyDeploymentClient,
 } from "../config/deployments";
@@ -131,6 +132,9 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
   const verifyFinalTopology = async (): Promise<Hex> => {
     const finalNonce = input.plan.transactions.at(-1)!.nonce + 1n;
     const primary = input.plan.infrastructure.primaryPasskeySigner;
+    const secondary = input.plan.infrastructure.secondaryPasskeySigner;
+    const secondaryRuntime = await input.client.getBytecode({ address: secondary.address });
+    if (!secondaryRuntime || secondaryRuntime === "0x" || keccak256(secondaryRuntime).toLowerCase() !== secondary.expectedRuntimeCodeHash.toLowerCase()) throw new Error("fail closed: secondary passkey signer runtime changed before final topology verification");
     const deployments = await resolveVerifiedDeploymentInfrastructure(input.client, {
       chainId: SEPOLIA_CHAIN_ID,
       deployer: input.plan.deployer,
@@ -245,8 +249,6 @@ export type ResolvePwaProvisioningPlanInput = Readonly<{
   safeProxySaltNonce: bigint;
   primaryCredential: PwaCredentialCoordinates;
   secondaryCredential: PwaCredentialCoordinates;
-  expectedSignerRuntimeCodeHash: Hex;
-  delayArtifactSource: string;
   client: PwaPlanResolutionClient;
 }>;
 
@@ -299,10 +301,11 @@ function infrastructureHash(infrastructure: PwaPlanningInfrastructure): Hex {
     deployer: infrastructure.deployer,
     dependencies: infrastructure.dependencies,
     primaryPasskeySigner: infrastructure.primaryPasskeySigner,
+    secondaryPasskeySigner: infrastructure.secondaryPasskeySigner,
   })));
 }
 
-function signerTransaction(id: "primary-signer" | "secondary-signer", nonce: bigint, credential: PwaCredentialCoordinates, address: Address, infrastructure: PwaPlanningInfrastructure): PwaProvisioningTransaction {
+function signerTransaction(id: "primary-signer" | "secondary-signer", nonce: bigint, credential: PwaCredentialCoordinates, signer: PlannedPasskeySigner, infrastructure: PwaPlanningInfrastructure): PwaProvisioningTransaction {
   const verifiers = BigInt(infrastructure.passkeySignerVerifier.address);
   const data = encodeFunctionData({ abi: FACTORY_ABI, functionName: "createSigner", args: [credential.x, credential.y, verifiers] });
   return Object.freeze({
@@ -313,9 +316,9 @@ function signerTransaction(id: "primary-signer" | "secondary-signer", nonce: big
     value: 0n,
     operation: 0,
     data,
-    expectedCreatedAddress: address,
+    expectedCreatedAddress: signer.address,
     creationCodeHash: keccak256(data),
-    expectedRuntimeCodeHash: infrastructure.primaryPasskeySigner.expectedRuntimeCodeHash,
+    expectedRuntimeCodeHash: signer.expectedRuntimeCodeHash,
   });
 }
 
@@ -337,10 +340,13 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
   if (input.infrastructure.observedDeployerNonce !== input.expectedDeployerNonce) throw new Error("fail closed: deployer nonce does not match reviewed planning state");
   if (input.safeProxySaltNonce < 0n) throw new Error("fail closed: Safe proxy salt must not be negative");
   const primaryBinding = input.infrastructure.primaryPasskeySigner.binding;
+  const secondaryBinding = input.infrastructure.secondaryPasskeySigner.binding;
   if (primaryBinding.x !== input.primaryCredential.x || primaryBinding.y !== input.primaryCredential.y || primaryBinding.verifiers !== BigInt(input.infrastructure.passkeySignerVerifier.address)) throw new Error("fail closed: primary credential coordinates do not match reviewed planning evidence");
+  if (secondaryBinding.x !== input.secondaryCredential.x || secondaryBinding.y !== input.secondaryCredential.y || secondaryBinding.verifiers !== BigInt(input.infrastructure.passkeySignerVerifier.address)) throw new Error("fail closed: secondary credential coordinates do not match reviewed planning evidence");
   const primaryPasskey = await predictedSigner(input.client, input.infrastructure, input.primaryCredential);
   const secondaryPasskey = await predictedSigner(input.client, input.infrastructure, input.secondaryCredential);
   if (!isAddressEqual(primaryPasskey, input.infrastructure.primaryPasskeySigner.address)) throw new Error("fail closed: primary credential does not match reviewed factory prediction");
+  if (!isAddressEqual(secondaryPasskey, input.infrastructure.secondaryPasskeySigner.address)) throw new Error("fail closed: secondary credential does not match reviewed factory prediction");
   if (isAddressEqual(primaryPasskey, secondaryPasskey)) throw new Error("fail closed: primary and secondary credentials must be distinct");
 
   const prerequisiteNonce = input.expectedDeployerNonce + 2n;
@@ -350,8 +356,8 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
   const policy = Object.freeze({ ...policyBase, safe });
   const vaultPlan = buildVaultPlan({ policy, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, artifacts: input.artifacts, deployments: input.infrastructure, plannedPrefixTransactionCount: 2 });
   const signerTransactions = [
-    signerTransaction("primary-signer", input.expectedDeployerNonce, input.primaryCredential, primaryPasskey, input.infrastructure),
-    signerTransaction("secondary-signer", input.expectedDeployerNonce + 1n, input.secondaryCredential, secondaryPasskey, input.infrastructure),
+    signerTransaction("primary-signer", input.expectedDeployerNonce, input.primaryCredential, input.infrastructure.primaryPasskeySigner, input.infrastructure),
+    signerTransaction("secondary-signer", input.expectedDeployerNonce + 1n, input.secondaryCredential, input.infrastructure.secondaryPasskeySigner, input.infrastructure),
   ] as const;
   const transactions = Object.freeze([
     ...signerTransactions,
@@ -372,7 +378,7 @@ export async function resolvePwaProvisioningPlan(input: ResolvePwaProvisioningPl
     deployer: input.deployer,
     expectedDeployerNonce: input.expectedDeployerNonce,
     primaryCredential: input.primaryCredential,
-    expectedSignerRuntimeCodeHash: input.expectedSignerRuntimeCodeHash,
+    secondaryCredential: input.secondaryCredential,
   });
   const secondaryPasskey = await predictedSigner(input.client, infrastructure, input.secondaryCredential);
   const prerequisiteNonce = input.expectedDeployerNonce + 2n;
@@ -381,7 +387,7 @@ export async function resolvePwaProvisioningPlan(input: ResolvePwaProvisioningPl
   if (typeof proxyCreationCode !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(proxyCreationCode)) throw new Error("fail closed: Safe proxy factory returned invalid creation code");
   const preliminary = fixedPolicy({ profile: input.profile, safe: ZERO, primaryPasskey: infrastructure.primaryPasskeySigner.address, secondaryPasskey, delay: components.delay });
   const safe = deriveVaultSafeProxyAddress({ policy: preliminary, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, safeProxyCreationCode: proxyCreationCode as Hex, deployments: infrastructure });
-  const artifacts = await resolveReviewedVaultArtifacts({ client: input.client, deployments: infrastructure, safe, primaryPasskey: infrastructure.primaryPasskeySigner.address, ecdsaSecondary: ZERO, delay: components.delay, maintenance: components.maintenance, periodAnchor: input.profile.periodAnchor, cooldownSeconds: BigInt(input.profile.delay.cooldownSeconds), expirationSeconds: BigInt(input.profile.delay.expirationSeconds), delayArtifactSource: input.delayArtifactSource });
+  const artifacts = await resolveReviewedVaultArtifacts({ client: input.client, deployments: infrastructure, safe, primaryPasskey: infrastructure.primaryPasskeySigner.address, ecdsaSecondary: ZERO, delay: components.delay, maintenance: components.maintenance, periodAnchor: input.profile.periodAnchor, cooldownSeconds: BigInt(input.profile.delay.cooldownSeconds), expirationSeconds: BigInt(input.profile.delay.expirationSeconds) });
   return createPwaProvisioningPlan({ ...input, infrastructure, artifacts });
 }
 

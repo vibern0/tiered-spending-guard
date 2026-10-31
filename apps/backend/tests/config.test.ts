@@ -10,7 +10,6 @@ const valid = {
   BACKEND_RPC_URL: "https://sepolia.example.invalid",
   BACKEND_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/backend-journal.json",
   BACKEND_PROVISIONING_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/provisioning-live-journal.json",
-  BACKEND_REVIEWED_ARTIFACTS: "/tmp/recent-tx-safe-guard/reviewed-artifacts.json",
   BACKEND_PROVISIONING_APPROVAL: "/tmp/recent-tx-safe-guard/provisioning-approval.json",
   BACKEND_PROVISIONING_APPROVAL_HASH_FILE: "/tmp/recent-tx-safe-guard/provisioning-approval.sha256",
   BACKEND_PROVISIONING_REVIEW_DIRECTORY: "/tmp/recent-tx-safe-guard/provisioning-reviews",
@@ -23,7 +22,6 @@ describe("backend configuration", () => {
       origin: "http://localhost:5173",
       rpId: "localhost",
     });
-    expect(loadBackendConfig(valid).reviewedArtifactsPath).toMatch(/recent-tx-safe-guard\/reviewed-artifacts\.json$/);
     for (const key of Object.keys(valid).filter((key) => key !== "BACKEND_ORIGIN" && key !== "BACKEND_RP_ID")) {
       const env = { ...valid };
       delete env[key as keyof typeof env];
@@ -31,6 +29,10 @@ describe("backend configuration", () => {
     }
     expect(() => loadBackendConfig({ ...valid, BACKEND_JOURNAL_PATH: resolve(process.cwd(), "journal.json") })).toThrow(/outside the repository/i);
     expect(() => loadBackendConfig({ ...valid, BACKEND_PROVISIONING_JOURNAL_PATH: valid.BACKEND_JOURNAL_PATH })).toThrow(/different paths/i);
+  });
+
+  it("rejects the retired external reviewed-artifacts setting", () => {
+    expect(() => loadBackendConfig({ ...valid, BACKEND_REVIEWED_ARTIFACTS: "/tmp/reviewed-artifacts.json" })).toThrow(/retired|remove/i);
   });
 
   it("requires every HTTPS identity field and rejects unsafe profile combinations", () => {

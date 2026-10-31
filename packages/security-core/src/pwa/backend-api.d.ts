@@ -38,5 +38,6 @@ export function pwaProvisioningApprovalHash(plan: PwaProvisioningPlan, approval:
 export function writePwaProvisioningReview(plan: PwaProvisioningPlan, outputDirectory: string): { packageHash: Hex; path: string };
 export function executeApprovedPwaProvisioning(plan: PwaProvisioningPlan, approval: unknown, context: PwaProvisioningExecutionContext): Promise<PwaProvisioningResult>;
 export function loadPwaPhaseOneProfile(value: unknown): Readonly<Record<string, unknown>>;
+export function loadCommittedPwaPhaseOneProfile(): Readonly<Record<string, unknown>>;
 export function resolvePwaProvisioningPlan(input: Readonly<Record<string, unknown>>): Promise<PwaProvisioningPlan>;
 export function createPwaProvisioningRuntime(input: Readonly<{ plan: PwaProvisioningPlan; journalPath: string; account: unknown; client: unknown }>): Readonly<{ context: PwaProvisioningExecutionContext; close(): void }>;

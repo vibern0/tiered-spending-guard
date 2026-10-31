@@ -50,6 +50,7 @@ function planningInfrastructure(): PwaPlanningInfrastructure {
     observedDeployerNonce: observedNonce,
     ...dependencies,
     primaryPasskeySigner: Object.freeze({ name: "passkeySigner", address: primary, expectedRuntimeCodeHash: hash(code(35)), bindingHash: hash(code(36)), source: "factory prediction", binding: { ...primaryCredential, verifiers: BigInt(dependencies.passkeySignerVerifier.address) } }),
+    secondaryPasskeySigner: Object.freeze({ name: "passkeySigner", address: secondary, expectedRuntimeCodeHash: hash(code(37)), bindingHash: hash(code(38)), source: "factory prediction", binding: { ...secondaryCredential, verifiers: BigInt(dependencies.passkeySignerVerifier.address) } }),
     dependencies,
   }));
 }
@@ -138,6 +139,7 @@ describe("PWA provisioning", () => {
       expect(decoded.functionName).to.equal("createSigner");
       expect(decoded.args[2]).to.equal(BigInt(first.infrastructure.passkeySignerVerifier.address));
     }
+    expect(first.transactions[0]!.expectedRuntimeCodeHash).not.to.equal(first.transactions[1]!.expectedRuntimeCodeHash);
   });
 
   it("rejects changed credential, factory prediction, nonce, salt, profile, or reviewed artifact evidence", async () => {
@@ -209,7 +211,7 @@ describe("PWA provisioning", () => {
 
     const safeTransaction = value.transactions.at(-1)!;
     const runtimeById = new Map([
-      ["primary-signer", code(35)], ["secondary-signer", code(35)], ["setup-helper", code(80)], ["guard", code(81)], ["delay", code(82)], ["maintenance", code(83)],
+      ["primary-signer", code(35)], ["secondary-signer", code(37)], ["setup-helper", code(80)], ["guard", code(81)], ["delay", code(82)], ["maintenance", code(83)],
     ]);
     const beforeSafe = createDurablePwaProvisioningExecutionContext({
       plan: value,
@@ -224,5 +226,27 @@ describe("PWA provisioning", () => {
     });
     await expect(beforeSafe.submit({ ...safeTransaction, gasLimit: 1_000_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n })).to.be.rejectedWith(/prerequisite binding recheck reached/);
     expect(signed).to.equal(1);
+  });
+
+  it("rejects secondary signer runtime drift during final topology verification", async () => {
+    const value = await plan();
+    const dependencyCode = new Map(Object.entries(value.infrastructure.dependencies).map(([name, item]) => [item.address.toLowerCase(), code({ safeSingleton: 30, safeProxyFactory: 31, passkeySignerFactory: 32, passkeySignerVerifier: 33, multiSendCallOnly: 34 }[name as keyof typeof value.infrastructure.dependencies])]));
+    const context = createDurablePwaProvisioningExecutionContext({
+      plan: value,
+      journal: { chainId: 11155111, funder: deployer, entries: [] },
+      liveContext: { funder: deployer, chainId: async () => 11155111, nonce: async () => 18, balance: async () => 0n, verify: async () => undefined, sign: async () => { throw new Error("not reached"); }, broadcast: async () => { throw new Error("not reached"); }, receipt: async () => undefined, persist: async () => undefined },
+      client: {
+        async getTransactionCount() { return 18n; },
+        async getBytecode({ address: target }) {
+          if (target.toLowerCase() === secondary.toLowerCase()) return code(99);
+          if (target.toLowerCase() === primary.toLowerCase()) return code(35);
+          return dependencyCode.get(target.toLowerCase());
+        },
+        async readContract() { throw new Error("secondary runtime drift was not checked first"); },
+        async getStorageAt() { return undefined; },
+      },
+    });
+
+    await expect(context.verifyFinalTopology(value)).to.be.rejectedWith(/secondary passkey signer runtime changed/i);
   });
 });

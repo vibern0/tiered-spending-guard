@@ -1,4 +1,5 @@
 import { getAddress, isAddress, keccak256, parseAbi, type Address, type Hex } from "viem";
+import CommittedPwaPhaseOneProfile from "../../config/sepolia.pwa-phase-one.json";
 
 export const SEPOLIA_CHAIN_ID = 11155111 as const;
 export const SEPOLIA_USDC_ADDRESS = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
@@ -171,6 +172,11 @@ export function loadPwaPhaseOneProfile(value: unknown): PwaPhaseOneProfile {
     amounts,
     identityReview,
   });
+}
+
+/** Returns the only deployment policy accepted by the supported PWA backend. */
+export function loadCommittedPwaPhaseOneProfile(): PwaPhaseOneProfile {
+  return loadPwaPhaseOneProfile(CommittedPwaPhaseOneProfile);
 }
 
 const readIdentity = async (client: UsdcIdentityClient, blockNumber: bigint) => {

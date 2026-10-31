@@ -2,20 +2,27 @@ import { readFileSync } from "node:fs";
 import { createPublicClient, http, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import {
+import * as pwaNamespace from "@recent-tx-safe-guard/security-core/pwa";
+import type {
+  PwaProvisioningExecutionContext,
+  PwaProvisioningPlan,
+  PwaProvisioningResult,
+} from "@recent-tx-safe-guard/security-core/pwa";
+import type { StoredCredential } from "./webauthn";
+import type { BackendConfig } from "./config";
+
+// Hardhat keeps security-core CommonJS; Node ESM exposes it under default while Vitest exposes named exports.
+const pwaRuntime = (pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
+
+const {
   createPwaProvisioningRuntime,
   executeApprovedPwaProvisioning,
-  loadPwaPhaseOneProfile,
+  loadCommittedPwaPhaseOneProfile,
   pwaProvisioningApprovalHash,
   provisioningPackageHash,
   resolvePwaProvisioningPlan,
   writePwaProvisioningReview,
-  type PwaProvisioningExecutionContext,
-  type PwaProvisioningPlan,
-  type PwaProvisioningResult,
-} from "@recent-tx-safe-guard/security-core/pwa";
-import type { StoredCredential } from "./webauthn";
-import { assertExternalBackendPath, type BackendConfig } from "./config";
+} = pwaRuntime;
 
 export type PwaProvisioningSummary = Readonly<{
   packageHash: Hex;
@@ -109,29 +116,9 @@ export function createReviewedPwaProvisioner(options: ReviewedPwaProvisionerOpti
   });
 }
 
-type ReviewedProvisioningInputs = Readonly<{
-  formatVersion: 1;
-  safeProxySaltNonce: bigint;
-  signerRuntimeCodeHash: Hex;
-  delayArtifactSourcePath: string;
-  profile: ReturnType<typeof loadPwaPhaseOneProfile>;
-}>;
-
-function reviewedInputs(config: BackendConfig): ReviewedProvisioningInputs {
-  let value: unknown;
-  try { value = JSON.parse(readFileSync(config.reviewedArtifactsPath, "utf8")); }
-  catch { throw new Error("reviewed PWA provisioning inputs could not be loaded safely"); }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("reviewed PWA provisioning inputs are malformed");
-  const input = value as Record<string, unknown>;
-  const expected = ["formatVersion", "safeProxySaltNonce", "signerRuntimeCodeHash", "delayArtifactSourcePath", "profile"];
-  if (Object.keys(input).length !== expected.length || expected.some((key) => !(key in input))) throw new Error("reviewed PWA provisioning inputs have unexpected fields");
-  if (input.formatVersion !== 1 || typeof input.safeProxySaltNonce !== "string" || !/^(0|[1-9][0-9]*)$/.test(input.safeProxySaltNonce) || typeof input.signerRuntimeCodeHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(input.signerRuntimeCodeHash) || typeof input.delayArtifactSourcePath !== "string") throw new Error("reviewed PWA provisioning inputs are invalid");
-  return Object.freeze({ formatVersion: 1, safeProxySaltNonce: BigInt(input.safeProxySaltNonce), signerRuntimeCodeHash: input.signerRuntimeCodeHash as Hex, delayArtifactSourcePath: assertExternalBackendPath(input.delayArtifactSourcePath, "delayArtifactSourcePath"), profile: loadPwaPhaseOneProfile(input.profile) });
-}
-
 /** Concrete Sepolia-only composition used by the supported backend entrypoint. */
 export function createConfiguredReviewedPwaProvisioner(config: BackendConfig): ReviewedPwaProvisioner {
-  const inputs = reviewedInputs(config);
+  const profile = loadCommittedPwaPhaseOneProfile();
   const account = privateKeyToAccount(config.relayPrivateKey);
   const publicClient = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
   const client = {
@@ -154,7 +141,7 @@ export function createConfiguredReviewedPwaProvisioner(config: BackendConfig): R
     approvalHashPath: config.provisioningApprovalHashPath,
     async createPlan({ primary, secondary }) {
       const expectedDeployerNonce = BigInt(await client.getTransactionCount({ address: account.address }));
-      return resolvePwaProvisioningPlan({ profile: inputs.profile, deployer: account.address, expectedDeployerNonce, safeProxySaltNonce: inputs.safeProxySaltNonce, primaryCredential: { x: primary.x, y: primary.y }, secondaryCredential: { x: secondary.x, y: secondary.y }, expectedSignerRuntimeCodeHash: inputs.signerRuntimeCodeHash, delayArtifactSource: readFileSync(inputs.delayArtifactSourcePath, "utf8"), client });
+      return resolvePwaProvisioningPlan({ profile, deployer: account.address, expectedDeployerNonce, safeProxySaltNonce: 0n, primaryCredential: { x: primary.x, y: primary.y }, secondaryCredential: { x: secondary.x, y: secondary.y }, client });
     },
     executionContext: (plan) => createPwaProvisioningRuntime({ plan, journalPath: config.provisioningJournalPath, account, client }),
   });
