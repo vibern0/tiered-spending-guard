@@ -59,12 +59,13 @@ describe("backend public surface", () => {
     firstRuntime.close();
     const provisioningBytes = readFileSync(provisioningPath, "utf8");
 
-    new SubmissionJournal(submissionPath).prepare("request-1", "0x1234");
+    const requestHash = `0x${"12".repeat(32)}`;
+    new SubmissionJournal(submissionPath).prepare("request-1", requestHash);
 
     const restartedRuntime = createPwaProvisioningRuntime({ plan, journalPath: provisioningPath, account, client: {} });
     restartedRuntime.close();
-    expect(new SubmissionJournal(submissionPath).get("request-1")).toMatchObject({ state: "prepared", requestHash: "0x1234" });
+    expect(new SubmissionJournal(submissionPath).get("request-1")).toMatchObject({ state: "prepared", requestHash });
     expect(readFileSync(provisioningPath, "utf8")).toBe(provisioningBytes);
-    expect(JSON.parse(readFileSync(submissionPath, "utf8"))).toEqual([{ id: "request-1", requestHash: "0x1234", state: "prepared" }]);
+    expect(JSON.parse(readFileSync(submissionPath, "utf8"))).toEqual([{ id: "request-1", requestHash, publicRequest: {}, state: "prepared", approvals: { primary: false, secondary: false } }]);
   });
 });

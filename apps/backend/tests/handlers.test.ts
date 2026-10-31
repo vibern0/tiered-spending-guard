@@ -2,7 +2,7 @@ import type { Address, Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { createBackendHandlers } from "../src/handlers";
 import type { BackendConfig } from "../src/config";
-import type { SafeExecutionRequest } from "../src/vault";
+import type { BackendPreparedSubmission } from "../src/vault";
 import type { ReviewedPwaProvisioner } from "../src/provisioner";
 import type { VerifiedPasskeyApproval } from "../src/webauthn";
 import type { PwaProvisioningResult } from "@recent-tx-safe-guard/security-core/pwa";
@@ -51,20 +51,18 @@ describe("server-authoritative backend handlers", () => {
   });
 
   it("binds preparation to server-held Safe state and exposes receipt state only", async () => {
-    const prepare = vi.fn(async ({ vault }: { vault: typeof result; request: { recipient: unknown; amount: unknown; idempotencyKey: unknown } }): Promise<SafeExecutionRequest> => ({
-      version: 1, kind: "safe-execution", idempotencyKey: HASH, chainId: 11155111, deploymentsHash: HASH, policyHash: HASH, safe: vault.safe, guard: vault.guard, asset: vault.usdc,
-      transaction: { to: vault.usdc, value: 0n, data: "0x1234", operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: "0x0000000000000000000000000000000000000000", refundReceiver: "0x0000000000000000000000000000000000000000", nonce: 4n }, safeTxHash: HASH, expectedSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
-    }));
-    const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan: vi.fn().mockResolvedValue({ packageHash: HASH }), execute: vi.fn().mockResolvedValue(completion) }, prepareTransfer: prepare, submission: () => ({ state: "confirmed", transactionHash: HASH }) });
+    const prepare = vi.fn(async ({ request }: Parameters<NonNullable<Parameters<typeof createBackendHandlers>[0]["prepareTransfer"]>>[0]): Promise<BackendPreparedSubmission> => ({ id: String(request.idempotencyKey), requestHash: HASH, safeTxHash: HASH, kind: "base-transfer", requiredApprovals: ["primary"], publicRequest: request }));
+    const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan: vi.fn().mockResolvedValue({ packageHash: HASH }), execute: vi.fn().mockResolvedValue(completion) }, prepareTransfer: prepare, submission: async () => ({ state: "confirmed", transactionHash: HASH }) });
     handlers.storeCredential(credential("primary", "p", 1));
     handlers.storeCredential(credential("secondary", "s", 3));
     await handlers.planVault({ primaryCredentialId: "p", secondaryCredentialId: "s" });
     await handlers.provisionVault({ packageHash: HASH });
 
-    const request = await handlers.prepareTransfer({ safe: "0x9999999999999999999999999999999999999999", usdc: "0x9999999999999999999999999999999999999999", recipient: SAFE, amount: 1n, nonce: 999n });
-    expect(request.safe).toBe(SAFE);
-    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ vault: expect.objectContaining(result), request: { recipient: SAFE, amount: 1n, idempotencyKey: undefined } }));
-    expect(handlers.submission("request-1")).toEqual({ state: "confirmed", transactionHash: HASH });
+    await expect(handlers.prepareTransfer({ kind: "transfer", recipient: SAFE, amount: 1n, idempotencyKey: "request-1", safe: FORGED_USDC })).rejects.toThrow(/field/i);
+    const request = await handlers.prepareTransfer({ kind: "transfer", recipient: SAFE, amount: 1n, idempotencyKey: "request-1" });
+    expect(request.id).toBe("request-1");
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ vault: expect.objectContaining(result), request: { kind: "transfer", recipient: SAFE, amount: 1n, idempotencyKey: "request-1" } }));
+    await expect(handlers.submission("request-1")).resolves.toEqual({ state: "confirmed", transactionHash: HASH });
   });
 
   it("rejects credential reuse and advances a role counter only after verified approval", async () => {

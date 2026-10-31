@@ -448,17 +448,17 @@ git commit -m "feat: build closed PWA tier intents"
 - State: `prepared | awaiting-primary | awaiting-secondary | submitting | uncertain | confirmed | reverted | superseded`.
 - `GET /v1/submissions/:id` reconciles before response; never authorizes replacement.
 
-- [ ] **Step 1: Write RED journal/API tests**
+- [x] **Step 1: Write RED journal/API tests**
 
 Cover all states and monotonic transitions. Restart from disk. Duplicate identical idempotency returns same request. Different bytes under same ID reject. Primary-before-secondary. Wrong credential/role reject. Timeout persists locally derived outer hash before send result, then `uncertain`. Retry reconciles exact hash only. Double click/tab produces one broadcast. Stale Safe nonce/policy/queue/time/code blocks before signing and before broadcast.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix apps/backend test`
 
 Expected: FAIL; current journal/status/API incomplete.
 
-- [ ] **Step 3: Implement API**
+- [x] **Step 3: Implement API**
 
 Use security-core PWA exports. Store no raw assertions or reusable signatures. Persist hashes, public request, approvals-present flags, outer hash, receipt identity. All responses `no-store`. Redact raw provider errors. Add root `backend:test`, `backend:typecheck`; include both in root `test`/`check`.
 

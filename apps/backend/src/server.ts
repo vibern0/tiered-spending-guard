@@ -3,7 +3,7 @@ import { isLoopbackAddress, type BackendConfig } from "./config";
 import { RegistrationSessionStore } from "./session";
 import { verifyPasskeyRegistration } from "./webauthn";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
-import type { PreparedUsdcTransfer, SafeExecutionRequest } from "./vault";
+import type { BackendPreparedSubmission } from "./vault";
 import { SubmissionJournal } from "./journal";
 
 export type VaultProvisioningResult = Readonly<{
@@ -21,9 +21,9 @@ export type BackendHandlers = Readonly<{
   planVault: (body: unknown) => Promise<unknown>;
   provisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
   storeCredential?: (credential: Awaited<ReturnType<typeof verifyPasskeyRegistration>>) => void;
-  prepareTransfer?: (body: unknown) => Promise<SafeExecutionRequest>;
+  prepareTransfer?: (body: unknown) => Promise<BackendPreparedSubmission>;
   submit?: (id: string, body: unknown) => Promise<unknown>;
-  submission?: (id: string) => unknown;
+  submission?: (id: string) => Promise<unknown>;
 }>;
 
 export type BackendServer = Readonly<{ server: Server; sessions: RegistrationSessionStore; journal: SubmissionJournal; close: () => Promise<void> }>;
@@ -88,10 +88,8 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));
       if (req.method === "POST" && segments.join("/") === "v1/submissions/prepare") {
         if (!handlers.prepareTransfer) throw new Error("submission preparation unavailable");
-        const request = await handlers.prepareTransfer(await body(req) as PreparedUsdcTransfer);
-        const id = request.idempotencyKey;
-        journal.prepare(id, request.safeTxHash);
-        return json(res, 200, { id, request });
+        const request = await handlers.prepareTransfer(await body(req));
+        return json(res, 200, request);
       }
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "submissions" && segments[3] === "submit") {
         if (!handlers.submit || !segments[2]) throw new Error("submission unavailable");
@@ -99,11 +97,12 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       }
       if (req.method === "GET" && segments[0] === "v1" && segments[1] === "submissions" && segments[2]) {
         if (!handlers.submission) throw new Error("submission unavailable");
-        return json(res, 200, handlers.submission(segments[2]));
+        return json(res, 200, await handlers.submission(segments[2]));
       }
       return json(res, 404, { error: "not found" });
     } catch (error) {
-      return json(res, 400, { error: error instanceof Error ? error.message : "backend request failed" });
+      const message = error instanceof Error ? error.message.replace(/https?:\/\/[^\s]+/gi, "[redacted]").replace(/0x[0-9a-fA-F]{64}/g, "[redacted]") : "backend request failed";
+      return json(res, 400, { error: message });
     }
   });
   return Object.freeze({ server, sessions, journal, close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) });

@@ -40,9 +40,11 @@ All responses are JSON with `cache-control: no-store`. Errors use `{ "error": st
 - `POST /v1/registrations/{primary|secondary}/verify` verifies the matching registration ceremony and stores only credential metadata.
 - `POST /v1/vaults/plan` creates one unsigned seven-transaction review package from the two verified credential IDs. It never broadcasts.
 - `POST /v1/vaults` accepts only the pending `packageHash`; execution loads the exact approval and independently reviewed approval digest, rechecks nonce/code/prerequisite state before each new transaction, uses the durable-before-broadcast journal, and returns only after final topology verification.
-- `POST /v1/submissions/prepare` re-reads the server-held vault and chain state, then journals one exact allowlisted USDC `transfer(address,uint256)` Safe `CALL`.
-- `POST /v1/submissions/{id}/submit` verifies the role signature over the journaled Safe digest, requires primary before secondary, and relays only the unchanged prepared request.
-- `GET /v1/submissions/{id}` returns journal state. It never authorizes a retry.
+- `POST /v1/submissions/prepare` accepts one exact human intent: `transfer`, `cancel-queued`, `execute-ready`, or `skip-expired`. It re-reads server-held state, delegates exact X/Y/Z construction to security-core, and journals the immutable public request. Browser-supplied calldata and Safe/Delay fields are rejected.
+- `POST /v1/submissions/{id}/submit` accepts `{role,assertion}` for primary/secondary or `{role:"none"}` only for ready execution/expired skip. It revalidates before the WebAuthn prompt and again before broadcast, persists the locally derived outer transaction hash before sending, requires primary before secondary, and single-flights duplicate tabs/clicks.
+- `GET /v1/submissions/{id}` reconciles only the exact durable outer hash before returning. It never signs, broadcasts, or authorizes a replacement.
+
+Submission states are monotonic: `prepared`, `awaiting-primary`, `awaiting-secondary`, `submitting`, `uncertain`, then `confirmed`, `reverted`, or `superseded`. The journal contains the public intent, hashes, approval-presence booleans, and public receipt identity. Raw WebAuthn assertions and reusable signature payloads remain process-local and are never persisted.
 
 The backend relay account pays gas only. Safe owners, the spending guard, Delay, USDC metadata, topology, nonce, limits, recipient policy, receipts, and cancellation remain authoritative onchain or in reviewed security-core adapters. Preparation passes only recipient, amount, and idempotency intent from the browser; the adapter must derive the exact Safe transaction from the server-held vault and fresh chain reads.
 
@@ -50,6 +52,7 @@ The backend relay account pays gas only. Safe owners, the spending guard, Delay,
 
 ```sh
 npm --prefix apps/backend test
+npm --prefix apps/backend run typecheck
 ```
 
 Live Sepolia rehearsal remains separately authorized, capped, and recorded. No backend test proves hardware/WebAuthn UX or production readiness.

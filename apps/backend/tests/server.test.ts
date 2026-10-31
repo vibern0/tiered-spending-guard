@@ -79,4 +79,31 @@ describe("backend HTTP boundary", () => {
     expect((await fetch(`${origin}/v1/vaults`, { method: "POST", body: "{}" })).status).toBe(200);
     expect(calls).toEqual(["plan", "execute"]);
   });
+
+  it("routes the closed prepare/submit/reconcile API with no-store responses", async () => {
+    const hash = `0x${"aa".repeat(32)}` as const;
+    const backend = createBackendServer(config, {
+      planVault: async () => ({}), provisionVault: async () => ({}) as never,
+      prepareTransfer: async (body) => ({ id: "request-1", requestHash: hash, safeTxHash: hash, kind: "base-transfer", requiredApprovals: ["primary"], publicRequest: body as Record<string, unknown> }),
+      submit: async (_id, body) => ({ state: "awaiting-secondary", body }),
+      submission: async () => ({ state: "uncertain", transactionHash: hash }),
+    });
+    servers.push(backend);
+    await new Promise<void>((resolve, reject) => backend.server.listen(0, config.host, resolve).once("error", reject));
+    const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+    const origin = `http://${config.host}:${address.port}`;
+    const prepared = await fetch(`${origin}/v1/submissions/prepare`, { method: "POST", body: JSON.stringify({ kind: "transfer", recipient: "0x1111111111111111111111111111111111111111", amount: "1000000n", idempotencyKey: "request-1" }) });
+    expect(prepared.status).toBe(200); expect(prepared.headers.get("cache-control")).toBe("no-store"); expect(await prepared.json()).toMatchObject({ id: "request-1" });
+    const submitted = await fetch(`${origin}/v1/submissions/request-1/submit`, { method: "POST", body: JSON.stringify({ role: "primary", assertion: { id: "p" } }) });
+    expect(submitted.status).toBe(200); expect(submitted.headers.get("cache-control")).toBe("no-store");
+    const status = await fetch(`${origin}/v1/submissions/request-1`); expect(status.status).toBe(200); expect(await status.json()).toMatchObject({ state: "uncertain", transactionHash: hash });
+  });
+
+  it("redacts provider endpoints and key-shaped values from HTTP errors", async () => {
+    const backend = createBackendServer(config, { planVault: async () => { throw new Error(`provider https://rpc.invalid/key failed ${"0x" + "11".repeat(32)}`); }, provisionVault: async () => ({}) as never });
+    servers.push(backend); await new Promise<void>((resolve, reject) => backend.server.listen(0, config.host, resolve).once("error", reject));
+    const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+    const response = await fetch(`http://${config.host}:${address.port}/v1/vaults/plan`, { method: "POST", body: "{}" });
+    expect(JSON.stringify(await response.json())).not.toMatch(/rpc\.invalid|1111111111/);
+  });
 });
