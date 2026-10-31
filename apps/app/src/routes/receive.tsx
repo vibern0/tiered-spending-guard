@@ -14,7 +14,10 @@ export const Route = createFileRoute("/receive")({
       { title: "Add USDC — USDC Vault" },
       { name: "description", content: "Get free test USDC or receive from another account." },
       { property: "og:title", content: "Add USDC — USDC Vault" },
-      { property: "og:description", content: "Get free test USDC or receive from another account." },
+      {
+        property: "og:description",
+        content: "Get free test USDC or receive from another account.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -29,21 +32,29 @@ function ReceivePage() {
   const [tab, setTab] = useState<"topup" | "receive">(mode ?? "topup");
   return (
     <div className="space-y-5">
-      <Link to="/" className="flex items-center gap-2 pt-6 text-sm font-semibold text-muted-foreground">
+      <Link
+        to="/"
+        className="flex items-center gap-2 pt-6 text-sm font-semibold text-muted-foreground"
+      >
         <ArrowLeft className="size-4" aria-hidden /> Home
       </Link>
       <h1 className="font-display text-2xl font-bold">Add USDC</h1>
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary p-1" role="tablist">
-        {([
-          ["topup", "Get test USDC", Gift],
-          ["receive", "From another account", Wallet],
-        ] as const).map(([id, label, Icon]) => (
+        {(
+          [
+            ["topup", "Get test USDC", Gift],
+            ["receive", "From another account", Wallet],
+          ] as const
+        ).map(([id, label, Icon]) => (
           <button
             key={id}
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={cn("flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold", tab === id ? "bg-card shadow-card" : "text-muted-foreground")}
+            className={cn(
+              "flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold",
+              tab === id ? "bg-card shadow-card" : "text-muted-foreground",
+            )}
           >
             <Icon className="size-4" aria-hidden /> {label}
           </button>
@@ -94,12 +105,25 @@ function TopUp() {
       {phase === "waiting" && (
         <div className="space-y-3 rounded-2xl bg-approval-soft p-4 text-sm text-approval-ink">
           <p className="font-semibold">Waiting for funds to arrive</p>
-          <p>We haven't seen a transfer yet. If the faucet says you've hit its limit, try again later.</p>
-          <button className="font-semibold underline" onClick={async () => { await refresh(); setPhase("idle"); }}>Refresh verified balance</button>
+          <p>
+            We haven't seen a transfer yet. If the faucet says you've hit its limit, try again
+            later.
+          </p>
+          <button
+            className="font-semibold underline"
+            onClick={async () => {
+              await refresh();
+              setPhase("idle");
+            }}
+          >
+            Refresh verified balance
+          </button>
         </div>
       )}
       {phase === "arrived" && (
-        <p className="rounded-2xl bg-success-soft p-4 text-sm font-semibold text-success">100.00 test USDC arrived.</p>
+        <p className="rounded-2xl bg-success-soft p-4 text-sm font-semibold text-success">
+          100.00 test USDC arrived.
+        </p>
       )}
       <Details>
         <TechRows />
@@ -130,7 +154,8 @@ function ReceiveFrom() {
       <p className="break-all text-center font-mono text-sm">{state.safe}</p>
       <CopyAddress />
       <p className="rounded-2xl bg-danger-soft p-3 text-sm text-danger-ink">
-        Only send test USDC on the test network. Other currencies or networks may be lost in this prototype.
+        Only send test USDC on the test network. Other currencies or networks may be lost in this
+        prototype.
       </p>
       <Details>
         <TechRows />

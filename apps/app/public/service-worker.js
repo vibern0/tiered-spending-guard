@@ -8,12 +8,16 @@ const SHELL_URLS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL_CACHE).then(async (cache) => {
-    await Promise.all(SHELL_URLS.map(async (url) => {
-      const response = await fetch(url, { cache: "reload" });
-      if (cacheable(response)) await cache.put(url, response);
-    }));
-  }));
+  event.waitUntil(
+    caches.open(SHELL_CACHE).then(async (cache) => {
+      await Promise.all(
+        SHELL_URLS.map(async (url) => {
+          const response = await fetch(url, { cache: "reload" });
+          if (cacheable(response)) await cache.put(url, response);
+        }),
+      );
+    }),
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -36,7 +40,11 @@ self.addEventListener("message", (event) => {
 function forbidsCaching(request, url) {
   if (request.method !== "GET" || url.origin !== self.location.origin) return true;
   if (request.headers?.get("cache-control")?.toLowerCase().includes("no-store")) return true;
-  return url.pathname.startsWith("/v1/") || url.pathname.startsWith("/api/") || url.pathname.startsWith("/rpc/");
+  return (
+    url.pathname.startsWith("/v1/") ||
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/rpc/")
+  );
 }
 
 function cacheable(response) {
@@ -71,7 +79,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(networkFirstNavigation(request));
     return;
   }
-  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest") {
+  if (
+    url.pathname.startsWith("/assets/") ||
+    url.pathname.startsWith("/icons/") ||
+    url.pathname === "/manifest.webmanifest"
+  ) {
     event.respondWith(immutableStaticAsset(request));
   }
 });

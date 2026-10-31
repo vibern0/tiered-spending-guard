@@ -1,5 +1,15 @@
 import type { LucideIcon } from "lucide-react";
-import { Ban, CheckCircle2, Clock, Fingerprint, KeyRound, Loader2, PlayCircle, TimerOff, XCircle } from "lucide-react";
+import {
+  Ban,
+  CheckCircle2,
+  Clock,
+  Fingerprint,
+  KeyRound,
+  Loader2,
+  PlayCircle,
+  TimerOff,
+  XCircle,
+} from "lucide-react";
 
 export type Lane = "base" | "step-up" | "delayed" | "blocked";
 
@@ -25,6 +35,7 @@ export type ActivityItem = {
   createdAt: number;
   earliestExecution?: number;
   expiresAt?: number;
+  canonicalNow?: number;
   txHash?: string;
   queueNonce?: number;
   approvers: string[];
@@ -34,43 +45,53 @@ export type ActivityItem = {
 
 type Tone = "approval" | "danger" | "success" | "neutral" | "primary";
 
-export const STATUS_META: Record<ActivityStatus, { label: string; tone: Tone; icon: LucideIcon }> = {
-  awaiting_first_signer: { label: "Awaiting first signer", tone: "approval", icon: Fingerprint },
-  awaiting_second_signer: { label: "Awaiting second signer", tone: "approval", icon: KeyRound },
-  submitting: { label: "Submitting", tone: "primary", icon: Loader2 },
-  executed: { label: "Executed", tone: "success", icon: CheckCircle2 },
-  queued: { label: "Queued — waiting", tone: "danger", icon: Clock },
-  ready: { label: "Ready to execute", tone: "primary", icon: PlayCircle },
-  cancelled: { label: "Cancelled", tone: "neutral", icon: Ban },
-  failed: { label: "Failed", tone: "danger", icon: XCircle },
-  expired: { label: "Expired", tone: "neutral", icon: TimerOff },
-};
+export const STATUS_META: Record<ActivityStatus, { label: string; tone: Tone; icon: LucideIcon }> =
+  {
+    awaiting_first_signer: { label: "Awaiting first signer", tone: "approval", icon: Fingerprint },
+    awaiting_second_signer: { label: "Awaiting second signer", tone: "approval", icon: KeyRound },
+    submitting: { label: "Submitting", tone: "primary", icon: Loader2 },
+    executed: { label: "Executed", tone: "success", icon: CheckCircle2 },
+    queued: { label: "Queued — waiting", tone: "danger", icon: Clock },
+    ready: { label: "Ready to execute", tone: "primary", icon: PlayCircle },
+    cancelled: { label: "Cancelled", tone: "neutral", icon: Ban },
+    failed: { label: "Failed", tone: "danger", icon: XCircle },
+    expired: { label: "Expired", tone: "neutral", icon: TimerOff },
+  };
 
 export const LANE_COPY: Record<Lane, { title: string; detail: string }> = {
-  base: { title: "Approve with first signer", detail: "Within your everyday limit. Only the first signer is needed." },
+  base: {
+    title: "Approve with first signer",
+    detail: "Within your everyday limit. Only the first signer is needed.",
+  },
   "step-up": {
     title: "Second signer required",
     detail: "Above the first-signer limit. Approve with the first signer, then the second signer.",
   },
   delayed: {
     title: "Available after the waiting period",
-    detail: "Above your instant limit. Approve with the first and second signers to schedule it — you can cancel before it runs.",
+    detail:
+      "Above your instant limit. Approve with the first and second signers to schedule it — you can cancel before it runs.",
   },
   blocked: { title: "This transfer is not supported", detail: "" },
 };
 
 /** Time-dependent states are derived, never trusted from storage. */
 export function effectiveStatus(item: ActivityItem, now = Date.now()): ActivityStatus {
+  const effectiveNow = item.canonicalNow ?? now;
   if (item.status === "queued" || item.status === "ready") {
-    if (item.expiresAt && now >= item.expiresAt) return "expired";
-    if (item.earliestExecution && now >= item.earliestExecution) return "ready";
+    if (item.expiresAt !== undefined && effectiveNow >= item.expiresAt) return "expired";
+    if (item.earliestExecution !== undefined && effectiveNow >= item.earliestExecution)
+      return "ready";
     return "queued";
   }
   return item.status;
 }
 
 export const needsAttention = (s: ActivityStatus) =>
-  s === "awaiting_first_signer" || s === "awaiting_second_signer" || s === "queued" || s === "ready";
+  s === "awaiting_first_signer" ||
+  s === "awaiting_second_signer" ||
+  s === "queued" ||
+  s === "ready";
 
 export function fingerprintOf(parts: (string | number | bigint)[]): string {
   let h = 0xcbf29ce484222325n;

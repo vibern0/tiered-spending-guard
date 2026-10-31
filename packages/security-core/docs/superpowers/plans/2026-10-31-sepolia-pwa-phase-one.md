@@ -470,7 +470,7 @@ Run: `npm test`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/backend package.json
@@ -500,21 +500,21 @@ git commit -m "feat: add durable PWA submission API"
 - Store actions: `registerPrimary`, `registerSecondary`, `planVault`, `refreshProvisioningApproval`, `provisionVault`, `prepareTransfer`, `approveSubmission`, `cancelQueued`, `executeReady`, `reconcileSubmission`, `refresh`.
 - `effectiveStatus()` derives time state; canonical snapshot overrides device clock.
 
-- [ ] **Step 1: Write RED journeys**
+- [x] **Step 1: Write RED journeys**
 
 Test backend unavailable, wrong profile, primary cancel, secondary cancel, same-device warning, distinct-secondary completion, plan-awaiting-operator, provisioning receipt, faucet instructions, X one prompt, Y two ordered prompts, Z queue, cancel, early disabled, ready execute, expiry, restart, uncertain recovery, reverted receipt, stale snapshot, offline block. Assert no simulated success. Limits page read-only. Persistent Sepolia/no-recovery/no-notification warning.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix apps/app test`
 
 Expected: FAIL; journeys incomplete.
 
-- [ ] **Step 3: Implement store-first UI**
+- [x] **Step 3: Implement store-first UI**
 
 Keep public profile/vault/submission IDs in versioned environment-scoped localStorage. Never store assertion/signature. Different profile key cannot load another vault. Show exact chain-derived X/Y/Z/spend/queue. Show secondary authenticator class. Use backend results plus canonical reads for success.
 
-- [ ] **Step 4: Run GREEN, lint, build**
+- [x] **Step 4: Run GREEN, lint, build**
 
 Run: `npm --prefix apps/app test`
 
@@ -524,7 +524,7 @@ Run: `npm --prefix apps/app run build`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/app

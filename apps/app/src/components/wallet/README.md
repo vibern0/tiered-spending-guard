@@ -33,12 +33,11 @@ its opener so draft input survives closing/reopening it.
 
 ## ProtectionEditor
 
-`ProtectionEditor` owns an **unsigned, in-memory draft**, validated by
-`lib/protection-draft.ts`. It exposes both per-transfer caps, both daily limits,
-the exact waiting period in seconds, recipients, proposed signer replacements,
-and freeze state. USDC values preserve all six decimals using bigint arithmetic.
-The Limits screen keeps displaying active onchain values beneath the sheet.
-Chain snapshot changes remount the editor, discarding stale drafts.
+`ProtectionEditor` is retained as an unmounted **unsigned, in-memory draft**
+prototype, validated by `lib/protection-draft.ts`. Phase One does not render it:
+the Limits screen is chain-derived and read-only. The component has no mutation
+or submission edge and must not be mounted until a separately approved settings
+path exists.
 
 **Integration boundary:** the existing transfer backend and its HTTP
 contract do not define a settings-change API. This editor can review a proposal;
@@ -60,5 +59,6 @@ that execution path.
 Without an account, it redirects to onboarding and never mounts account screens
 or navigation. An existing account remains accessible during RPC failure; write
 availability still comes from chain health checks. Home, Activity, and Limits
-are the only main tabs. `/profile` redirects home for old bookmarks; none of its
-former content or notification preferences is migrated elsewhere.
+are the only main tabs. `/profile` is a read-only public topology/profile view
+for old bookmarks. Every account route carries the Sepolia/no-recovery/no-
+independent-notification warning.

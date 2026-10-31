@@ -28,7 +28,9 @@ export function PwaStatus() {
     window.addEventListener("beforeinstallprompt", onInstallPrompt);
     window.addEventListener("appinstalled", onInstalled);
     window.addEventListener(UPDATE_READY_EVENT, onUpdate);
-    void registerWalletServiceWorker().then(setRegistration).catch(() => undefined);
+    void registerWalletServiceWorker()
+      .then(setRegistration)
+      .catch(() => undefined);
     return () => {
       window.removeEventListener("beforeinstallprompt", onInstallPrompt);
       window.removeEventListener("appinstalled", onInstalled);
@@ -52,7 +54,10 @@ export function PwaStatus() {
 
   if (!online) {
     return (
-      <div role="status" className="mt-3 flex min-h-11 items-center gap-2 rounded-2xl bg-danger-soft px-4 py-2 text-sm font-semibold text-danger-ink">
+      <div
+        role="status"
+        className="mt-3 flex min-h-11 items-center gap-2 rounded-2xl bg-danger-soft px-4 py-2 text-sm font-semibold text-danger-ink"
+      >
         <WifiOff className="size-4 shrink-0" aria-hidden />
         Offline read-only mode. Chain data and wallet writes are unavailable.
       </div>
@@ -60,9 +65,16 @@ export function PwaStatus() {
   }
   if (updateReady) {
     return (
-      <div role="status" className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-primary-soft px-4 py-2 text-sm text-primary">
+      <div
+        role="status"
+        className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-primary-soft px-4 py-2 text-sm text-primary"
+      >
         <span className="font-semibold">Update ready. Reload only at a safe boundary.</span>
-        <button type="button" onClick={reloadForUpdate} className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 font-semibold">
+        <button
+          type="button"
+          onClick={reloadForUpdate}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 font-semibold"
+        >
           <RefreshCw className="size-4" aria-hidden /> Reload to update
         </button>
       </div>
@@ -70,9 +82,16 @@ export function PwaStatus() {
   }
   if (installPrompt) {
     return (
-      <div role="status" className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-primary-soft px-4 py-2 text-sm text-primary">
+      <div
+        role="status"
+        className="mt-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-primary-soft px-4 py-2 text-sm text-primary"
+      >
         <span className="font-semibold">Install this Sepolia prototype.</span>
-        <button type="button" onClick={() => void install()} className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 font-semibold">
+        <button
+          type="button"
+          onClick={() => void install()}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 font-semibold"
+        >
           <Download className="size-4" aria-hidden /> Install wallet
         </button>
       </div>

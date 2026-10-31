@@ -30,11 +30,13 @@ function serviceWorkerHarness(fetcher: (request: unknown) => Promise<Response>) 
       for (const url of urls) stored.set(url, new Response(`cached:${url}`));
     }),
     match: vi.fn(async (request: unknown) => {
-      const key = typeof request === "string" ? request : new URL((request as { url: string }).url).pathname;
+      const key =
+        typeof request === "string" ? request : new URL((request as { url: string }).url).pathname;
       return stored.get(key)?.clone();
     }),
     put: vi.fn(async (request: unknown, response: Response) => {
-      const key = typeof request === "string" ? request : new URL((request as { url: string }).url).pathname;
+      const key =
+        typeof request === "string" ? request : new URL((request as { url: string }).url).pathname;
       stored.set(key, response.clone());
     }),
   };
@@ -51,13 +53,19 @@ function serviceWorkerHarness(fetcher: (request: unknown) => Promise<Response>) 
       location: { origin: "https://vault.example" },
       clients: { claim: vi.fn(async () => undefined) },
       skipWaiting: vi.fn(),
-      addEventListener: (type: string, handler: (event: WorkerEvent) => void) => handlers.set(type, handler),
+      addEventListener: (type: string, handler: (event: WorkerEvent) => void) =>
+        handlers.set(type, handler),
     },
   };
   vm.runInNewContext(readFileSync(publicPath("service-worker.js"), "utf8"), context);
   const dispatchFetch = async (request: WorkerEvent["request"]) => {
     let response: Promise<Response> | undefined;
-    handlers.get("fetch")?.({ request, respondWith: (promise) => { response = promise; } });
+    handlers.get("fetch")?.({
+      request,
+      respondWith: (promise) => {
+        response = promise;
+      },
+    });
     return response ? response : undefined;
   };
   return { cache, context, dispatchFetch, handlers, stored };
@@ -90,42 +98,94 @@ describe("wallet PWA artifacts", () => {
       theme_color: "#3158d4",
       background_color: "#f7f7fb",
     });
-    expect(manifest.icons).toEqual(expect.arrayContaining([
-      expect.objectContaining({ src: "/icons/icon-192.png", sizes: "192x192", purpose: "any" }),
-      expect.objectContaining({ src: "/icons/icon-512.png", sizes: "512x512", purpose: "any" }),
-      expect.objectContaining({ src: "/icons/icon-maskable-512.png", sizes: "512x512", purpose: "maskable" }),
-    ]));
+    expect(manifest.icons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ src: "/icons/icon-192.png", sizes: "192x192", purpose: "any" }),
+        expect.objectContaining({ src: "/icons/icon-512.png", sizes: "512x512", purpose: "any" }),
+        expect.objectContaining({
+          src: "/icons/icon-maskable-512.png",
+          sizes: "512x512",
+          purpose: "maskable",
+        }),
+      ]),
+    );
     expect(pngDimensions(publicPath("icons", "icon-192.png"))).toEqual([192, 192]);
     expect(pngDimensions(publicPath("icons", "icon-512.png"))).toEqual([512, 512]);
     expect(pngDimensions(publicPath("icons", "icon-maskable-512.png"))).toEqual([512, 512]);
   });
 
   it("serves direct navigation from network and falls back only to the cached shell", async () => {
-    const fetcher = vi.fn(async (request: unknown) => new Response(typeof request === "string" ? `cached:${request}` : `network:${(request as { url: string }).url}`));
+    const fetcher = vi.fn(
+      async (request: unknown) =>
+        new Response(
+          typeof request === "string"
+            ? `cached:${request}`
+            : `network:${(request as { url: string }).url}`,
+        ),
+    );
     const harness = serviceWorkerHarness(fetcher);
     let install: Promise<unknown> | undefined;
-    harness.handlers.get("install")?.({ waitUntil: (promise) => { install = promise; } });
+    harness.handlers.get("install")?.({
+      waitUntil: (promise) => {
+        install = promise;
+      },
+    });
     await install;
 
-    const send = { method: "GET", url: "https://vault.example/send", mode: "navigate", headers: new Headers() };
-    expect(await (await harness.dispatchFetch(send))?.text()).toBe("network:https://vault.example/send");
-    const detail = { method: "GET", url: "https://vault.example/activity/42", mode: "navigate", headers: new Headers() };
-    expect(await (await harness.dispatchFetch(detail))?.text()).toBe("network:https://vault.example/activity/42");
+    const send = {
+      method: "GET",
+      url: "https://vault.example/send",
+      mode: "navigate",
+      headers: new Headers(),
+    };
+    expect(await (await harness.dispatchFetch(send))?.text()).toBe(
+      "network:https://vault.example/send",
+    );
+    const detail = {
+      method: "GET",
+      url: "https://vault.example/activity/42",
+      mode: "navigate",
+      headers: new Headers(),
+    };
+    expect(await (await harness.dispatchFetch(detail))?.text()).toBe(
+      "network:https://vault.example/activity/42",
+    );
 
     fetcher.mockRejectedValueOnce(new TypeError("offline"));
     expect(await (await harness.dispatchFetch(send))?.text()).toBe("cached:/");
   });
 
   it("never intercepts security traffic and never caches no-store responses", async () => {
-    const fetcher = vi.fn(async () => new Response("fresh", { headers: { "cache-control": "no-store" } }));
+    const fetcher = vi.fn(
+      async () => new Response("fresh", { headers: { "cache-control": "no-store" } }),
+    );
     const harness = serviceWorkerHarness(fetcher);
-    const request = (url: string, method = "GET", headers = new Headers()) => ({ method, url, mode: "cors", headers });
+    const request = (url: string, method = "GET", headers = new Headers()) => ({
+      method,
+      url,
+      mode: "cors",
+      headers,
+    });
 
-    expect(await harness.dispatchFetch(request("https://api.example/v1/submissions"))).toBeUndefined();
-    expect(await harness.dispatchFetch(request("https://vault.example/v1/submissions"))).toBeUndefined();
+    expect(
+      await harness.dispatchFetch(request("https://api.example/v1/submissions")),
+    ).toBeUndefined();
+    expect(
+      await harness.dispatchFetch(request("https://vault.example/v1/submissions")),
+    ).toBeUndefined();
     expect(await harness.dispatchFetch(request("https://rpc.example/", "POST"))).toBeUndefined();
-    expect(await harness.dispatchFetch(request("https://vault.example/assets/app.js", "POST"))).toBeUndefined();
-    expect(await harness.dispatchFetch(request("https://vault.example/assets/app.js", "GET", new Headers({ "cache-control": "no-store" })))).toBeUndefined();
+    expect(
+      await harness.dispatchFetch(request("https://vault.example/assets/app.js", "POST")),
+    ).toBeUndefined();
+    expect(
+      await harness.dispatchFetch(
+        request(
+          "https://vault.example/assets/app.js",
+          "GET",
+          new Headers({ "cache-control": "no-store" }),
+        ),
+      ),
+    ).toBeUndefined();
 
     const response = await harness.dispatchFetch(request("https://vault.example/assets/app.js"));
     expect(await (await response)?.text()).toBe("fresh");
@@ -133,9 +193,15 @@ describe("wallet PWA artifacts", () => {
   });
 
   it("does not precache a shell response marked no-store", async () => {
-    const harness = serviceWorkerHarness(async () => new Response("private shell", { headers: { "cache-control": "no-store" } }));
+    const harness = serviceWorkerHarness(
+      async () => new Response("private shell", { headers: { "cache-control": "no-store" } }),
+    );
     let install: Promise<unknown> | undefined;
-    harness.handlers.get("install")?.({ waitUntil: (promise) => { install = promise; } });
+    harness.handlers.get("install")?.({
+      waitUntil: (promise) => {
+        install = promise;
+      },
+    });
     await install;
     expect(harness.cache.put).not.toHaveBeenCalled();
     expect(harness.stored.size).toBe(0);
@@ -144,12 +210,19 @@ describe("wallet PWA artifacts", () => {
 
 describe("service-worker lifecycle", () => {
   it("registers the versioned wallet worker without HTTP cache reuse", async () => {
-    const registration = { waiting: null, installing: null, addEventListener: vi.fn() } as unknown as ServiceWorkerRegistration;
+    const registration = {
+      waiting: null,
+      installing: null,
+      addEventListener: vi.fn(),
+    } as unknown as ServiceWorkerRegistration;
     const register = vi.fn(async () => registration);
     vi.stubGlobal("navigator", { serviceWorker: { register } });
 
     await expect(registerWalletServiceWorker()).resolves.toBe(registration);
-    expect(register).toHaveBeenCalledWith("/service-worker.js", { scope: "/", updateViaCache: "none" });
+    expect(register).toHaveBeenCalledWith("/service-worker.js", {
+      scope: "/",
+      updateViaCache: "none",
+    });
   });
 
   it("defers update activation until the credential/submission flow ends", async () => {

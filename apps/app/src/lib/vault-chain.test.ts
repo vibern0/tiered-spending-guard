@@ -15,7 +15,8 @@ function client(overrides: Record<string, unknown> = {}): PublicClient {
     getBalance: vi.fn().mockResolvedValue(2_000_000_000_000_000n),
     getTransactionCount: vi.fn().mockResolvedValue(7),
     getStorageAt: vi.fn().mockImplementation(async ({ slot }: { slot: string }) => {
-      if (slot.endsWith("c34c8") || slot.endsWith("9947")) return `0x${GUARD.slice(2).padStart(64, "0")}`;
+      if (slot.endsWith("c34c8") || slot.endsWith("9947"))
+        return `0x${GUARD.slice(2).padStart(64, "0")}`;
       return "0x0000000000000000000000000000000000000000000000000000000000000000";
     }),
     readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
@@ -29,7 +30,14 @@ function client(overrides: Record<string, unknown> = {}): PublicClient {
         getModuleGuard: GUARD,
         getModulesPaginated: [[DELAY], "0x0000000000000000000000000000000000000001"],
         fallbackHandler: "0x0000000000000000000000000000000000000000",
-        config: [SAFE, "0x5555555555555555555555555555555555555555", "0x6666666666666666666666666666666666666666", DELAY, 86400n, 0n],
+        config: [
+          SAFE,
+          "0x5555555555555555555555555555555555555555",
+          "0x6666666666666666666666666666666666666666",
+          DELAY,
+          86400n,
+          0n,
+        ],
         getConfiguredTokens: [USDC],
         assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n],
         getPolicyRecipients: ["0x7777777777777777777777777777777777777777"],
@@ -69,12 +77,14 @@ describe("validateUsdc", () => {
 
   it("rejects wrong symbol or decimals as a blocking health failure", async () => {
     const invalid = client({
-      readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
-        if (functionName === "name") return "Not USDC";
-        if (functionName === "symbol") return "NOPE";
-        if (functionName === "decimals") return 18;
-        return undefined;
-      }),
+      readContract: vi
+        .fn()
+        .mockImplementation(async ({ functionName }: { functionName: string }) => {
+          if (functionName === "name") return "Not USDC";
+          if (functionName === "symbol") return "NOPE";
+          if (functionName === "decimals") return 18;
+          return undefined;
+        }),
     });
 
     await expect(validateUsdc(invalid, USDC)).rejects.toMatchObject({
@@ -84,7 +94,9 @@ describe("validateUsdc", () => {
   });
 
   it("rejects runtime bytecode that differs from the reviewed two-provider artifact", async () => {
-    await expect(validateUsdc(client({ getBytecode: vi.fn().mockResolvedValue("0x6001600155") }), USDC)).rejects.toMatchObject({
+    await expect(
+      validateUsdc(client({ getBytecode: vi.fn().mockResolvedValue("0x6001600155") }), USDC),
+    ).rejects.toMatchObject({
       code: "usdc-runtime-mismatch",
       blocking: true,
     });
@@ -100,13 +112,20 @@ describe("readVaultSnapshot", () => {
     expect(snapshot.safeNonce).toBe(7n);
     expect(snapshot.usdcBalance).toBe(12_345_678n);
     if (!snapshot.topology || !snapshot.policy) throw new Error("healthy snapshot is incomplete");
-    expect(snapshot.topology).toMatchObject({ guard: GUARD, moduleGuard: GUARD, delay: { address: DELAY } });
+    expect(snapshot.topology).toMatchObject({
+      guard: GUARD,
+      moduleGuard: GUARD,
+      delay: { address: DELAY },
+    });
     expect(snapshot.topology.modules).toEqual([DELAY]);
     expect(snapshot.policy.baseDailyLimit).toBe(250_000_000n);
   });
 
   it("blocks writes on the wrong chain", async () => {
-    const snapshot = await readVaultSnapshot(client({ getChainId: vi.fn().mockResolvedValue(1) }), config);
+    const snapshot = await readVaultSnapshot(
+      client({ getChainId: vi.fn().mockResolvedValue(1) }),
+      config,
+    );
 
     expect(snapshot.writable).toBe(false);
     expect(snapshot.health).toEqual([
@@ -116,7 +135,10 @@ describe("readVaultSnapshot", () => {
   });
 
   it("blocks writes when USDC has no runtime bytecode", async () => {
-    const snapshot = await readVaultSnapshot(client({ getBytecode: vi.fn().mockResolvedValue(undefined) }), config);
+    const snapshot = await readVaultSnapshot(
+      client({ getBytecode: vi.fn().mockResolvedValue(undefined) }),
+      config,
+    );
 
     expect(snapshot.writable).toBe(false);
     expect(snapshot.health).toEqual([

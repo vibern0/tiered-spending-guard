@@ -7,12 +7,29 @@ vi.mock("viem", async (importOriginal) => ({
   ...(await importOriginal<typeof import("viem")>()),
   createPublicClient: vi.fn(),
 }));
+vi.mock("./webauthn-passkey", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./webauthn-passkey")>()),
+  signSafeDigest: vi.fn(async ({ role, credentialId }) => ({
+    id: credentialId,
+    rawId: credentialId,
+    type: "public-key",
+    clientExtensionResults: {},
+    response: { authenticatorData: "AA", clientDataJSON: "AA", signature: "AA", userHandle: null },
+    role,
+  })),
+}));
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
   localStorage.clear();
 });
-import { checkBackendHealth, useVault, VaultProvider, type VaultBackend } from "./vault-store";
+import {
+  checkBackendHealth,
+  useVault,
+  VaultProvider,
+  walletStorageKey,
+  type VaultBackend,
+} from "./vault-store";
 import type { WalletEnvironmentProfile } from "./environment-profile";
 import type { VaultConfig } from "./vault-chain";
 import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
@@ -90,7 +107,12 @@ function wrapper(
 describe("VaultProvider", () => {
   it("blocks writes when backend readiness is unhealthy", async () => {
     const profile: WalletEnvironmentProfile = {
-      id: "local", chainId: 11155111, appOrigin: "http://localhost:5173", rpId: "localhost", backendOrigin: "http://127.0.0.1:8787", credentials: "omit",
+      id: "local",
+      chainId: 11155111,
+      appOrigin: "http://localhost:5173",
+      rpId: "localhost",
+      backendOrigin: "http://127.0.0.1:8787",
+      credentials: "omit",
     };
     await expect(
       checkBackendHealth(
@@ -102,7 +124,16 @@ describe("VaultProvider", () => {
     await expect(
       checkBackendHealth(
         profile,
-        async () => new Response(JSON.stringify({ ok: true, chainId: 11155111, profileId: "https", origin: "https://vault.example", rpId: "vault.example" })),
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              chainId: 11155111,
+              profileId: "https",
+              origin: "https://vault.example",
+              rpId: "vault.example",
+            }),
+          ),
       ),
     ).rejects.toThrow(/profile/i);
   });
@@ -219,6 +250,8 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
         response: { clientDataJSON: "e30", attestationObject: "e30" },
       },
     }),
+    planVault: async () => ({ packageHash: `0x${"aa".repeat(32)}` }),
+    refreshProvisioningApproval: async () => ({ approved: true }),
     provisionVault: async () => ({
       chainId: 11155111,
       safe: SAFE,
@@ -229,9 +262,9 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
       secondaryPasskey: GUARD,
       evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
     }),
-    prepareTransfer: vi.fn(),
-    submitPrimary: vi.fn(),
-    submitSecondary: vi.fn(),
+    prepareIntent: vi.fn(),
+    submit: vi.fn(),
+    submission: vi.fn(),
   };
   const { result } = renderHook(() => useVault(), {
     wrapper: wrapper({ client: makeClient(), config, backend }),
@@ -241,14 +274,22 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
     await result.current.provision();
   });
   await waitFor(() =>
-    expect(JSON.parse(localStorage.getItem("usdc-vault-ui-v1") ?? "{}")).toMatchObject({
+    expect(
+      JSON.parse(
+        localStorage.getItem(walletStorageKey("ui", { id: "local", rpId: "localhost" })) ?? "{}",
+      ),
+    ).toMatchObject({
       primaryCredentialId: "primary-credential",
       secondaryCredentialId: "secondary-credential",
     }),
   );
   act(() => result.current.finishSetup());
   await waitFor(() =>
-    expect(JSON.parse(localStorage.getItem("usdc-vault-ui-v1") ?? "{}")).toMatchObject({
+    expect(
+      JSON.parse(
+        localStorage.getItem(walletStorageKey("ui", { id: "local", rpId: "localhost" })) ?? "{}",
+      ),
+    ).toMatchObject({
       primaryCredentialId: "primary-credential",
       secondaryCredentialId: "secondary-credential",
       deploymentHash: "0x11",
@@ -260,7 +301,9 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
 
 it("defers a waiting service-worker update throughout WebAuthn provisioning", async () => {
   let releaseRegistration!: () => void;
-  const registrationGate = new Promise<void>((resolve) => { releaseRegistration = resolve; });
+  const registrationGate = new Promise<void>((resolve) => {
+    releaseRegistration = resolve;
+  });
   const backend: VaultBackend = {
     registerPasskey: async (role) => {
       await registrationGate;
@@ -279,6 +322,8 @@ it("defers a waiting service-worker update throughout WebAuthn provisioning", as
         },
       };
     },
+    planVault: async () => ({ packageHash: `0x${"aa".repeat(32)}` }),
+    refreshProvisioningApproval: async () => ({ approved: true }),
     provisionVault: async () => ({
       chainId: 11155111,
       safe: SAFE,
@@ -289,9 +334,9 @@ it("defers a waiting service-worker update throughout WebAuthn provisioning", as
       secondaryPasskey: GUARD,
       evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
     }),
-    prepareTransfer: vi.fn(),
-    submitPrimary: vi.fn(),
-    submitSecondary: vi.fn(),
+    prepareIntent: vi.fn(),
+    submit: vi.fn(),
+    submission: vi.fn(),
   };
   const postMessage = vi.fn();
   const waiting = { waiting: { postMessage } } as unknown as ServiceWorkerRegistration;
@@ -301,11 +346,265 @@ it("defers a waiting service-worker update throughout WebAuthn provisioning", as
   await waitFor(() => expect(result.current.hydrated).toBe(true));
 
   let provisioning!: Promise<void>;
-  act(() => { provisioning = result.current.provision(); });
+  act(() => {
+    provisioning = result.current.provision();
+  });
   await waitFor(() => expect(activateWaitingServiceWorkerWhenSafe(waiting)).toBe(false));
   expect(postMessage).not.toHaveBeenCalled();
 
   releaseRegistration();
-  await act(async () => { await provisioning; });
+  await act(async () => {
+    await provisioning;
+  });
   expect(postMessage).toHaveBeenCalledWith({ type: "SKIP_WAITING" });
+});
+
+it("runs registration, operator-reviewed planning, and provisioning as separate store actions", async () => {
+  const registration = (
+    role: "primary" | "secondary",
+    attachment: "platform" | "cross-platform",
+  ) => ({
+    role,
+    credentialId: `${role}-credential`,
+    challenge: "challenge",
+    rpId: "localhost",
+    origin: "http://localhost:5173",
+    response: {
+      id: `${role}-credential`,
+      rawId: `${role}-credential`,
+      type: "public-key" as const,
+      authenticatorAttachment: attachment,
+      clientExtensionResults: {},
+      response: { clientDataJSON: "e30", attestationObject: "e30" },
+    },
+  });
+  const backend = {
+    health: vi.fn().mockResolvedValue(undefined),
+    registerPasskey: vi.fn(async (role) =>
+      registration(role, role === "primary" ? "platform" : "cross-platform"),
+    ),
+    planVault: vi.fn().mockResolvedValue({ packageHash: `0x${"aa".repeat(32)}` }),
+    refreshProvisioningApproval: vi.fn().mockResolvedValue({ approved: true }),
+    provisionVault: vi.fn().mockResolvedValue({
+      chainId: 11155111,
+      safe: SAFE,
+      guard: GUARD,
+      delay: DELAY,
+      usdc: USDC,
+      primaryPasskey: SAFE,
+      secondaryPasskey: GUARD,
+      evidence: {
+        setupTransactionHash: `0x${"11".repeat(32)}`,
+        verificationReportHash: `0x${"22".repeat(32)}`,
+      },
+    }),
+    prepareIntent: vi.fn(),
+    submit: vi.fn(),
+    submission: vi.fn(),
+  } as unknown as VaultBackend;
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), backend }),
+  });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  await act(() => result.current.registerPrimary());
+  expect(result.current.setup.primaryCredentialId).toBe("primary-credential");
+  await act(() => result.current.registerSecondary());
+  expect(result.current.setup.secondaryAuthenticator).toBe("cross-platform");
+  expect(result.current.setup.distinctSecondary).toBe(true);
+  await act(() => result.current.planVault());
+  expect(result.current.setup.provisioning).toBe("awaiting-operator");
+  await act(() => result.current.refreshProvisioningApproval());
+  expect(result.current.setup.provisioning).toBe("approved");
+  await act(() => result.current.provisionVault());
+  expect(result.current.setup.receiptHash).toBe(`0x${"11".repeat(32)}`);
+  expect(backend.provisionVault).toHaveBeenCalledWith({ packageHash: `0x${"aa".repeat(32)}` });
+  expect(JSON.stringify(localStorage)).not.toMatch(/assertion|signature/i);
+});
+
+it("warns when the secondary is same-device and isolates public state by environment", async () => {
+  const backend = {
+    health: vi.fn(),
+    registerPasskey: vi.fn(async (role: "primary" | "secondary") => ({
+      role,
+      credentialId: `${role}-credential`,
+      challenge: "c",
+      rpId: "localhost",
+      origin: "http://localhost:5173",
+      response: {
+        id: `${role}-credential`,
+        rawId: `${role}-credential`,
+        type: "public-key",
+        authenticatorAttachment: "platform",
+        clientExtensionResults: {},
+        response: { clientDataJSON: "e30", attestationObject: "e30" },
+      },
+    })),
+    planVault: vi.fn(),
+    refreshProvisioningApproval: vi.fn(),
+    provisionVault: vi.fn(),
+    prepareIntent: vi.fn(),
+    submit: vi.fn(),
+    submission: vi.fn(),
+  } as unknown as VaultBackend;
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), backend }),
+  });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  await act(() => result.current.registerSecondary());
+  expect(result.current.setup.distinctSecondary).toBe(false);
+  expect(
+    localStorage.getItem(walletStorageKey("ui", { id: "https", rpId: "vault.example" })),
+  ).toBeNull();
+});
+
+it("does not advance either signer when its passkey ceremony is cancelled", async () => {
+  const cancelled = new DOMException("The operation was cancelled", "NotAllowedError");
+  const primary = {
+    role: "primary" as const,
+    credentialId: "primary-credential",
+    challenge: "c",
+    rpId: "localhost",
+    origin: "http://localhost:5173",
+    response: {
+      id: "primary-credential",
+      rawId: "primary-credential",
+      type: "public-key" as const,
+      authenticatorAttachment: "platform" as const,
+      clientExtensionResults: {},
+      response: { clientDataJSON: "e30", attestationObject: "e30" },
+    },
+  };
+  const backend = {
+    health: vi.fn().mockResolvedValue(undefined),
+    registerPasskey: vi
+      .fn()
+      .mockRejectedValueOnce(cancelled)
+      .mockResolvedValueOnce(primary)
+      .mockRejectedValueOnce(cancelled),
+    planVault: vi.fn(),
+    refreshProvisioningApproval: vi.fn(),
+    provisionVault: vi.fn(),
+    prepareIntent: vi.fn(),
+    submit: vi.fn(),
+    submission: vi.fn(),
+  } as unknown as VaultBackend;
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), backend }),
+  });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  await expect(result.current.registerPrimary()).rejects.toThrow(/cancelled/i);
+  expect(result.current.setup.primaryCredentialId).toBeUndefined();
+  await act(() => result.current.registerPrimary());
+  await expect(result.current.registerSecondary()).rejects.toThrow(/cancelled/i);
+  expect(result.current.setup.primaryCredentialId).toBe("primary-credential");
+  expect(result.current.setup.secondaryCredentialId).toBeUndefined();
+});
+
+it("orders X/Y/Z approvals and handles queue, uncertainty, revert, offline, and stale snapshots", async () => {
+  const hash = `0x${"aa".repeat(32)}` as const;
+  localStorage.setItem(
+    walletStorageKey("ui", { id: "local", rpId: "localhost" }),
+    JSON.stringify({
+      primaryCredentialId: "p",
+      secondaryCredentialId: "s",
+      secondaryAuthenticator: "cross-platform",
+      submissionIds: [],
+    }),
+  );
+  const prepared = (id: string, kind: string, roles: string[]) => ({
+    id,
+    requestHash: hash,
+    safeTxHash: hash,
+    kind,
+    requiredApprovals: roles,
+    publicRequest: { kind: "transfer", idempotencyKey: id },
+  });
+  const prepareIntent = vi
+    .fn()
+    .mockResolvedValueOnce(prepared("x", "base-transfer", ["primary"]))
+    .mockResolvedValueOnce(prepared("y", "step-up-transfer", ["primary", "secondary"]))
+    .mockResolvedValueOnce(prepared("z", "queue-transfer", ["primary", "secondary"]))
+    .mockResolvedValueOnce(prepared("cancel", "cancel-queued", ["primary", "secondary"]))
+    .mockResolvedValueOnce(prepared("execute", "execute-ready", []))
+    .mockResolvedValueOnce(prepared("expired", "skip-expired", []));
+  const submit = vi.fn(async (id: string, body: { role: string }) => ({
+    id,
+    state:
+      body.role === "primary" && ["y", "z", "cancel"].includes(id)
+        ? "awaiting-secondary"
+        : "confirmed",
+    transactionHash: hash,
+    approvals: { primary: true, secondary: body.role === "secondary" },
+  }));
+  const backend = {
+    health: vi.fn().mockResolvedValue(undefined),
+    registerPasskey: vi.fn(),
+    planVault: vi.fn(),
+    refreshProvisioningApproval: vi.fn(),
+    provisionVault: vi.fn(),
+    prepareIntent,
+    submit,
+    submission: vi
+      .fn()
+      .mockResolvedValue({ id: "uncertain", state: "reverted", transactionHash: hash }),
+  } as unknown as VaultBackend;
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), config, backend }),
+  });
+  await waitFor(() => expect(result.current.state.writable).toBe(true));
+  await act(() => result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1_000_000n }));
+  await act(() => result.current.prepareTransfer({ recipient: RECIPIENT, amount: 2_000_000n }));
+  await act(() => result.current.prepareTransfer({ recipient: RECIPIENT, amount: 4_000_000n }));
+  expect(submit.mock.calls.map(([, body]) => body.role)).toEqual([
+    "primary",
+    "primary",
+    "secondary",
+    "primary",
+    "secondary",
+  ]);
+  const queue = {
+    queueNonce: 2,
+    txHash: hash,
+    fingerprint: "FP",
+    status: "queued" as const,
+    id: "q",
+    direction: "out" as const,
+    amount: 4_000_000n,
+    counterparty: RECIPIENT,
+    address: RECIPIENT,
+    lane: "delayed" as const,
+    createdAt: 1,
+    approvers: [],
+    earliestExecution: Date.now() + 60_000,
+    expiresAt: Date.now() + 600_000,
+  };
+  expect(() => result.current.executeReady(queue)).toThrow(/not ready/i);
+  await act(() => result.current.cancelQueued(queue));
+  await act(() => result.current.executeReady({ ...queue, status: "ready", earliestExecution: 0 }));
+  await act(() =>
+    result.current.executeReady({
+      ...queue,
+      status: "ready",
+      canonicalNow: 2,
+      earliestExecution: 0,
+      expiresAt: 1,
+    }),
+  );
+  expect(submit.mock.calls.slice(-4).map(([, body]) => body.role)).toEqual([
+    "primary",
+    "secondary",
+    "none",
+    "none",
+  ]);
+  await act(() => result.current.reconcileSubmission("uncertain"));
+  expect(backend.submission).toHaveBeenCalledWith("uncertain");
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+  await expect(
+    result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n }),
+  ).rejects.toThrow(/offline/i);
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+  prepareIntent.mockRejectedValueOnce(new Error("stale snapshot"));
+  await expect(
+    result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n }),
+  ).rejects.toThrow(/stale/i);
 });

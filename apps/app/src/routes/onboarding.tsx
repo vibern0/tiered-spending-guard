@@ -1,10 +1,9 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Circle, Fingerprint, KeyRound, ShieldCheck, ListChecks } from "lucide-react";
 import { useState } from "react";
-import { Card, DRow, PrimaryButton, NetworkPill } from "@/components/wallet/ui";
-import { formatUsdc, parseUsdc } from "@/lib/usdc";
+import { Card, DRow, PrimaryButton, SecondaryButton, NetworkPill } from "@/components/wallet/ui";
+import { formatUsdc } from "@/lib/usdc";
 import { describeProvisioningError } from "@/lib/provisioning-errors";
-import { useApproval } from "@/lib/use-approval";
 import { useVault, type Onboarding } from "@/lib/vault-store";
 import { cn } from "@/lib/utils";
 
@@ -12,11 +11,10 @@ export const Route = createFileRoute("/onboarding")({
   head: () => ({
     meta: [
       { title: "Set up your account — USDC Vault" },
-      { name: "description", content: "Set up your first and second signers, protection limits, and safety rehearsal." },
-      { property: "og:title", content: "Set up your account — USDC Vault" },
-      { property: "og:description", content: "Set up your first and second signers, protection limits, and safety rehearsal." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      {
+        name: "description",
+        content: "Register two passkeys and provision a reviewed Sepolia vault.",
+      },
     ],
   }),
   component: OnboardingPage,
@@ -25,62 +23,50 @@ export const Route = createFileRoute("/onboarding")({
 const STEPS: { key: keyof Onboarding; title: string; icon: typeof Fingerprint }[] = [
   { key: "firstSigner", title: "Set up first signer", icon: Fingerprint },
   { key: "secondSigner", title: "Set up second signer", icon: KeyRound },
-  { key: "limits", title: "Set protection limits", icon: ShieldCheck },
-  { key: "rehearsed", title: "Review and rehearse", icon: ListChecks },
+  { key: "limits", title: "Review and provision", icon: ShieldCheck },
+  { key: "rehearsed", title: "Safety rehearsal", icon: ListChecks },
+];
+const EXERCISES = [
+  "Everyday transfer",
+  "Second-signer approval",
+  "Scheduled withdrawal",
+  "Cancellation",
 ];
 
-const EXERCISES = ["Everyday transfer", "Second-signer approval", "Scheduled withdrawal", "Notification", "Cancellation", "Recovery"];
-
 function OnboardingPage() {
-  const { state, provision, loading, finishSetup } = useVault();
+  const {
+    state,
+    setup,
+    loading,
+    registerPrimary,
+    registerSecondary,
+    planVault,
+    refreshProvisioningApproval,
+    provisionVault,
+    finishSetup,
+  } = useVault();
   const nav = useNavigate();
-  const { busy, approve } = useApproval();
-  const ob = state.onboarding;
-  const current = STEPS.find((s) => !ob[s.key])?.key;
-  const done = (k: keyof Onboarding) => {
-    if (k !== "rehearsed") return;
-    finishSetup();
-  };
-
-  const [x, setX] = useState(formatUsdc(state.policy.firstSignerDaily).slice(1));
-  const [y, setY] = useState(formatUsdc(state.policy.instantDaily).slice(1));
-  const [cap, setCap] = useState(formatUsdc(state.policy.perTxCap).slice(1));
-  const [z, setZ] = useState(String(state.policy.delayHours));
   const [err, setErr] = useState<string | null>(null);
-  const [ex, setEx] = useState<string[]>([]);
-  const [provisioning, setProvisioning] = useState(false);
-
-  const createPasskeyVault = async () => {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [exercises, setExercises] = useState<string[]>([]);
+  const progress: Onboarding = {
+    firstSigner: Boolean(setup.primaryCredentialId),
+    secondSigner: Boolean(setup.secondaryCredentialId),
+    limits: setup.provisioning === "provisioned",
+    rehearsed: state.onboarding.rehearsed,
+  };
+  const current = STEPS.find((step) => !progress[step.key])?.key;
+  const run = async (label: string, action: () => Promise<void>) => {
     setErr(null);
-    setProvisioning(true);
+    setBusy(label);
     try {
-      await provision();
+      await action();
     } catch (error) {
       setErr(describeProvisioningError(error));
     } finally {
-      setProvisioning(false);
+      setBusy(null);
     }
   };
-
-  const saveLimits = () => {
-    const X = parseUsdc(x), Y = parseUsdc(y), C = parseUsdc(cap), Z = Number(z);
-    if (X === null || Y === null || C === null) return setErr("Enter valid usdc amounts.");
-    if (!(X > 0n && X < Y)) return setErr("First-signer limit must be above 0 USDC and below the instant limit.");
-    if (C < Y) return setErr("The per-transfer maximum must be at least the instant limit.");
-    if (!Number.isInteger(Z) || Z < 1 || Z > 168) return setErr("Waiting period must be 1–168 hours.");
-    setErr(null);
-    setErr("Limits are read from the verified onchain guard. Change requests use the delayed policy flow.");
-  };
-
-  const field = (id: string, label: string, v: string, set: (s: string) => void, suffix = "USDC") => (
-    <label htmlFor={id} className="block text-sm">
-      <span className="font-semibold">{label}</span>
-      <div className="mt-1 flex items-center rounded-xl border border-input bg-background px-3">
-        <span className="text-muted-foreground">{suffix}</span>
-        <input id={id} value={v} onChange={(e) => set(e.target.value)} inputMode="decimal" className="w-full bg-transparent px-2 py-3 outline-none" />
-      </div>
-    </label>
-  );
 
   return (
     <div className="space-y-4 pt-6">
@@ -88,64 +74,171 @@ function OnboardingPage() {
         <h1 className="font-display text-2xl font-bold">Set up your account</h1>
         <NetworkPill />
       </div>
-      <p className="text-sm text-muted-foreground">Your progress is saved. No passwords, keys or PINs are stored here.</p>
+      <p className="text-sm text-muted-foreground">
+        Public credential references and progress are stored for this exact environment. Assertions
+        and signatures are never stored.
+      </p>
+      <p className="rounded-2xl bg-danger-soft p-3 text-sm font-semibold text-danger-ink">
+        Sepolia prototype · no signer recovery · no independent notification delivery
+      </p>
+      {err && (
+        <p role="alert" className="rounded-xl bg-danger-soft p-3 text-sm text-danger-ink">
+          {err}
+        </p>
+      )}
+      {setup.secondaryCredentialId && !setup.distinctSecondary && (
+        <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
+          Same-device second signer detected. This does not provide device separation; use a
+          cross-platform authenticator where possible.
+        </p>
+      )}
 
-      {STEPS.map((s, i) => {
-        const isDone = ob[s.key];
-        const isCurrent = current === s.key;
+      {STEPS.map((step, index) => {
+        const done = progress[step.key];
+        const active = current === step.key;
         return (
-          <Card key={s.key} className={cn(!isCurrent && "opacity-80")}>
+          <Card key={step.key} className={cn(!active && "opacity-80")}>
             <div className="flex items-center gap-3">
-              {isDone ? <CheckCircle2 className="size-6 text-success" aria-label="Done" /> : <Circle className="size-6 text-muted-foreground" aria-label="Not done" />}
-              <span className="font-semibold">{i + 1}. {s.title}</span>
+              {done ? (
+                <CheckCircle2 className="size-6 text-success" aria-label="Done" />
+              ) : (
+                <Circle className="size-6 text-muted-foreground" aria-label="Not done" />
+              )}
+              <span className="font-semibold">
+                {index + 1}. {step.title}
+              </span>
             </div>
-            {isCurrent && (
+            {active && (
               <div className="mt-4 space-y-3">
-                {s.key === "firstSigner" && (
+                {step.key === "firstSigner" && (
                   <>
-                    <p className="text-sm text-muted-foreground">Your first signer approves everyday transfers. Its method depends on the signer you connect.</p>
-                    <PrimaryButton disabled={loading || provisioning || !!busy} onClick={createPasskeyVault} aria-busy={provisioning}>
-                      <Fingerprint className="size-5" aria-hidden /> {loading ? "Reading vault…" : provisioning ? "Creating passkey vault…" : "Create passkey vault"}
-                    </PrimaryButton>
-                    {err && <p role="alert" className="rounded-xl bg-danger-soft p-3 text-sm text-danger-ink">{err}</p>}
-                  </>
-                )}
-                {s.key === "secondSigner" && (
-                  <>
-                    <p className="text-sm text-muted-foreground">Your second signer adds approval for larger and delayed transfers. It may use a security key, wallet, or another supported method.</p>
-                    <PrimaryButton disabled={true} onClick={async () => { await approve("second"); }}>
-                      <KeyRound className="size-5" aria-hidden /> {busy ? "Waiting for second signer…" : "Set up second signer"}
+                    <p className="text-sm text-muted-foreground">
+                      Register the platform passkey used for the base tier.
+                    </p>
+                    <PrimaryButton
+                      disabled={loading || busy !== null}
+                      onClick={() => run("primary", registerPrimary)}
+                    >
+                      <Fingerprint className="size-5" aria-hidden />
+                      {busy === "primary" ? "Waiting for first signer…" : "Register first signer"}
                     </PrimaryButton>
                   </>
                 )}
-                {s.key === "limits" && (
+                {step.key === "secondSigner" && (
                   <>
-                    {field("x", "First-signer daily limit", x, setX)}
-                    {field("y", "Instant daily limit", y, setY)}
-                    {field("cap", "Maximum per transfer", cap, setCap)}
-                    {field("z", "Waiting period (hours)", z, setZ, "h")}
-                    {err && <p role="alert" className="rounded-xl bg-danger-soft p-3 text-sm text-danger-ink">{err}</p>}
-                    <PrimaryButton onClick={saveLimits}>Save limits</PrimaryButton>
+                    <p className="text-sm text-muted-foreground">
+                      Use a distinct cross-platform authenticator where possible. A same-device
+                      passkey does not provide device separation.
+                    </p>
+                    <PrimaryButton
+                      disabled={busy !== null}
+                      onClick={() => run("secondary", registerSecondary)}
+                    >
+                      <KeyRound className="size-5" aria-hidden />
+                      {busy === "secondary"
+                        ? "Waiting for second signer…"
+                        : "Register second signer"}
+                    </PrimaryButton>
                   </>
                 )}
-                {s.key === "rehearsed" && (
+                {step.key === "limits" && (
+                  <>
+                    <p className="text-sm font-semibold">Verified Phase One policy (read-only)</p>
+                    <dl className="space-y-2 text-sm">
+                      <DRow
+                        k="First-signer daily X"
+                        v={formatUsdc(state.policy.firstSignerDaily)}
+                      />
+                      <DRow
+                        k="Combined instant daily Y"
+                        v={formatUsdc(state.policy.instantDaily)}
+                      />
+                      <DRow k="Delay Z" v={`${state.policy.delaySeconds.toString()} seconds`} />
+                      <DRow
+                        k="Second signer"
+                        v={setup.distinctSecondary ? "Cross-platform" : "Same-device"}
+                      />
+                    </dl>
+                    {!setup.packageHash && (
+                      <PrimaryButton
+                        disabled={busy !== null}
+                        onClick={() => run("plan", planVault)}
+                      >
+                        {busy === "plan"
+                          ? "Creating reviewed package…"
+                          : "Create unsigned deployment plan"}
+                      </PrimaryButton>
+                    )}
+                    {setup.provisioning === "awaiting-operator" && (
+                      <>
+                        <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
+                          Awaiting separate operator review and approval of package{" "}
+                          {setup.packageHash}
+                        </p>
+                        <SecondaryButton
+                          disabled={busy !== null}
+                          onClick={() => run("approval", refreshProvisioningApproval)}
+                        >
+                          {busy === "approval" ? "Checking…" : "Refresh operator approval"}
+                        </SecondaryButton>
+                        <PrimaryButton
+                          disabled={busy !== null}
+                          onClick={() => run("provision", provisionVault)}
+                        >
+                          {busy === "provision"
+                            ? "Checking approval and provisioning…"
+                            : "Provision after operator approval"}
+                        </PrimaryButton>
+                      </>
+                    )}
+                    {setup.provisioning === "approved" && (
+                      <PrimaryButton
+                        disabled={busy !== null}
+                        onClick={() => run("provision", provisionVault)}
+                      >
+                        {busy === "provision"
+                          ? "Provisioning and verifying receipt…"
+                          : "Provision reviewed vault"}
+                      </PrimaryButton>
+                    )}
+                  </>
+                )}
+                {step.key === "rehearsed" && (
                   <>
                     <dl className="space-y-1 text-sm">
                       <DRow k="Account" v={state.safe} />
                       <DRow k="First signer" v="Active" />
                       <DRow k="Second signer" v={state.secondSignerName} />
-                      <DRow k="Limits" v={`${formatUsdc(state.policy.firstSignerDaily)} / ${formatUsdc(state.policy.instantDaily)}`} />
-                      <DRow k="Waiting period" v={`${state.policy.delayHours} h`} />
                       <DRow k="Network" v={state.network} />
+                      <DRow k="Provisioning receipt" v={setup.receiptHash ?? "—"} />
                     </dl>
-                    <p className="pt-2 text-sm font-semibold">Practise each safety step</p>
-                    {EXERCISES.map((e) => (
-                      <label key={e} className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={ex.includes(e)} onChange={(ev) => setEx(ev.target.checked ? [...ex, e] : ex.filter((v) => v !== e))} className="size-4 accent-[var(--primary)]" />
-                        {e}
+                    <p className="pt-2 text-sm font-semibold">
+                      Acknowledge the supported safety journeys
+                    </p>
+                    {EXERCISES.map((exercise) => (
+                      <label key={exercise} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={exercises.includes(exercise)}
+                          onChange={(event) =>
+                            setExercises(
+                              event.target.checked
+                                ? [...exercises, exercise]
+                                : exercises.filter((value) => value !== exercise),
+                            )
+                          }
+                          className="size-4 accent-[var(--primary)]"
+                        />
+                        {exercise}
                       </label>
                     ))}
-                    <PrimaryButton disabled={ex.length < EXERCISES.length} onClick={() => { done("rehearsed"); nav({ to: "/" }); }}>
+                    <PrimaryButton
+                      disabled={exercises.length < EXERCISES.length}
+                      onClick={() => {
+                        finishSetup();
+                        nav({ to: "/" });
+                      }}
+                    >
                       Finish setup
                     </PrimaryButton>
                   </>
@@ -155,6 +248,18 @@ function OnboardingPage() {
           </Card>
         );
       })}
+      {setup.provisioning === "provisioned" && (
+        <Card className="space-y-2">
+          <h2 className="font-semibold">Fund the test vault</h2>
+          <p className="text-sm text-muted-foreground">
+            Use the Circle Sepolia faucet manually, then send test USDC to the verified Safe
+            address. Never send mainnet assets.
+          </p>
+          <Link to="/receive" search={{ mode: "topup" }} className="font-semibold text-primary">
+            Show Safe address and faucet instructions
+          </Link>
+        </Card>
+      )}
       {!current && <PrimaryButton onClick={() => nav({ to: "/" })}>Go to account</PrimaryButton>}
     </div>
   );

@@ -176,6 +176,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto min-h-screen w-full min-w-0 max-w-md px-5 pb-[calc(7rem+env(safe-area-inset-bottom))]">
       <PwaStatus />
+      {ready && hasAccount && !hideNav && path !== "/" && (
+        <p className="mt-4 rounded-2xl bg-danger-soft p-3 text-sm font-semibold text-danger-ink">
+          Sepolia prototype · no signer recovery · no independent notification delivery
+        </p>
+      )}
       {ready ? (
         children
       ) : (

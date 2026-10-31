@@ -58,7 +58,7 @@ describe("Account access", () => {
 it("keeps an existing account accessible when RPC is unavailable", async () => {
   vi.stubEnv("VITE_SEPOLIA_RPC_URL", "");
   localStorage.setItem(
-    "usdc-vault-demo-v1",
+    "usdc-vault-config-v2:local:localhost",
     JSON.stringify({
       safe: "0x1111111111111111111111111111111111111111",
       guard: "0x2222222222222222222222222222222222222222",
@@ -73,4 +73,13 @@ it("keeps an existing account accessible when RPC is unavailable", async () => {
   expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Profile" })).not.toBeInTheDocument();
   expect(screen.getByText("Sepolia testnet")).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      "Sepolia prototype · no signer recovery · no independent notification delivery",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Verified onchain policy · read-only in Phase One")).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: /edit protection|freeze account/i }),
+  ).not.toBeInTheDocument();
 });

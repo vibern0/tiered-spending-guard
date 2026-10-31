@@ -45,6 +45,14 @@ The app rejects wildcard/preview origins, paths, URL credentials, IP relying par
 
 Backend errors, unhealthy readiness, stale chain state, passkey cancellation, and onchain policy denial stay visible. The browser never receives relay keys or credential material.
 
+## Phase One journeys
+
+Onboarding registers the primary and secondary passkeys separately, creates an unsigned deployment package, waits for independent operator approval, and displays the canonical provisioning receipt. Public credential, vault, package, and submission identifiers are stored in environment-scoped versioned browser storage; assertions and signatures are process-local only.
+
+The PWA exposes closed USDC transfer intents and the verified Delay queue lifecycle. X requests the primary passkey, Y and Z request primary then secondary over the same Safe digest, cancellation requires both, and ready execution or expired skipping is permissionless but tuple-bound. Limits and signer topology are read-only chain projections. Device time cannot make a queue item ready when the canonical snapshot timestamp says otherwise.
+
+This is a Sepolia prototype with no signer recovery and no independent notification delivery. Use only test assets. Funding is manual through the Circle Sepolia faucet and the displayed verified Safe address.
+
 ## Built with
 
 - TanStack Start

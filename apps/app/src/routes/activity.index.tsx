@@ -4,6 +4,7 @@ import { ActivityRow, Card, PageHeader } from "@/components/wallet/ui";
 import { effectiveStatus, needsAttention } from "@/lib/activity-model";
 import { useNow, useVault } from "@/lib/vault-store";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -18,9 +19,15 @@ export const Route = createFileRoute("/activity/")({
   head: () => ({
     meta: [
       { title: "Activity — USDC Vault" },
-      { name: "description", content: "Every transfer, approval and scheduled withdrawal in one timeline." },
+      {
+        name: "description",
+        content: "Every transfer, approval and scheduled withdrawal in one timeline.",
+      },
       { property: "og:title", content: "Activity — USDC Vault" },
-      { property: "og:description", content: "Every transfer, approval and scheduled withdrawal in one timeline." },
+      {
+        property: "og:description",
+        content: "Every transfer, approval and scheduled withdrawal in one timeline.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -30,7 +37,8 @@ export const Route = createFileRoute("/activity/")({
 
 function ActivityPage() {
   const { filter = "all" } = Route.useSearch();
-  const { state } = useVault();
+  const { state, setup, reconcileSubmission } = useVault();
+  const [recovery, setRecovery] = useState<Record<string, string>>({});
   const now = useNow();
   const match = (f: FilterId, s: ReturnType<typeof effectiveStatus>) =>
     f === "all" ||
@@ -54,7 +62,9 @@ function ActivityPage() {
             aria-selected={filter === f.id}
             className={cn(
               "rounded-2xl px-3 py-2.5 text-center text-sm font-semibold",
-              filter === f.id ? "bg-foreground text-background" : "bg-card text-muted-foreground shadow-card",
+              filter === f.id
+                ? "bg-foreground text-background"
+                : "bg-card text-muted-foreground shadow-card",
             )}
           >
             {f.label}
@@ -68,6 +78,39 @@ function ActivityPage() {
           items.map((i) => <ActivityRow key={i.id} item={i} now={now} />)
         )}
       </Card>
+      {setup.submissionIds.length > 0 && (
+        <Card className="mt-4 space-y-2">
+          <h2 className="font-semibold">Durable submission recovery</h2>
+          <p className="text-sm text-muted-foreground">
+            Reconcile an uncertain or interrupted broadcast with its canonical receipt.
+          </p>
+          {setup.submissionIds
+            .slice(-5)
+            .reverse()
+            .map((id) => (
+              <div key={id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate font-mono">{id}</span>
+                <button
+                  className="shrink-0 font-semibold text-primary"
+                  onClick={async () => {
+                    try {
+                      const status = await reconcileSubmission(id);
+                      setRecovery((current) => ({ ...current, [id]: status.state }));
+                    } catch (error) {
+                      setRecovery((current) => ({
+                        ...current,
+                        [id]: error instanceof Error ? error.message : "Recovery failed",
+                      }));
+                    }
+                  }}
+                >
+                  Reconcile
+                </button>
+                <span className="shrink-0 text-muted-foreground">{recovery[id] ?? ""}</span>
+              </div>
+            ))}
+        </Card>
+      )}
     </div>
   );
 }

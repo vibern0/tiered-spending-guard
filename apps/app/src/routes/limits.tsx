@@ -1,8 +1,6 @@
-import { useState } from "react";
-import { ProtectionEditor } from "@/components/wallet/protection-editor";
 import { createFileRoute } from "@tanstack/react-router";
-import { CheckCircle2, Pencil, Snowflake } from "lucide-react";
-import { Card, PageHeader, SecondaryButton, NetworkPill } from "@/components/wallet/ui";
+import { CheckCircle2 } from "lucide-react";
+import { Card, PageHeader, NetworkPill } from "@/components/wallet/ui";
 import { formatUsdc } from "@/lib/usdc";
 import { shortAddr, useNow, useVault } from "@/lib/vault-store";
 import { formatCountdown } from "@/lib/activity-model";
@@ -68,15 +66,13 @@ function Usage({
 function LimitsPage() {
   const { state } = useVault();
   const now = useNow();
-  const [editing, setEditing] = useState(false);
   const p = state.policy;
   return (
     <div className="space-y-4">
       <PageHeader title="Limits & security" right={<NetworkPill />} />
-      <SecondaryButton onClick={() => setEditing(true)}>
-        <Pencil className="size-4" aria-hidden />
-        Edit protection
-      </SecondaryButton>
+      <p className="rounded-2xl bg-primary-soft p-3 text-sm font-semibold text-primary">
+        Verified onchain policy · read-only in Phase One
+      </p>
       <Card className="space-y-5">
         <Usage
           label="First signer today"
@@ -147,32 +143,10 @@ function LimitsPage() {
           </div>
         ))}
       </Card>
-      <SecondaryButton
-        onClick={() => setEditing(true)}
-        className={state.frozen ? "" : "bg-danger-soft text-danger-ink hover:bg-danger-soft/70"}
-      >
-        <Snowflake className="size-4" aria-hidden />{" "}
-        {state.frozen ? "Unfreeze account" : "Freeze account"}
-      </SecondaryButton>
       <p className="text-center text-xs text-muted-foreground">
-        Changes are reviewed before approval. Active settings are always read from the onchain
-        guard.
+        Active settings are read from the onchain guard. Policy changes and freeze controls are not
+        exposed by this Phase One PWA.
       </p>
-      <ProtectionEditor
-        key={[
-          state.safe,
-          p.firstSignerDaily,
-          p.instantDaily,
-          p.basePerTxCap,
-          p.perTxCap,
-          p.delaySeconds,
-          state.frozen,
-          ...state.recipients.map((recipient) => recipient.address),
-        ].join(":")}
-        state={state}
-        open={editing}
-        onOpenChange={setEditing}
-      />
       {state.frozen && (
         <p className="text-center text-sm text-danger-ink">
           Frozen — no transfers can be approved.

@@ -12,9 +12,15 @@ export const Route = createFileRoute("/send")({
   head: () => ({
     meta: [
       { title: "Send USDC — USDC Vault" },
-      { name: "description", content: "Send USDC and see exactly which approvals are needed first." },
+      {
+        name: "description",
+        content: "Send USDC and see exactly which approvals are needed first.",
+      },
       { property: "og:title", content: "Send USDC — USDC Vault" },
-      { property: "og:description", content: "Send USDC and see exactly which approvals are needed first." },
+      {
+        property: "og:description",
+        content: "Send USDC and see exactly which approvals are needed first.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -22,7 +28,12 @@ export const Route = createFileRoute("/send")({
   component: SendPage,
 });
 
-const LANE_ICON: Record<Lane, typeof Fingerprint> = { base: Fingerprint, "step-up": KeyRound, delayed: Clock, blocked: Ban };
+const LANE_ICON: Record<Lane, typeof Fingerprint> = {
+  base: Fingerprint,
+  "step-up": KeyRound,
+  delayed: Clock,
+  blocked: Ban,
+};
 
 function SendPage() {
   const { state, sendUsdc } = useVault();
@@ -40,7 +51,10 @@ function SendPage() {
   const pickManual = () => {
     if (!isAddress(manual)) return setError("That doesn't look like a valid account address.");
     const known = state.recipients.find((r) => r.address.toLowerCase() === manual.toLowerCase());
-    if (!known) return setError("This recipient is not on your allowed list. Add it in Limits & security first.");
+    if (!known)
+      return setError(
+        "This recipient is not on your allowed list. Add it in Limits & security first.",
+      );
     setError(null);
     setTo(known);
     setStep("amount");
@@ -50,8 +64,19 @@ function SendPage() {
   const lane = result?.lane;
   const delayMs = state.policy.delayHours * 3_600_000;
   const stateKey = () =>
-    [state.balance, state.spentFirstSigner, state.spentInstant, state.policy.firstSignerDaily, state.policy.instantDaily, state.frozen, state.activity.length].join("|");
-  const fp = to && amount !== null ? fingerprintOf([state.chainId, state.safe, to.address, amount, snapshot]) : "";
+    [
+      state.balance,
+      state.spentFirstSigner,
+      state.spentInstant,
+      state.policy.firstSignerDaily,
+      state.policy.instantDaily,
+      state.frozen,
+      state.activity.length,
+    ].join("|");
+  const fp =
+    to && amount !== null
+      ? fingerprintOf([state.chainId, state.safe, to.address, amount, snapshot])
+      : "";
 
   const submit = async () => {
     if (!to || amount === null || !lane || lane === "blocked") return;
@@ -66,7 +91,11 @@ function SendPage() {
       await sendUsdc({ recipient: to.address as `0x${string}`, amount });
       nav({ to: "/activity" });
     } catch (submissionError) {
-      setError(submissionError instanceof Error ? submissionError.message : "The Safe submission was rejected.");
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "The Safe submission was rejected.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -75,7 +104,9 @@ function SendPage() {
   return (
     <div className="space-y-5">
       <button
-        onClick={() => (step === "to" ? nav({ to: "/" }) : setStep(step === "review" ? "amount" : "to"))}
+        onClick={() =>
+          step === "to" ? nav({ to: "/" }) : setStep(step === "review" ? "amount" : "to")
+        }
         className="flex items-center gap-2 pt-6 text-sm font-semibold text-muted-foreground"
       >
         <ArrowLeft className="size-4" aria-hidden /> Back
@@ -84,7 +115,10 @@ function SendPage() {
         {step === "to" ? "Send to" : step === "amount" ? `Send to ${to?.name}` : "Review transfer"}
       </h1>
       {error && (
-        <p role="alert" className="flex gap-2 rounded-2xl bg-danger-soft p-3 text-sm text-danger-ink">
+        <p
+          role="alert"
+          className="flex gap-2 rounded-2xl bg-danger-soft p-3 text-sm text-danger-ink"
+        >
           <AlertTriangle className="size-4 shrink-0" aria-hidden /> {error}
         </p>
       )}
@@ -95,10 +129,16 @@ function SendPage() {
             {state.recipients.map((r) => (
               <button
                 key={r.address}
-                onClick={() => { setTo(r); setError(null); setStep("amount"); }}
+                onClick={() => {
+                  setTo(r);
+                  setError(null);
+                  setStep("amount");
+                }}
                 className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left hover:bg-secondary/60"
               >
-                <div className="grid size-10 place-items-center rounded-full bg-primary-soft font-semibold text-primary">{r.name[0]}</div>
+                <div className="grid size-10 place-items-center rounded-full bg-primary-soft font-semibold text-primary">
+                  {r.name[0]}
+                </div>
                 <div>
                   <p className="font-semibold">{r.name}</p>
                   <p className="font-mono text-xs text-muted-foreground">{shortAddr(r.address)}</p>
@@ -107,7 +147,9 @@ function SendPage() {
             ))}
           </Card>
           <Card className="space-y-3">
-            <label htmlFor="addr" className="text-sm font-semibold">Or paste an account address</label>
+            <label htmlFor="addr" className="text-sm font-semibold">
+              Or paste an account address
+            </label>
             <input
               id="addr"
               value={manual}
@@ -123,7 +165,9 @@ function SendPage() {
       {step === "amount" && to && (
         <>
           <Card className="space-y-3">
-            <label htmlFor="amt" className="text-sm font-semibold">Amount</label>
+            <label htmlFor="amt" className="text-sm font-semibold">
+              Amount
+            </label>
             <div className="flex items-center gap-2 border-b-2 border-primary pb-2">
               <span className="font-display text-sm font-bold">USDC</span>
               <input
@@ -138,13 +182,21 @@ function SendPage() {
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Available {formatUsdc(state.balance)}</span>
-              <Link to="/receive" search={{ mode: "topup" }} className="font-semibold text-primary">Need more? Top up</Link>
+              <Link to="/receive" search={{ mode: "topup" }} className="font-semibold text-primary">
+                Need more? Top up
+              </Link>
             </div>
           </Card>
-          {lane && amount !== null && amount > 0n && <LaneCard lane={lane} reason={result?.reason} delayHours={state.policy.delayHours} />}
+          {lane && amount !== null && amount > 0n && (
+            <LaneCard lane={lane} reason={result?.reason} delayHours={state.policy.delayHours} />
+          )}
           <PrimaryButton
             disabled={amount === null || amount <= 0n || lane === "blocked"}
-            onClick={() => { setError(null); setSnapshot(stateKey()); setStep("review"); }}
+            onClick={() => {
+              setError(null);
+              setSnapshot(stateKey());
+              setStep("review");
+            }}
           >
             Review
           </PrimaryButton>
@@ -154,16 +206,25 @@ function SendPage() {
       {step === "review" && to && amount !== null && lane && (
         <>
           <Card className="space-y-3">
-            <p className="text-center font-display text-4xl font-extrabold tabular-nums">{formatUsdc(amount)}</p>
+            <p className="text-center font-display text-4xl font-extrabold tabular-nums">
+              {formatUsdc(amount)}
+            </p>
             <p className="text-center text-muted-foreground">to {to.name}</p>
             <dl className="space-y-2 border-t border-border pt-3 text-sm">
               <DRow k="Full address" v={to.address} />
               <DRow k="Network" v={state.network} />
               <DRow k="Fee" v="Paid by the relay on Sepolia" />
-              <DRow k="Approvers" v={lane === "base" ? "First signer" : `First signer + ${state.secondSignerName}`} />
+              <DRow
+                k="Approvers"
+                v={lane === "base" ? "First signer" : `First signer + ${state.secondSignerName}`}
+              />
               <DRow
                 k="Timing"
-                v={lane === "delayed" ? `Earliest ${new Date(Date.now() + delayMs).toLocaleString("en-IE", { dateStyle: "medium", timeStyle: "short" })}` : "Immediate"}
+                v={
+                  lane === "delayed"
+                    ? `Earliest ${new Date(Date.now() + delayMs).toLocaleString("en-IE", { dateStyle: "medium", timeStyle: "short" })}`
+                    : "Immediate"
+                }
               />
               <DRow k="Fingerprint" v={fp} />
             </dl>
@@ -175,7 +236,8 @@ function SendPage() {
             <DRow k="Call" v={`USDC.transfer(${to.address.slice(0, 10)}…, ${amount.toString()})`} />
           </Details>
           <PrimaryButton onClick={submit} disabled={!!busy || submitting}>
-            <Fingerprint className="size-5" aria-hidden /> {submitting ? "Signing exact Safe transaction…" : "Approve with first signer"}
+            <Fingerprint className="size-5" aria-hidden />{" "}
+            {submitting ? "Signing exact Safe transaction…" : "Approve with first signer"}
           </PrimaryButton>
         </>
       )}
@@ -183,11 +245,23 @@ function SendPage() {
   );
 }
 
-function LaneCard({ lane, reason, delayHours }: { lane: Lane; reason?: string | undefined; delayHours: number }) {
+function LaneCard({
+  lane,
+  reason,
+  delayHours,
+}: {
+  lane: Lane;
+  reason?: string | undefined;
+  delayHours: number;
+}) {
   const Icon = LANE_ICON[lane];
   const copy = LANE_COPY[lane];
   const tone =
-    lane === "base" ? "bg-primary-soft text-primary" : lane === "step-up" ? "bg-approval-soft text-approval-ink" : "bg-danger-soft text-danger-ink";
+    lane === "base"
+      ? "bg-primary-soft text-primary"
+      : lane === "step-up"
+        ? "bg-approval-soft text-approval-ink"
+        : "bg-danger-soft text-danger-ink";
   const title = lane === "delayed" ? `Available after ${delayHours} hours` : copy.title;
   return (
     <div className={cn("flex gap-3 rounded-2xl p-4", tone)}>

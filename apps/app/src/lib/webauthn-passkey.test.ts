@@ -34,7 +34,9 @@ function assertion(overrides: Record<string, unknown> = {}) {
     type: "public-key",
     response: {
       clientDataJSON: clientData(),
-      authenticatorData: bytesEncoded(new Uint8Array(37).fill(0).map((value, index) => index === 32 ? 0x05 : value)),
+      authenticatorData: bytesEncoded(
+        new Uint8Array(37).fill(0).map((value, index) => (index === 32 ? 0x05 : value)),
+      ),
       signature: bytesEncoded(Uint8Array.from([0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02])),
       userHandle: null,
     },
@@ -42,13 +44,17 @@ function assertion(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const registrationOptions = (role: "primary" | "secondary") => ({
-  challenge: CHALLENGE,
-  rp: { id: "localhost", name: "USDC demo" },
-  user: { id: encoded("user-primary"), name: "primary", displayName: "Primary passkey" },
-  pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-  authenticatorSelection: { authenticatorAttachment: role === "primary" ? "platform" : "cross-platform", userVerification: "required" },
-} as const);
+const registrationOptions = (role: "primary" | "secondary") =>
+  ({
+    challenge: CHALLENGE,
+    rp: { id: "localhost", name: "USDC demo" },
+    user: { id: encoded("user-primary"), name: "primary", displayName: "Primary passkey" },
+    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+    authenticatorSelection: {
+      authenticatorAttachment: role === "primary" ? "platform" : "cross-platform",
+      userVerification: "required",
+    },
+  }) as const;
 
 describe("createVaultPasskey", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -59,7 +65,14 @@ describe("createVaultPasskey", () => {
       rawId: encoded("raw-credential"),
       type: "public-key",
       authenticatorAttachment: "platform",
-      response: { clientDataJSON: encoded({ type: "webauthn.create", challenge: CHALLENGE, origin: "http://localhost:5173" }), attestationObject: encoded("attestation") },
+      response: {
+        clientDataJSON: encoded({
+          type: "webauthn.create",
+          challenge: CHALLENGE,
+          origin: "http://localhost:5173",
+        }),
+        attestationObject: encoded("attestation"),
+      },
       clientExtensionResults: {},
     } as never);
 
@@ -71,8 +84,16 @@ describe("createVaultPasskey", () => {
       options: registrationOptions("primary"),
     });
 
-    expect(startRegistrationMock).toHaveBeenCalledWith({ optionsJSON: registrationOptions("primary") });
-    expect(registration).toMatchObject({ role: "primary", credentialId: CREDENTIAL, challenge: CHALLENGE, rpId: "localhost", origin: "http://localhost:5173" });
+    expect(startRegistrationMock).toHaveBeenCalledWith({
+      optionsJSON: registrationOptions("primary"),
+    });
+    expect(registration).toMatchObject({
+      role: "primary",
+      credentialId: CREDENTIAL,
+      challenge: CHALLENGE,
+      rpId: "localhost",
+      origin: "http://localhost:5173",
+    });
     expect(JSON.stringify(registration)).not.toContain("privateKey");
   });
 
@@ -82,16 +103,35 @@ describe("createVaultPasskey", () => {
       rawId: encoded("raw-secondary"),
       type: "public-key",
       authenticatorAttachment: "cross-platform",
-      response: { clientDataJSON: encoded({ type: "webauthn.create", challenge: CHALLENGE, origin: "http://localhost:5173" }), attestationObject: encoded("attestation") },
+      response: {
+        clientDataJSON: encoded({
+          type: "webauthn.create",
+          challenge: CHALLENGE,
+          origin: "http://localhost:5173",
+        }),
+        attestationObject: encoded("attestation"),
+      },
       clientExtensionResults: {},
     } as never);
 
-    await expect(createVaultPasskey({
-      role: "secondary", challenge: CHALLENGE, rpId: "localhost", origin: "http://localhost:5173", options: registrationOptions("secondary"),
-    })).resolves.toMatchObject({ role: "secondary", credentialId: "credential-secondary" });
-    await expect(createVaultPasskey({
-      role: "secondary", challenge: CHALLENGE, rpId: "localhost", origin: "http://localhost:5173", options: registrationOptions("primary"),
-    })).rejects.toThrow(/cross-platform/i);
+    await expect(
+      createVaultPasskey({
+        role: "secondary",
+        challenge: CHALLENGE,
+        rpId: "localhost",
+        origin: "http://localhost:5173",
+        options: registrationOptions("secondary"),
+      }),
+    ).resolves.toMatchObject({ role: "secondary", credentialId: "credential-secondary" });
+    await expect(
+      createVaultPasskey({
+        role: "secondary",
+        challenge: CHALLENGE,
+        rpId: "localhost",
+        origin: "http://localhost:5173",
+        options: registrationOptions("primary"),
+      }),
+    ).rejects.toThrow(/cross-platform/i);
   });
 });
 
@@ -119,7 +159,12 @@ describe("signSafeDigest", () => {
     const response = await signSafeDigest(options);
 
     expect(startAuthenticationMock).toHaveBeenCalledWith({
-      optionsJSON: expect.objectContaining({ challenge: CHALLENGE, rpId: "localhost", userVerification: "required", allowCredentials: [{ id: CREDENTIAL, type: "public-key" }] }),
+      optionsJSON: expect.objectContaining({
+        challenge: CHALLENGE,
+        rpId: "localhost",
+        userVerification: "required",
+        allowCredentials: [{ id: CREDENTIAL, type: "public-key" }],
+      }),
     });
     expect(response).toBe(rawAssertion);
     expect(response.response.signature).toBe(rawAssertion.response.signature);
@@ -127,7 +172,16 @@ describe("signSafeDigest", () => {
 
   it.each([
     ["challenge", { challenge: `${CHALLENGE.slice(0, -1)}A` }],
-    ["safe", { challengeBinding: { safe: "0x2222222222222222222222222222222222222222" as Address, chainId: 11155111, safeTxHash: HASH } }],
+    [
+      "safe",
+      {
+        challengeBinding: {
+          safe: "0x2222222222222222222222222222222222222222" as Address,
+          chainId: 11155111,
+          safeTxHash: HASH,
+        },
+      },
+    ],
     ["chain", { challengeBinding: { safe: SAFE, chainId: 1, safeTxHash: HASH } }],
     ["credential", { credentialId: "different-credential" }],
     ["origin", { origin: "https://evil.invalid" }],
@@ -136,7 +190,15 @@ describe("signSafeDigest", () => {
   });
 
   it("rejects assertions without user verification or with a changed origin", async () => {
-    startAuthenticationMock.mockResolvedValue(assertion({ response: { ...assertion().response, clientDataJSON: clientData(CHALLENGE, "https://evil.invalid"), authenticatorData: bytesEncoded(new Uint8Array(37).fill(0)) } }) as never);
+    startAuthenticationMock.mockResolvedValue(
+      assertion({
+        response: {
+          ...assertion().response,
+          clientDataJSON: clientData(CHALLENGE, "https://evil.invalid"),
+          authenticatorData: bytesEncoded(new Uint8Array(37).fill(0)),
+        },
+      }) as never,
+    );
     await expect(signSafeDigest(options)).rejects.toThrow();
   });
 });
