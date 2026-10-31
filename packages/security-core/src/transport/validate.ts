@@ -3,6 +3,10 @@ import { queueFingerprint } from "../queue/delay";
 import { SAFE_TX_TYPES, type SafeTxMessage } from "../signers/types";
 import {
   type DelayExecutionRequest,
+  type PreparedDirectPwaIntent,
+  type PreparedPwaIntent,
+  type PreparedSignedPwaIntent,
+  type PwaQueueBinding,
   type SafeExecutionRequest,
   type SubmissionRequest,
 } from "./types";
@@ -13,12 +17,22 @@ export type {
   SubmissionRequest,
   SubmissionResult,
   SubmissionTransport,
+  PreparedPwaIntent,
+  PreparedSignedPwaIntent,
+  PreparedDirectPwaIntent,
+  PwaQueueBinding,
+  SimulationEvidence,
 } from "./types";
 
 const SAFE_REQUEST_KEYS = ["version", "kind", "idempotencyKey", "chainId", "deploymentsHash", "policyHash", "safe", "guard", "asset", "transaction", "safeTxHash", "signatures", "expectedSpend"] as const;
 const DELAY_REQUEST_KEYS = ["version", "kind", "idempotencyKey", "chainId", "deploymentsHash", "policyHash", "safe", "guard", "delay", "queueNonce", "queueFingerprint", "to", "value", "data", "operation", "createdAt", "cooldownSeconds", "expirationSeconds"] as const;
 const SAFE_TX_KEYS = ["to", "value", "data", "operation", "safeTxGas", "baseGas", "gasPrice", "gasToken", "refundReceiver", "nonce"] as const;
 const SPEND_KEYS = ["window", "baseSpent", "instantSpent"] as const;
+const PWA_COMMON_KEYS = ["version", "kind", "snapshotHash", "chainId", "blockNumber", "blockHash", "timestamp", "deploymentsHash", "policyHash", "safe", "guard", "delay", "asset", "recipient", "amount", "queue", "requiredApprovals"] as const;
+const PWA_SIGNED_KEYS = [...PWA_COMMON_KEYS, "expectedSpend", "safeTx", "safeTxHash"] as const;
+const PWA_DIRECT_KEYS = [...PWA_COMMON_KEYS, "call"] as const;
+const PWA_QUEUE_KEYS = ["queueNonce", "queueFingerprint", "to", "value", "data", "operation", "createdAt", "readyAt", "expiresAt"] as const;
+const PWA_CALL_KEYS = ["to", "value", "data", "operation"] as const;
 const SENSITIVE = /private|secret|mnemonic|seed|pin|credential|provider|rpc|passkeyMaterial|burnerPin|rawSignature/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -151,6 +165,73 @@ export function snapshotSubmissionRequest(input: unknown): SubmissionRequest {
   if (input.kind === "safe-execution") return snapshotSafe(input);
   if (input.kind === "delay-execution") return snapshotDelay(input);
   throw new Error("unsupported submission request kind");
+}
+
+function pwaQueue(input: unknown, safe: Address, delay: Address): PwaQueueBinding | null {
+  if (input === null) return null;
+  if (!isRecord(input)) throw new Error("prepared PWA queue must be an object or null");
+  assertExactKeys(input, PWA_QUEUE_KEYS, "prepared PWA queue");
+  if (input.operation !== 0) throw new Error("prepared PWA queue operation must be CALL");
+  const queue = {
+    queueNonce: uint(input.queueNonce, "queue.queueNonce"),
+    queueFingerprint: hash(input.queueFingerprint, "queue.queueFingerprint"),
+    to: address(input.to, "queue.to"),
+    value: uint(input.value, "queue.value"),
+    data: hex(input.data, "queue.data"),
+    operation: 0 as const,
+    createdAt: uint(input.createdAt, "queue.createdAt"),
+    readyAt: uint(input.readyAt, "queue.readyAt"),
+    expiresAt: uint(input.expiresAt, "queue.expiresAt"),
+  };
+  if (queue.readyAt < queue.createdAt || queue.expiresAt < queue.readyAt) throw new Error("prepared PWA queue timing is invalid");
+  if (queueFingerprint({ safe, delay, ...queue }) !== queue.queueFingerprint) throw new Error("prepared PWA queue fingerprint mismatch");
+  return Object.freeze(queue);
+}
+
+function requiredApprovals(input: unknown, kind: PreparedPwaIntent["kind"]): PreparedPwaIntent["requiredApprovals"] {
+  if (!Array.isArray(input)) throw new Error("prepared PWA requiredApprovals must be an array");
+  const expected = kind === "base-transfer" ? ["primary"] : kind === "execute-ready" || kind === "skip-expired" ? [] : ["primary", "secondary"];
+  if (input.length !== expected.length || input.some((value, index) => value !== expected[index])) throw new Error("prepared PWA approval roles mismatch");
+  return Object.freeze([...expected]) as PreparedPwaIntent["requiredApprovals"];
+}
+
+export function snapshotPreparedPwaIntent(input: unknown): PreparedPwaIntent {
+  if (!isRecord(input)) throw new Error("prepared PWA intent must be an object");
+  const direct = input.kind === "execute-ready" || input.kind === "skip-expired";
+  assertExactKeys(input, direct ? PWA_DIRECT_KEYS : PWA_SIGNED_KEYS, "prepared PWA intent");
+  if (input.version !== 1 || !["base-transfer", "step-up-transfer", "queue-transfer", "cancel-queued", "execute-ready", "skip-expired"].includes(String(input.kind))) throw new Error("unsupported prepared PWA intent");
+  if (input.chainId !== 11155111) throw new Error("prepared PWA intent must use Sepolia");
+  const common = {
+    version: 1 as const,
+    kind: input.kind as PreparedPwaIntent["kind"],
+    snapshotHash: hash(input.snapshotHash, "snapshotHash"),
+    chainId: 11155111 as const,
+    blockNumber: uint(input.blockNumber, "blockNumber"),
+    blockHash: hash(input.blockHash, "blockHash"),
+    timestamp: uint(input.timestamp, "timestamp"),
+    deploymentsHash: hash(input.deploymentsHash, "deploymentsHash"),
+    policyHash: hash(input.policyHash, "policyHash"),
+    safe: address(input.safe, "safe"),
+    guard: address(input.guard, "guard"),
+    delay: address(input.delay, "delay"),
+    asset: address(input.asset, "asset"),
+    recipient: address(input.recipient, "recipient"),
+    amount: uint(input.amount, "amount"),
+  };
+  const queue = pwaQueue(input.queue, common.safe, common.delay);
+  const approvals = requiredApprovals(input.requiredApprovals, common.kind);
+  if (direct) {
+    if (!queue || !isRecord(input.call)) throw new Error("direct PWA intent requires queue and call");
+    assertExactKeys(input.call, PWA_CALL_KEYS, "prepared PWA call");
+    if (input.call.value !== 0n || input.call.operation !== 0) throw new Error("prepared PWA direct call must be zero-value CALL");
+    return Object.freeze({ ...common, kind: common.kind as PreparedDirectPwaIntent["kind"], queue, requiredApprovals: approvals as readonly [], call: Object.freeze({ to: address(input.call.to, "call.to"), value: 0n, data: hex(input.call.data, "call.data"), operation: 0 }) });
+  }
+  const safeTransaction = safeTx(input.safeTx);
+  if (safeTransaction.operation !== 0 || safeTransaction.safeTxGas !== 0n || safeTransaction.baseGas !== 0n || safeTransaction.gasPrice !== 0n) throw new Error("prepared PWA Safe transaction must use canonical CALL gas fields");
+  const safeTxHash = hash(input.safeTxHash, "safeTxHash");
+  const computed = hashTypedData({ domain: { chainId: common.chainId, verifyingContract: common.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: safeTransaction });
+  if (computed !== safeTxHash) throw new Error("prepared PWA Safe transaction hash mismatch");
+  return Object.freeze({ ...common, kind: common.kind as PreparedSignedPwaIntent["kind"], queue, requiredApprovals: approvals as PreparedSignedPwaIntent["requiredApprovals"], expectedSpend: spendState(input.expectedSpend), safeTx: safeTransaction, safeTxHash });
 }
 
 export function canonicalSubmissionJson(value: unknown): string {
