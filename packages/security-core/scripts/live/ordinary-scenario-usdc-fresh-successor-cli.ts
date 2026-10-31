@@ -172,7 +172,7 @@ export async function runUsdcFreshSuccessorCli(argv: readonly string[], dependen
   return Object.freeze({ schemaVersion: 1, scope: "ORDINARY_USDC_FRESH_SUCCESSOR_UNSIGNED_REVIEW_V1", authorization: "NONE", certificate: JSON.parse(serializeUsdcFreshSuccessorCertificate(inputs.certificate)), successor: inputs.successor, certificateHash: inputs.certificate.certificateHash, proposalHash: inputs.successor.proposalHash, actionCount: 18, caps: inputs.successor.caps, signing: false, broadcast: false });
 }
 
-type ProductionProviderOptions = Readonly<{ reconstructed(): ReturnType<typeof reconstructReviewedPlan> }>;
+type ProductionProviderOptions = Readonly<{ reconstructed(): ReturnType<typeof reconstructReviewedPlan>; queueActions?: Parameters<typeof createUsdcSuccessorEvidenceProvider>[2]["queueActions"] }>;
 export function createUsdcFreshSuccessorEvidenceProvider(client: ReturnType<typeof createPublicClient>, source: UsdcRecycleContinuationSource, options: ProductionProviderOptions): UsdcFreshSuccessorEvidenceProvider {
   const predecessor = createUsdcSuccessorEvidenceProvider(client, source.prior, options);
   return Object.freeze({

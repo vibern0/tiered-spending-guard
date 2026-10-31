@@ -40,15 +40,15 @@
 
 **Interfaces:** Produce opaque `VerifiedUsdcDelayedSuccessorCertificate`, exact `UsdcDelayedSuccessorProposal`, opaque approval, attachment builder.
 
-- [ ] **Step 1: Write failing source/certificate tests.** Assert exact predecessor rows/statuses, 19-entry suffix, `13/6/5`, balances `31/9`, expired queue 5, two-provider agreement, nonce lower-bound, production/test authority separation.
-- [ ] **Step 2: Run certificate test.** Expected: fail because module/API does not exist.
-- [ ] **Step 3: Implement certificate.** Source hash includes entire predecessor journal. Production loader pins exact public identities and stopped row.
-- [ ] **Step 4: Run certificate test.** Expected: pass.
-- [ ] **Step 5: Write failing proposal tests.** Assert literal five rows, exact transactions/signers/dependencies, `13/6/5` to `14/7/7`, `31/9` to `0/40`, reservation, 31/51 caps, no funding, no repair, approval binding, duplicate attachment rejection.
-- [ ] **Step 6: Run proposal test.** Expected: fail because proposal API does not exist.
-- [ ] **Step 7: Implement proposal, parser, approval, attachment.** No generic catalog builder.
-- [ ] **Step 8: Run focused predecessor plus successor tests.** Expected: pass.
-- [ ] **Step 9: Commit.** Message: `feat: add delayed tier successor proposal`.
+- [x] **Step 1: Write failing source/certificate tests.** Assert exact predecessor rows/statuses, 19-entry suffix, `13/6/5`, balances `31/9`, expired queue 5, two-provider agreement, nonce lower-bound, production/test authority separation.
+- [x] **Step 2: Run certificate test.** Expected: fail because module/API does not exist.
+- [x] **Step 3: Implement certificate.** Source hash includes entire predecessor journal. Production loader pins exact public identities and stopped row.
+- [x] **Step 4: Run certificate test.** Expected: pass.
+- [x] **Step 5: Write failing proposal tests.** Assert literal five rows, exact transactions/signers/dependencies, `13/6/5` to `14/7/7`, `31/9` to `0/40`, reservation, 31/51 caps, no funding, no repair, approval binding, duplicate attachment rejection.
+- [x] **Step 6: Run proposal test.** Expected: fail because proposal API does not exist.
+- [x] **Step 7: Implement proposal, parser, approval, attachment.** No generic catalog builder.
+- [x] **Step 8: Run focused predecessor plus successor tests.** Expected: pass.
+- [x] **Step 9: Commit.** Message: `feat: add delayed tier successor proposal`.
 
 ### Task 2: Atomic Execution, CLI, Report
 
@@ -64,15 +64,15 @@
 
 **Interfaces:** Consume Task 1 artifacts. Produce closed execution view, atomic projection, `review|submit-one|resume-one`, terminal renderer.
 
-- [ ] **Step 1: Write failing executor/store tests.** Assert predecessor freeze, one sibling, one selected row, durable hash, keyless resume, proof zero-broadcast, drift stop, exact live suffix.
-- [ ] **Step 2: Run executor test.** Expected: fail because successor execution API/storage field does not exist.
-- [ ] **Step 3: Implement journal parser, monotonic store, selector, execution view.** Reuse core executor. No retry path.
-- [ ] **Step 4: Run executor plus delayed-completion tests.** Expected: pass.
-- [ ] **Step 5: Write failing adapter/CLI/report tests.** Assert production composition, no provider override, exact approval, one action, terminal receipts/proofs/accounting, honest old-row reporting.
-- [ ] **Step 6: Run tests.** Expected: fail because CLI/report APIs do not exist.
-- [ ] **Step 7: Implement adapter integration, CLI, report.** Reuse reviewed signer, RPC, observer, broadcast boundaries.
-- [ ] **Step 8: Run focused successor plus predecessor families.** Expected: pass.
-- [ ] **Step 9: Commit.** Message: `feat: execute delayed tier successor`.
+- [x] **Step 1: Write failing executor/store tests.** Assert predecessor freeze, one sibling, one selected row, durable hash, keyless resume, proof zero-broadcast, drift stop, exact live suffix.
+- [x] **Step 2: Run executor test.** Expected: fail because successor execution API/storage field does not exist.
+- [x] **Step 3: Implement journal parser, monotonic store, selector, execution view.** Reuse core executor. No retry path.
+- [x] **Step 4: Run executor plus delayed-completion tests.** Expected: pass.
+- [x] **Step 5: Write failing adapter/CLI/report tests.** Assert production composition, no provider override, exact approval, one action, terminal receipts/proofs/accounting, honest old-row reporting.
+- [x] **Step 6: Run tests.** Expected: fail because CLI/report APIs do not exist.
+- [x] **Step 7: Implement adapter integration, CLI, report.** Reuse reviewed signer, RPC, observer, broadcast boundaries.
+- [x] **Step 8: Run focused successor plus predecessor families.** Expected: pass.
+- [x] **Step 9: Commit.** Message: `feat: execute delayed tier successor`.
 
 ### Task 3: Docs, Independent Review, Exact Gate
 
@@ -83,9 +83,9 @@
 
 **Interfaces:** Consume Task 2 implementation. Produce reviewed exact code head for Task 4.
 
-- [ ] **Step 1: Document successor only.** Record stopped row, new sibling, three-broadcast/two-proof path, no repair.
-- [ ] **Step 2: Run focused tests.** Expected: pass.
-- [ ] **Step 3: Request fresh whole-change review.** Fix every Critical/Important via RED/GREEN. Expected: ACCEPT.
+- [x] **Step 1: Document successor only.** Record stopped row, new sibling, three-broadcast/two-proof path, no repair.
+- [x] **Step 2: Run focused tests.** Expected: pass.
+- [x] **Step 3: Request fresh whole-change review.** Fix every Critical/Important via RED/GREEN. Expected: ACCEPT.
 - [ ] **Step 4: Run exact gate.** `npm --prefix packages/security-core run security:check`; normal build; backend tests; `git diff --check`. Expected: pass with documented baseline only.
 - [ ] **Step 5: Bind clean HEAD/tree/log hashes.** No signing or broadcast.
 - [ ] **Step 6: Commit.** Message: `docs: bind delayed tier successor gate`.

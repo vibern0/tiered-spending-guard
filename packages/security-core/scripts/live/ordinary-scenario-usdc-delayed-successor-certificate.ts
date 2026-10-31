@@ -130,6 +130,19 @@ function assertState(source: UsdcDelayedSuccessorSource, state: UsdcSuccessorCan
   if (state.chainId !== 11_155_111 || !same(state.safe, identity.safe) || !same(state.guard, identity.guard) || !same(state.delay, identity.delay) || !same(state.funder, source.journal.funder) || !same(state.usdc, identity.usdc) || !same(state.recipient, identity.recipient) || !same(state.primarySigner, identity.primarySigner) || !same(state.safeContractSecondary, identity.safeContractSecondary) || !same(state.ecdsaSecondary, identity.ecdsaSecondary)) throw new Error("delayed successor canonical identity or topology mismatch");
   const expectedQueue = source.delayedProposal.actions[6]!.queue;
   if (state.safeNonce !== 13n || state.delayQueueNonce !== 6n || state.delayTxNonce !== 5n || state.safeNativeBalance !== 0n || state.safeUsdcBalance !== 31_000_000n || state.funderUsdcBalance !== 9_000_000n || !state.queue || !expectedQueue || state.queue.queueNonce !== 5n || !same(state.queue.fingerprint, expectedQueue.fingerprint) || timestamp < state.queue.createdAt + DELAY_PLUS_EXPIRY) throw new Error("delayed successor canonical nonce, expired queue, or balance state mismatch");
+  if (publicHash(state.nativeSpend) !== publicHash(source.delayedCertificate.rawNativeSpend) || publicHash(state.usdcSpend) !== publicHash(source.delayedCertificate.rawUsdcSpend)) throw new Error("delayed successor canonical spend counters mismatch");
+}
+
+async function verifyPredecessorReceipts(source: UsdcDelayedSuccessorSource, provider: UsdcFreshSuccessorEvidenceProvider): Promise<void> {
+  const records = [0, 2, 4, 6].map(index => source.journal.usdcDelayedCompletion.actions[index] as OrdinaryScenarioActionRecord);
+  await Promise.all(records.map(async record => {
+    if (record.status !== "confirmed" || !record.transactionHash || !record.receipt || !record.receiptInclusion) throw new Error("delayed successor predecessor receipt evidence is incomplete");
+    const blockNumber = BigInt(record.receipt.blockNumber);
+    const [receipt, block] = await Promise.all([provider.readReceipt(record.transactionHash), provider.readBlock(blockNumber)]);
+    if (!receipt || receipt.status !== "success" || !same(receipt.transactionHash, record.transactionHash) || receipt.blockNumber !== blockNumber || !same(receipt.blockHash, record.receipt.blockHash) || receipt.gasUsed !== BigInt(record.receipt.gasUsed) || receipt.effectiveGasPrice !== BigInt(record.receipt.effectiveGasPrice) || !block || block.number !== blockNumber || !same(block.hash, record.receipt.blockHash) || block.timestamp.toString() !== record.receiptInclusion.blockTimestamp) throw new Error("delayed successor predecessor canonical receipt mismatch");
+    const recheck = await provider.readBlock(blockNumber);
+    if (!recheck || publicHash(recheck) !== publicHash(block)) throw new Error("delayed successor predecessor receipt block changed during reread");
+  }));
 }
 
 async function verifyCertificate(source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], sourceAuthority: WeakSet<object>, certificateAuthority: WeakSet<object>, testOnly: boolean): Promise<VerifiedUsdcDelayedSuccessorCertificate> {
@@ -148,6 +161,7 @@ async function verifyCertificate(source: UsdcDelayedSuccessorSource, providers: 
   ]);
   if (publicHash(leftState) !== publicHash(rightState)) throw new Error("delayed successor providers disagree on canonical state");
   assertState(source, leftState, blocks[0].timestamp);
+  await Promise.all([verifyPredecessorReceipts(source, providers[0]), verifyPredecessorReceipts(source, providers[1])]);
   const nonces = [leftSnapshotNonce, rightSnapshotNonce, leftLatest, rightLatest, leftPending, rightPending];
   const minimumOuterNonce = nonces[0]!;
   if (nonces.some(value => value !== minimumOuterNonce) || minimumOuterNonce < source.stoppedRow.outerNonce! + 1) throw new Error("delayed successor outer nonce is pending, inconsistent, or precedes stopped row");
@@ -207,6 +221,7 @@ async function reverifyCertificate(serialized: string, expectedHash: Hex, source
   ]);
   if (!leftBlock || !rightBlock || tips.some(tip => tip.number - blockNumber + 1n < 6n) || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== minimumOuterNonce || rightSnapshotNonce !== minimumOuterNonce || minimumOuterNonce < source.stoppedRow.outerNonce! + 1) throw new Error("delayed successor recorded canonical snapshot changed or lacks confirmations");
   assertState(source, leftState, leftBlock.timestamp);
+  await Promise.all([verifyPredecessorReceipts(source, providers[0]), verifyPredecessorReceipts(source, providers[1])]);
   const resolved = leftLatest === rightLatest && leftPending === rightPending && leftLatest === leftPending && leftLatest >= minimumOuterNonce;
   const knownPending = reconciliation !== undefined && Number.isSafeInteger(reconciliation.outerNonce) && leftLatest === rightLatest && leftPending === rightPending && reconciliation.outerNonce === leftLatest && leftPending >= leftLatest && leftPending <= leftLatest + 1 && reconciliation.outerNonce >= minimumOuterNonce;
   const resolvedProgress = reconciliation !== undefined && Number.isSafeInteger(reconciliation.outerNonce) && leftLatest === rightLatest && leftPending === rightPending && leftLatest > reconciliation.outerNonce && leftPending === leftLatest && reconciliation.outerNonce >= minimumOuterNonce;

@@ -49,6 +49,10 @@ describe("ordinary USDC delayed-tier successor certificate", function () {
     const providers = await delayedSuccessorProviders(fixture);
     const disagreeing = await delayedSuccessorProviders(fixture, { state: { safeNonce: 14n } });
     await expect(verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, [providers[0], disagreeing[1]])).to.be.rejectedWith(/provider|state|disagree/i);
+    const spendProviders = await delayedSuccessorProviders(fixture); const zeroSpend = spendProviders.map(provider => ({ ...provider, readControlledState: async (block: bigint) => ({ ...await provider.readControlledState(block), usdcSpend: { window: fixture.certificate.rawUsdcSpend.window, baseSpent: 0n, instantSpent: 0n } }) })) as unknown as typeof spendProviders;
+    await expect(verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, zeroSpend)).to.be.rejectedWith(/spend|state|counter/i);
+    const missingReceipts = await delayedSuccessorProviders(fixture); const unavailable = { ...missingReceipts[1], readReceipt: async () => undefined };
+    await expect(verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, [missingReceipts[0], unavailable])).to.be.rejectedWith(/receipt|canonical/i);
   });
 
   it("accepts the first clean nonce after the stopped row and rejects a pending split", async function () {

@@ -8,7 +8,7 @@ import {
   createUsdcDelayedSuccessorProposal,
   loadUsdcDelayedSuccessorApprovalForTestsOnly,
 } from "../../../scripts/live/ordinary-scenario-usdc-delayed-successor-proposal";
-import { approvedDelayedSuccessor, delayedSuccessorCaps, delayedSuccessorObserver } from "../../support/usdc-delayed-successor-fixture";
+import { approvedDelayedSuccessor, delayedSuccessorCaps, delayedSuccessorCodeBinding, delayedSuccessorObserver } from "../../support/usdc-delayed-successor-fixture";
 
 const TOKEN_ABI = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 
@@ -24,6 +24,7 @@ describe("ordinary USDC delayed-tier successor proposal", function () {
     ]);
     expect(fixture.proposal.actions.map(action => action.expectedOutcome)).to.deep.equal(["success", "rejection", "success", "rejection", "success"]);
     expect(fixture.proposal.actions.filter(action => action.expectedOutcome === "success")).to.have.length(3);
+    expect(fixture.proposal.actions[0]!.before.queueStatus).to.equal("QUEUED");
     expect(fixture.proposal.actions[2]!.signerRoles).to.deep.equal(["primary-passkey", "safe-contract-secondary"]);
     expect(fixture.proposal.actions[0]!.before).to.include({ safeNonce: "13", delayQueueNonce: "6", delayTxNonce: "5", safeUsdcBalance: "31000000", funderUsdcBalance: "9000000" });
     expect(fixture.proposal.actions[4]!.after).to.include({ safeNonce: "14", delayQueueNonce: "7", delayTxNonce: "7", safeUsdcBalance: "0", funderUsdcBalance: "40000000" });
@@ -42,7 +43,7 @@ describe("ordinary USDC delayed-tier successor proposal", function () {
 
   it("separates production proposal authority and rejects changed approval bytes", async function () {
     const fixture = await approvedDelayedSuccessor();
-    expect(() => createUsdcDelayedSuccessorProposal({ source: fixture.source, certificate: fixture.certificate, observer: delayedSuccessorObserver, caps: delayedSuccessorCaps })).to.throw(/production|opaque|certificate/i);
+    expect(() => createUsdcDelayedSuccessorProposal({ source: fixture.source, certificate: fixture.certificate, observer: delayedSuccessorObserver, caps: delayedSuccessorCaps, codeBinding: delayedSuccessorCodeBinding })).to.throw(/production|opaque|certificate/i);
     const document: any = {
       schemaVersion: 1,
       scope: fixture.proposal.scope,
@@ -51,6 +52,7 @@ describe("ordinary USDC delayed-tier successor proposal", function () {
       proposalHash: fixture.proposal.proposalHash,
       sourceJournalHash: fixture.proposal.sourceJournalHash,
       certificateHash: fixture.proposal.certificateHash,
+      codeBinding: fixture.proposal.codeBinding,
       snapshot: fixture.proposal.snapshot,
       minimumOuterNonce: fixture.proposal.minimumOuterNonce,
       effectivePeriod: fixture.proposal.effectivePeriod,
@@ -64,6 +66,8 @@ describe("ordinary USDC delayed-tier successor proposal", function () {
       repairAuthority: "NONE",
       approvedActions: fixture.proposal.actions.map(({ id, commitment }) => ({ id, commitment })),
     };
+    expect((fixture.proposal as any).codeBinding).to.have.keys("head", "tree", "logHash");
+    expect(document.codeBinding).to.deep.equal((fixture.proposal as any).codeBinding);
     document.reservation.successorMaximumReservationWei = "1";
     expect(() => loadUsdcDelayedSuccessorApprovalForTestsOnly(fixture.proposal, JSON.stringify(document), sha256(document) as `0x${string}`)).to.throw(/binding|reservation/i);
   });

@@ -32,6 +32,9 @@ describe("ordinary USDC delayed-tier successor report", function () {
     const report = renderReport(fixture.source, { certificate: fixture.certificate, proposal: fixture.proposal, approval: fixture.approval }, journal);
     expect(report.delayedSuccessor).to.include({ status: "DELAYED_SUCCESSOR_INCOMPLETE", actionCount: 5, terminalActionCount: 0 });
     expect(report.stoppedDelayedCompletion).to.include({ id: "usdc-delayed-completion-queue-expiry-skip", status: "signed-simulated", outerNonce: 916, transactionHash: null });
+    expect(report.historicalStoppedRows).to.have.length(3);
+    expect(report.historicalUntouchedRows).to.have.length(33);
+    expect(report.untouchedDelayedCompletionTail).to.have.length(4);
   });
 
   it("requires three exact receipts, two proofs, observer evidence, and terminal 14/7/7", async function () {
@@ -43,5 +46,17 @@ describe("ordinary USDC delayed-tier successor report", function () {
     expect(() => renderReport(value.source, { certificate: value.certificate, proposal: value.proposal, approval: value.approval }, missing)).to.throw(/inclusion|receipt/i);
     const privateProof = structuredClone(value.journal); (privateProof.usdcDelayedSuccessor!.actions[1] as any).transactionHash = hash("bad");
     expect(() => renderReport(value.source, { certificate: value.certificate, proposal: value.proposal, approval: value.approval }, privateProof)).to.throw(/proof|broadcast|private/i);
+    const late = structuredClone(value.journal); (late.usdcDelayedSuccessor!.actions[4] as any).receiptInclusion.blockTimestamp = value.proposal.deadline;
+    expect(() => renderReport(value.source, { certificate: value.certificate, proposal: value.proposal, approval: value.approval }, late)).to.throw(/period|deadline|inclusion/i);
+    const overGas = structuredClone(value.journal); const over = overGas.usdcDelayedSuccessor!.actions[4] as any; over.receipt.gasUsed = BigInt(over.gas) + 1n; over.ourReceiptGasCost = (over.receipt.gasUsed * over.receipt.effectiveGasPrice).toString(); overGas.liveJournal.entries.at(-1)!.receipt = over.receipt; overGas.liveJournal.entries.at(-1)!.reserved = BigInt(over.ourReceiptGasCost);
+    expect(() => renderReport(value.source, { certificate: value.certificate, proposal: value.proposal, approval: value.approval }, overGas)).to.throw(/gas|receipt/i);
+    const fabricated = { ...value.certificate, stoppedRow: { ...value.certificate.stoppedRow, outerNonce: 999 } } as any;
+    expect(() => renderReport(value.source, { certificate: fabricated, proposal: value.proposal, approval: value.approval }, value.journal)).to.throw(/certificate|opaque|context|binding/i);
+    for (const mutate of [
+      (journal: any) => { delete journal.usdcDelayedSuccessor.actions[2].requestHash; },
+      (journal: any) => { journal.usdcDelayedSuccessor.actions[2].outerDataHash = hash("bad"); },
+      (journal: any) => { delete journal.usdcDelayedSuccessor.actions[4].materializationHash; delete journal.usdcDelayedSuccessor.actions[4].prestateHash; },
+      (journal: any) => { journal.usdcDelayedSuccessor.actions[1].evidenceHash = "invented"; },
+    ]) { const changed = structuredClone(value.journal); mutate(changed); expect(() => renderReport(value.source, { certificate: value.certificate, proposal: value.proposal, approval: value.approval }, changed)).to.throw(/evidence|envelope|materialization|proof|missing/i); }
   });
 });

@@ -47,6 +47,23 @@ describe("ordinary USDC delayed-tier successor executor", function () {
     } finally { store.close?.(); rmSync(directory, { recursive: true, force: true }); }
   });
 
+  it("persists a receipt-bound late stop for only the selected successor row", async function () {
+    const fixture = await approvedDelayedSuccessor(), journal = attach(fixture.journal, fixture.proposal, fixture.approval);
+    const directory = mkdtempSync(join(tmpdir(), "usdc-delayed-successor-stop-"));
+    const row = journal.usdcDelayedSuccessor!.actions[0] as any;
+    const facts = { proposalHash: fixture.proposal.proposalHash, actionCommitment: fixture.proposal.actions[0]!.commitment, outerNonce: 917, gas: "300000", gasEstimate: "1", maxFeePerGas: "7", maxPriorityFeePerGas: "7", pinnedBlockNumber: "1", pinnedBlockHash: h("9"), approvedContinuationReservationWei: fixture.proposal.reservation.successorMaximumReservationWei, remainingReservationWei: fixture.proposal.reservation.successorMaximumReservationWei };
+    Object.assign(row, { status: "outer-pending", materializationHash: h("1"), prestateHash: h("2"), requestHash: h("3"), signedCalldataHash: h("4"), simulationEvidenceHash: h("5"), intentHash: h("6"), transactionHash: h("7"), outerDataHash: h("4"), outerNonce: 917, outerTo: fixture.proposal.actions[0]!.transaction.to, outerValue: "0", gas: "300000", maxFeePerGas: "7", maxPriorityFeePerGas: "7", signatureBundleHash: null, finalOuterMaterialization: { hash: h("0"), ...facts } });
+    row.finalOuterMaterialization.hash = require("../../../scripts/plan-deployment").sha256(facts);
+    journal.liveJournal.entries.push({ id: row.id, intentHash: row.intentHash, transactionHash: row.transactionHash, nonce: 917, reserved: 1n, status: "pending" });
+    const store = createOrdinaryScenarioStore(join(directory, "journal.json"), { proposalHash: journal.proposalHash, approvalHash: journal.approvalHash, funder: journal.funder }, () => journal);
+    try {
+      const stopped = store.load(), stoppedRow = stopped.usdcDelayedSuccessor!.actions[0] as any;
+      stoppedRow.status = "stopped"; stoppedRow.receipt = { transactionHash: stoppedRow.transactionHash, status: "success", gasUsed: 1n, effectiveGasPrice: 1n, blockNumber: 2n, blockHash: h("a") }; stoppedRow.receiptInclusion = { transactionHash: stoppedRow.transactionHash, blockNumber: "2", blockHash: h("a"), blockTimestamp: fixture.proposal.deadline, effectivePeriod: fixture.proposal.effectivePeriod };
+      stopped.liveJournal.entries.at(-1)!.status = "success"; stopped.liveJournal.entries.at(-1)!.receipt = stoppedRow.receipt;
+      expect(() => store.save(stopped)).not.to.throw();
+    } finally { store.close?.(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("proves expired execution rejection without materializing, signing, or broadcasting", async function () {
     const fixture = await approvedDelayedSuccessor();
     const journal = attach(fixture.journal, fixture.proposal, fixture.approval);

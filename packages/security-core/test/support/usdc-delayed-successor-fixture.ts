@@ -21,6 +21,7 @@ export const delayedSuccessorCaps = {
   maxFeePerGas: "1000000",
   maxPriorityFeePerGas: "1000000",
 } as const;
+export const delayedSuccessorCodeBinding = { head: h("a"), tree: h("b"), logHash: h("c") } as const;
 
 export const delayedSuccessorObserver = {
   kind: "https-webhook" as const,
@@ -163,7 +164,14 @@ export async function delayedSuccessorProviders(fixture: Awaited<ReturnType<type
     },
   };
   const values = { snapshotNonce: 917, latestNonce: 917, pendingNonce: 917, state, ...mutation };
-  return delayedProviders(fixture.historical, values, values);
+  const base = await delayedProviders(fixture.historical, values, values);
+  const records = [0, 2, 4, 6].map(index => fixture.journal.usdcDelayedCompletion!.actions[index] as any);
+  const wrap = (provider: typeof base[number]) => ({
+    ...provider,
+    readReceipt: async (hash: Hex) => { const record = records.find(item => item.transactionHash === hash); return record ? { transactionHash: hash, status: record.receipt.status, blockNumber: BigInt(record.receipt.blockNumber), blockHash: record.receipt.blockHash, gasUsed: BigInt(record.receipt.gasUsed), effectiveGasPrice: BigInt(record.receipt.effectiveGasPrice) } : provider.readReceipt(hash); },
+    readBlock: async (number: bigint) => { const record = records.find(item => BigInt(item.receipt.blockNumber) === number); return record ? { number, hash: record.receipt.blockHash, timestamp: BigInt(record.receiptInclusion.blockTimestamp) } : provider.readBlock(number); },
+  });
+  return [wrap(base[0]), wrap(base[1])] as const;
 }
 
 export async function approvedDelayedSuccessor() {
@@ -176,7 +184,7 @@ export async function approvedDelayedSuccessor() {
     journal: fixture.journal,
   });
   const certificate = await verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, await delayedSuccessorProviders(fixture));
-  const proposal = createUsdcDelayedSuccessorProposalForTestsOnly({ source, certificate, observer: delayedSuccessorObserver, caps: delayedSuccessorCaps });
+  const proposal = createUsdcDelayedSuccessorProposalForTestsOnly({ source, certificate, observer: delayedSuccessorObserver, caps: delayedSuccessorCaps, codeBinding: delayedSuccessorCodeBinding });
   const document = {
     schemaVersion: 1,
     scope: proposal.scope,
@@ -185,6 +193,7 @@ export async function approvedDelayedSuccessor() {
     proposalHash: proposal.proposalHash,
     sourceJournalHash: proposal.sourceJournalHash,
     certificateHash: proposal.certificateHash,
+    codeBinding: proposal.codeBinding,
     snapshot: proposal.snapshot,
     minimumOuterNonce: proposal.minimumOuterNonce,
     effectivePeriod: proposal.effectivePeriod,
@@ -201,4 +210,3 @@ export async function approvedDelayedSuccessor() {
   const approval = loadUsdcDelayedSuccessorApprovalForTestsOnly(proposal, JSON.stringify(document), sha256(document) as Hex);
   return { ...fixture, source, certificate, proposal, approval };
 }
-

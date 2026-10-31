@@ -66,6 +66,12 @@ describe("ordinary USDC recycle continuation certificate", function () {
     expect(serialized).not.to.match(/privateKey|mnemonic|seedPhrase|rawTransaction|signedTransaction/i);
   });
 
+  it("admits the reviewed delayed successor only as a pinned descendant field", function () {
+    const value = JSON.parse(recycleFixture.sourceJournal); value.usdcDelayedSuccessor = { scope: "ordinary-usdc-delayed-tier-successor-v1" };
+    expect(() => trackedRecycleJournal(`${JSON.stringify(value)}\n`, "pinned").journal).not.to.throw();
+    expect(() => trackedRecycleJournal(`${JSON.stringify(value)}\n`, "initial").journal).to.throw(/shape|initial|source/i);
+  });
+
   it("rejects every old header, row, materialization, receipt, cost, inclusion, and live-prefix mutation", async function () {
     const mutations: Array<[string, (value: any) => void]> = [
       ["header", value => { value.usdcSuccessor.approvalHash = h("2"); }],
