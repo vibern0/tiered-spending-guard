@@ -114,5 +114,22 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    padding-top: env(safe-area-inset-top);
+  }
+
+  button,
+  [role="button"] {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

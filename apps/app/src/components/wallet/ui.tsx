@@ -10,6 +10,8 @@ import {
 } from "@/lib/activity-model";
 import { formatUsdc } from "@/lib/usdc";
 import { useVault } from "@/lib/vault-store";
+import { useWalletOnline } from "@/lib/pwa";
+import { PwaStatus } from "./pwa-status";
 
 const TONE: Record<string, string> = {
   approval: "bg-approval-soft text-approval-ink",
@@ -57,11 +59,13 @@ export function PageHeader({ title, right }: { title: string; right?: ReactNode 
 }
 
 export function PrimaryButton({ className, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const online = useWalletOnline();
   return (
     <button
       {...p}
+      disabled={p.disabled || !online}
       className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3.5 text-base font-semibold text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/40 disabled:opacity-50",
+        "inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3.5 text-base font-semibold text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/40 disabled:opacity-50",
         className,
       )}
     />
@@ -72,11 +76,13 @@ export function SecondaryButton({
   className,
   ...p
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const online = useWalletOnline();
   return (
     <button
       {...p}
+      disabled={p.disabled || !online}
       className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary-soft px-5 py-3.5 text-base font-semibold text-primary transition hover:bg-primary-soft/70 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/40 disabled:opacity-50",
+        "inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-primary-soft px-5 py-3.5 text-base font-semibold text-primary transition hover:bg-primary-soft/70 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/40 disabled:opacity-50",
         className,
       )}
     />
@@ -168,7 +174,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (hydrated && !hasAccount && !hideNav) return <Navigate to="/onboarding" replace />;
   const ready = hydrated && (!hasAccount || initialReadFinished);
   return (
-    <div className="mx-auto min-h-screen w-full min-w-0 max-w-md px-5 pb-28">
+    <div className="mx-auto min-h-screen w-full min-w-0 max-w-md px-5 pb-[calc(7rem+env(safe-area-inset-bottom))]">
+      <PwaStatus />
       {ready ? (
         children
       ) : (
@@ -177,7 +184,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {ready && hasAccount && !hideNav && (
         <nav
           aria-label="Main"
-          className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 backdrop-blur"
+          className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
         >
           <ul className="mx-auto grid max-w-md grid-cols-3">
             {TABS.map(({ to, label, icon: Icon }) => {
@@ -188,7 +195,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     to={to}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex flex-col items-center gap-1 py-3 text-xs font-semibold",
+                      "flex min-h-11 flex-col items-center gap-1 py-3 text-xs font-semibold",
                       active ? "text-primary" : "text-muted-foreground",
                     )}
                   >

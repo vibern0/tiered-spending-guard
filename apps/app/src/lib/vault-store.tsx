@@ -7,6 +7,7 @@ import { fingerprintOf, type ActivityItem, type Lane } from "./activity-model";
 import { readVaultSnapshot, type HealthFailure, type VaultConfig, type VaultSnapshot } from "./vault-chain";
 import { challengeForSafeDigest, createVaultPasskey, signSafeDigest, type PasskeyRegistration } from "./webauthn-passkey";
 import { loadWalletEnvironmentProfile, type WalletEnvironmentProfile } from "./environment-profile";
+import { runWalletCriticalFlow } from "./pwa";
 
 export type Recipient = { name: string; address: string };
 export type Policy = { basePerTxCap: bigint; firstSignerDaily: bigint; instantDaily: bigint; perTxCap: bigint; delayHours: number; delaySeconds: bigint };
@@ -197,15 +198,15 @@ export function VaultProvider({ children, client: providedClient, config: provid
   useEffect(() => { if (hydrated) void refresh(); }, [config, hydrated, refresh]);
   useEffect(() => { if (hydrated) localStorage.setItem(UI_KEY, JSON.stringify(ui)); }, [hydrated, ui]);
   const finishSetup = useCallback(() => { setUi((current) => ({ ...current, rehearsed: true })); }, []);
-  const provision = useCallback(async () => {
+  const provision = useCallback(() => runWalletCriticalFlow(async () => {
     if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
     await backend.health?.();
     const primary = await backend.registerPasskey("primary"); const secondary = await backend.registerPasskey("secondary");
     if (primary.credentialId === secondary.credentialId) throw new Error("Primary and secondary passkeys must be distinct");
     const result = await backend.provisionVault({ chainId: 11155111, usdc: providedConfig?.usdc ?? DEFAULT_USDC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
     const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, usdc: result.usdc, usdcCandidates: [DEFAULT_USDC] }; saveConfig(next); setUi((current) => ({ ...current, rehearsed: false, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
-  }, [backend, client, providedConfig, ui]);
-  const sendUsdc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
+  }), [backend, client, providedConfig, ui]);
+  const sendUsdc = useCallback(({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => runWalletCriticalFlow(async () => {
     if (!state.writable || state.health.length > 0) throw new Error("vault health checks are blocking writes");
     await backend.health?.();
     if (!ui.primaryCredentialId || !ui.deploymentHash || !ui.policyHash) throw new Error("passkey session and reviewed deployment evidence are required");
@@ -218,7 +219,7 @@ export function VaultProvider({ children, client: providedClient, config: provid
     if (!ui.secondaryCredentialId) throw new Error("secondary passkey session is required for this tier");
     const secondary = await backend.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
     await refresh(); return secondary;
-  }, [backend, refresh, state, ui]);
+  }), [backend, refresh, state, ui]);
   const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, finishSetup, refresh, provision, sendUsdc }), [state, hydrated, loading, config, finishSetup, refresh, provision, sendUsdc]);
   return <VaultCtx.Provider value={value}>{children}</VaultCtx.Provider>;
 }

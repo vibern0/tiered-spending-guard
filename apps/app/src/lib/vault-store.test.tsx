@@ -16,6 +16,7 @@ import { checkBackendHealth, useVault, VaultProvider, type VaultBackend } from "
 import type { WalletEnvironmentProfile } from "./environment-profile";
 import type { VaultConfig } from "./vault-chain";
 import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
+import { activateWaitingServiceWorkerWhenSafe } from "./pwa";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
@@ -255,4 +256,56 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
       rehearsed: true,
     }),
   );
+});
+
+it("defers a waiting service-worker update throughout WebAuthn provisioning", async () => {
+  let releaseRegistration!: () => void;
+  const registrationGate = new Promise<void>((resolve) => { releaseRegistration = resolve; });
+  const backend: VaultBackend = {
+    registerPasskey: async (role) => {
+      await registrationGate;
+      return {
+        role,
+        credentialId: `${role}-credential`,
+        challenge: "challenge",
+        rpId: "localhost",
+        origin: "http://localhost:5173",
+        response: {
+          id: `${role}-credential`,
+          rawId: `${role}-credential`,
+          type: "public-key",
+          clientExtensionResults: {},
+          response: { clientDataJSON: "e30", attestationObject: "e30" },
+        },
+      };
+    },
+    provisionVault: async () => ({
+      chainId: 11155111,
+      safe: SAFE,
+      guard: GUARD,
+      delay: DELAY,
+      usdc: USDC,
+      primaryPasskey: SAFE,
+      secondaryPasskey: GUARD,
+      evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
+    }),
+    prepareTransfer: vi.fn(),
+    submitPrimary: vi.fn(),
+    submitSecondary: vi.fn(),
+  };
+  const postMessage = vi.fn();
+  const waiting = { waiting: { postMessage } } as unknown as ServiceWorkerRegistration;
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), config, backend }),
+  });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+
+  let provisioning!: Promise<void>;
+  act(() => { provisioning = result.current.provision(); });
+  await waitFor(() => expect(activateWaitingServiceWorkerWhenSafe(waiting)).toBe(false));
+  expect(postMessage).not.toHaveBeenCalled();
+
+  releaseRegistration();
+  await act(async () => { await provisioning; });
+  expect(postMessage).toHaveBeenCalledWith({ type: "SKIP_WAITING" });
 });

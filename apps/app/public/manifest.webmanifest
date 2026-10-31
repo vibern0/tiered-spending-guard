@@ -1,0 +1,17 @@
+{
+  "name": "Sepolia USDC Vault",
+  "short_name": "USDC Vault",
+  "description": "Installable Sepolia-only prototype for a guarded USDC vault.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#3158d4",
+  "background_color": "#f7f7fb",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
