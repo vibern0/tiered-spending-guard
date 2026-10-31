@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Address, PublicClient } from "viem";
+import {
+  encodeFunctionData,
+  encodePacked,
+  keccak256,
+  parseAbi,
+  type Address,
+  type PublicClient,
+} from "viem";
 import { readVaultSnapshot, validateUsdc, type VaultConfig } from "./vault-chain";
 import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
 
@@ -11,6 +18,8 @@ const USDC = TEST_USDC_ADDRESS;
 function client(overrides: Record<string, unknown> = {}): PublicClient {
   return {
     getChainId: vi.fn().mockResolvedValue(11155111),
+    getBlockNumber: vi.fn().mockResolvedValue(123n),
+    getBlock: vi.fn().mockResolvedValue({ hash: `0x${"ab".repeat(32)}`, timestamp: 456n }),
     getBytecode: vi.fn().mockResolvedValue(TEST_USDC_RUNTIME),
     getBalance: vi.fn().mockResolvedValue(2_000_000_000_000_000n),
     getTransactionCount: vi.fn().mockResolvedValue(7),
@@ -119,6 +128,79 @@ describe("readVaultSnapshot", () => {
     });
     expect(snapshot.topology.modules).toEqual([DELAY]);
     expect(snapshot.policy.baseDailyLimit).toBe(250_000_000n);
+  });
+
+  it("pins every mutable read to one block and rejects a block-hash change", async () => {
+    const hash = `0x${"ab".repeat(32)}`;
+    const pinned = client({
+      getBlockNumber: vi.fn().mockResolvedValue(123n),
+      getBlock: vi.fn().mockResolvedValue({ hash, timestamp: 456n }),
+    });
+
+    const snapshot = await readVaultSnapshot(pinned, config);
+
+    expect(snapshot).toMatchObject({
+      writable: true,
+      observedBlock: 123n,
+      observedTimestamp: 456n,
+    });
+    for (const [input] of vi.mocked(pinned.readContract).mock.calls)
+      expect(input).toMatchObject({ blockNumber: 123n });
+    expect(pinned.getBytecode).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: 123n }));
+    expect(pinned.getBalance).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: 123n }));
+    for (const [input] of vi.mocked(pinned.getStorageAt).mock.calls)
+      expect(input).toMatchObject({ blockNumber: 123n });
+
+    const changed = client({
+      getBlockNumber: vi.fn().mockResolvedValue(123n),
+      getBlock: vi
+        .fn()
+        .mockResolvedValueOnce({ hash, timestamp: 456n })
+        .mockResolvedValueOnce({ hash: `0x${"cd".repeat(32)}`, timestamp: 456n }),
+    });
+    await expect(readVaultSnapshot(changed, config)).resolves.toMatchObject({
+      writable: false,
+      health: [expect.objectContaining({ code: "rpc-inconsistent" })],
+    });
+  });
+
+  it("reconstructs each pending Delay tuple from its canonical indexed event", async () => {
+    const recipient = "0x7777777777777777777777777777777777777777" as Address;
+    const data = encodeFunctionData({
+      abi: parseAbi(["function transfer(address,uint256) returns (bool)"]),
+      functionName: "transfer",
+      args: [recipient, 4_000_000n],
+    });
+    const txHash = keccak256(
+      encodePacked(["address", "uint256", "bytes", "uint8"], [USDC, 0n, data, 0]),
+    );
+    const queued = client();
+    const baseRead = vi.mocked(queued.readContract).getMockImplementation();
+    if (!baseRead) throw new Error("test reader is missing its base implementation");
+    vi.mocked(queued.readContract).mockImplementation(async (input) => {
+      if (input.functionName === "queueNonce") return 1n as never;
+      if (input.functionName === "getTxHash") return txHash as never;
+      if (input.functionName === "getTxCreatedAt") return 100n as never;
+      return baseRead(input) as never;
+    });
+    vi.mocked(queued.getLogs).mockResolvedValue([
+      { args: { queueNonce: 0n, txHash, to: USDC, value: 0n, data, operation: 0 } },
+    ] as never);
+
+    const snapshot = await readVaultSnapshot(queued, config);
+
+    expect(snapshot.queueItems).toEqual([
+      {
+        queueNonce: 0n,
+        txHash,
+        createdAt: 100n,
+        to: USDC,
+        value: 0n,
+        data,
+        operation: 0,
+        status: "pending",
+      },
+    ]);
   });
 
   it("blocks writes on the wrong chain", async () => {

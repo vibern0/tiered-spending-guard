@@ -9,7 +9,15 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
-import { createPublicClient, http, type Address, type Hex, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  decodeFunctionData,
+  http,
+  parseAbi,
+  type Address,
+  type Hex,
+  type PublicClient,
+} from "viem";
 import { sepolia } from "viem/chains";
 import { usdc } from "./usdc";
 import { effectiveStatus, fingerprintOf, type ActivityItem, type Lane } from "./activity-model";
@@ -188,6 +196,7 @@ type StorageProfile = Pick<WalletEnvironmentProfile, "id" | "rpId">;
 export const walletStorageKey = (kind: "config" | "ui", profile: StorageProfile) =>
   `usdc-vault-${kind}-v2:${profile.id}:${profile.rpId}`;
 const DEFAULT_USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+const ERC20_TRANSFER_ABI = parseAbi(["function transfer(address,uint256) returns (bool)"]);
 const nextReset = () => {
   const d = new Date();
   d.setUTCHours(24, 0, 0, 0);
@@ -216,12 +225,12 @@ export function emptyState(): VaultState {
     nativeBalance: 0n,
     safeNonce: null,
     policy: {
-      basePerTxCap: usdc(250),
-      firstSignerDaily: usdc(250),
-      instantDaily: usdc(1000),
-      perTxCap: usdc(2500),
-      delayHours: 24,
-      delaySeconds: 86_400n,
+      basePerTxCap: usdc(1),
+      firstSignerDaily: usdc(1),
+      instantDaily: usdc(3),
+      perTxCap: usdc(3),
+      delayHours: 1,
+      delaySeconds: 120n,
     },
     spentFirstSigner: 0n,
     spentInstant: 0n,
@@ -260,27 +269,27 @@ export function demoState(): VaultState {
 }
 
 export type WalletSetupState = Readonly<{
-  primaryCredentialId?: string;
-  secondaryCredentialId?: string;
-  secondaryAuthenticator?: "platform" | "cross-platform";
+  primaryCredentialId?: string | undefined;
+  secondaryCredentialId?: string | undefined;
+  secondaryAuthenticator?: "platform" | "cross-platform" | undefined;
   distinctSecondary: boolean;
-  packageHash?: Hex;
+  packageHash?: Hex | undefined;
   provisioning: "registering" | "ready-to-plan" | "awaiting-operator" | "approved" | "provisioned";
-  receiptHash?: Hex;
+  receiptHash?: Hex | undefined;
   submissionIds: readonly string[];
 }>;
 type UiState = {
   notifications: VaultState["notifications"];
   rehearsed: boolean;
-  primaryCredentialId?: string;
-  secondaryCredentialId?: string;
-  secondaryAuthenticator?: "platform" | "cross-platform";
-  packageHash?: Hex;
+  primaryCredentialId?: string | undefined;
+  secondaryCredentialId?: string | undefined;
+  secondaryAuthenticator?: "platform" | "cross-platform" | undefined;
+  packageHash?: Hex | undefined;
   provisioning: WalletSetupState["provisioning"];
-  receiptHash?: Hex;
+  receiptHash?: Hex | undefined;
   submissionIds: string[];
-  deploymentHash?: Hex;
-  policyHash?: Hex;
+  deploymentHash?: Hex | undefined;
+  policyHash?: Hex | undefined;
 };
 
 function readUiState(profile: StorageProfile): UiState {
@@ -543,6 +552,24 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
   };
   const periodAnchor = snapshot.spendState?.window;
   const activity: ActivityItem[] = snapshot.queueItems.map((item) => {
+    let amount = 0n;
+    let address = item.to;
+    let counterparty = "Unsupported delayed operation";
+    try {
+      const decoded = decodeFunctionData({ abi: ERC20_TRANSFER_ABI, data: item.data });
+      if (
+        decoded.functionName === "transfer" &&
+        item.to.toLowerCase() === snapshot.usdc?.address.toLowerCase() &&
+        item.value === 0n &&
+        item.operation === 0
+      ) {
+        address = decoded.args[0];
+        amount = decoded.args[1];
+        counterparty = address;
+      }
+    } catch {
+      // Unsupported tuples stay visible but cannot masquerade as USDC.
+    }
     const canonicalNow =
       snapshot.observedTimestamp === undefined
         ? Date.now()
@@ -560,9 +587,9 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
     return {
       id: `${item.txHash}:${item.queueNonce.toString()}`,
       direction: "out",
-      amount: 0n,
-      counterparty: "Delayed USDC operation",
-      address: snapshot.safe,
+      amount,
+      counterparty,
+      address,
       lane: "delayed",
       status,
       canonicalNow,
@@ -595,7 +622,8 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
     },
     spentFirstSigner: snapshot.spendState?.baseSpent ?? 0n,
     spentInstant: snapshot.spendState?.instantSpent ?? 0n,
-    resetsAt: periodAnchor && periodAnchor > 0n ? Number(periodAnchor) * 1000 : nextReset(),
+    resetsAt:
+      periodAnchor && periodAnchor > 0n ? Number(periodAnchor + 86_400n) * 1000 : nextReset(),
     secondSignerName:
       ui.secondaryAuthenticator === "cross-platform"
         ? "Cross-platform second signer"
@@ -629,9 +657,9 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
     return { lane: "blocked", reason: "This is more than your available balance." };
   if (!s.recipients.some((r) => r.address.toLowerCase() === to.toLowerCase()))
     return { lane: "blocked", reason: "This recipient is not on your allowed list." };
-  if (amount > s.policy.perTxCap)
-    return { lane: "blocked", reason: "This is above the maximum for a single transfer." };
   if (s.spentInstant + amount > s.policy.instantDaily) return { lane: "delayed" };
+  if (amount > s.policy.perTxCap)
+    return { lane: "blocked", reason: "This is above the maximum for an instant transfer." };
   if (s.spentFirstSigner + amount > s.policy.firstSignerDaily) return { lane: "step-up" };
   return { lane: "base" };
 }
@@ -733,6 +761,13 @@ export function VaultProvider({
   useEffect(() => {
     if (hydrated) void refresh();
   }, [config, hydrated, refresh]);
+  useEffect(() => {
+    if (!hydrated || !config || !client) return;
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [client, config, hydrated, refresh]);
   useEffect(() => {
     if (hydrated) localStorage.setItem(walletStorageKey("ui", storageProfile), JSON.stringify(ui));
   }, [hydrated, storageProfile, ui]);

@@ -62,7 +62,7 @@ function SendPage() {
 
   const result = to && amount !== null ? classify(state, to.address, amount) : null;
   const lane = result?.lane;
-  const delayMs = state.policy.delayHours * 3_600_000;
+  const delayMs = Number(state.policy.delaySeconds) * 1000;
   const stateKey = () =>
     [
       state.balance,
@@ -188,7 +188,11 @@ function SendPage() {
             </div>
           </Card>
           {lane && amount !== null && amount > 0n && (
-            <LaneCard lane={lane} reason={result?.reason} delayHours={state.policy.delayHours} />
+            <LaneCard
+              lane={lane}
+              reason={result?.reason}
+              delaySeconds={state.policy.delaySeconds}
+            />
           )}
           <PrimaryButton
             disabled={amount === null || amount <= 0n || lane === "blocked"}
@@ -229,7 +233,7 @@ function SendPage() {
               <DRow k="Fingerprint" v={fp} />
             </dl>
           </Card>
-          <LaneCard lane={lane} delayHours={state.policy.delayHours} />
+          <LaneCard lane={lane} delaySeconds={state.policy.delaySeconds} />
           <Details>
             <DRow k="Account (Safe)" v={state.safe} />
             <DRow k="Chain ID" v={state.chainId} />
@@ -248,11 +252,11 @@ function SendPage() {
 function LaneCard({
   lane,
   reason,
-  delayHours,
+  delaySeconds,
 }: {
   lane: Lane;
   reason?: string | undefined;
-  delayHours: number;
+  delaySeconds: bigint;
 }) {
   const Icon = LANE_ICON[lane];
   const copy = LANE_COPY[lane];
@@ -262,7 +266,13 @@ function LaneCard({
       : lane === "step-up"
         ? "bg-approval-soft text-approval-ink"
         : "bg-danger-soft text-danger-ink";
-  const title = lane === "delayed" ? `Available after ${delayHours} hours` : copy.title;
+  const delayLabel =
+    delaySeconds % 3_600n === 0n
+      ? `${delaySeconds / 3_600n} hours`
+      : delaySeconds % 60n === 0n
+        ? `${delaySeconds / 60n} minutes`
+        : `${delaySeconds} seconds`;
+  const title = lane === "delayed" ? `Available after ${delayLabel}` : copy.title;
   return (
     <div className={cn("flex gap-3 rounded-2xl p-4", tone)}>
       <Icon className="mt-0.5 size-5 shrink-0" aria-hidden />

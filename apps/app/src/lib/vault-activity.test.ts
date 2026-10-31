@@ -46,7 +46,18 @@ const snapshot: VaultSnapshot = {
     recipients: [],
   },
   spendState: { window: 0n, baseSpent: 0n, instantSpent: 900000000n },
-  queueItems: [{ queueNonce: 1n, txHash: TX, createdAt: 1n, status: "pending" }],
+  queueItems: [
+    {
+      queueNonce: 1n,
+      txHash: TX,
+      createdAt: 1n,
+      to: RECIPIENT,
+      value: 0n,
+      data: "0x",
+      operation: 0,
+      status: "pending",
+    },
+  ],
   health: [],
   writable: true,
 };

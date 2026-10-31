@@ -23,8 +23,9 @@ describe("send policy boundary", () => {
       balance: usdc(1000),
       recipients: [{ name: "Test", address: RECIPIENT }],
     };
-    expect(classify(state, RECIPIENT, usdc(100))).toMatchObject({ lane: "base" });
-    expect(classify(state, RECIPIENT, usdc(500))).toMatchObject({ lane: "step-up" });
+    expect(classify(state, RECIPIENT, usdc(1))).toMatchObject({ lane: "base" });
+    expect(classify(state, RECIPIENT, usdc(2))).toMatchObject({ lane: "step-up" });
+    expect(classify(state, RECIPIENT, usdc(4))).toMatchObject({ lane: "delayed" });
     expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(1))).toMatchObject({
       lane: "blocked",
     });

@@ -1,8 +1,10 @@
 import {
+  encodePacked,
   getAddress,
   isAddress,
   keccak256,
   parseAbi,
+  parseAbiItem,
   zeroAddress,
   type Address,
   type Hex,
@@ -54,6 +56,9 @@ const DELAY_ABI = parseAbi([
   "function getTxHash(uint256) view returns (bytes32)",
   "function getTxCreatedAt(uint256) view returns (uint256)",
 ]);
+const TRANSACTION_ADDED_EVENT = parseAbiItem(
+  "event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)",
+);
 
 const sameAddress = (left: string | undefined, right: string): boolean =>
   Boolean(left && left.toLowerCase() === right.toLowerCase());
@@ -113,6 +118,10 @@ export type VaultQueueItem = Readonly<{
   queueNonce: bigint;
   txHash: Hex;
   createdAt: bigint;
+  to: Address;
+  value: bigint;
+  data: Hex;
+  operation: number;
   status: "pending" | "cancelled" | "unknown";
 }>;
 
@@ -151,9 +160,15 @@ export type VaultSnapshot = Readonly<{
 
 type ChainReader = Pick<
   PublicClient,
-  "getChainId" | "getBytecode" | "getBalance" | "getStorageAt" | "readContract"
-> &
-  Partial<Pick<PublicClient, "getBlockNumber" | "getBlock">>;
+  | "getChainId"
+  | "getBytecode"
+  | "getBalance"
+  | "getStorageAt"
+  | "readContract"
+  | "getLogs"
+  | "getBlockNumber"
+  | "getBlock"
+>;
 
 const read = async <T>(
   client: ChainReader,
@@ -161,7 +176,15 @@ const read = async <T>(
   abi: readonly unknown[],
   functionName: string,
   args: readonly unknown[] = [],
-): Promise<T> => (await client.readContract({ address, abi, functionName, args })) as T;
+  blockNumber?: bigint,
+): Promise<T> =>
+  (await client.readContract({
+    address,
+    abi,
+    functionName,
+    args,
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  })) as T;
 
 const addressFromStorage = (word: Hex | undefined): Address => {
   if (!word || word.length !== 66)
@@ -182,6 +205,7 @@ const health = (error: unknown): HealthFailure => {
 export async function validateUsdc(
   client: PublicClient,
   candidate: Address,
+  blockNumber?: bigint,
 ): Promise<UsdcMetadata> {
   if (!isAddress(candidate) || candidate === ZERO || !sameAddress(candidate, CIRCLE_USDC_SEPOLIA))
     throw new VaultHealthError(
@@ -189,7 +213,10 @@ export async function validateUsdc(
       "USDC candidate is not the reviewed Circle Sepolia contract",
     );
   const reader = client as unknown as ChainReader;
-  const runtime = await reader.getBytecode({ address: candidate });
+  const runtime = await reader.getBytecode({
+    address: candidate,
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
   if (!runtime || runtime === "0x")
     throw new VaultHealthError("usdc-runtime-missing", "USDC candidate has no runtime bytecode");
   const runtimeCodeHash = keccak256(runtime);
@@ -199,9 +226,9 @@ export async function validateUsdc(
       "USDC runtime does not match the reviewed two-provider artifact",
     );
   const [name, symbol, decimals] = await Promise.all([
-    read<string>(reader, candidate, ERC20_ABI, "name"),
-    read<string>(reader, candidate, ERC20_ABI, "symbol"),
-    read<number>(reader, candidate, ERC20_ABI, "decimals"),
+    read<string>(reader, candidate, ERC20_ABI, "name", [], blockNumber),
+    read<string>(reader, candidate, ERC20_ABI, "symbol", [], blockNumber),
+    read<number>(reader, candidate, ERC20_ABI, "decimals", [], blockNumber),
   ]);
   if (name !== "USDC" || symbol !== "USDC" || decimals !== 6) {
     throw new VaultHealthError(
@@ -250,7 +277,15 @@ export async function readVaultSnapshot(
         "USDC address is not in the reviewed candidate set",
       );
     }
-    const usdc = await validateUsdc(client, config.usdc);
+    const observedBlock = await reader.getBlockNumber();
+    const initialBlock = await reader.getBlock({ blockNumber: observedBlock });
+    const readAt = <T>(
+      address: Address,
+      abi: readonly unknown[],
+      functionName: string,
+      args: readonly unknown[] = [],
+    ) => read<T>(reader, address, abi, functionName, args, observedBlock);
+    const usdc = await validateUsdc(client, config.usdc, observedBlock);
     const [
       nativeBalance,
       usdcBalance,
@@ -269,47 +304,52 @@ export async function readVaultSnapshot(
       expirationSeconds,
       txNonce,
       queueNonce,
-      observedBlock,
     ] = await Promise.all([
-      reader.getBalance({ address: config.safe }),
-      read<bigint>(reader, config.usdc, ERC20_ABI, "balanceOf", [config.safe]),
-      read<bigint>(reader, config.safe, SAFE_ABI, "nonce"),
-      reader.getStorageAt({ address: config.safe, slot: GUARD_SLOT }),
-      reader.getStorageAt({ address: config.safe, slot: MODULE_GUARD_SLOT }),
-      reader.getStorageAt({ address: config.safe, slot: FALLBACK_HANDLER_SLOT }),
-      read<readonly [readonly Address[], Address]>(
-        reader,
-        config.safe,
-        SAFE_ABI,
-        "getModulesPaginated",
-        [SENTINEL_MODULES, 10n],
-      ),
-      read<readonly [Address, Address, Address, Address, bigint, bigint]>(
-        reader,
+      reader.getBalance({
+        address: config.safe,
+        blockNumber: observedBlock,
+      }),
+      readAt<bigint>(config.usdc, ERC20_ABI, "balanceOf", [config.safe]),
+      readAt<bigint>(config.safe, SAFE_ABI, "nonce"),
+      reader.getStorageAt({
+        address: config.safe,
+        slot: GUARD_SLOT,
+        blockNumber: observedBlock,
+      }),
+      reader.getStorageAt({
+        address: config.safe,
+        slot: MODULE_GUARD_SLOT,
+        blockNumber: observedBlock,
+      }),
+      reader.getStorageAt({
+        address: config.safe,
+        slot: FALLBACK_HANDLER_SLOT,
+        blockNumber: observedBlock,
+      }),
+      readAt<readonly [readonly Address[], Address]>(config.safe, SAFE_ABI, "getModulesPaginated", [
+        SENTINEL_MODULES,
+        10n,
+      ]),
+      readAt<readonly [Address, Address, Address, Address, bigint, bigint]>(
         config.guard,
         GUARD_ABI,
         "config",
       ),
-      read<boolean>(reader, config.guard, GUARD_ABI, "frozen"),
-      read<readonly Address[]>(reader, config.guard, GUARD_ABI, "getConfiguredTokens"),
-      read<Address>(reader, config.delay, DELAY_ABI, "owner"),
-      read<Address>(reader, config.delay, DELAY_ABI, "avatar"),
-      read<Address>(reader, config.delay, DELAY_ABI, "target"),
-      read<bigint>(reader, config.delay, DELAY_ABI, "txCooldown"),
-      read<bigint>(reader, config.delay, DELAY_ABI, "txExpiration"),
-      read<bigint>(reader, config.delay, DELAY_ABI, "txNonce"),
-      read<bigint>(reader, config.delay, DELAY_ABI, "queueNonce"),
-      reader.getBlockNumber?.(),
+      readAt<boolean>(config.guard, GUARD_ABI, "frozen"),
+      readAt<readonly Address[]>(config.guard, GUARD_ABI, "getConfiguredTokens"),
+      readAt<Address>(config.delay, DELAY_ABI, "owner"),
+      readAt<Address>(config.delay, DELAY_ABI, "avatar"),
+      readAt<Address>(config.delay, DELAY_ABI, "target"),
+      readAt<bigint>(config.delay, DELAY_ABI, "txCooldown"),
+      readAt<bigint>(config.delay, DELAY_ABI, "txExpiration"),
+      readAt<bigint>(config.delay, DELAY_ABI, "txNonce"),
+      readAt<bigint>(config.delay, DELAY_ABI, "queueNonce"),
     ]);
 
     const guard = addressFromStorage(guardSlot);
     const moduleGuard = addressFromStorage(moduleGuardSlot);
     const fallbackHandler = addressFromStorage(fallbackSlot);
     const modules = modulesPage[0];
-    const observedTimestamp =
-      observedBlock === undefined || !reader.getBlock
-        ? undefined
-        : (await reader.getBlock({ blockNumber: observedBlock })).timestamp;
     const failures: HealthFailure[] = [];
     if (!sameAddress(guard, config.guard))
       failures.push({
@@ -373,17 +413,11 @@ export async function readVaultSnapshot(
     let spendState: VaultSpendState | undefined;
     if (configuredTokens.some((token) => sameAddress(token, config.usdc))) {
       const [asset, recipients, spend] = await Promise.all([
-        read<readonly [bigint, bigint, bigint, bigint]>(
-          reader,
-          config.guard,
-          GUARD_ABI,
-          "assetPolicy",
-          [config.usdc],
-        ),
-        read<readonly Address[]>(reader, config.guard, GUARD_ABI, "getPolicyRecipients", [
+        readAt<readonly [bigint, bigint, bigint, bigint]>(config.guard, GUARD_ABI, "assetPolicy", [
           config.usdc,
         ]),
-        read<readonly [bigint, bigint, bigint]>(reader, config.guard, GUARD_ABI, "spendState", [
+        readAt<readonly Address[]>(config.guard, GUARD_ABI, "getPolicyRecipients", [config.usdc]),
+        readAt<readonly [bigint, bigint, bigint]>(config.guard, GUARD_ABI, "spendState", [
           config.usdc,
         ]),
       ]);
@@ -400,14 +434,71 @@ export async function readVaultSnapshot(
 
     const queueItems: VaultQueueItem[] = [];
     const maxQueueReads = 128n;
-    const end = queueNonce < txNonce + maxQueueReads ? queueNonce : txNonce + maxQueueReads;
-    for (let nonce = txNonce; nonce < end; nonce += 1n) {
+    if (queueNonce < txNonce)
+      throw new VaultHealthError("rpc-inconsistent", "Delay queue nonce is behind its head");
+    if (queueNonce - txNonce > maxQueueReads)
+      throw new VaultHealthError(
+        "rpc-inconsistent",
+        "Delay queue exceeds the supported canonical snapshot bound",
+      );
+    for (let nonce = txNonce; nonce < queueNonce; nonce += 1n) {
       const [txHash, createdAt] = await Promise.all([
-        read<Hex>(reader, config.delay, DELAY_ABI, "getTxHash", [nonce]),
-        read<bigint>(reader, config.delay, DELAY_ABI, "getTxCreatedAt", [nonce]),
+        readAt<Hex>(config.delay, DELAY_ABI, "getTxHash", [nonce]),
+        readAt<bigint>(config.delay, DELAY_ABI, "getTxCreatedAt", [nonce]),
       ]);
-      queueItems.push({ queueNonce: nonce, txHash, createdAt, status: "pending" });
+      const logs = await reader.getLogs({
+        address: config.delay,
+        event: TRANSACTION_ADDED_EVENT,
+        args: { queueNonce: nonce },
+        fromBlock: config.fromBlock ?? 0n,
+        toBlock: observedBlock,
+        strict: true,
+      });
+      if (logs.length !== 1)
+        throw new VaultHealthError("rpc-inconsistent", "Delay queue event is missing or ambiguous");
+      const args = logs[0]!.args;
+      const to = getAddress(args.to);
+      const operation = Number(args.operation);
+      const recomputed = keccak256(
+        encodePacked(
+          ["address", "uint256", "bytes", "uint8"],
+          [to, args.value, args.data, operation],
+        ),
+      );
+      if (
+        createdAt <= 0n ||
+        args.txHash.toLowerCase() !== txHash.toLowerCase() ||
+        recomputed.toLowerCase() !== txHash.toLowerCase() ||
+        (operation !== 0 && operation !== 1)
+      ) {
+        throw new VaultHealthError(
+          "rpc-inconsistent",
+          "Delay queue tuple does not match canonical storage",
+        );
+      }
+      queueItems.push({
+        queueNonce: nonce,
+        txHash,
+        createdAt,
+        to,
+        value: args.value,
+        data: args.data,
+        operation,
+        status: "pending",
+      });
     }
+
+    const finalBlock = await reader.getBlock({ blockNumber: observedBlock });
+    if (
+      !initialBlock.hash ||
+      !finalBlock.hash ||
+      initialBlock.hash.toLowerCase() !== finalBlock.hash.toLowerCase()
+    )
+      throw new VaultHealthError(
+        "rpc-inconsistent",
+        "Canonical snapshot block changed during reads",
+      );
+    const observedTimestamp = finalBlock.timestamp;
 
     return {
       chainId: config.chainId,
@@ -436,8 +527,8 @@ export async function readVaultSnapshot(
       queueItems,
       health: failures,
       writable: failures.length === 0,
-      ...(observedBlock === undefined ? {} : { observedBlock }),
-      ...(observedTimestamp === undefined ? {} : { observedTimestamp }),
+      observedBlock,
+      observedTimestamp,
     };
   } catch (error) {
     return emptySnapshot(config, health(error));

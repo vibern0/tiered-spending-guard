@@ -1,6 +1,6 @@
 # Local USDC wallet backend
 
-`apps/backend` is a loopback-only Ethereum Sepolia testnet backend for the browser wallet. It is required for passkey registration, reviewed vault provisioning, exact Safe transaction preparation, relay submission, and uncertain-broadcast reconciliation.
+`apps/backend` is a loopback-only Ethereum Sepolia testnet backend for the browser wallet. It is required for passkey registration and reviewed vault provisioning. The durable submission API is implemented behind an explicit `ConfiguredSubmissionRuntime`; the default CLI entrypoint deliberately leaves those write routes unavailable until the reviewed live transport/observer adapter in Tasks 10–12 is supplied.
 
 This is security research and testnet prototype code. It is not a production service. Do not use mainnet, real funds, hosted authentication, WalletConnect, arbitrary token calls, or secrets from this repository.
 
@@ -34,6 +34,8 @@ The server binds to `127.0.0.1:8787`. Provisioning is an internal workspace adap
 ## HTTP contract
 
 All responses are JSON with `cache-control: no-store`. Errors use `{ "error": string }`. Requests with an `Origin` must match `BACKEND_ORIGIN`; non-loopback direct sockets are rejected. HTTPS-profile CORS responses allow credentials only for that exact origin.
+
+The three `/v1/submissions` routes below exist only when the process is composed with a `ConfiguredSubmissionRuntime`. `npm --prefix apps/backend run dev` does not install a placeholder signer, relay, or hidden sponsor; it fails closed with those routes unavailable.
 
 - `GET /health` returns process readiness, `{ ok, chainId, profileId, origin, rpId }`. The browser rejects any identity mismatch before opening a WebAuthn ceremony. It does not claim that a vault is provisioned or that chain state is healthy.
 - `POST /v1/registrations/{primary|secondary}/options` creates a one-use platform, user-verified WebAuthn registration session.

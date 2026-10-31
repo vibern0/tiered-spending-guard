@@ -1,7 +1,15 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
-import { createPublicClient, type Address, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  encodeFunctionData,
+  encodePacked,
+  keccak256,
+  parseAbi,
+  type Address,
+  type PublicClient,
+} from "viem";
 
 vi.mock("viem", async (importOriginal) => ({
   ...(await importOriginal<typeof import("viem")>()),
@@ -55,6 +63,8 @@ function makeClient(
 ): PublicClient {
   return {
     getChainId: vi.fn().mockResolvedValue(values.chainId ?? 11155111),
+    getBlockNumber: vi.fn().mockResolvedValue(123n),
+    getBlock: vi.fn().mockResolvedValue({ hash: `0x${"ab".repeat(32)}`, timestamp: 456n }),
     getBytecode: vi.fn().mockResolvedValue(TEST_USDC_RUNTIME),
     getBalance: vi.fn().mockResolvedValue(values.balance ?? 2_000_000_000_000_000n),
     getTransactionCount: vi.fn().mockResolvedValue(values.safeNonce ?? 7),
@@ -168,6 +178,42 @@ describe("VaultProvider", () => {
       delayHours: 1,
     });
     expect(result.current.state.recipients).toEqual([{ name: RECIPIENT, address: RECIPIENT }]);
+  });
+
+  it("projects the exact canonical Delay tuple instead of a zero-value placeholder", async () => {
+    const data = encodeFunctionData({
+      abi: parseAbi(["function transfer(address,uint256) returns (bool)"]),
+      functionName: "transfer",
+      args: [RECIPIENT, 4_000_000n],
+    });
+    const txHash = keccak256(
+      encodePacked(["address", "uint256", "bytes", "uint8"], [USDC, 0n, data, 0]),
+    );
+    const queued = makeClient();
+    const baseRead = vi.mocked(queued.readContract).getMockImplementation();
+    if (!baseRead) throw new Error("test reader is missing its base implementation");
+    vi.mocked(queued.readContract).mockImplementation(async (input) => {
+      if (input.functionName === "queueNonce") return 1n as never;
+      if (input.functionName === "getTxHash") return txHash as never;
+      if (input.functionName === "getTxCreatedAt") return 100n as never;
+      return baseRead(input) as never;
+    });
+    Object.assign(queued, {
+      getLogs: vi
+        .fn()
+        .mockResolvedValue([
+          { args: { queueNonce: 0n, txHash, to: USDC, value: 0n, data, operation: 0 } },
+        ]),
+    });
+
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client: queued, config }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+
+    expect(result.current.state.activity).toEqual([
+      expect.objectContaining({ amount: 4_000_000n, address: RECIPIENT, counterparty: RECIPIENT }),
+    ]);
   });
 
   it("disables writes for every blocking health failure", async () => {

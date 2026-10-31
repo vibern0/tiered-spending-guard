@@ -61,7 +61,7 @@ function serviceWorkerHarness(fetcher: (request: unknown) => Promise<Response>) 
   const dispatchFetch = async (request: WorkerEvent["request"]) => {
     let response: Promise<Response> | undefined;
     handlers.get("fetch")?.({
-      request,
+      ...(request ? { request } : {}),
       respondWith: (promise) => {
         response = promise;
       },

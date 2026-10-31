@@ -5,7 +5,13 @@ import { ProtectionEditor } from "./protection-editor";
 
 const state = {
   ...emptyState(),
-  policy: { ...emptyState().policy, basePerTxCap: 100000000n, perTxCap: 200000000n },
+  policy: {
+    ...emptyState().policy,
+    basePerTxCap: 100000000n,
+    firstSignerDaily: 250000000n,
+    instantDaily: 1000000000n,
+    perTxCap: 200000000n,
+  },
   recipients: [{ name: "Recipient", address: "0x1111111111111111111111111111111111111111" }],
 };
 
