@@ -12,6 +12,7 @@ Keep relay keys, RPC URLs, credential metadata, and journal data outside the rep
 export BACKEND_RELAY_PRIVATE_KEY=0x...
 export BACKEND_RPC_URL=https://...
 export BACKEND_JOURNAL_PATH=/absolute/path/outside/repository/backend-journal.json
+export BACKEND_PROVISIONING_JOURNAL_PATH=/absolute/path/outside/repository/provisioning-live-journal.json
 export BACKEND_REVIEWED_ARTIFACTS=/absolute/path/outside/repository/reviewed-artifacts.json
 export BACKEND_PROVISIONING_APPROVAL=/absolute/path/outside/repository/provisioning-approval.json
 export BACKEND_PROVISIONING_APPROVAL_HASH_FILE=/absolute/path/outside/repository/provisioning-approval.sha256
@@ -26,7 +27,9 @@ For the later HTTPS/mobile rehearsal, set `BACKEND_PROFILE=https`, `BACKEND_ORIG
 
 The server binds to `127.0.0.1:8787`. Provisioning is an internal workspace adapter; executable external modules are disabled. The supported entrypoint composes `createReviewedPwaProvisioner` with the reviewed security-core planner, durable live journal context, and final topology verifier. Review and approval files remain outside the repository. The canonical token/runtime/X/Y/Z values are pinned by `packages/security-core/config/sepolia.pwa-phase-one.json`; no deployment address, policy, nonce, fee, artifact, runtime hash, signer, or approval is accepted from browser input.
 
-`BACKEND_REVIEWED_ARTIFACTS` must be a data-only JSON document with exactly `formatVersion`, decimal-string `safeProxySaltNonce`, bytes32 `signerRuntimeCodeHash`, external `delayArtifactSourcePath`, and the exact fixed `profile` object. After `POST /v1/vaults/plan`, independently review the generated package, write the complete approval JSON to `BACKEND_PROVISIONING_APPROVAL`, compute its security-core approval digest (which binds the package, plan, transaction order, nonces, gas limits, and EIP-1559 fees), and write only that bytes32 digest to `BACKEND_PROVISIONING_APPROVAL_HASH_FILE`. Execution fails closed if either file changes or the two no longer agree; the hash file may be created after startup.
+`BACKEND_JOURNAL_PATH` is only for prepared Safe submissions. `BACKEND_PROVISIONING_JOURNAL_PATH` is only for the seven-transaction deployment runner; startup rejects equal paths because their durable schemas are intentionally different.
+
+`BACKEND_REVIEWED_ARTIFACTS` must be a data-only JSON document with exactly `formatVersion`, decimal-string `safeProxySaltNonce`, bytes32 `signerRuntimeCodeHash`, external `delayArtifactSourcePath`, and the exact fixed `profile` object. After `POST /v1/vaults/plan`, independently review the generated package, write the complete approval JSON to `BACKEND_PROVISIONING_APPROVAL`, compute its security-core approval digest (which binds the package, plan, transaction order, nonces, gas limits, and EIP-1559 fees), and write only that bytes32 digest to `BACKEND_PROVISIONING_APPROVAL_HASH_FILE`. Execution fails closed if either file changes or the two no longer agree; the hash file may be created after startup. The backend retains the opaque verified provisioning result in memory for block-pinned Task 7 snapshot capture and serializes only its public projection.
 
 ## HTTP contract
 

@@ -5,7 +5,7 @@ import { RegistrationSessionStore } from "../src/session";
 
 const config = {
   id: "local", host: "127.0.0.1", port: 0, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
-  rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-server-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
+  rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-server-journal.json", provisioningJournalPath: "/tmp/backend-provisioning-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
   provisioningApprovalPath: "/tmp/provisioning-approval.json", provisioningApprovalHashPath: "/tmp/provisioning-approval.sha256", provisioningReviewDirectory: "/tmp/provisioning-reviews",
 } satisfies BackendConfig;
 const servers: ReturnType<typeof createBackendServer>[] = [];

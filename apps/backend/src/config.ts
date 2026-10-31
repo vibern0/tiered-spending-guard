@@ -15,6 +15,7 @@ export type BackendConfig = Readonly<{
   rpcUrl: string;
   relayPrivateKey: `0x${string}`;
   journalPath: string;
+  provisioningJournalPath: string;
   reviewedArtifactsPath: string;
   provisioningApprovalPath: string;
   provisioningApprovalHashPath: string;
@@ -84,11 +85,13 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   if (!rpId) throw new Error("BACKEND_RP_ID is required for the HTTPS profile");
   assertBackendWebAuthnIdentity(id, origin, rpId);
   const journalPath = assertExternalBackendPath(env["BACKEND_JOURNAL_PATH"], "BACKEND_JOURNAL_PATH");
+  const provisioningJournalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_JOURNAL_PATH"], "BACKEND_PROVISIONING_JOURNAL_PATH");
+  if (provisioningJournalPath === journalPath) throw new Error("submission and provisioning journals must use different paths");
   const reviewedArtifactsPath = assertExternalBackendPath(env["BACKEND_REVIEWED_ARTIFACTS"], "BACKEND_REVIEWED_ARTIFACTS");
   const provisioningApprovalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_APPROVAL"], "BACKEND_PROVISIONING_APPROVAL");
   const provisioningApprovalHashPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_APPROVAL_HASH_FILE"], "BACKEND_PROVISIONING_APPROVAL_HASH_FILE");
   const provisioningReviewDirectory = assertExternalBackendPath(env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"], "BACKEND_PROVISIONING_REVIEW_DIRECTORY");
-  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, reviewedArtifactsPath, provisioningApprovalPath, provisioningApprovalHashPath, provisioningReviewDirectory });
+  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, reviewedArtifactsPath, provisioningApprovalPath, provisioningApprovalHashPath, provisioningReviewDirectory });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

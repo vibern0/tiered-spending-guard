@@ -9,6 +9,7 @@ const valid = {
   BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
   BACKEND_RPC_URL: "https://sepolia.example.invalid",
   BACKEND_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/backend-journal.json",
+  BACKEND_PROVISIONING_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/provisioning-live-journal.json",
   BACKEND_REVIEWED_ARTIFACTS: "/tmp/recent-tx-safe-guard/reviewed-artifacts.json",
   BACKEND_PROVISIONING_APPROVAL: "/tmp/recent-tx-safe-guard/provisioning-approval.json",
   BACKEND_PROVISIONING_APPROVAL_HASH_FILE: "/tmp/recent-tx-safe-guard/provisioning-approval.sha256",
@@ -29,6 +30,7 @@ describe("backend configuration", () => {
       expect(() => loadBackendConfig(env), key).toThrow(key);
     }
     expect(() => loadBackendConfig({ ...valid, BACKEND_JOURNAL_PATH: resolve(process.cwd(), "journal.json") })).toThrow(/outside the repository/i);
+    expect(() => loadBackendConfig({ ...valid, BACKEND_PROVISIONING_JOURNAL_PATH: valid.BACKEND_JOURNAL_PATH })).toThrow(/different paths/i);
   });
 
   it("requires every HTTPS identity field and rejects unsafe profile combinations", () => {

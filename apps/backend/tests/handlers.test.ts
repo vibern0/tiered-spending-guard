@@ -5,6 +5,7 @@ import type { BackendConfig } from "../src/config";
 import type { SafeExecutionRequest } from "../src/vault";
 import type { ReviewedPwaProvisioner } from "../src/provisioner";
 import type { VerifiedPasskeyApproval } from "../src/webauthn";
+import type { PwaProvisioningResult } from "@recent-tx-safe-guard/security-core/pwa";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
@@ -16,17 +17,19 @@ const FORGED_USDC = "0x7777777777777777777777777777777777777777" as Address;
 const HASH = `0x${"aa".repeat(32)}` as Hex;
 const config = {
   id: "local", host: "127.0.0.1", port: 8787, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
-  rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
+  rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", provisioningJournalPath: "/tmp/backend-provisioning-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
   provisioningApprovalPath: "/tmp/provisioning-approval.json", provisioningApprovalHashPath: "/tmp/provisioning-approval.sha256", provisioningReviewDirectory: "/tmp/provisioning-reviews",
 } satisfies BackendConfig;
-const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH } } as const;
+const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH, deploymentsHash: HASH, policyHash: HASH } } as const;
+const verified = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, deploymentsHash: HASH, policyHash: HASH, setupReceipt: { transactionHash: HASH, blockNumber: 1n }, topologyReportHash: HASH } as const satisfies PwaProvisioningResult;
+const completion = { response: result, verified } as const;
 const publicKey = (fill: number) => Uint8Array.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20, ...new Uint8Array(32).fill(fill), 0x22, 0x58, 0x20, ...new Uint8Array(32).fill(fill + 1)]);
 const credential = (role: "primary" | "secondary", id: string, fill: number, counter = 0) => ({ role, id, credentialId: id, publicKey: publicKey(fill), counter, x: BigInt(fill), y: BigInt(fill + 1) });
 
 describe("server-authoritative backend handlers", () => {
   it("plans from stored credentials and rejects every browser deployment field", async () => {
     const plan = vi.fn().mockResolvedValue({ packageHash: HASH, planHash: HASH, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC });
-    const execute = vi.fn().mockResolvedValue(result);
+    const execute = vi.fn().mockResolvedValue(completion);
     const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan, execute } satisfies ReviewedPwaProvisioner });
     handlers.storeCredential(credential("primary", "primary-credential", 1));
     handlers.storeCredential(credential("secondary", "secondary-credential", 3));
@@ -38,10 +41,13 @@ describe("server-authoritative backend handlers", () => {
 
     const forbidden = ["address", "safe", "guard", "delay", "usdc", "token", "recipient", "policy", "signer", "nonce", "fee", "artifact", "runtimeHash", "approval"];
     for (const field of forbidden) await expect(handlers.provisionVault({ packageHash: HASH, [field]: FORGED_USDC })).rejects.toThrow(/field/i);
-    await handlers.provisionVault({ packageHash: HASH });
+    const publicResult = await handlers.provisionVault({ packageHash: HASH });
 
     expect(execute).toHaveBeenCalledWith({ packageHash: HASH });
+    expect(publicResult).toBe(result);
+    expect("verifiedProvisioning" in publicResult).toBe(false);
     expect(handlers.vaultRecord()?.safe).toBe(SAFE);
+    expect(handlers.vaultRecord()?.verifiedProvisioning).toBe(verified);
   });
 
   it("binds preparation to server-held Safe state and exposes receipt state only", async () => {
@@ -49,7 +55,7 @@ describe("server-authoritative backend handlers", () => {
       version: 1, kind: "safe-execution", idempotencyKey: HASH, chainId: 11155111, deploymentsHash: HASH, policyHash: HASH, safe: vault.safe, guard: vault.guard, asset: vault.usdc,
       transaction: { to: vault.usdc, value: 0n, data: "0x1234", operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: "0x0000000000000000000000000000000000000000", refundReceiver: "0x0000000000000000000000000000000000000000", nonce: 4n }, safeTxHash: HASH, expectedSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
     }));
-    const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan: vi.fn().mockResolvedValue({ packageHash: HASH }), execute: vi.fn().mockResolvedValue(result) }, prepareTransfer: prepare, submission: () => ({ state: "confirmed", transactionHash: HASH }) });
+    const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan: vi.fn().mockResolvedValue({ packageHash: HASH }), execute: vi.fn().mockResolvedValue(completion) }, prepareTransfer: prepare, submission: () => ({ state: "confirmed", transactionHash: HASH }) });
     handlers.storeCredential(credential("primary", "p", 1));
     handlers.storeCredential(credential("secondary", "s", 3));
     await handlers.planVault({ primaryCredentialId: "p", secondaryCredentialId: "s" });
@@ -66,7 +72,7 @@ describe("server-authoritative backend handlers", () => {
       if (verifyAssertion.mock.calls.length === 2) throw new Error("assertion rejected");
       return { role: input.role, credentialId: input.credentialId, counter: input.credential.counter + 1, payload: "0x1234" };
     });
-    const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan: vi.fn().mockResolvedValue({ packageHash: HASH }), execute: vi.fn().mockResolvedValue(result) }, verifyAssertion });
+    const handlers = createBackendHandlers({ config, usdc: USDC, provisioner: { plan: vi.fn().mockResolvedValue({ packageHash: HASH }), execute: vi.fn().mockResolvedValue(completion) }, verifyAssertion });
     const primary = credential("primary", "p", 1);
     handlers.storeCredential(primary);
     expect(() => handlers.storeCredential(primary)).toThrow(/already registered/i);

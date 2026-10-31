@@ -39,9 +39,14 @@ export type BackendPwaProvisioningResult = Readonly<{
   evidence: Readonly<{ setupTransactionHash: Hex; verificationReportHash: Hex; deploymentsHash: Hex; policyHash: Hex }>;
 }>;
 
+export type BackendPwaProvisioningCompletion = Readonly<{
+  response: BackendPwaProvisioningResult;
+  verified: PwaProvisioningResult;
+}>;
+
 export type ReviewedPwaProvisioner = Readonly<{
   plan(input: Readonly<{ primary: StoredCredential; secondary: StoredCredential }>): Promise<PwaProvisioningSummary>;
-  execute(input: Readonly<{ packageHash: Hex }>): Promise<BackendPwaProvisioningResult>;
+  execute(input: Readonly<{ packageHash: Hex }>): Promise<BackendPwaProvisioningCompletion>;
 }>;
 
 export type ReviewedPwaProvisionerOptions = Readonly<{
@@ -96,7 +101,7 @@ export function createReviewedPwaProvisioner(options: ReviewedPwaProvisionerOpti
       try {
         const completed = await executeApprovedPwaProvisioning(pending.plan, approval, lease.context);
         pending = undefined;
-        return result(completed);
+        return Object.freeze({ response: result(completed), verified: completed });
       } finally {
         lease.close();
       }
@@ -151,6 +156,6 @@ export function createConfiguredReviewedPwaProvisioner(config: BackendConfig): R
       const expectedDeployerNonce = BigInt(await client.getTransactionCount({ address: account.address }));
       return resolvePwaProvisioningPlan({ profile: inputs.profile, deployer: account.address, expectedDeployerNonce, safeProxySaltNonce: inputs.safeProxySaltNonce, primaryCredential: { x: primary.x, y: primary.y }, secondaryCredential: { x: secondary.x, y: secondary.y }, expectedSignerRuntimeCodeHash: inputs.signerRuntimeCodeHash, delayArtifactSource: readFileSync(inputs.delayArtifactSourcePath, "utf8"), client });
     },
-    executionContext: (plan) => createPwaProvisioningRuntime({ plan, journalPath: config.journalPath, account, client }),
+    executionContext: (plan) => createPwaProvisioningRuntime({ plan, journalPath: config.provisioningJournalPath, account, client }),
   });
 }

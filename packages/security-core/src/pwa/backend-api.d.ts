@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
 
 export type PwaProvisioningPlan = Readonly<{
+  deployer: Address;
   planHash: Hex;
   safe: Address;
   guard: Address;

@@ -5,10 +5,12 @@ import type { PwaProvisioningSummary, ReviewedPwaProvisioner } from "./provision
 import { challengeForDigest, verifyPasskeyAssertion, type BackendPasskeyRole, type StoredCredential, type VerifiedPasskeyApproval } from "./webauthn";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import type { Address, Hex } from "viem";
+import type { PwaProvisioningResult } from "@recent-tx-safe-guard/security-core/pwa";
 
 export type BackendVaultRecord = Readonly<VaultProvisioningResult & {
   primaryCredentialId: string;
   secondaryCredentialId: string;
+  verifiedProvisioning: PwaProvisioningResult;
 }>;
 
 export type BackendTransferIntent = Readonly<{ recipient: unknown; amount: unknown; idempotencyKey: unknown }>;
@@ -93,10 +95,10 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     if (Object.keys(body).length !== 1 || !("packageHash" in body)) throw new Error("vault execution body contains an unsupported field");
     if (typeof body.packageHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(body.packageHash)) throw new Error("packageHash is required");
     if (!pending || pending.packageHash.toLowerCase() !== body.packageHash.toLowerCase()) throw new Error("packageHash does not match the pending review");
-    const result = await options.provisioner.execute({ packageHash: body.packageHash as Hex });
-    vault = Object.freeze({ ...result, primaryCredentialId: pending.primaryCredentialId, secondaryCredentialId: pending.secondaryCredentialId });
+    const completed = await options.provisioner.execute({ packageHash: body.packageHash as Hex });
+    vault = Object.freeze({ ...completed.response, primaryCredentialId: pending.primaryCredentialId, secondaryCredentialId: pending.secondaryCredentialId, verifiedProvisioning: completed.verified });
     pending = undefined;
-    return result;
+    return completed.response;
   };
 
   const requireVault = (): BackendVaultRecord => {
