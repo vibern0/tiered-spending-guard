@@ -1,7 +1,7 @@
 import { concatHex, encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
 import { parseZodiacDelayArtifact } from "../config/zodiac-delay";
 import { buildVaultPrerequisiteCreationCodes } from "../live/vault-deployment";
-import type { VerifiedDeploymentInfrastructure } from "../config/deployments";
+import type { PwaPlanningInfrastructure, VerifiedDeploymentInfrastructure } from "../config/deployments";
 
 export type ReviewedVaultArtifacts = Readonly<{
   safeProxyCreationCode: Hex;
@@ -41,7 +41,7 @@ function creationRuntimeHash(client: ArtifactResolutionClient, creationCode: Hex
  */
 export async function resolveReviewedVaultArtifacts(input: Readonly<{
   client: ArtifactResolutionClient;
-  deployments: VerifiedDeploymentInfrastructure;
+  deployments: VerifiedDeploymentInfrastructure | PwaPlanningInfrastructure;
   safe: Address;
   primaryPasskey: Address;
   ecdsaSecondary: Address;

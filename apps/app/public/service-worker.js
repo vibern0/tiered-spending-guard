@@ -8,7 +8,12 @@ const SHELL_URLS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS)));
+  event.waitUntil(caches.open(SHELL_CACHE).then(async (cache) => {
+    await Promise.all(SHELL_URLS.map(async (url) => {
+      const response = await fetch(url, { cache: "reload" });
+      if (cacheable(response)) await cache.put(url, response);
+    }));
+  }));
 });
 
 self.addEventListener("activate", (event) => {

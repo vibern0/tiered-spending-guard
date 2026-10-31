@@ -70,7 +70,7 @@ No package version, contract dependency, signer, or broadcast path changed. The 
 
 ## 2026-10-31 PWA provisioning workspace boundary
 
-No third-party version or Solidity dependency changed. `apps/backend` now declares the repository's private `@recent-tx-safe-guard/security-core` workspace package so provisioning uses the same reviewed planner, official Safe/passkey deployment resolver, artifact brand, fixed PWA profile, and durable live submission journal. The root npm lockfile records that local workspace edge. Executable `BACKEND_PROVISIONER_MODULE` loading was removed; review and approval documents are data-only files outside the repository. This is a testnet provisioning boundary, not an audit or production approval.
+No third-party version or Solidity dependency changed. `apps/backend` now declares the repository's private `@recent-tx-safe-guard/security-core` workspace package so the supported entrypoint directly composes the same reviewed planner, official Safe/passkey deployment resolver, artifact brand, fixed PWA profile, durable live submission journal, and final topology verifier. The root npm lockfile records that local workspace edge. Executable `BACKEND_PROVISIONER_MODULE` loading was removed; reviewed inputs, approval, and the independently reviewed full approval digest are data-only files outside the repository. The digest covers transaction order, nonces, gas limits, and EIP-1559 fees. External paths are rejected after symlink-aware repository containment checks. This is a testnet provisioning boundary, not an audit or production approval.
 
 ## 2026-10-16 Pimlico read-only compatibility investigation
 

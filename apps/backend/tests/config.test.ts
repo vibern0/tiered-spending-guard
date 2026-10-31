@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadBackendConfig } from "../src/config";
+import { resolve } from "node:path";
 
 const valid = {
   BACKEND_PROFILE: "local",
@@ -10,6 +11,7 @@ const valid = {
   BACKEND_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/backend-journal.json",
   BACKEND_REVIEWED_ARTIFACTS: "/tmp/recent-tx-safe-guard/reviewed-artifacts.json",
   BACKEND_PROVISIONING_APPROVAL: "/tmp/recent-tx-safe-guard/provisioning-approval.json",
+  BACKEND_PROVISIONING_APPROVAL_HASH_FILE: "/tmp/recent-tx-safe-guard/provisioning-approval.sha256",
   BACKEND_PROVISIONING_REVIEW_DIRECTORY: "/tmp/recent-tx-safe-guard/provisioning-reviews",
 };
 
@@ -19,13 +21,14 @@ describe("backend configuration", () => {
       id: "local",
       origin: "http://localhost:5173",
       rpId: "localhost",
-      reviewedArtifactsPath: valid.BACKEND_REVIEWED_ARTIFACTS,
     });
+    expect(loadBackendConfig(valid).reviewedArtifactsPath).toMatch(/recent-tx-safe-guard\/reviewed-artifacts\.json$/);
     for (const key of Object.keys(valid).filter((key) => key !== "BACKEND_ORIGIN" && key !== "BACKEND_RP_ID")) {
       const env = { ...valid };
       delete env[key as keyof typeof env];
       expect(() => loadBackendConfig(env), key).toThrow(key);
     }
+    expect(() => loadBackendConfig({ ...valid, BACKEND_JOURNAL_PATH: resolve(process.cwd(), "journal.json") })).toThrow(/outside the repository/i);
   });
 
   it("requires every HTTPS identity field and rejects unsafe profile combinations", () => {

@@ -10,11 +10,13 @@ import {
   type Hex,
 } from "viem";
 import type { AssetSpendState } from "../config/policy";
+import { classifyAction } from "../policy/classify";
 import { buildCancellationTransaction, buildExecutionTransaction, buildQueueTransaction, queueFingerprint } from "../queue/delay";
 import { SAFE_TX_TYPES, type SafeTxMessage } from "../signers/types";
 import { canonicalSubmissionJson, snapshotPreparedPwaIntent } from "../transport/validate";
 import type { PreparedDirectPwaIntent, PreparedPwaIntent, PreparedSignedPwaIntent, PwaQueueBinding, SimulationEvidence } from "../transport/types";
 import { PWA_RECIPIENT, SEPOLIA_CHAIN_ID, SEPOLIA_USDC_ADDRESS } from "./profile";
+import { isVerifiedPwaProvisioningResult, type PwaProvisioningResult } from "./provisioning";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const ERC20_ABI = parseAbi(["function transfer(address,uint256) returns (bool)"]);
@@ -93,13 +95,16 @@ function freezeSnapshot(snapshot: VerifiedPwaSnapshot): VerifiedPwaSnapshot {
   return value;
 }
 
-export async function captureVerifiedPwaSnapshot(blockNumber: bigint, reader: PwaSnapshotReader): Promise<VerifiedPwaSnapshot> {
+export async function captureVerifiedPwaSnapshot(vault: PwaProvisioningResult, blockNumber: bigint, reader: PwaSnapshotReader): Promise<VerifiedPwaSnapshot> {
+  if (!isVerifiedPwaProvisioningResult(vault)) throw new Error("verified PWA provisioning result is required for snapshot capture");
   const before = await reader.getBlock({ blockNumber });
   if (before.number !== blockNumber || !before.hash) throw new Error("PWA snapshot block is unavailable");
   const state = await reader.readAt(blockNumber);
   const after = await reader.getBlock({ blockNumber });
   if (after.number !== blockNumber || !after.hash || !same(before.hash, after.hash)) throw new Error("PWA snapshot block reorg detected");
-  return freezeSnapshot({ ...state, formatVersion: 1, chainId: SEPOLIA_CHAIN_ID, blockNumber, blockHash: before.hash, timestamp: before.timestamp });
+  const snapshot = freezeSnapshot({ ...state, formatVersion: 1, chainId: SEPOLIA_CHAIN_ID, blockNumber, blockHash: before.hash, timestamp: before.timestamp });
+  if (!isAddressEqual(snapshot.safe, vault.safe) || !isAddressEqual(snapshot.guard, vault.guard) || !isAddressEqual(snapshot.delay, vault.delay) || !isAddressEqual(snapshot.usdc, vault.usdc) || !isAddressEqual(snapshot.primaryPasskey, vault.primaryPasskey) || !isAddressEqual(snapshot.secondaryPasskey, vault.secondaryPasskey) || !same(snapshot.deploymentsHash, vault.deploymentsHash) || !same(snapshot.policyHash, vault.policyHash)) throw new Error("PWA snapshot does not match verified provisioning/topology evidence");
+  return snapshot;
 }
 
 export function brandVerifiedPwaSnapshotForTestsOnly(snapshot: VerifiedPwaSnapshot): VerifiedPwaSnapshot {
@@ -174,10 +179,12 @@ export function preparePwaIntent(snapshot: VerifiedPwaSnapshot, intent: PwaInten
     if (!isAddressEqual(intent.recipient, snapshot.recipient)) throw new Error("transfer recipient does not match the fixed profile");
     if (intent.amount <= 0n) throw new Error("transfer amount must be positive");
     const data = transferData(snapshot.recipient, intent.amount);
-    const currentWindow = (snapshot.timestamp / 86_400n) * 86_400n;
-    const current = snapshot.spendState.window === currentWindow ? snapshot.spendState : { window: currentWindow, baseSpent: 0n, instantSpent: 0n };
-    if (intent.amount <= snapshot.limits.basePerTransaction && current.baseSpent + intent.amount <= snapshot.limits.baseDailyLimit && current.instantSpent + intent.amount <= snapshot.limits.instantDailyLimit) return signed(snapshot, "base-transfer", snapshot.usdc, data, intent.amount, Object.freeze(["primary"]), null);
-    if (intent.amount <= snapshot.limits.stepUpPerTransaction && current.instantSpent + intent.amount <= snapshot.limits.instantDailyLimit) return signed(snapshot, "step-up-transfer", snapshot.usdc, data, intent.amount, Object.freeze(["primary", "secondary"]), null);
+    const policy = { chainId: SEPOLIA_CHAIN_ID, safe: snapshot.safe, passkey: snapshot.primaryPasskey, primary: snapshot.primaryPasskey, ecdsaSecondary: ZERO, secondaries: [{ address: snapshot.secondaryPasskey, role: "secondary" as const, kind: "safe-contract" as const, enabled: true }], secondaryProfile: "contract-only" as const, delay: snapshot.delay, periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: Number(snapshot.cooldownSeconds), expirationSeconds: Number(snapshot.expirationSeconds), assets: [{ token: snapshot.usdc, ...snapshot.limits, recipients: [snapshot.recipient] }] };
+    const action = { to: snapshot.usdc, value: 0n, data, operation: 0 as const, signer: snapshot.primaryPasskey };
+    const withoutSecondary = classifyAction(policy, action, snapshot.spendState, snapshot.timestamp, false);
+    if (withoutSecondary === "base") return signed(snapshot, "base-transfer", snapshot.usdc, data, intent.amount, Object.freeze(["primary"]), null);
+    const withSecondary = classifyAction(policy, action, snapshot.spendState, snapshot.timestamp, true);
+    if (withSecondary === "step-up") return signed(snapshot, "step-up-transfer", snapshot.usdc, data, intent.amount, Object.freeze(["primary", "secondary"]), null);
     const queueItem = Object.freeze({ queueNonce: snapshot.queueTailNonce, queueFingerprint: queueFingerprint({ safe: snapshot.safe, delay: snapshot.delay, to: snapshot.usdc, value: 0n, data, operation: 0, queueNonce: snapshot.queueTailNonce }), to: snapshot.usdc, value: 0n, data, operation: 0 as const, createdAt: 0n, readyAt: 0n, expiresAt: 0n });
     const queueTransaction = buildQueueTransaction({ safe: snapshot.safe, delay: snapshot.delay, to: snapshot.usdc, value: 0n, data, operation: 0, queueNonce: snapshot.queueTailNonce });
     return signed(snapshot, "queue-transfer", queueTransaction.to, queueTransaction.data, intent.amount, Object.freeze(["primary", "secondary"]), queueItem);

@@ -1,4 +1,9 @@
 import { isAddress, type Address } from "viem";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, basename, resolve, relative, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPOSITORY_ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../.."));
 
 export type BackendConfig = Readonly<{
   id: "local" | "https";
@@ -12,10 +17,27 @@ export type BackendConfig = Readonly<{
   journalPath: string;
   reviewedArtifactsPath: string;
   provisioningApprovalPath: string;
+  provisioningApprovalHashPath: string;
   provisioningReviewDirectory: string;
 }>;
 
 export type BackendEnvironment = Readonly<Record<string, string | undefined>>;
+
+export function assertExternalBackendPath(value: string | undefined, label: string): string {
+  if (!value || !isAbsolute(value)) throw new Error(`${label} must be an absolute path outside the repository`);
+  const parts: string[] = [];
+  let existing = resolve(value);
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    parts.unshift(basename(existing));
+    existing = parent;
+  }
+  const target = resolve(realpathSync(existing), ...parts);
+  const fromRepository = relative(REPOSITORY_ROOT, target);
+  if (fromRepository === "" || (!fromRepository.startsWith("..") && !isAbsolute(fromRepository))) throw new Error(`${label} must point outside the repository`);
+  return target;
+}
 
 function exactOrigin(input: string, label: string): URL {
   if (input.includes("*")) throw new Error(`${label} cannot contain a wildcard`);
@@ -61,15 +83,12 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   if (!origin) throw new Error("BACKEND_ORIGIN is required for the HTTPS profile");
   if (!rpId) throw new Error("BACKEND_RP_ID is required for the HTTPS profile");
   assertBackendWebAuthnIdentity(id, origin, rpId);
-  const journalPath = env["BACKEND_JOURNAL_PATH"];
-  if (!journalPath || !journalPath.startsWith("/")) throw new Error("BACKEND_JOURNAL_PATH must point outside the repository");
-  const reviewedArtifactsPath = env["BACKEND_REVIEWED_ARTIFACTS"];
-  if (!reviewedArtifactsPath || !reviewedArtifactsPath.startsWith("/")) throw new Error("BACKEND_REVIEWED_ARTIFACTS must point to reviewed artifacts outside the repository");
-  const provisioningApprovalPath = env["BACKEND_PROVISIONING_APPROVAL"];
-  if (!provisioningApprovalPath || !provisioningApprovalPath.startsWith("/")) throw new Error("BACKEND_PROVISIONING_APPROVAL must point to a local approval outside the repository");
-  const provisioningReviewDirectory = env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"];
-  if (!provisioningReviewDirectory || !provisioningReviewDirectory.startsWith("/")) throw new Error("BACKEND_PROVISIONING_REVIEW_DIRECTORY must point outside the repository");
-  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, reviewedArtifactsPath, provisioningApprovalPath, provisioningReviewDirectory });
+  const journalPath = assertExternalBackendPath(env["BACKEND_JOURNAL_PATH"], "BACKEND_JOURNAL_PATH");
+  const reviewedArtifactsPath = assertExternalBackendPath(env["BACKEND_REVIEWED_ARTIFACTS"], "BACKEND_REVIEWED_ARTIFACTS");
+  const provisioningApprovalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_APPROVAL"], "BACKEND_PROVISIONING_APPROVAL");
+  const provisioningApprovalHashPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_APPROVAL_HASH_FILE"], "BACKEND_PROVISIONING_APPROVAL_HASH_FILE");
+  const provisioningReviewDirectory = assertExternalBackendPath(env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"], "BACKEND_PROVISIONING_REVIEW_DIRECTORY");
+  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, reviewedArtifactsPath, provisioningApprovalPath, provisioningApprovalHashPath, provisioningReviewDirectory });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

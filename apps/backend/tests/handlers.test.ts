@@ -17,7 +17,7 @@ const HASH = `0x${"aa".repeat(32)}` as Hex;
 const config = {
   id: "local", host: "127.0.0.1", port: 8787, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
   rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", reviewedArtifactsPath: "/tmp/reviewed.json",
-  provisioningApprovalPath: "/tmp/provisioning-approval.json", provisioningReviewDirectory: "/tmp/provisioning-reviews",
+  provisioningApprovalPath: "/tmp/provisioning-approval.json", provisioningApprovalHashPath: "/tmp/provisioning-approval.sha256", provisioningReviewDirectory: "/tmp/provisioning-reviews",
 } satisfies BackendConfig;
 const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH } } as const;
 const publicKey = (fill: number) => Uint8Array.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20, ...new Uint8Array(32).fill(fill), 0x22, 0x58, 0x20, ...new Uint8Array(32).fill(fill + 1)]);

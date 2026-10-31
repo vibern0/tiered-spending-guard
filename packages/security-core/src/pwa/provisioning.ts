@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   encodeFunctionData,
   getAddress,
@@ -7,10 +7,13 @@ import {
   keccak256,
   stringToHex,
   type Address,
+  type Account,
   type Hex,
 } from "viem";
 import {
   isPwaPlanningInfrastructure,
+  resolvePwaPlanningInfrastructure,
+  resolveVerifiedDeploymentInfrastructure,
   type PwaPlanningInfrastructure,
   type ReadOnlyDeploymentClient,
 } from "../config/deployments";
@@ -23,15 +26,19 @@ import {
   type PwaPhaseOneProfile,
 } from "./profile";
 import {
+  assertSafeCreationReady,
   buildVaultPlan,
   deriveVaultSafeProxyAddress,
   planHash as vaultPlanHash,
   type PlannedDeploymentTransaction,
   type VaultDeploymentPlan,
+  verifyVaultPrerequisites,
 } from "../topology/build";
 import { deriveComponentAddresses } from "../topology/addressing";
-import { isReviewedVaultArtifacts, type ReviewedVaultArtifacts } from "../topology/reviewed-artifacts";
+import { isReviewedVaultArtifacts, resolveReviewedVaultArtifacts, type ArtifactResolutionClient, type ReviewedVaultArtifacts } from "../topology/reviewed-artifacts";
 import { submitLiveIntent, type LiveContext, type LiveJournal } from "../../scripts/live/submission";
+import { verifyTopology } from "../topology/verify";
+import { createLiveJournalStore, createSepoliaLiveContext, type SepoliaRpc } from "../../scripts/live/runtime";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -40,6 +47,7 @@ const FACTORY_ABI = [
   { name: "getSigner", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }], outputs: [{ type: "address" }] },
   { name: "createSigner", type: "function", stateMutability: "nonpayable", inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }], outputs: [{ type: "address" }] },
 ] as const;
+const SAFE_PROXY_FACTORY_ABI = [{ name: "proxyCreationCode", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] }] as const;
 
 export type PwaCredentialCoordinates = Readonly<{ x: bigint; y: bigint }>;
 export type PwaProvisioningTransactionId = "primary-signer" | "secondary-signer" | "setup-helper" | "guard" | "delay" | "maintenance" | "safe-proxy";
@@ -55,7 +63,10 @@ export type PwaProvisioningPlan = Readonly<{
   guard: Address;
   delay: Address;
   usdc: Address;
+  deploymentsHash: Hex;
+  policyHash: Hex;
   planHash: Hex;
+  policy: VaultPolicy;
   infrastructure: PwaPlanningInfrastructure;
   transactions: readonly PwaProvisioningTransaction[];
   vaultPlan: VaultDeploymentPlan;
@@ -88,11 +99,50 @@ export type PwaProvisioningExecutionContext = Readonly<{
 }>;
 const reviewedExecutionContexts = new WeakSet<object>();
 
+type PwaExecutionClient = ReadOnlyDeploymentClient & Readonly<{
+  getStorageAt(args: { address: Address; slot: Hex }): Promise<Hex | undefined>;
+}>;
+
 export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
+  plan: PwaProvisioningPlan;
   journal: LiveJournal;
   liveContext: LiveContext;
-  verifyFinalTopology(plan: PwaProvisioningPlan): Promise<Hex>;
+  client: PwaExecutionClient;
 }>): PwaProvisioningExecutionContext {
+  const verifyProgress = async (transaction: PwaProvisioningTransaction): Promise<void> => {
+    const index = input.plan.transactions.findIndex((candidate) => candidate.id === transaction.id);
+    if (index < 0) throw new Error("fail closed: provisioning transaction is not in the reviewed plan");
+    const observedNonceRaw = await input.client.getTransactionCount?.({ address: input.plan.deployer });
+    if (observedNonceRaw === undefined || BigInt(observedNonceRaw) !== transaction.nonce) throw new Error("fail closed: deployer nonce drift before provisioning transaction");
+    for (const [candidateIndex, candidate] of input.plan.transactions.entries()) {
+      const code = await input.client.getBytecode({ address: candidate.expectedCreatedAddress });
+      if (candidateIndex < index) {
+        if (!code || code === "0x" || keccak256(code).toLowerCase() !== candidate.expectedRuntimeCodeHash.toLowerCase()) throw new Error(`fail closed: ${candidate.id} runtime evidence missing before ${transaction.id}`);
+      } else if (code && code !== "0x") {
+        throw new Error(`fail closed: ${candidate.id} address already has code before its reviewed transaction`);
+      }
+    }
+    if (transaction.id === "safe-proxy") {
+      const prerequisites = await verifyVaultPrerequisites(input.client, input.plan.vaultPlan, "before-setup");
+      assertSafeCreationReady(input.plan.vaultPlan, prerequisites, transaction.nonce);
+    }
+  };
+
+  const verifyFinalTopology = async (): Promise<Hex> => {
+    const finalNonce = input.plan.transactions.at(-1)!.nonce + 1n;
+    const primary = input.plan.infrastructure.primaryPasskeySigner;
+    const deployments = await resolveVerifiedDeploymentInfrastructure(input.client, {
+      chainId: SEPOLIA_CHAIN_ID,
+      deployer: input.plan.deployer,
+      expectedDeployerNonce: finalNonce,
+      passkeySigner: { address: primary.address, runtimeCodeHash: primary.expectedRuntimeCodeHash, bindingHash: primary.bindingHash, source: primary.source, binding: primary.binding },
+    });
+    const prerequisites = await verifyVaultPrerequisites(input.client, input.plan.vaultPlan, "after-setup");
+    const report = await verifyTopology({ chainId: SEPOLIA_CHAIN_ID, policy: input.plan.policy, safe: input.plan.safe, guard: input.plan.guard, delay: input.plan.delay, deployments, prerequisites, client: input.client });
+    if (!report.ok) throw new Error(`fail closed: final topology verification failed: ${report.failures.join(", ")}`);
+    return keccak256(stringToHex(canonical(report)));
+  };
+
   const context: PwaProvisioningExecutionContext = Object.freeze({
     currentDeployerNonce: async () => BigInt(await input.liveContext.nonce()),
     async submit(transaction) {
@@ -106,15 +156,40 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
         maxFeePerGas: transaction.maxFeePerGas,
         maxPriorityFeePerGas: transaction.maxPriorityFeePerGas,
       } as const;
+      if (!input.journal.entries.some((entry) => entry.id === intent.id)) await verifyProgress(transaction);
       let entry = await submitLiveIntent(intent, input.journal, input.liveContext);
       if (entry.status === "pending") entry = await submitLiveIntent(intent, input.journal, input.liveContext);
       if (!entry.receipt || entry.status !== "success") throw new Error(`fail closed: ${transaction.id} lacks a canonical successful receipt`);
       return Object.freeze({ transactionHash: entry.transactionHash, receipt: Object.freeze({ status: "success" as const, blockNumber: entry.receipt.blockNumber }) });
     },
-    verifyFinalTopology: input.verifyFinalTopology,
+    verifyFinalTopology,
   });
   reviewedExecutionContexts.add(context);
   return context;
+}
+
+export function createPwaProvisioningRuntime(input: Readonly<{
+  plan: PwaProvisioningPlan;
+  journalPath: string;
+  account: Account;
+  client: PwaExecutionClient & SepoliaRpc;
+}>): Readonly<{ context: PwaProvisioningExecutionContext; close(): void }> {
+  if (!isAddressEqual(input.account.address, input.plan.deployer)) throw new Error("fail closed: provisioning account does not match reviewed deployer");
+  const store = createLiveJournalStore(input.journalPath, input.account.address);
+  const journal = store.load();
+  const liveContext = createSepoliaLiveContext({
+    account: input.account,
+    client: input.client,
+    verify: async () => { if (await input.client.getChainId() !== SEPOLIA_CHAIN_ID) throw new Error("fail closed: provisioning chain changed"); },
+    persist: async (value) => { store.save(value); },
+  });
+  try {
+    const context = createDurablePwaProvisioningExecutionContext({ plan: input.plan, journal, liveContext, client: input.client });
+    return Object.freeze({ context, close: store.close });
+  } catch (error) {
+    store.close();
+    throw error;
+  }
 }
 
 export function brandPwaProvisioningExecutionContextForTestsOnly(context: PwaProvisioningExecutionContext): PwaProvisioningExecutionContext {
@@ -131,11 +206,25 @@ export type PwaProvisioningResult = Readonly<{
   primaryPasskey: Address;
   secondaryPasskey: Address;
   usdc: Address;
+  deploymentsHash: Hex;
+  policyHash: Hex;
   setupReceipt: Readonly<{ transactionHash: Hex; blockNumber: bigint }>;
   topologyReportHash: Hex;
 }>;
+const verifiedProvisioningResults = new WeakSet<object>();
+
+export function isVerifiedPwaProvisioningResult(value: unknown): value is PwaProvisioningResult {
+  return typeof value === "object" && value !== null && verifiedProvisioningResults.has(value);
+}
+
+export function brandPwaProvisioningResultForTestsOnly(value: PwaProvisioningResult): PwaProvisioningResult {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") throw new Error("test-only PWA provisioning result branding is disabled outside tests");
+  verifiedProvisioningResults.add(value);
+  return value;
+}
 
 type ProvisioningClient = Pick<ReadOnlyDeploymentClient, "getBytecode" | "readContract">;
+type PwaPlanResolutionClient = ReadOnlyDeploymentClient & ArtifactResolutionClient;
 
 export type CreatePwaProvisioningPlanInput = Readonly<{
   profile: PwaPhaseOneProfile;
@@ -147,6 +236,18 @@ export type CreatePwaProvisioningPlanInput = Readonly<{
   infrastructure: PwaPlanningInfrastructure;
   artifacts: ReviewedVaultArtifacts;
   client: ProvisioningClient;
+}>;
+
+export type ResolvePwaProvisioningPlanInput = Readonly<{
+  profile: PwaPhaseOneProfile;
+  deployer: Address;
+  expectedDeployerNonce: bigint;
+  safeProxySaltNonce: bigint;
+  primaryCredential: PwaCredentialCoordinates;
+  secondaryCredential: PwaCredentialCoordinates;
+  expectedSignerRuntimeCodeHash: Hex;
+  delayArtifactSource: string;
+  client: PwaPlanResolutionClient;
 }>;
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
@@ -172,6 +273,33 @@ function assertCanonicalProfile(profile: PwaPhaseOneProfile): void {
   if (profile.secondaryProfile !== "contract-only" || profile.periodSeconds !== 86400 || profile.periodAnchor !== 0n) throw new Error("PWA provisioning requires the fixed contract-only daily profile");
   if (profile.limits.basePerTransaction !== 1_000_000n || profile.limits.baseDailyLimit !== 1_000_000n || profile.limits.stepUpPerTransaction !== 3_000_000n || profile.limits.instantDailyLimit !== 3_000_000n) throw new Error("PWA provisioning requires canonical X/Y limits");
   if (profile.delay.cooldownSeconds !== 120 || profile.delay.expirationSeconds !== 600 || !isAddressEqual(profile.recipient, PWA_RECIPIENT)) throw new Error("PWA provisioning requires canonical recipient and Z delay");
+}
+
+function fixedPolicy(input: Readonly<{ profile: PwaPhaseOneProfile; safe: Address; primaryPasskey: Address; secondaryPasskey: Address; delay: Address }>): VaultPolicy {
+  return Object.freeze({
+    chainId: SEPOLIA_CHAIN_ID,
+    safe: input.safe,
+    passkey: input.primaryPasskey,
+    primary: input.primaryPasskey,
+    ecdsaSecondary: ZERO,
+    secondaries: [{ address: input.secondaryPasskey, role: "secondary", kind: "safe-contract", enabled: true }],
+    secondaryProfile: "contract-only",
+    delay: input.delay,
+    periodSeconds: 86400,
+    periodAnchor: input.profile.periodAnchor,
+    cooldownSeconds: input.profile.delay.cooldownSeconds,
+    expirationSeconds: input.profile.delay.expirationSeconds,
+    assets: [{ token: SEPOLIA_USDC_ADDRESS, basePerTransaction: input.profile.limits.basePerTransaction, stepUpPerTransaction: input.profile.limits.stepUpPerTransaction, baseDailyLimit: input.profile.limits.baseDailyLimit, instantDailyLimit: input.profile.limits.instantDailyLimit, recipients: [PWA_RECIPIENT] }],
+  });
+}
+
+function infrastructureHash(infrastructure: PwaPlanningInfrastructure): Hex {
+  return keccak256(stringToHex(canonical({
+    chainId: infrastructure.chainId,
+    deployer: infrastructure.deployer,
+    dependencies: infrastructure.dependencies,
+    primaryPasskeySigner: infrastructure.primaryPasskeySigner,
+  })));
 }
 
 function signerTransaction(id: "primary-signer" | "secondary-signer", nonce: bigint, credential: PwaCredentialCoordinates, address: Address, infrastructure: PwaPlanningInfrastructure): PwaProvisioningTransaction {
@@ -217,28 +345,7 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
 
   const prerequisiteNonce = input.expectedDeployerNonce + 2n;
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: prerequisiteNonce });
-  const policyBase: VaultPolicy = {
-    chainId: SEPOLIA_CHAIN_ID,
-    safe: ZERO,
-    passkey: primaryPasskey,
-    primary: primaryPasskey,
-    ecdsaSecondary: ZERO,
-    secondaries: [{ address: secondaryPasskey, role: "secondary", kind: "safe-contract", enabled: true }],
-    secondaryProfile: "contract-only",
-    delay: components.delay,
-    periodSeconds: 86400,
-    periodAnchor: input.profile.periodAnchor,
-    cooldownSeconds: input.profile.delay.cooldownSeconds,
-    expirationSeconds: input.profile.delay.expirationSeconds,
-    assets: [{
-      token: SEPOLIA_USDC_ADDRESS,
-      basePerTransaction: input.profile.limits.basePerTransaction,
-      stepUpPerTransaction: input.profile.limits.stepUpPerTransaction,
-      baseDailyLimit: input.profile.limits.baseDailyLimit,
-      instantDailyLimit: input.profile.limits.instantDailyLimit,
-      recipients: [PWA_RECIPIENT],
-    }],
-  };
+  const policyBase = fixedPolicy({ profile: input.profile, safe: ZERO, primaryPasskey, secondaryPasskey, delay: components.delay });
   const safe = deriveVaultSafeProxyAddress({ policy: policyBase, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, safeProxyCreationCode: input.artifacts.safeProxyCreationCode, deployments: input.infrastructure });
   const policy = Object.freeze({ ...policyBase, safe });
   const vaultPlan = buildVaultPlan({ policy, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, artifacts: input.artifacts, deployments: input.infrastructure, plannedPrefixTransactionCount: 2 });
@@ -255,7 +362,27 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
     Object.freeze({ id: "safe-proxy" as const, ...vaultPlan.safeProxyDeployment }),
   ]);
   const planHash = keccak256(stringToHex(canonical({ signerTransactions, vaultPlanHash: vaultPlanHash(vaultPlan) })));
-  return Object.freeze({ formatVersion: 1, chainId: SEPOLIA_CHAIN_ID, deployer: input.deployer, primaryPasskey, secondaryPasskey, safe, guard: components.guard, delay: components.delay, usdc: SEPOLIA_USDC_ADDRESS, planHash, infrastructure: input.infrastructure, transactions, vaultPlan });
+  return Object.freeze({ formatVersion: 1, chainId: SEPOLIA_CHAIN_ID, deployer: input.deployer, primaryPasskey, secondaryPasskey, safe, guard: components.guard, delay: components.delay, usdc: SEPOLIA_USDC_ADDRESS, deploymentsHash: infrastructureHash(input.infrastructure), policyHash: vaultPlan.review.policyHash, planHash, policy, infrastructure: input.infrastructure, transactions, vaultPlan });
+}
+
+export async function resolvePwaProvisioningPlan(input: ResolvePwaProvisioningPlanInput): Promise<PwaProvisioningPlan> {
+  assertCanonicalProfile(input.profile);
+  const infrastructure = await resolvePwaPlanningInfrastructure(input.client, {
+    chainId: SEPOLIA_CHAIN_ID,
+    deployer: input.deployer,
+    expectedDeployerNonce: input.expectedDeployerNonce,
+    primaryCredential: input.primaryCredential,
+    expectedSignerRuntimeCodeHash: input.expectedSignerRuntimeCodeHash,
+  });
+  const secondaryPasskey = await predictedSigner(input.client, infrastructure, input.secondaryCredential);
+  const prerequisiteNonce = input.expectedDeployerNonce + 2n;
+  const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: prerequisiteNonce });
+  const proxyCreationCode = await input.client.readContract({ address: infrastructure.safeProxyFactory.address, abi: SAFE_PROXY_FACTORY_ABI, functionName: "proxyCreationCode" });
+  if (typeof proxyCreationCode !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(proxyCreationCode)) throw new Error("fail closed: Safe proxy factory returned invalid creation code");
+  const preliminary = fixedPolicy({ profile: input.profile, safe: ZERO, primaryPasskey: infrastructure.primaryPasskeySigner.address, secondaryPasskey, delay: components.delay });
+  const safe = deriveVaultSafeProxyAddress({ policy: preliminary, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, safeProxyCreationCode: proxyCreationCode as Hex, deployments: infrastructure });
+  const artifacts = await resolveReviewedVaultArtifacts({ client: input.client, deployments: infrastructure, safe, primaryPasskey: infrastructure.primaryPasskeySigner.address, ecdsaSecondary: ZERO, delay: components.delay, maintenance: components.maintenance, periodAnchor: input.profile.periodAnchor, cooldownSeconds: BigInt(input.profile.delay.cooldownSeconds), expirationSeconds: BigInt(input.profile.delay.expirationSeconds), delayArtifactSource: input.delayArtifactSource });
+  return createPwaProvisioningPlan({ ...input, infrastructure, artifacts });
 }
 
 function reviewPayload(plan: PwaProvisioningPlan): unknown {
@@ -276,18 +403,30 @@ export function provisioningPackageHash(plan: PwaProvisioningPlan): Hex {
 }
 
 function repositoryRoot(): string {
-  const cwd = resolve(process.cwd());
-  const marker = `${join("packages", "security-core")}`;
-  const index = cwd.lastIndexOf(marker);
-  return index >= 0 ? cwd.slice(0, Math.max(0, index - 1)) : cwd;
+  const root = realpathSync(resolve(__dirname, "../../../.."));
+  const value = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { workspaces?: unknown };
+  if (!Array.isArray(value.workspaces) || !value.workspaces.includes("packages/*") || !value.workspaces.includes("apps/*")) throw new Error("repository root could not be resolved safely");
+  return root;
+}
+
+function resolveExternalPath(value: string, label: string): string {
+  const parts: string[] = [];
+  let existing = resolve(value);
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    parts.unshift(basename(existing));
+    existing = parent;
+  }
+  const output = resolve(realpathSync(existing), ...parts);
+  const relativePath = relative(repositoryRoot(), output);
+  if (relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) throw new Error(`${label} must be outside the repository`);
+  return output;
 }
 
 export function writePwaProvisioningReview(plan: PwaProvisioningPlan, outputDirectory: string): { packageHash: Hex; path: string } {
   if (!isAbsolute(outputDirectory)) throw new Error("review output directory must be absolute and outside the repository");
-  const output = resolve(outputDirectory);
-  const repository = repositoryRoot();
-  const relativePath = relative(repository, output);
-  if (relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) throw new Error("review output directory must be outside the repository");
+  const output = resolveExternalPath(outputDirectory, "review output directory");
   const packageHash = provisioningPackageHash(plan);
   const path = join(output, `${packageHash.slice(2)}.pwa-provisioning-review.json`);
   const document = `${canonical({ packageHash, review: reviewPayload(plan) })}\n`;
@@ -327,11 +466,17 @@ export function assertPwaProvisioningApproval(plan: PwaProvisioningPlan, value: 
   return Object.freeze({ formatVersion: 1, scope: "sepolia-pwa-provisioning", packageHash: approval.packageHash as Hex, planHash: approval.planHash as Hex, transactions: Object.freeze(transactions) });
 }
 
+export function pwaProvisioningApprovalHash(plan: PwaProvisioningPlan, value: unknown): Hex {
+  return keccak256(stringToHex(canonical(assertPwaProvisioningApproval(plan, value))));
+}
+
 export async function executeApprovedPwaProvisioning(plan: PwaProvisioningPlan, approvalValue: unknown, context: PwaProvisioningExecutionContext): Promise<PwaProvisioningResult> {
   if (!reviewedExecutionContexts.has(context)) throw new Error("fail closed: durable reviewed provisioning execution context is required");
   const approval = assertPwaProvisioningApproval(plan, approvalValue);
   const currentNonce = await context.currentDeployerNonce();
-  if (currentNonce !== plan.transactions[0]!.nonce) throw new Error("fail closed: deployer nonce changed after review");
+  const firstNonce = plan.transactions[0]!.nonce;
+  const afterLastNonce = plan.transactions.at(-1)!.nonce + 1n;
+  if (currentNonce < firstNonce || currentNonce > afterLastNonce) throw new Error("fail closed: deployer nonce is outside the reviewed provisioning range");
   let setupReceipt: PwaProvisioningResult["setupReceipt"] | undefined;
   for (const [index, transaction] of plan.transactions.entries()) {
     const approved = approval.transactions[index]!;
@@ -347,5 +492,7 @@ export async function executeApprovedPwaProvisioning(plan: PwaProvisioningPlan, 
   if (!setupReceipt) throw new Error("fail closed: Safe setup receipt is missing");
   const topologyReportHash = await context.verifyFinalTopology(plan);
   if (!HASH.test(topologyReportHash)) throw new Error("fail closed: topology report hash is invalid");
-  return Object.freeze({ chainId: SEPOLIA_CHAIN_ID, safe: plan.safe, guard: plan.guard, delay: plan.delay, primaryPasskey: plan.primaryPasskey, secondaryPasskey: plan.secondaryPasskey, usdc: plan.usdc, setupReceipt, topologyReportHash });
+  const result = Object.freeze({ chainId: SEPOLIA_CHAIN_ID, safe: plan.safe, guard: plan.guard, delay: plan.delay, primaryPasskey: plan.primaryPasskey, secondaryPasskey: plan.secondaryPasskey, usdc: plan.usdc, deploymentsHash: plan.deploymentsHash, policyHash: plan.policyHash, setupReceipt, topologyReportHash });
+  verifiedProvisioningResults.add(result);
+  return result;
 }

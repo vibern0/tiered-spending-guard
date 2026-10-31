@@ -101,7 +101,7 @@ describe("wallet PWA artifacts", () => {
   });
 
   it("serves direct navigation from network and falls back only to the cached shell", async () => {
-    const fetcher = vi.fn(async (request: unknown) => new Response(`network:${(request as { url: string }).url}`));
+    const fetcher = vi.fn(async (request: unknown) => new Response(typeof request === "string" ? `cached:${request}` : `network:${(request as { url: string }).url}`));
     const harness = serviceWorkerHarness(fetcher);
     let install: Promise<unknown> | undefined;
     harness.handlers.get("install")?.({ waitUntil: (promise) => { install = promise; } });
@@ -130,6 +130,15 @@ describe("wallet PWA artifacts", () => {
     const response = await harness.dispatchFetch(request("https://vault.example/assets/app.js"));
     expect(await (await response)?.text()).toBe("fresh");
     expect(harness.cache.put).not.toHaveBeenCalled();
+  });
+
+  it("does not precache a shell response marked no-store", async () => {
+    const harness = serviceWorkerHarness(async () => new Response("private shell", { headers: { "cache-control": "no-store" } }));
+    let install: Promise<unknown> | undefined;
+    harness.handlers.get("install")?.({ waitUntil: (promise) => { install = promise; } });
+    await install;
+    expect(harness.cache.put).not.toHaveBeenCalled();
+    expect(harness.stored.size).toBe(0);
   });
 });
 

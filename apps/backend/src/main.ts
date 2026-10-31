@@ -1,6 +1,6 @@
 import { loadBackendConfig } from "./config";
 import { createBackendHandlers } from "./handlers";
-import type { ReviewedPwaProvisioner } from "./provisioner";
+import { createConfiguredReviewedPwaProvisioner, type ReviewedPwaProvisioner } from "./provisioner";
 import { createBackendServer, type BackendServer } from "./server";
 import { SEPOLIA_USDC_ADDRESS } from "./vault";
 
@@ -17,10 +17,9 @@ export async function startBackend(config: Parameters<typeof createBackendServer
   return backend;
 }
 
-export async function createConfiguredBackend(provisioner?: ReviewedPwaProvisioner): Promise<BackendServer> {
-  const config = loadBackendConfig();
-  if (!provisioner) throw new Error("internal reviewed PWA provisioner is required; executable external provisioner modules are disabled");
-  return startBackend(config, createBackendHandlers({ config, usdc: SEPOLIA_USDC_ADDRESS, provisioner }));
+export async function createConfiguredBackend(provisioner?: ReviewedPwaProvisioner, configured?: ReturnType<typeof loadBackendConfig>): Promise<BackendServer> {
+  const config = configured ?? loadBackendConfig();
+  return startBackend(config, createBackendHandlers({ config, usdc: SEPOLIA_USDC_ADDRESS, provisioner: provisioner ?? createConfiguredReviewedPwaProvisioner(config) }));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

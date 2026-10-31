@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { keccak256, type Address, type Hex } from "viem";
 import {
   assertPwaProvisioningApproval,
+  pwaProvisioningApprovalHash,
   provisioningPackageHash,
   writePwaProvisioningReview,
   type PwaProvisioningPlan,
@@ -52,5 +53,8 @@ describe("PWA provisioning review approval", () => {
     } as PwaProvisioningPlan;
     expect(provisioningPackageHash(changedRuntime)).not.to.equal(provisioningPackageHash(plan));
     expect(() => assertPwaProvisioningApproval(changedRuntime, approval())).to.throw(/hash/i);
+
+    const changedFee = { ...approval(), transactions: approval().transactions.map((item, index) => index === 0 ? { ...item, gasLimit: "2" } : item) };
+    expect(pwaProvisioningApprovalHash(plan, changedFee)).not.to.equal(pwaProvisioningApprovalHash(plan, approval()));
   });
 });

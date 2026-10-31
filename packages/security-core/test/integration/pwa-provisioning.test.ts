@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { decodeFunctionData, getContractAddress, keccak256, type Address, type Hex } from "viem";
 import {
   createPwaProvisioningPlan,
+  createDurablePwaProvisioningExecutionContext,
   brandPwaProvisioningExecutionContextForTestsOnly,
   executeApprovedPwaProvisioning,
   provisioningPackageHash,
@@ -15,11 +16,14 @@ import {
   type VerifiedDependency,
 } from "../../src/config/deployments";
 import { brandReviewedVaultArtifactsForTestsOnly } from "../../src/topology/reviewed-artifacts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import type { LiveContext, LiveJournal } from "../../scripts/live/submission";
 
 const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as Address;
 const code = (n: number) => `0x60${n.toString(16).padStart(2, "0")}` as Hex;
 const hash = (value: Hex) => keccak256(value);
-const deployer = address(100);
+const account = privateKeyToAccount(generatePrivateKey());
+const deployer = account.address;
 const observedNonce = 11n;
 const primary = address(201);
 const secondary = address(202);
@@ -169,5 +173,56 @@ describe("PWA provisioning", () => {
       async verifyFinalTopology() { throw new Error("must not verify"); },
     }))).to.be.rejectedWith(/constructor reverted/);
     expect(submitted).not.to.include("safe-proxy");
+  });
+
+  it("uses durable submission and rejects fresh code drift before signing", async () => {
+    const value = await plan();
+    const journal: LiveJournal = { chainId: 11155111, funder: deployer, entries: [] };
+    let signed = 0;
+    let broadcastHash: Hex | undefined;
+    const liveContext: LiveContext = {
+      funder: deployer,
+      chainId: async () => 11155111,
+      nonce: async () => Number(observedNonce),
+      balance: async () => 10n ** 18n,
+      verify: async () => undefined,
+      sign: async (intent) => { signed += 1; return account.signTransaction({ chainId: 11155111, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }); },
+      broadcast: async (raw) => { broadcastHash = keccak256(raw); return broadcastHash; },
+      receipt: async (transactionHash) => broadcastHash ? { transactionHash, status: "success", gasUsed: 50_000n, effectiveGasPrice: 1n, blockNumber: 10n, blockHash: hash(code(10)) } : undefined,
+      persist: async () => undefined,
+    };
+    const client = {
+      async getTransactionCount() { return observedNonce; },
+      async getBytecode() { return undefined; },
+      async readContract() { throw new Error("not reached"); },
+      async getStorageAt() { return undefined; },
+    };
+    const context = createDurablePwaProvisioningExecutionContext({ plan: value, journal, liveContext, client });
+    const first = value.transactions[0]!;
+    await expect(context.submit({ ...first, gasLimit: 100_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n })).to.eventually.have.nested.property("receipt.status", "success");
+    expect(signed).to.equal(1);
+    expect(journal.entries).to.have.length(1);
+
+    const drifted = createDurablePwaProvisioningExecutionContext({ plan: value, journal: { chainId: 11155111, funder: deployer, entries: [] }, liveContext, client: { ...client, async getBytecode({ address: target }: { address: Address }) { return target.toLowerCase() === value.guard.toLowerCase() ? code(99) : undefined; } } });
+    await expect(drifted.submit({ ...first, gasLimit: 100_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n })).to.be.rejectedWith(/already has code/i);
+    expect(signed).to.equal(1);
+
+    const safeTransaction = value.transactions.at(-1)!;
+    const runtimeById = new Map([
+      ["primary-signer", code(35)], ["secondary-signer", code(35)], ["setup-helper", code(80)], ["guard", code(81)], ["delay", code(82)], ["maintenance", code(83)],
+    ]);
+    const beforeSafe = createDurablePwaProvisioningExecutionContext({
+      plan: value,
+      journal: { chainId: 11155111, funder: deployer, entries: [] },
+      liveContext: { ...liveContext, nonce: async () => Number(safeTransaction.nonce) },
+      client: {
+        ...client,
+        async getTransactionCount() { return safeTransaction.nonce; },
+        async getBytecode({ address: target }: { address: Address }) { const planned = value.transactions.find((item) => item.expectedCreatedAddress.toLowerCase() === target.toLowerCase()); return planned ? runtimeById.get(planned.id) : undefined; },
+        async readContract() { throw new Error("prerequisite binding recheck reached"); },
+      },
+    });
+    await expect(beforeSafe.submit({ ...safeTransaction, gasLimit: 1_000_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n })).to.be.rejectedWith(/prerequisite binding recheck reached/);
+    expect(signed).to.equal(1);
   });
 });
