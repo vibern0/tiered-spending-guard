@@ -28,6 +28,7 @@ import { SEPOLIA_CHAIN_ID, SEPOLIA_USDC_ADDRESS } from "./profile";
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const PROCESS_ID = /^[A-Za-z0-9._:-]{1,160}$/;
+const SOURCE_ID = /^[A-Za-z0-9._:-]{1,160}$/;
 const SAFE_ABI = parseAbi([
   "function execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes) returns (bool)",
   "event ExecutionSuccess(bytes32 indexed txHash,uint256 payment)",
@@ -200,7 +201,7 @@ function assertReadOnlyClient(client: PwaObserverClient): void {
   const prototype = Object.getPrototypeOf(client);
   if (prototype !== Object.prototype && prototype !== null) throw new Error("read-only observer client must be a plain capability object");
   assertExactKeys(client, ["source", "getBlockNumber", "getTransactionReceipt", "getTransaction", "getBlock", "readStateAt"], "read-only observer client");
-  if (typeof client.source !== "string" || client.source.length === 0 || client.source.length > 500) throw new Error("observer source is invalid");
+  if (typeof client.source !== "string" || !SOURCE_ID.test(client.source)) throw new Error("observer source must be an opaque public identifier");
   for (const method of ["getBlockNumber", "getTransactionReceipt", "getTransaction", "getBlock", "readStateAt"] as const) {
     if (typeof client[method] !== "function") throw new Error("read-only observer client method is missing");
   }
@@ -323,6 +324,7 @@ function assertEffects(intent: PreparedPwaIntent, observation: Observation): voi
     return;
   }
   if (intent.kind === "execute-ready") {
+    if (observation.block.timestamp < queue.readyAt || observation.block.timestamp >= queue.expiresAt) throw new Error("observer delayed execution is outside its ready interval");
     if (after.queueHeadNonce !== queue.queueNonce + 1n || after.queueHead !== null || after.queueTailNonce !== before.queueTailNonce) throw new Error("observer execution queue effect mismatch");
     if (after.safeUsdcBalance !== before.safeUsdcBalance - intent.amount || after.recipientUsdcBalance !== before.recipientUsdcBalance + intent.amount) throw new Error("observer execution balance effect mismatch");
     return;
@@ -346,7 +348,8 @@ export async function observePwaReceipt(binding: PwaObserverBinding, receiptHash
   assertBinding(binding);
   assertHash(receiptHash, "receipt hash");
   const observations = await Promise.all(binding.clients.map((client) => observeClient(client, binding, receiptHash))) as [Observation, Observation];
-  if (canonical(observations[0]) !== canonical(observations[1])) throw new Error("independent observer RPC views disagree");
+  const comparable = ({ latestBlock: _latestBlock, ...observation }: Observation) => observation;
+  if (canonical(comparable(observations[0])) !== canonical(comparable(observations[1]))) throw new Error("independent observer RPC views disagree");
   const observation = observations[0];
   assertSafeEnvelope(binding.intent, observation);
   assertEffects(binding.intent, observation);
@@ -398,7 +401,7 @@ function parseRecord(value: unknown): PwaObserverRecord {
   if (item.notificationDelivery !== "not-claimed") throw new Error("observer record cannot claim notification delivery");
   if (typeof item.observedAt !== "string" || !Number.isFinite(Date.parse(item.observedAt))) throw new Error("observer record observation time is invalid");
   assertObserverIdentity(item.observer as PwaObserverIdentity);
-  if (!Array.isArray(item.sources) || item.sources.length !== 2 || item.sources.some((source) => typeof source !== "string" || source.length === 0) || item.sources[0] === item.sources[1]) throw new Error("observer record lacks independent sources");
+  if (!Array.isArray(item.sources) || item.sources.length !== 2 || item.sources.some((source) => typeof source !== "string" || !SOURCE_ID.test(source)) || item.sources[0] === item.sources[1]) throw new Error("observer record lacks independent opaque sources");
   const { recordHash, ...base } = item;
   if (!same(recordHash as string, contentHash(base))) throw new Error("observer record hash mismatch");
   return Object.freeze({ ...(item as unknown as PwaObserverRecord), observer: Object.freeze({ ...(item.observer as PwaObserverIdentity) }), sources: Object.freeze([item.sources[0], item.sources[1]] as [string, string]) });
@@ -415,6 +418,7 @@ function sha256Hex(bytes: string): Hex {
 function assertPublicRecordShape(value: unknown): void {
   const visit = (item: unknown): void => {
     if (Array.isArray(item)) return item.forEach(visit);
+    if (typeof item === "string" && (/\b(?:https?|wss?):\/\//i.test(item) || /(?:api[-_]?key|access[-_]?token|secret|password|credential)=/i.test(item))) throw new Error("evidence record contains a secret-bearing endpoint value");
     if (!item || typeof item !== "object") return;
     for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
       if (/assertion|signature|credential|private|secret|mnemonic|seed|pin|rpc|sign|write|broadcast|authority/i.test(key)) throw new Error(`evidence record contains authority-shaped field: ${key}`);
@@ -440,6 +444,16 @@ export function packagePwaEvidence(inputDirectory: string, outputDirectory: stri
     const record = parseRecord(parsed);
     return Object.freeze({ file, bytes: serializePwaObserverRecord(record), record });
   });
+  const reference = validated[0].record;
+  const coherentKeys = ["chainId", "safe", "guard", "delay", "usdc", "profileHash", "deploymentsHash", "policyHash", "topologyReportHash", "confirmations"] as const;
+  const seenTransactions = new Set<string>();
+  for (const { record } of validated) {
+    for (const key of coherentKeys) if (canonical(record[key]) !== canonical(reference[key])) throw new Error(`evidence records mix incompatible ${key}`);
+    if (record.observer.processId !== reference.observer.processId || !same(record.observer.executableHash, reference.observer.executableHash) || canonical(record.sources) !== canonical(reference.sources)) throw new Error("evidence records mix observer identities or sources");
+    const transaction = record.transactionHash.toLowerCase();
+    if (seenTransactions.has(transaction)) throw new Error("evidence records contain a duplicate transaction");
+    seenTransactions.add(transaction);
+  }
   const records = Object.freeze(validated.map(({ file, bytes, record }) => Object.freeze({ file, sha256: sha256Hex(bytes), kind: record.kind, transactionHash: record.transactionHash, observerProcessId: record.observer.processId })));
   const base = Object.freeze({ formatVersion: 1 as const, scope: "sepolia-pwa-phase-one-evidence" as const, notificationDelivery: "not-claimed" as const, records });
   const manifest = Object.freeze({ ...base, manifestHash: contentHash(base) });

@@ -5,12 +5,9 @@ import { join } from "node:path";
 import type { Hex } from "viem";
 import {
   LOCAL_PWA_ACTION_IDS,
-  createLocalPwaApprovalForTestsOnly,
-  createLocalPwaJournalStore,
   createLocalPwaReview,
-  executeLocalPwaAction,
+  runLocalPwaCli,
   writeLocalPwaReviewPackage,
-  type LocalPwaActionAdapter,
 } from "../../scripts/pwa/rehearse-local";
 import { PWA_RECIPIENT, SEPOLIA_USDC_ADDRESS } from "../../src/pwa/profile";
 
@@ -54,51 +51,13 @@ describe("gated localhost PWA rehearsal", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it("persists one exact pending hash before one broadcast and requires observer evidence", async () => {
-    process.env.NODE_ENV = "test";
-    const root = mkdtempSync(join(tmpdir(), "pwa-local-submit-"));
-    const journalPath = join(root, "journal.json");
-    const plan = review();
-    const approval = createLocalPwaApprovalForTestsOnly(plan, "provision", h(10));
-    const observed: string[] = [];
-    const adapter: LocalPwaActionAdapter = Object.freeze({
-      async prepare(action) { return { transactionHash: h(11), attemptHash: h(12), actionId: action.id }; },
-      async broadcast(prepared) {
-        const persisted = JSON.parse(readFileSync(journalPath, "utf8"));
-        observed.push(persisted.actions[0].status, prepared.transactionHash);
-        return { status: "success", transactionHash: prepared.transactionHash, blockNumber: "100", blockHash: h(13), observerRecordHash: h(14) };
-      },
-      async proveRejection() { throw new Error("not a proof action"); },
-    });
-    const store = createLocalPwaJournalStore(journalPath, plan);
-    try {
-      const result = await executeLocalPwaAction({ mode: "submit-one", review: plan, approval, store, adapter, liveSubmit: "YES", now: new Date("2026-11-01T10:00:00.000Z") });
-      expect(result).to.deep.include({ actionId: "provision", status: "confirmed" });
-      expect(observed).to.deep.equal(["pending", h(11)]);
-      expect(store.load().actions[0]).to.deep.include({ status: "confirmed", observerRecordHash: h(14) });
-      await expect(executeLocalPwaAction({ mode: "submit-one", review: plan, approval, store, adapter, liveSubmit: "YES", now: new Date("2026-11-01T10:00:00.000Z") })).to.be.rejectedWith(/next action|approval/i);
-    } finally { store.close(); rmSync(root, { recursive: true, force: true }); delete process.env.NODE_ENV; }
+  it("rejects the same credential binding for both authenticator roles", () => {
+    const { scope: _scope, authorization: _authorization, principal: _principal, actions: _actions, maximumGas: _maximumGas, maximumEthOutlayWei: _maximumEthOutlayWei, expectedTerminal: _expectedTerminal, reviewHash: _reviewHash, ...input } = review();
+    expect(() => createLocalPwaReview({ ...input, primaryCredentialHash: input.secondaryCredentialHash })).to.throw(/credential|differ/i);
   });
 
-  it("keeps resume keyless and cannot sign or rebroadcast a durable pending hash", async () => {
-    process.env.NODE_ENV = "test";
-    const root = mkdtempSync(join(tmpdir(), "pwa-local-resume-"));
-    const plan = review();
-    const store = createLocalPwaJournalStore(join(root, "journal.json"), plan);
-    const approval = createLocalPwaApprovalForTestsOnly(plan, "provision", h(10));
-    const pending: LocalPwaActionAdapter = Object.freeze({
-      async prepare(action) { return { transactionHash: h(11), attemptHash: h(12), actionId: action.id }; },
-      async broadcast() { throw new Error("uncertain broadcast"); },
-      async proveRejection() { throw new Error("not used"); },
-    });
-    try {
-      await expect(executeLocalPwaAction({ mode: "submit-one", review: plan, approval, store, adapter: pending, liveSubmit: "YES", now: new Date("2026-11-01T10:00:00.000Z") })).to.be.rejectedWith(/uncertain/i);
-      expect(store.load().actions[0]).to.deep.include({ status: "pending", transactionHash: h(11) });
-      const result = await executeLocalPwaAction({ mode: "resume-one", review: plan, store, adapter: Object.freeze({
-        async reconcile(hash) { expect(hash).to.equal(h(11)); return { status: "success", transactionHash: hash, blockNumber: "101", blockHash: h(15), observerRecordHash: h(16) }; },
-      }), now: new Date("2026-11-01T10:01:00.000Z") });
-      expect(result).to.deep.include({ actionId: "provision", status: "confirmed" });
-      await expect(executeLocalPwaAction({ mode: "resume-one", review: plan, store, adapter: Object.freeze({ reconcile: async () => null, broadcast: async () => undefined }) as never, now: new Date("2026-11-01T10:01:00.000Z") })).to.be.rejectedWith(/resume|capability/i);
-    } finally { store.close(); rmSync(root, { recursive: true, force: true }); delete process.env.NODE_ENV; }
+  it("fails closed instead of importing caller-selected submit or resume modules", async () => {
+    await expect(runLocalPwaCli(["submit-one", "/tmp/review", "/tmp/approval", "/tmp/journal", "/tmp/adapter.ts"])).to.be.rejectedWith(/disabled|fixed in-repository/i);
+    await expect(runLocalPwaCli(["resume-one", "/tmp/review", "/tmp/journal", "/tmp/adapter.ts"])).to.be.rejectedWith(/disabled|fixed in-repository/i);
   });
 });

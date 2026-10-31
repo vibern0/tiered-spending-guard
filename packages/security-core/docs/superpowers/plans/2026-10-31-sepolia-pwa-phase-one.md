@@ -561,15 +561,15 @@ Run: `npm --prefix packages/security-core test -- test/unit/pwa/observer.test.ts
 
 Expected: FAIL; PWA observer absent.
 
-- [x] **Step 3: Implement read-only observer/package**
+- [ ] **Step 3: Implement read-only observer/package**
 
 Reuse guard/Delay decoders and topology verifier. No notifier/outbox/webhook. Label in-app activity non-independent. Add `pwa:observe`, `pwa:evidence` scripts.
 
-- [x] **Step 4: Run GREEN**
+- [ ] **Step 4: Run GREEN**
 
 Run same command. Expected: PASS.
 
-- [x] **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add packages/security-core/src/pwa packages/security-core/scripts/pwa packages/security-core/test packages/security-core/package.json packages/security-core/docs/security apps/app/README.md apps/backend/README.md

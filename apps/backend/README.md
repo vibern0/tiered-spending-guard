@@ -59,6 +59,6 @@ npm --prefix apps/backend run typecheck
 
 Live Sepolia rehearsal remains separately authorized, capped, and recorded. No backend test proves hardware/WebAuthn UX or production readiness.
 
-The backend is not the independent receipt observer. Run the security-core observer in a separate clean process with public read-only RPC access and no backend, relay, signer, credential, or deployment secret. Observer records explicitly make no notification-delivery claim and never authorize a submission.
+The backend is not the independent receipt observer. The security-core verification library must eventually run in a separate clean process with fixed public read-only RPC access and no backend, relay, signer, credential, or deployment secret. Its executable is currently fail-closed until that in-repository composition is reviewed. Observer records explicitly make no notification-delivery claim and never authorize a submission.
 
 For the HTTPS/mobile gate, keep this server bound to `127.0.0.1`. The temporary TLS ingress must enforce an authenticated developer access policy before forwarding, preserve the one exact configured Origin/CORS identity, expose no admin/debug route or URL secret, and have a reviewed shutdown deadline. Record only redacted configuration hashes. At closeout, disable/delete the ingress and verify its public backend origin is unavailable from an external network; a still-working public URL means Phase One closeout fails.

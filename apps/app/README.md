@@ -53,7 +53,7 @@ The PWA exposes closed USDC transfer intents and the verified Delay queue lifecy
 
 This is a Sepolia prototype with no signer recovery and no independent notification delivery. Use only test assets. Funding is manual through the Circle Sepolia faucet and the displayed verified Safe address.
 
-The Activity screen is an in-app projection, not independent monitoring. Phase One evidence is valid only when the separate read-only security-core observer verifies the canonical receipt and post-state through two independent public sources. That observer does not deliver notifications and cannot authorize a wallet action.
+The Activity screen is an in-app projection, not independent monitoring. Phase One evidence is valid only when a separate read-only security-core observer verifies the canonical receipt and post-state through two independent public sources. The verification core exists, but its executable stays disabled until a fixed in-repository RPC/topology composition replaces caller-selected code loading. It does not deliver notifications and cannot authorize a wallet action.
 
 The HTTPS/mobile gate must use a fresh HTTPS-profile installation, fresh credentials, and a fresh Safe. Do not import or relabel localhost storage. Before funding, verify standalone launch, exact origin/RP/backend identity, a genuinely distinct secondary authenticator, verified topology, and an offline write that blocks. After the approved X/Y/Z sequence, retain only public evidence and remove the temporary backend ingress; mobile UI screenshots or Activity entries are never receipt/observer proof.
 

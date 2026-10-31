@@ -265,6 +265,18 @@ describe("independent PWA receipt observer", () => {
     await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a", { async getBlock() { return { number: 100n, hash: h(999), timestamp: 1_000n }; } }), client(intent, "b", { async getBlock() { return { number: 100n, hash: h(999), timestamp: 1_000n }; } })] }), h(500))).to.be.rejectedWith(/canonical|reorg|block/i);
     await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "same-provider"), client(intent, "same-provider")] }), h(500))).to.be.rejectedWith(/independent|source/i);
     await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a"), client(intent, "b", { async getTransaction() { return { ...transaction(intent), input: "0x" }; } })] }), h(500))).to.be.rejectedWith(/disagree|envelope/i);
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "https://rpc.example/?apiKey=secret"), client(intent, "provider-b")] }), h(500))).to.be.rejectedWith(/source|identifier/i);
+  });
+
+  it("accepts harmless provider head drift and enforces the half-open Delay execution interval", async () => {
+    const base = prepared("base");
+    const observed = await observePwaReceipt(binding(base, { clients: [client(base, "a", { async getBlockNumber() { return 105n; } }), client(base, "b", { async getBlockNumber() { return 106n; } })] }), h(500));
+    expect(observed.transactionHash).to.equal(h(500));
+
+    const execute = prepared("execute");
+    const at = (timestamp: bigint) => ({ async getBlock({ blockNumber }: { blockNumber: bigint }) { return { number: blockNumber, hash: blockNumber === 100n ? h(100) : h(99), timestamp: blockNumber === 100n ? timestamp : timestamp - 1n }; } });
+    await expect(observePwaReceipt(binding(execute, { clients: [client(execute, "a", at(919n)), client(execute, "b", at(919n))] }), h(500))).to.be.rejectedWith(/ready interval/i);
+    await expect(observePwaReceipt(binding(execute, { clients: [client(execute, "a", at(1520n)), client(execute, "b", at(1520n))] }), h(500))).to.be.rejectedWith(/ready interval/i);
   });
 
   it("rejects clients with signing/write capability and any notification-delivery claim", async () => {

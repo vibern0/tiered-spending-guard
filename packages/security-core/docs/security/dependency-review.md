@@ -74,7 +74,7 @@ No third-party version or Solidity dependency changed. `apps/backend` now declar
 
 ## 2026-10-31 PWA observer boundary
 
-No package version, Solidity dependency, signer, or broadcast route changed. The observer runs as a separate process with a reviewed adapter that exports only two public read clients; the core rejects extra signing/write methods and records the adapter SHA-256 identity. The evidence packager uses only Node filesystem primitives plus existing pinned `viem` decoding. Observer output is canonical public receipt/state evidence, explicitly does not claim notification delivery, and conveys no authority.
+No package version, Solidity dependency, signer, or broadcast route changed. The tested observer core accepts only two plain read-client capabilities and rejects extra signing/write methods. The executable entrypoint remains disabled because a caller-selected JavaScript/TypeScript adapter cannot prove that it is read-only or bind its transitive code. A fixed in-repository RPC/topology composition is still required before Task 10 can run live. The evidence packager uses only Node filesystem primitives plus existing pinned `viem` decoding, rejects mixed/duplicate evidence and endpoint-shaped values, explicitly does not claim notification delivery, and conveys no authority.
 
 ## 2026-10-16 Pimlico read-only compatibility investigation
 

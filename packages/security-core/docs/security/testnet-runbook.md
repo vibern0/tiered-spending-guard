@@ -286,14 +286,7 @@ For the ordinary observer run, configure `MONITOR_WEBHOOK_URL` only in the exter
 
 ## PWA receipt observer and public evidence
 
-Run the observer as a separate clean process. Its adapter must export only `createObserverBinding`, construct exactly two independently identified public read-only clients, and expose no signer, raw-transaction, write-RPC, backend, or notification capability. Do not place RPC credentials, passkey assertions, signer material, relay keys, or backend secrets in that process. The adapter must bind its returned observer identity to the executable SHA-256 supplied by the runner.
-
-```sh
-npm --prefix packages/security-core run pwa:observe -- \
-  /absolute/reviewed/read-only-observer-adapter.ts \
-  0xRECEIPT_HASH \
-  /absolute/new-records/base.json
-```
+`observePwaReceipt` is the tested read-only verification core, but the executable `pwa:observe` entrypoint is intentionally disabled. Importing a caller-selected TypeScript adapter cannot enforce a read-only boundary and could execute arbitrary code. Do not work around this guard. Task 10 remains open until a fixed in-repository composition builds two independently identified public read-only clients, reruns the topology verifier, and loads no signer, raw-transaction, write-RPC, backend, notification, or credential capability.
 
 Run once for every canonical live receipt only after the required confirmations. Any missing receipt, provider disagreement, reorg, inner Safe failure, unexpected event, state-effect mismatch, stale queue, topology/profile mismatch, or extra write-shaped client method is a hard stop. The record says `notificationDelivery: not-claimed`; Activity UI and observer output are not notification delivery.
 
@@ -305,7 +298,7 @@ npm --prefix packages/security-core run pwa:evidence -- \
   /absolute/new-public-evidence-package
 ```
 
-Review `manifest.json`, every record hash, source identity, transaction hash, and observer process identity. The command refuses overwrite, symlinks, authority-shaped fields, or malformed records. It never signs, submits, broadcasts, retries a transaction, or grants approval.
+Review `manifest.json`, every record hash, source identity, transaction hash, and observer process identity. The command refuses overwrite, symlinks, authority-shaped fields, endpoint-shaped values, malformed records, duplicate transactions, or records that mix Safe/profile/topology/observer identities. It never signs, submits, broadcasts, retries a transaction, or grants approval.
 
 ## Gated localhost PWA rehearsal
 
@@ -319,30 +312,9 @@ npm run pwa:rehearse:local -- review \
   /absolute/new-localhost-review-package
 ```
 
-The package states `authorization: NONE`. Independently review its `reviewHash`, SHA-256 manifest, every action, credential binding, principal, gas/fee ceiling, observer lifetime, and deadline. A one-action approval must bind the exact review hash, next action id, reviewed adapter SHA-256, and expiry. This plan and a generated package are not approval to fund, sign, open a passkey ceremony, or broadcast.
+The package states `authorization: NONE`. Independently review its `reviewHash`, SHA-256 manifest, every action, distinct credential bindings, principal, gas/fee ceiling, observer lifetime, and deadline. This plan and a generated package are not approval to fund, sign, open a passkey ceremony, or broadcast.
 
-After a separate exact approval, one action only may run:
-
-```sh
-PWA_LOCAL_SUBMIT=YES npm run pwa:rehearse:local -- submit-one \
-  /absolute/review.json \
-  /absolute/one-action-approval.json \
-  /absolute/localhost-journal.json \
-  /absolute/reviewed-localhost-adapter.ts
-```
-
-The adapter must durably materialize the exact backend/PWA action and return its transaction hash before the runner records `pending` and permits its single broadcast. A successful action is terminal only with canonical block identity and a separate observer-record hash. A revert stops the rehearsal. Generate and review a fresh approval for the next action; never loop `submit-one`.
-
-If and only if the journal already contains one exact pending hash, reconcile it keylessly:
-
-```sh
-npm run pwa:rehearse:local -- resume-one \
-  /absolute/review.json \
-  /absolute/localhost-journal.json \
-  /absolute/read-only-resume-adapter.ts
-```
-
-`resume-one` rejects submit flags and signing material, admits only a single `reconcile` capability, and cannot sign or rebroadcast. Do not create the localhost evidence document or check Task 11 complete until every approved action, early-rejection proof, observer record, terminal state, install/reload proof, and full deterministic gate output actually exists.
+`submit-one` and `resume-one` are intentionally disabled. The prior caller-selected adapter boundary could not prove that the prepared transaction matched the reviewed Safe/token/recipient/amount/gas/fee action, or that an observer hash loaded and matched the actual canonical record. Task 11 requires a fixed in-repository validator and append-only recovery journal before any live action. Do not create the localhost evidence document or check Task 11 complete until that implementation is independently reviewed and every approved action, early-rejection proof, observer record, terminal state, install/reload proof, and full deterministic gate output actually exists.
 
 ## HTTPS/mobile proof and closeout (not run)
 

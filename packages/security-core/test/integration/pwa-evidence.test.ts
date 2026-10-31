@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hex } from "viem";
+import { runPwaObserverCli } from "../../scripts/pwa/observe";
 import {
   packagePwaEvidence,
   finalizePwaObserverRecord,
@@ -44,6 +45,10 @@ function record(overrides: Partial<PwaObserverRecord> = {}): PwaObserverRecord {
 }
 
 describe("PWA evidence packaging", () => {
+  it("fails closed instead of importing a caller-selected observer module", async () => {
+    await expect(runPwaObserverCli(["/tmp/adapter.ts", h(1), "/tmp/record.json"])).to.be.rejectedWith(/disabled|fixed in-repository/i);
+  });
+
   it("packages deterministic public observer records from a separate read-only process", () => {
     const root = mkdtempSync(join(tmpdir(), "pwa-evidence-"));
     const input = join(root, "input");
@@ -80,11 +85,33 @@ describe("PWA evidence packaging", () => {
       expect(() => packagePwaEvidence(input, output)).to.throw(/independent|source/i);
       rmSync(join(input, "same-source.json"));
 
+      writeFileSync(join(input, "endpoint.json"), JSON.stringify(record({ sources: ["https://rpc.example/?apiKey=secret", "provider-b"] })), "utf8");
+      expect(() => packagePwaEvidence(input, output)).to.throw(/endpoint|source|identifier/i);
+      rmSync(join(input, "endpoint.json"));
+
       writeFileSync(join(input, "base.json"), serializePwaObserverRecord(record()), "utf8");
       packagePwaEvidence(input, output);
       expect(() => packagePwaEvidence(input, output)).to.throw(/exist|output/i);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects duplicate transactions and mixed Safe/profile/topology bundles", () => {
+    for (const [name, second] of [
+      ["duplicate", record({ observedAt: "2026-10-31T20:06:00.000Z" })],
+      ["mixed-safe", record({ transactionHash: h(11), safe: "0x0000000000000000000000000000000000000011" })],
+      ["mixed-profile", record({ transactionHash: h(12), profileHash: h(13) })],
+      ["mixed-topology", record({ transactionHash: h(14), topologyReportHash: h(15) })],
+    ] as const) {
+      const root = mkdtempSync(join(tmpdir(), `pwa-evidence-${name}-`));
+      const input = join(root, "input");
+      mkdirSync(input);
+      try {
+        writeFileSync(join(input, "a.json"), serializePwaObserverRecord(record()), "utf8");
+        writeFileSync(join(input, "b.json"), serializePwaObserverRecord(second), "utf8");
+        expect(() => packagePwaEvidence(input, join(root, "output"))).to.throw(/duplicate|incompatible|mix/i);
+      } finally { rmSync(root, { recursive: true, force: true }); }
     }
   });
 });
