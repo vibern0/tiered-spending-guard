@@ -61,6 +61,7 @@ describe("server-authoritative backend handlers", () => {
     const handlers = createBackendHandlers({ config, artifacts, usdc: USDC, provisioner: { deploy: vi.fn().mockResolvedValue(result) }, verifyAssertion });
     const primary = credential("primary", "p", 1);
     handlers.storeCredential(primary);
+    expect(() => handlers.storeCredential(primary)).toThrow(/already registered/i);
     expect(() => handlers.storeCredential(credential("secondary", "s", 1))).toThrow(/distinct/i);
     handlers.storeCredential(credential("secondary", "s", 3));
     await handlers.provisionVault({ chainId: 11155111, usdc: USDC, primaryCredentialId: "p", secondaryCredentialId: "s" });

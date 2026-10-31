@@ -78,7 +78,9 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         if (!input.sessionId || !input.registration) throw new Error("registration session and response are required");
         const session = sessions.consume(input.sessionId, role);
         const credential = await verifyPasskeyRegistration({ role, credentialId: input.registration.id, challenge: session.challenge, rpId: session.rpId, origin: session.origin, response: input.registration });
-        handlers.storeCredential?.(credential);
+        if (!handlers.storeCredential) throw new Error("credential storage unavailable");
+        handlers.storeCredential(credential);
+        sessions.markRegistered(role);
         return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter });
       }
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));

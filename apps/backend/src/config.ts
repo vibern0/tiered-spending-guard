@@ -28,6 +28,11 @@ function isIpHost(hostname: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(":");
 }
 
+function isPreviewHost(hostname: string): boolean {
+  const labels = hostname.toLowerCase().split(".");
+  return labels.some((label) => label === "preview" || label.startsWith("preview-") || label.startsWith("deploy-preview-") || /^pr-\d+$/.test(label));
+}
+
 export function assertBackendWebAuthnIdentity(id: "local" | "https", origin: string, rpId: string): void {
   if (!rpId || rpId.includes("*") || rpId.includes(":") || rpId.includes("/") || isIpHost(rpId)) throw new Error("BACKEND_RP_ID must be an exact DNS hostname");
   const parsed = exactOrigin(origin, "BACKEND_ORIGIN");
@@ -38,6 +43,7 @@ export function assertBackendWebAuthnIdentity(id: "local" | "https", origin: str
   if (parsed.protocol !== "https:") throw new Error("HTTPS backend profile requires an HTTPS BACKEND_ORIGIN");
   if (parsed.hostname !== rpId) throw new Error("BACKEND_ORIGIN hostname must equal BACKEND_RP_ID");
   if (parsed.hostname === "localhost" || isIpHost(parsed.hostname)) throw new Error("BACKEND_RP_ID must be a DNS hostname");
+  if (isPreviewHost(parsed.hostname)) throw new Error("preview hosts are not accepted backend profiles");
 }
 
 export function loadBackendConfig(env: BackendEnvironment = process.env): BackendConfig {

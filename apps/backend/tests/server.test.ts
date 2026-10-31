@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createBackendServer } from "../src/server";
 import type { BackendConfig } from "../src/config";
+import { RegistrationSessionStore } from "../src/session";
 
 const config = {
   id: "local", host: "127.0.0.1", port: 0, chainId: 11155111, rpId: "localhost", origin: "http://localhost:5173",
@@ -21,6 +22,14 @@ async function runningServer() {
 afterEach(async () => { await Promise.all(servers.splice(0).map((backend) => backend.close())); });
 
 describe("backend HTTP boundary", () => {
+  it("allows a cancelled registration prompt to retry but closes a registered role", () => {
+    const sessions = new RegistrationSessionStore(config);
+    const cancelled = sessions.create("primary");
+    expect(sessions.create("primary").id).not.toBe(cancelled.id);
+    sessions.markRegistered("primary");
+    expect(() => sessions.create("primary")).toThrow(/already registered/i);
+  });
+
   it("reports readiness and no-store without exposing secrets", async () => {
     const { origin } = await runningServer();
     const response = await fetch(`${origin}/health`);

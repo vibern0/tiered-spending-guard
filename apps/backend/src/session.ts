@@ -22,7 +22,7 @@ function challenge(): string {
 
 export class RegistrationSessionStore {
   private readonly sessions = new Map<string, RegistrationSession>();
-  private readonly roles = new Set<BackendPasskeyRole>();
+  private readonly registeredRoles = new Set<BackendPasskeyRole>();
 
   constructor(private readonly profile: Readonly<{ id: "local" | "https"; origin: string; rpId: string }>) {
     assertBackendWebAuthnIdentity(profile.id, profile.origin, profile.rpId);
@@ -30,11 +30,15 @@ export class RegistrationSessionStore {
 
   create(role: BackendPasskeyRole): RegistrationSession {
     if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
-    if (this.roles.has(role)) throw new Error(`${role} passkey is already registered`);
+    if (this.registeredRoles.has(role)) throw new Error(`${role} passkey is already registered`);
     const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, authenticatorAttachment: role === "primary" ? "platform" as const : "cross-platform" as const, used: false });
     this.sessions.set(session.id, session);
-    this.roles.add(role);
     return session;
+  }
+
+  markRegistered(role: BackendPasskeyRole): void {
+    this.registeredRoles.add(role);
+    for (const [id, session] of this.sessions) if (session.role === role) this.sessions.delete(id);
   }
 
   consume(id: string, role: BackendPasskeyRole): RegistrationSession {
@@ -46,7 +50,7 @@ export class RegistrationSessionStore {
   }
 
   clear(role: BackendPasskeyRole): void {
-    this.roles.delete(role);
+    this.registeredRoles.delete(role);
     for (const [id, session] of this.sessions) if (session.role === role) this.sessions.delete(id);
   }
 }

@@ -70,7 +70,7 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     const passkeyRole = role(credential.role);
     if (!credential.id || credential.id !== credential.credentialId) throw new Error("credential metadata is not self-consistent");
     const existing = credentials.get(passkeyRole);
-    if (existing && existing.id !== credential.id) throw new Error(`${passkeyRole} credential is already registered`);
+    if (existing) throw new Error(`${passkeyRole} credential is already registered`);
     for (const [existingRole, current] of credentials) {
       if (existingRole !== passkeyRole && (current.id === credential.id || Buffer.from(current.publicKey).equals(Buffer.from(credential.publicKey)) || (current.x === credential.x && current.y === credential.y))) {
         throw new Error("primary and secondary credentials must be distinct");

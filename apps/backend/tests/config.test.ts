@@ -44,6 +44,7 @@ describe("backend configuration", () => {
     expect(() => loadBackendConfig({ ...https, BACKEND_ORIGIN: "http://vault.example" })).toThrow(/HTTPS/i);
     expect(() => loadBackendConfig({ ...https, BACKEND_ORIGIN: "https://user@vault.example" })).toThrow();
     expect(() => loadBackendConfig({ ...https, BACKEND_RP_ID: "192.0.2.1", BACKEND_ORIGIN: "https://192.0.2.1" })).toThrow(/RP.?ID/i);
+    expect(() => loadBackendConfig({ ...https, BACKEND_RP_ID: "preview-vault.example", BACKEND_ORIGIN: "https://preview-vault.example" })).toThrow(/preview/i);
     expect(() => loadBackendConfig({ ...https, BACKEND_PROFILE: "preview" })).toThrow(/BACKEND_PROFILE/);
   });
 });
