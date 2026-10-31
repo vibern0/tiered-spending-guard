@@ -11,7 +11,8 @@ export type BackendConfig = Readonly<{
   relayPrivateKey: `0x${string}`;
   journalPath: string;
   reviewedArtifactsPath: string;
-  provisionerModulePath: string;
+  provisioningApprovalPath: string;
+  provisioningReviewDirectory: string;
 }>;
 
 export type BackendEnvironment = Readonly<Record<string, string | undefined>>;
@@ -64,9 +65,11 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   if (!journalPath || !journalPath.startsWith("/")) throw new Error("BACKEND_JOURNAL_PATH must point outside the repository");
   const reviewedArtifactsPath = env["BACKEND_REVIEWED_ARTIFACTS"];
   if (!reviewedArtifactsPath || !reviewedArtifactsPath.startsWith("/")) throw new Error("BACKEND_REVIEWED_ARTIFACTS must point to reviewed artifacts outside the repository");
-  const provisionerModulePath = env["BACKEND_PROVISIONER_MODULE"];
-  if (!provisionerModulePath || !provisionerModulePath.startsWith("/")) throw new Error("BACKEND_PROVISIONER_MODULE must point to a reviewed adapter outside the repository");
-  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, reviewedArtifactsPath, provisionerModulePath });
+  const provisioningApprovalPath = env["BACKEND_PROVISIONING_APPROVAL"];
+  if (!provisioningApprovalPath || !provisioningApprovalPath.startsWith("/")) throw new Error("BACKEND_PROVISIONING_APPROVAL must point to a local approval outside the repository");
+  const provisioningReviewDirectory = env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"];
+  if (!provisioningReviewDirectory || !provisioningReviewDirectory.startsWith("/")) throw new Error("BACKEND_PROVISIONING_REVIEW_DIRECTORY must point outside the repository");
+  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, reviewedArtifactsPath, provisioningApprovalPath, provisioningReviewDirectory });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

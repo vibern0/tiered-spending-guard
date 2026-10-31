@@ -10,6 +10,8 @@ import {
 import { assertValidVaultPolicy, type VaultPolicy } from "../config/policy";
 import {
   isOfficialVerifiedDeployments,
+  isPwaPlanningInfrastructure,
+  type PwaPlanningInfrastructure,
   type ReadOnlyDeploymentClient,
   type VerifiedDeploymentInfrastructure,
 } from "../config/deployments";
@@ -55,7 +57,9 @@ export type VaultPlanInput = Readonly<{
   startingNonce: bigint;
   safeProxySaltNonce: bigint;
   artifacts: ReviewedVaultArtifacts;
-  deployments: VerifiedDeploymentInfrastructure;
+  deployments: VerifiedDeploymentInfrastructure | PwaPlanningInfrastructure;
+  /** Reviewed transactions deliberately preceding the four prerequisites. */
+  plannedPrefixTransactionCount?: 0 | 2;
   /** Number of consecutively journaled prerequisite deployments being resumed. */
   completedPrerequisites?: 0 | 1 | 2 | 3 | 4;
 }>;
@@ -251,7 +255,7 @@ function deployTransaction(description: string, deployer: Address, nonce: bigint
 }
 
 /** Derives the Safe address from setup data before constructors bind prerequisites to it. */
-export function deriveVaultSafeProxyAddress(input: Readonly<{ policy: VaultPolicy; deployer: Address; startingNonce: bigint; safeProxySaltNonce: bigint; safeProxyCreationCode: Hex; deployments: VerifiedDeploymentInfrastructure }>): Address {
+export function deriveVaultSafeProxyAddress(input: Readonly<{ policy: VaultPolicy; deployer: Address; startingNonce: bigint; safeProxySaltNonce: bigint; safeProxyCreationCode: Hex; deployments: VerifiedDeploymentInfrastructure | PwaPlanningInfrastructure }>): Address {
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   const optionB = configuredOptionBSecondaries(input.policy);
   const setupHelperCalldata = encodeFunctionData({
@@ -285,14 +289,16 @@ export function deriveVaultSafeProxyAddress(input: Readonly<{ policy: VaultPolic
 
 export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   assertValidVaultPolicy(input.policy);
-  if (!isOfficialVerifiedDeployments(input.deployments)) throw new Error("fail closed: deployments must come from a verified resolver");
+  if (!isOfficialVerifiedDeployments(input.deployments) && !isPwaPlanningInfrastructure(input.deployments)) throw new Error("fail closed: deployments must come from a verified resolver");
   if (!same(input.deployments.deployer, input.deployer)) throw new Error("fail closed: deployer does not match verified deployment infrastructure");
   const completedPrerequisites = input.completedPrerequisites ?? 0;
-  if (input.deployments.observedDeployerNonce !== input.startingNonce + BigInt(completedPrerequisites)) {
+  const prefix = BigInt(input.plannedPrefixTransactionCount ?? 0);
+  if (input.deployments.observedDeployerNonce !== input.startingNonce - prefix + BigInt(completedPrerequisites)) {
     throw new Error("fail closed: deployer resume nonce does not match journaled prerequisites");
   }
   if (input.deployments.chainId !== input.policy.chainId) throw new Error("fail closed: policy chain does not match verified deployment infrastructure");
-  if (!same(input.deployments.passkeySigner.address, input.policy.passkey)) throw new Error("fail closed: policy passkey does not match verified passkey signer");
+  const passkeySigner = isPwaPlanningInfrastructure(input.deployments) ? input.deployments.primaryPasskeySigner : input.deployments.passkeySigner;
+  if (!same(passkeySigner.address, input.policy.passkey)) throw new Error("fail closed: policy passkey does not match verified passkey signer");
   if (!input.deployments.safeSingleton.supportsModuleGuards) throw new Error("fail closed: Safe singleton lacks module guards");
   if (!isReviewedVaultArtifacts(input.artifacts)) throw new Error("fail closed: vault artifacts must come from the reviewed resolver");
   for (const [label, code] of Object.entries({

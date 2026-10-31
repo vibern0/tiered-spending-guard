@@ -3,7 +3,7 @@ import Safe150 from "@safe-global/safe-deployments/src/assets/v1.5.0/safe.json";
 import SafeProxyFactory150 from "@safe-global/safe-deployments/src/assets/v1.5.0/safe_proxy_factory.json";
 import MultiSendCallOnly150 from "@safe-global/safe-deployments/src/assets/v1.5.0/multi_send_call_only.json";
 import { DEPENDENCIES, deploymentAddressError, deploymentReleaseError, validatedDeploymentAddress } from "./deployment-validation";
-import { verifyPasskeySignerComponent, type VerifiedComponent } from "../topology/evidence";
+import { passkeySignerBindingHash, verifyPasskeySignerComponent, type VerifiedComponent } from "../topology/evidence";
 
 export const SUPPORTED_CHAIN_IDS = [11155111] as const;
 export type SupportedChainId = (typeof SUPPORTED_CHAIN_IDS)[number];
@@ -73,13 +73,40 @@ export type DeploymentInfrastructure = Readonly<{
 export type VerifiedDeploymentInfrastructure = DeploymentInfrastructure;
 export type VerifiedDeployments = VerifiedDeploymentInfrastructure;
 
+export type PlannedPasskeySigner = Readonly<{
+  name: "passkeySigner";
+  address: Address;
+  bindingHash: Hex;
+  expectedRuntimeCodeHash: Hex;
+  source: string;
+  binding: Readonly<{ x: bigint; y: bigint; verifiers: bigint }>;
+}>;
+
+export type PwaPlanningInfrastructure = Readonly<{
+  chainId: number;
+  deployer: Address;
+  observedDeployerNonce: bigint;
+  safeSingleton: VerifiedDependency;
+  safeProxyFactory: VerifiedDependency;
+  passkeySignerFactory: VerifiedDependency;
+  passkeySignerVerifier: VerifiedDependency;
+  multiSendCallOnly: VerifiedDependency;
+  primaryPasskeySigner: PlannedPasskeySigner;
+  dependencies: DependencyMap;
+}>;
+
 const verifiedInfrastructure = new WeakSet<object>();
+const pwaPlanningInfrastructure = new WeakSet<object>();
 
 export function isVerifiedDeploymentInfrastructure(value: unknown): value is VerifiedDeploymentInfrastructure {
   return typeof value === "object" && value !== null && verifiedInfrastructure.has(value);
 }
 
 export const isOfficialVerifiedDeployments = isVerifiedDeploymentInfrastructure;
+
+export function isPwaPlanningInfrastructure(value: unknown): value is PwaPlanningInfrastructure {
+  return typeof value === "object" && value !== null && pwaPlanningInfrastructure.has(value);
+}
 
 const SAFE_DEPLOYMENTS_PACKAGE = "@safe-global/safe-deployments@1.37.63";
 const SAFE_PASSKEY_DEPLOYMENTS = "https://github.com/safe-global/safe-modules-deployments/blob/main/src/assets/safe-passkey-module/v0.2.0";
@@ -197,6 +224,73 @@ export async function verifyOfficialDeploymentDependencies(
   registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry> = OFFICIAL_DEPLOYMENT_REGISTRY,
 ): Promise<Readonly<DependencyMap>> {
   return resolveInfrastructureDependencies(client, chainId, registry, { requireEvidence: true });
+}
+
+const PASSKEY_FACTORY_ABI = [{
+  name: "getSigner",
+  type: "function",
+  stateMutability: "view",
+  inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }],
+  outputs: [{ type: "address" }],
+}] as const;
+
+export async function resolvePwaPlanningInfrastructure(
+  client: ReadOnlyDeploymentClient,
+  input: Readonly<{
+    chainId: number;
+    deployer: Address;
+    expectedDeployerNonce: bigint;
+    primaryCredential: Readonly<{ x: bigint; y: bigint }>;
+    expectedSignerRuntimeCodeHash: Hex;
+  }>,
+): Promise<PwaPlanningInfrastructure> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(input.expectedSignerRuntimeCodeHash)) failClosed("expected passkey signer runtime code hash is invalid");
+  if (typeof client.getTransactionCount !== "function") failClosed("deployer nonce reader is required");
+  if (typeof client.readContract !== "function") failClosed("passkey factory reader is required");
+  const dependencies = await resolveInfrastructureDependencies(client, input.chainId, OFFICIAL_DEPLOYMENT_REGISTRY, { requireEvidence: true });
+  const nonce = await client.getTransactionCount({ address: input.deployer });
+  const observedDeployerNonce = typeof nonce === "bigint" ? nonce : BigInt(nonce);
+  if (observedDeployerNonce !== input.expectedDeployerNonce) failClosed(`deployer nonce changed: expected ${input.expectedDeployerNonce}, observed ${observedDeployerNonce}`);
+  const verifiers = BigInt(dependencies.passkeySignerVerifier.address);
+  const predicted = await client.readContract({
+    address: dependencies.passkeySignerFactory.address,
+    abi: PASSKEY_FACTORY_ABI,
+    functionName: "getSigner",
+    args: [input.primaryCredential.x, input.primaryCredential.y, verifiers],
+  });
+  if (typeof predicted !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(predicted)) failClosed("passkey factory returned an invalid signer address");
+  const existing = await client.getBytecode({ address: predicted as Address });
+  if (existing && existing !== "0x") failClosed("primary passkey signer already exists");
+  const binding = Object.freeze({ ...input.primaryCredential, verifiers });
+  const result = Object.freeze({
+    chainId: input.chainId,
+    deployer: input.deployer,
+    observedDeployerNonce,
+    safeSingleton: dependencies.safeSingleton,
+    safeProxyFactory: dependencies.safeProxyFactory,
+    passkeySignerFactory: dependencies.passkeySignerFactory,
+    passkeySignerVerifier: dependencies.passkeySignerVerifier,
+    multiSendCallOnly: dependencies.multiSendCallOnly,
+    primaryPasskeySigner: Object.freeze({
+      name: "passkeySigner" as const,
+      address: predicted as Address,
+      bindingHash: passkeySignerBindingHash({ factory: dependencies.passkeySignerFactory.address, ...binding }),
+      expectedRuntimeCodeHash: input.expectedSignerRuntimeCodeHash,
+      source: "official Safe WebAuthn signer factory prediction",
+      binding,
+    }),
+    dependencies,
+  });
+  pwaPlanningInfrastructure.add(result);
+  return result;
+}
+
+export function brandPwaPlanningInfrastructureForTestsOnly(value: PwaPlanningInfrastructure): PwaPlanningInfrastructure {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") {
+    throw new Error("test-only PWA planning infrastructure branding is disabled outside tests");
+  }
+  pwaPlanningInfrastructure.add(value);
+  return value;
 }
 
 export async function resolveDeploymentInfrastructureRegistry(

@@ -9,7 +9,8 @@ const valid = {
   BACKEND_RPC_URL: "https://sepolia.example.invalid",
   BACKEND_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/backend-journal.json",
   BACKEND_REVIEWED_ARTIFACTS: "/tmp/recent-tx-safe-guard/reviewed-artifacts.json",
-  BACKEND_PROVISIONER_MODULE: "/tmp/recent-tx-safe-guard/provisioner.mjs",
+  BACKEND_PROVISIONING_APPROVAL: "/tmp/recent-tx-safe-guard/provisioning-approval.json",
+  BACKEND_PROVISIONING_REVIEW_DIRECTORY: "/tmp/recent-tx-safe-guard/provisioning-reviews",
 };
 
 describe("backend configuration", () => {

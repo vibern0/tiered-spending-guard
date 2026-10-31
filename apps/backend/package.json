@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@recent-tx-safe-guard/security-core": "file:../../packages/security-core",
     "@simplewebauthn/server": "14.0.3",
     "viem": "2.56.7"
   },

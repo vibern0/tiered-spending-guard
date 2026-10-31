@@ -1,6 +1,12 @@
 {
   "name": "@recent-tx-safe-guard/security-core",
   "private": true,
+  "exports": {
+    "./pwa": {
+      "types": "./src/pwa/backend-api.d.ts",
+      "default": "./src/pwa/index.ts"
+    }
+  },
   "scripts": {
     "build": "hardhat clean && hardhat compile",
     "test": "hardhat test",

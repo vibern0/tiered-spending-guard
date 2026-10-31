@@ -1,7 +1,8 @@
 import { loadBackendConfig } from "./config";
 import { createBackendHandlers } from "./handlers";
-import { loadReviewedBackendModule, loadReviewedDeploymentEvidence } from "./provisioner";
+import type { ReviewedPwaProvisioner } from "./provisioner";
 import { createBackendServer, type BackendServer } from "./server";
+import { SEPOLIA_USDC_ADDRESS } from "./vault";
 
 export async function startBackend(config: Parameters<typeof createBackendServer>[0], handlers: Parameters<typeof createBackendServer>[1]): Promise<BackendServer> {
   const backend = createBackendServer(config, handlers);
@@ -16,11 +17,10 @@ export async function startBackend(config: Parameters<typeof createBackendServer
   return backend;
 }
 
-export async function createConfiguredBackend(): Promise<BackendServer> {
+export async function createConfiguredBackend(provisioner?: ReviewedPwaProvisioner): Promise<BackendServer> {
   const config = loadBackendConfig();
-  const artifacts = loadReviewedDeploymentEvidence(config.reviewedArtifactsPath);
-  const module = await loadReviewedBackendModule(config.provisionerModulePath);
-  return startBackend(config, createBackendHandlers({ config, artifacts, ...module }));
+  if (!provisioner) throw new Error("internal reviewed PWA provisioner is required; executable external provisioner modules are disabled");
+  return startBackend(config, createBackendHandlers({ config, usdc: SEPOLIA_USDC_ADDRESS, provisioner }));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

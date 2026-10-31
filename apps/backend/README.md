@@ -13,7 +13,8 @@ export BACKEND_RELAY_PRIVATE_KEY=0x...
 export BACKEND_RPC_URL=https://...
 export BACKEND_JOURNAL_PATH=/absolute/path/outside/repository/backend-journal.json
 export BACKEND_REVIEWED_ARTIFACTS=/absolute/path/outside/repository/reviewed-artifacts.json
-export BACKEND_PROVISIONER_MODULE=/absolute/path/outside/repository/reviewed-backend-adapter.mjs
+export BACKEND_PROVISIONING_APPROVAL=/absolute/path/outside/repository/provisioning-approval.json
+export BACKEND_PROVISIONING_REVIEW_DIRECTORY=/absolute/path/outside/repository/provisioning-reviews
 export BACKEND_PROFILE=local
 export BACKEND_ORIGIN=http://localhost:5173
 export BACKEND_RP_ID=localhost
@@ -22,7 +23,7 @@ npm --prefix apps/backend run dev
 
 For the later HTTPS/mobile rehearsal, set `BACKEND_PROFILE=https`, `BACKEND_ORIGIN` to the one exact stable PWA origin, and `BACKEND_RP_ID` to that origin's exact hostname. HTTPS mode rejects missing, wildcard, path-bearing, credential-bearing, IP, mixed-protocol, or mismatched values. The server still binds only to `127.0.0.1`; a separately reviewed temporary TLS ingress must supply access control and must not expose a public unauthenticated route.
 
-The server binds to `127.0.0.1:8787`. `BACKEND_PROVISIONER_MODULE` must export the pinned Sepolia USDC address, a reviewed provisioner, and exact preparation, submission, and receipt-reconciliation adapters. Startup must fail when any required configuration, reviewed deployment evidence, or adapter is missing. The browser's USDC field is advisory and is never selected for deployment. The canonical token/runtime/X/Y/Z values are pinned by `packages/security-core/config/sepolia.pwa-phase-one.json`; runtime identity is not accepted from browser input.
+The server binds to `127.0.0.1:8787`. Provisioning is an internal workspace adapter; executable external modules are disabled. Startup fails unless the process composes `createReviewedPwaProvisioner` with the reviewed security-core planner, durable live journal context, and final topology verifier. Review and approval files remain outside the repository. The canonical token/runtime/X/Y/Z values are pinned by `packages/security-core/config/sepolia.pwa-phase-one.json`; no deployment address, policy, nonce, fee, artifact, runtime hash, signer, or approval is accepted from browser input.
 
 ## HTTP contract
 
@@ -31,7 +32,8 @@ All responses are JSON with `cache-control: no-store`. Errors use `{ "error": st
 - `GET /health` returns process readiness, `{ ok, chainId, profileId, origin, rpId }`. The browser rejects any identity mismatch before opening a WebAuthn ceremony. It does not claim that a vault is provisioned or that chain state is healthy.
 - `POST /v1/registrations/{primary|secondary}/options` creates a one-use platform, user-verified WebAuthn registration session.
 - `POST /v1/registrations/{primary|secondary}/verify` verifies the matching registration ceremony and stores only credential metadata.
-- `POST /v1/vaults` provisions a fresh reviewed Safe topology from the two verified credential IDs and the pinned Sepolia USDC candidate. Browser deployment addresses and hashes are ignored.
+- `POST /v1/vaults/plan` creates one unsigned seven-transaction review package from the two verified credential IDs. It never broadcasts.
+- `POST /v1/vaults` accepts only the pending `packageHash`; execution loads the exact approval from `BACKEND_PROVISIONING_APPROVAL`, uses the durable-before-broadcast journal, and returns only after final topology verification.
 - `POST /v1/submissions/prepare` re-reads the server-held vault and chain state, then journals one exact allowlisted USDC `transfer(address,uint256)` Safe `CALL`.
 - `POST /v1/submissions/{id}/submit` verifies the role signature over the journaled Safe digest, requires primary before secondary, and relays only the unchanged prepared request.
 - `GET /v1/submissions/{id}` returns journal state. It never authorizes a retry.

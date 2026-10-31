@@ -18,6 +18,7 @@ export type VaultProvisioningResult = Readonly<{
 }>;
 
 export type BackendHandlers = Readonly<{
+  planVault: (body: unknown) => Promise<unknown>;
   provisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
   storeCredential?: (credential: Awaited<ReturnType<typeof verifyPasskeyRegistration>>) => void;
   prepareTransfer?: (body: unknown) => Promise<SafeExecutionRequest>;
@@ -83,6 +84,7 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         sessions.markRegistered(role);
         return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter });
       }
+      if (req.method === "POST" && segments.join("/") === "v1/vaults/plan") return json(res, 200, await handlers.planVault(await body(req)));
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));
       if (req.method === "POST" && segments.join("/") === "v1/submissions/prepare") {
         if (!handlers.prepareTransfer) throw new Error("submission preparation unavailable");

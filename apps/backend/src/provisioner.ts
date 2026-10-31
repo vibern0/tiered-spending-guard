@@ -1,73 +1,88 @@
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-import { isAddress, type Address, type Hex } from "viem";
-import { assertConfiguredAddress } from "./config";
-import { SEPOLIA_USDC_ADDRESS, type FreshVaultProvisioner, type ReviewedDeploymentEvidence } from "./vault";
-import type { BackendPreparation, BackendSubmission, BackendSubmissionReader } from "./handlers";
+import type { Address, Hex } from "viem";
+import {
+  executeApprovedPwaProvisioning,
+  provisioningPackageHash,
+  writePwaProvisioningReview,
+  type PwaProvisioningExecutionContext,
+  type PwaProvisioningPlan,
+  type PwaProvisioningResult,
+} from "@recent-tx-safe-guard/security-core/pwa";
+import type { StoredCredential } from "./webauthn";
 
-function outsideRepository(path: string): void {
-  if (!path.startsWith("/")) throw new Error("reviewed backend path must be absolute");
-  const repository = `${process.cwd().replace(/\/packages\/security-core$/, "")}/`;
-  if (path === repository.slice(0, -1) || path.startsWith(repository)) throw new Error("reviewed backend path must be outside the repository");
-}
+export type PwaProvisioningSummary = Readonly<{
+  packageHash: Hex;
+  planHash: Hex;
+  safe: Address;
+  guard: Address;
+  delay: Address;
+  primaryPasskey: Address;
+  secondaryPasskey: Address;
+  usdc: Address;
+}>;
+
+export type BackendPwaProvisioningResult = Readonly<{
+  chainId: 11155111;
+  safe: Address;
+  guard: Address;
+  delay: Address;
+  primaryPasskey: Address;
+  secondaryPasskey: Address;
+  usdc: Address;
+  evidence: Readonly<{ setupTransactionHash: Hex; verificationReportHash: Hex }>;
+}>;
+
+export type ReviewedPwaProvisioner = Readonly<{
+  plan(input: Readonly<{ primary: StoredCredential; secondary: StoredCredential }>): Promise<PwaProvisioningSummary>;
+  execute(input: Readonly<{ packageHash: Hex }>): Promise<BackendPwaProvisioningResult>;
+}>;
+
+export type ReviewedPwaProvisionerOptions = Readonly<{
+  reviewDirectory: string;
+  approvalPath: string;
+  createPlan(input: Readonly<{ primary: StoredCredential; secondary: StoredCredential }>): Promise<PwaProvisioningPlan>;
+  executionContext(plan: PwaProvisioningPlan): Promise<PwaProvisioningExecutionContext> | PwaProvisioningExecutionContext;
+}>;
 
 function hash(value: unknown, label: string): Hex {
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error(`${label} must be a bytes32 hash`);
   return value as Hex;
 }
 
-export function loadReviewedDeploymentEvidence(path: string): ReviewedDeploymentEvidence {
-  outsideRepository(path);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    throw new Error("reviewed deployment evidence could not be loaded safely");
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("reviewed deployment evidence is malformed");
-  const value = parsed as Record<string, unknown>;
-  if (value.verified !== true || value.chainId !== 11155111) throw new Error("reviewed Sepolia deployment evidence is required");
+function result(value: PwaProvisioningResult): BackendPwaProvisioningResult {
   return Object.freeze({
-    verified: true,
-    chainId: 11155111,
-    safeSingleton: assertConfiguredAddress(String(value.safeSingleton), "safeSingleton"),
-    safeProxyFactory: assertConfiguredAddress(String(value.safeProxyFactory), "safeProxyFactory"),
-    passkeySignerFactory: assertConfiguredAddress(String(value.passkeySignerFactory), "passkeySignerFactory"),
-    delayArtifactHash: hash(value.delayArtifactHash, "delayArtifactHash"),
+    chainId: value.chainId,
+    safe: value.safe,
+    guard: value.guard,
+    delay: value.delay,
+    primaryPasskey: value.primaryPasskey,
+    secondaryPasskey: value.secondaryPasskey,
+    usdc: value.usdc,
+    evidence: Object.freeze({ setupTransactionHash: value.setupReceipt.transactionHash, verificationReportHash: value.topologyReportHash }),
   });
 }
 
-export type ReviewedBackendModule = Readonly<{
-  usdc: Address;
-  provisioner: FreshVaultProvisioner;
-  prepareTransfer: BackendPreparation;
-  submit: BackendSubmission;
-  submission: BackendSubmissionReader;
-}>;
-
-export async function loadReviewedBackendModule(path: string): Promise<ReviewedBackendModule> {
-  outsideRepository(path);
-  const imported = await import(pathToFileURL(path).href) as {
-    createBackendModule?: () => ReviewedBackendModule | Promise<ReviewedBackendModule>;
-    usdc?: Address;
-    createProvisioner?: () => FreshVaultProvisioner;
-    provisioner?: FreshVaultProvisioner;
-    prepareTransfer?: BackendPreparation;
-    submit?: BackendSubmission;
-    submission?: BackendSubmissionReader;
-  };
-  const module = imported.createBackendModule ? await imported.createBackendModule() : {
-    usdc: imported.usdc,
-    provisioner: imported.createProvisioner?.() ?? imported.provisioner,
-    prepareTransfer: imported.prepareTransfer,
-    submit: imported.submit,
-    submission: imported.submission,
-  };
-  if (!module.usdc || !isAddress(module.usdc) || module.usdc.toLowerCase() !== SEPOLIA_USDC_ADDRESS.toLowerCase() || !module.provisioner || typeof module.provisioner.deploy !== "function" || typeof module.prepareTransfer !== "function" || typeof module.submit !== "function" || typeof module.submission !== "function") throw new Error("reviewed backend module must provide pinned Sepolia USDC, provisioner, prepareTransfer, submit, and submission");
-  return module as ReviewedBackendModule;
-}
-
-export function assertProvisionerAddress(value: string, label: string): Address {
-  if (!isAddress(value)) throw new Error(`${label} is not a valid address`);
-  return value;
+/** Keeps one reviewed plan in memory and loads approval bytes only from the configured local path. */
+export function createReviewedPwaProvisioner(options: ReviewedPwaProvisionerOptions): ReviewedPwaProvisioner {
+  let pending: Readonly<{ plan: PwaProvisioningPlan; packageHash: Hex }> | undefined;
+  return Object.freeze({
+    async plan(credentials) {
+      if (pending) throw new Error("a PWA provisioning review is already pending");
+      const plan = await options.createPlan(credentials);
+      const review = writePwaProvisioningReview(plan, options.reviewDirectory);
+      pending = Object.freeze({ plan, packageHash: review.packageHash });
+      return Object.freeze({ packageHash: review.packageHash, planHash: plan.planHash, safe: plan.safe, guard: plan.guard, delay: plan.delay, primaryPasskey: plan.primaryPasskey, secondaryPasskey: plan.secondaryPasskey, usdc: plan.usdc });
+    },
+    async execute(input) {
+      if (!pending) throw new Error("no reviewed PWA provisioning plan is pending");
+      const packageHash = hash(input.packageHash, "packageHash");
+      if (packageHash.toLowerCase() !== pending.packageHash.toLowerCase() || provisioningPackageHash(pending.plan).toLowerCase() !== packageHash.toLowerCase()) throw new Error("packageHash does not match the pending reviewed plan");
+      let approval: unknown;
+      try { approval = JSON.parse(readFileSync(options.approvalPath, "utf8")); }
+      catch { throw new Error("local provisioning approval could not be loaded safely"); }
+      const completed = await executeApprovedPwaProvisioning(pending.plan, approval, await options.executionContext(pending.plan));
+      pending = undefined;
+      return result(completed);
+    },
+  });
 }
