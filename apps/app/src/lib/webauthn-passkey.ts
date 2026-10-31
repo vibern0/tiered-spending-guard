@@ -1,5 +1,5 @@
 import { startAuthentication, startRegistration, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/browser";
-import { bytesToHex, encodeAbiParameters, hexToBytes, type Address, type Hex } from "viem";
+import { hexToBytes, type Address, type Hex } from "viem";
 
 type Json = Record<string, unknown>;
 
@@ -33,8 +33,6 @@ export type SafeAssertionOptions = Readonly<{
   origin: string;
   credentialId: string;
 }>;
-
-export type EncodedSafeWebAuthnSignature = Hex;
 
 function base64UrlToBytes(value: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid base64url value");
@@ -79,10 +77,6 @@ export function challengeForSafeDigest(value: Hex): string {
     : "";
 }
 
-function safeClientDataFields(origin: string): string {
-  return `"origin":${JSON.stringify(origin)},"crossOrigin":false`;
-}
-
 function assertBinding(options: SafeAssertionOptions): void {
   assertBytes32Digest(options.safeTxHash);
   if (options.challenge !== challengeForSafeDigest(options.safeTxHash)) throw new Error("WebAuthn challenge is not bound to the Safe transaction hash");
@@ -98,17 +92,18 @@ export async function createVaultPasskey(options: PasskeyRegistrationOptions): P
   const rp = options.options["rp"];
   if (!rp || typeof rp !== "object" || Array.isArray(rp) || (rp as Json)["id"] !== options.rpId) throw new Error("registration RP ID mismatch");
   const selection = options.options["authenticatorSelection"];
-  if (!selection || typeof selection !== "object" || Array.isArray(selection) || (selection as Json)["authenticatorAttachment"] !== "platform" || (selection as Json)["userVerification"] !== "required") {
-    throw new Error("platform user-verified passkey is required");
+  const expectedAttachment = options.role === "primary" ? "platform" : "cross-platform";
+  if (!selection || typeof selection !== "object" || Array.isArray(selection) || (selection as Json)["authenticatorAttachment"] !== expectedAttachment || (selection as Json)["userVerification"] !== "required") {
+    throw new Error(`${expectedAttachment} user-verified passkey is required for the ${options.role} role`);
   }
   const response = await startRegistration({ optionsJSON: options.options as never });
   const clientData = parseClientData(response.response.clientDataJSON);
   assertCommonChallenge(options.challenge, options.rpId, options.origin, clientData, "webauthn.create");
-  if (response.type !== "public-key" || !response.id) throw new Error("registration credential is invalid");
+  if (response.type !== "public-key" || !response.id || response.authenticatorAttachment !== expectedAttachment) throw new Error(`registration did not use the required ${expectedAttachment} authenticator`);
   return Object.freeze({ role: options.role, credentialId: response.id, challenge: options.challenge, rpId: options.rpId, origin: options.origin, response });
 }
 
-export async function signSafeDigest(options: SafeAssertionOptions): Promise<EncodedSafeWebAuthnSignature> {
+export async function signSafeDigest(options: SafeAssertionOptions): Promise<AuthenticationResponseJSON> {
   if (options.role !== "primary" && options.role !== "secondary") throw new Error("unsupported passkey role");
   if (!options.credentialId) throw new Error("credential ID is required");
   assertBinding(options);
@@ -125,12 +120,5 @@ export async function signSafeDigest(options: SafeAssertionOptions): Promise<Enc
   assertCommonChallenge(options.challenge, options.rpId, options.origin, clientData, "webauthn.get");
   const authenticatorData = base64UrlToBytes(response.response.authenticatorData);
   if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x04) === 0) throw new Error("WebAuthn user verification is required");
-  const signature = base64UrlToBytes(response.response.signature);
-  if (signature.length !== 64) throw new Error("WebAuthn signature must use P-256 IEEE-P1363 encoding");
-  const r = BigInt(bytesToHex(signature.slice(0, 32)));
-  const s = BigInt(bytesToHex(signature.slice(32)));
-  return encodeAbiParameters(
-    [{ type: "bytes" }, { type: "string" }, { type: "uint256" }, { type: "uint256" }],
-    [bytesToHex(authenticatorData), safeClientDataFields(options.origin), r, s],
-  );
+  return response;
 }

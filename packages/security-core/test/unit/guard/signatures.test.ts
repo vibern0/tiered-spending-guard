@@ -2,6 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, keccak256, toHex, type Address, type Hex } from "viem";
 import { fn, signSafeTransaction } from "../../helpers/safe";
+import { encodeGuardContractSignatures } from "../../../src/signers/guard-signatures";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
@@ -39,6 +40,23 @@ async function fixture() {
 }
 
 describe("TieredSpendingGuard exact signatures", () => {
+  it("encodes verified contract payloads in primary-first layout without an ECDSA path", () => {
+    const primary = "0x1111111111111111111111111111111111111111" as Address;
+    const secondary = "0x2222222222222222222222222222222222222222" as Address;
+    const encoded = encodeGuardContractSignatures({ address: primary, payload: "0x1234" }, { address: secondary, payload: "0xaabbcc" });
+    const bytes = Buffer.from(encoded.slice(2), "hex");
+    expect(`0x${bytes.subarray(12, 32).toString("hex")}`).to.equal(primary);
+    expect(BigInt(`0x${bytes.subarray(32, 64).toString("hex")}`)).to.equal(130n);
+    expect(bytes[64]).to.equal(0);
+    expect(`0x${bytes.subarray(77, 97).toString("hex")}`).to.equal(secondary);
+    expect(BigInt(`0x${bytes.subarray(97, 129).toString("hex")}`)).to.equal(164n);
+    expect(bytes[129]).to.equal(0);
+    expect(BigInt(`0x${bytes.subarray(130, 162).toString("hex")}`)).to.equal(2n);
+    expect(`0x${bytes.subarray(162, 164).toString("hex")}`).to.equal("0x1234");
+    expect(BigInt(`0x${bytes.subarray(164, 196).toString("hex")}`)).to.equal(3n);
+    expect(`0x${bytes.subarray(196).toString("hex")}`).to.equal("0xaabbcc");
+    expect(() => encodeGuardContractSignatures({ address: primary, payload: "0x1234" }, { address: primary, payload: "0xaabb" })).to.throw();
+  });
   it("compatibility config exposes only safe, passkey, ECDSA secondary, Delay, and period fields", async () => {
     const artifact = await hre.artifacts.readArtifact("TieredSpendingGuard");
     const constructorAbi = artifact.abi.find((entry) => entry.type === "constructor");

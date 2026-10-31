@@ -1,6 +1,7 @@
-import { verifyAuthenticationResponse, verifyRegistrationResponse } from "@simplewebauthn/server";
-import { hexToBytes, type Address, type Hex } from "viem";
+import { verifyAuthenticationResponse, verifyRegistrationResponse, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/server";
+import { bytesToHex, encodeAbiParameters, hexToBytes, type Address, type Hex } from "viem";
 import { assertBackendWebAuthnIdentity } from "./config";
+import { decodeP256Credential, decodeWebAuthnField, extractClientDataSuffix, parseP256DerSignature } from "./webauthn-signature";
 
 export type BackendPasskeyRole = "primary" | "secondary";
 export type RegistrationResponse = Readonly<{
@@ -9,10 +10,10 @@ export type RegistrationResponse = Readonly<{
   challenge: string;
   rpId: string;
   origin: string;
-  response: unknown;
+  response: RegistrationResponseJSON;
 }>;
 
-export type StoredCredential = Readonly<{ id: string; publicKey: Uint8Array | string; counter: number }>;
+export type StoredCredential = Readonly<{ role: BackendPasskeyRole; id: string; publicKey: Uint8Array; counter: number; x: bigint; y: bigint }>;
 export type AssertionInput = Readonly<{
   role: BackendPasskeyRole;
   safe: Address;
@@ -23,11 +24,13 @@ export type AssertionInput = Readonly<{
   rpId: string;
   origin: string;
   credentialId: string;
-  response: unknown;
+  response: AuthenticationResponseJSON;
   credential: StoredCredential;
 }>;
 
-type RegistrationVerification = Readonly<{ verified: boolean; credentialId: string; publicKey: Uint8Array | string; counter: number }>;
+export type VerifiedPasskeyApproval = Readonly<{ role: BackendPasskeyRole; credentialId: string; counter: number; payload: Hex }>;
+
+type RegistrationVerification = Readonly<{ verified: boolean; credentialId: string; publicKey: Uint8Array; counter: number }>;
 type AssertionVerification = Readonly<{ verified: boolean; authenticationInfo?: Readonly<{ newCounter?: number }> }>;
 export type RegistrationVerifier = (input: Readonly<{ response: unknown; challenge: string; rpId: string; origin: string }>) => Promise<RegistrationVerification>;
 export type AssertionVerifier = (input: Readonly<{ response: unknown; credential: StoredCredential; challenge: string; rpId: string; origin: string }>) => Promise<AssertionVerification>;
@@ -56,37 +59,50 @@ async function defaultRegistrationVerifier(input: Readonly<{ response: unknown; 
     requireUserVerification: true,
   });
   if (!result.verified || !result.registrationInfo) throw new Error("WebAuthn registration was not verified");
-  return { verified: true, credentialId: Buffer.from(result.registrationInfo.credential.id).toString("base64url"), publicKey: result.registrationInfo.credential.publicKey, counter: result.registrationInfo.credential.counter };
+  return { verified: true, credentialId: result.registrationInfo.credential.id, publicKey: result.registrationInfo.credential.publicKey, counter: result.registrationInfo.credential.counter };
 }
 
 async function defaultAssertionVerifier(input: Readonly<{ response: unknown; credential: StoredCredential; challenge: string; rpId: string; origin: string }>): Promise<AssertionVerification> {
-  const publicKey = typeof input.credential.publicKey === "string" ? Uint8Array.from(Buffer.from(input.credential.publicKey, "base64url")) : input.credential.publicKey;
   const result = await verifyAuthenticationResponse({
     response: input.response as never,
     expectedChallenge: input.challenge,
     expectedOrigin: input.origin,
     expectedRPID: input.rpId,
     requireUserVerification: true,
-    credential: { id: input.credential.id, publicKey: publicKey as Uint8Array<ArrayBuffer>, counter: input.credential.counter },
+    credential: { id: input.credential.id, publicKey: input.credential.publicKey as Uint8Array<ArrayBuffer>, counter: input.credential.counter },
   });
   return { verified: result.verified, authenticationInfo: result.authenticationInfo && { newCounter: result.authenticationInfo.newCounter } };
 }
 
-export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>> {
+export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ credentialId: string }>> {
   role(input.role);
   assertBackendWebAuthnIdentity(input.rpId === "localhost" ? "local" : "https", input.origin, input.rpId);
-  if (!input.credentialId || input.credentialId !== (input.response as { id?: unknown })["id"]) throw new Error("registration credential binding mismatch");
+  if (!input.credentialId || input.credentialId !== input.response.id || input.response.type !== "public-key") throw new Error("registration credential binding mismatch");
   const result = await verifier({ response: input.response, challenge: input.challenge, rpId: input.rpId, origin: input.origin });
   if (!result.verified || result.credentialId !== input.credentialId || !Number.isSafeInteger(result.counter) || result.counter < 0) throw new Error("WebAuthn registration was not verified");
-  return Object.freeze({ role: input.role, id: result.credentialId, credentialId: result.credentialId, publicKey: result.publicKey, counter: result.counter });
+  const expectedAttachment = input.role === "primary" ? "platform" : "cross-platform";
+  if (input.response.authenticatorAttachment !== expectedAttachment) throw new Error(`${input.role} registration must use a ${expectedAttachment} authenticator`);
+  const coordinates = decodeP256Credential(result.publicKey);
+  return Object.freeze({ role: input.role, id: result.credentialId, credentialId: result.credentialId, publicKey: result.publicKey, counter: result.counter, ...coordinates });
 }
 
-export async function verifyPasskeyAssertion(input: AssertionInput, verifier: AssertionVerifier = defaultAssertionVerifier): Promise<Readonly<{ verified: true; counter: number }>> {
+export async function verifyPasskeyAssertion(input: AssertionInput, verifier: AssertionVerifier = defaultAssertionVerifier): Promise<VerifiedPasskeyApproval> {
   assertSafeBinding(input);
-  if (input.credentialId !== (input.response as { id?: unknown })["id"]) throw new Error("WebAuthn assertion credential binding mismatch");
+  assertBackendWebAuthnIdentity(input.rpId === "localhost" ? "local" : "https", input.origin, input.rpId);
+  if (input.credential.role !== input.role || input.credentialId !== input.response.id || input.response.type !== "public-key") throw new Error("WebAuthn assertion credential binding mismatch");
   const result = await verifier({ response: input.response, credential: input.credential, challenge: input.challenge, rpId: input.rpId, origin: input.origin });
   if (!result.verified) throw new Error("WebAuthn assertion was not verified");
   const counter = result.authenticationInfo?.newCounter ?? input.credential.counter;
   if (!Number.isSafeInteger(counter) || counter < input.credential.counter) throw new Error("WebAuthn counter is invalid");
-  return { verified: true, counter };
+  const authenticatorData = decodeWebAuthnField(input.response.response.authenticatorData, "WebAuthn authenticatorData");
+  if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x01) === 0 || (authenticatorData[32]! & 0x04) === 0) throw new Error("WebAuthn user presence and verification are required");
+  const clientDataSuffix = extractClientDataSuffix(input.response.response.clientDataJSON, { challenge: input.challenge, origin: input.origin });
+  const signature = parseP256DerSignature(decodeWebAuthnField(input.response.response.signature, "WebAuthn signature"));
+  const payload = encodeAbiParameters(
+    [{ type: "bytes" }, { type: "string" }, { type: "uint256" }, { type: "uint256" }],
+    [bytesToHex(authenticatorData), clientDataSuffix, signature.r, signature.s],
+  );
+  return Object.freeze({ role: input.role, credentialId: input.credentialId, counter, payload });
 }
+
+export { challengeForDigest };

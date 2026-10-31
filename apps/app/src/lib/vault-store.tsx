@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { createPublicClient, http, keccak256, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { sepolia } from "viem/chains";
 import { usdc } from "./usdc";
@@ -26,7 +27,7 @@ export type VaultProvisioningResult = Readonly<{
 
 export type BackendRegistrationOptions = Readonly<{
   sessionId: string; challenge: string; rpId: string; origin: string; role: "primary" | "secondary";
-  userVerification: "required"; authenticatorAttachment: "platform";
+  userVerification: "required"; authenticatorAttachment: "platform" | "cross-platform";
 }>;
 
 export type VaultBackend = Readonly<{
@@ -34,8 +35,8 @@ export type VaultBackend = Readonly<{
   registerPasskey: (role: "primary" | "secondary") => Promise<PasskeyRegistration>;
   provisionVault: (input: Readonly<{ primaryCredentialId: string; secondaryCredentialId: string; usdc: Address; chainId: 11155111 }>) => Promise<VaultProvisioningResult>;
   prepareTransfer: (input: PreparedTransferInput) => Promise<SafeExecutionRequest>;
-  submitPrimary: (id: Hex, signature: Hex) => Promise<SubmissionStatus>;
-  submitSecondary: (id: Hex, signature: Hex) => Promise<SubmissionStatus>;
+  submitPrimary: (id: Hex, assertion: AuthenticationResponseJSON) => Promise<SubmissionStatus>;
+  submitSecondary: (id: Hex, assertion: AuthenticationResponseJSON) => Promise<SubmissionStatus>;
 }>;
 
 export type PreparedTransferInput = Readonly<{
@@ -126,7 +127,7 @@ function defaultBackend(): VaultBackend {
         challenge: options.challenge, rp: { id: options.rpId, name: "USDC Vault Demo" },
         user: { id: `${role}-${options.sessionId}`, name: `${role}@${profile.rpId}`, displayName: role === "primary" ? "First signer" : "Second signer" },
         pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" }, timeout: 60_000, attestation: "none",
+        authenticatorSelection: { authenticatorAttachment: options.authenticatorAttachment, userVerification: "required", residentKey: "preferred" }, timeout: 60_000, attestation: "none",
       };
       const registration = await createVaultPasskey({ role, challenge: options.challenge, rpId: options.rpId, origin: options.origin, options: registrationOptions });
       await json(`/v1/registrations/${role}/verify`, { method: "POST", body: JSON.stringify({ sessionId: options.sessionId, registration: registration.response }) });
@@ -137,8 +138,8 @@ function defaultBackend(): VaultBackend {
       const payload = await json("/v1/submissions/prepare", { method: "POST", body: JSON.stringify(input, (_key, value) => typeof value === "bigint" ? `${value}n` : value) }) as { request?: SafeExecutionRequest } | SafeExecutionRequest;
       return ("request" in payload && payload.request ? payload.request : payload) as SafeExecutionRequest;
     },
-    async submitPrimary(id, signature) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "primary", signature }) }) as Promise<SubmissionStatus>; },
-    async submitSecondary(id, signature) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "secondary", signature }) }) as Promise<SubmissionStatus>; },
+    async submitPrimary(id, assertion) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "primary", assertion }) }) as Promise<SubmissionStatus>; },
+    async submitSecondary(id, assertion) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "secondary", assertion }) }) as Promise<SubmissionStatus>; },
   };
 }
 

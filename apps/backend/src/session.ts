@@ -8,6 +8,7 @@ export type RegistrationSession = Readonly<{
   challenge: string;
   rpId: string;
   origin: string;
+  authenticatorAttachment: "platform" | "cross-platform";
   used: boolean;
 }>;
 
@@ -30,7 +31,7 @@ export class RegistrationSessionStore {
   create(role: BackendPasskeyRole): RegistrationSession {
     if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
     if (this.roles.has(role)) throw new Error(`${role} passkey is already registered`);
-    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, used: false });
+    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, authenticatorAttachment: role === "primary" ? "platform" as const : "cross-platform" as const, used: false });
     this.sessions.set(session.id, session);
     this.roles.add(role);
     return session;

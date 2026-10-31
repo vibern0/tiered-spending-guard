@@ -6,8 +6,9 @@ import {
   type ReviewedDeploymentEvidence,
   type SafeExecutionRequest,
 } from "./vault";
-import type { BackendPasskeyRole, StoredCredential } from "./webauthn";
-import type { Address } from "viem";
+import { challengeForDigest, verifyPasskeyAssertion, type BackendPasskeyRole, type StoredCredential, type VerifiedPasskeyApproval } from "./webauthn";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
+import type { Address, Hex } from "viem";
 
 export type BackendVaultRecord = Readonly<VaultProvisioningResult & {
   primaryCredentialId: string;
@@ -27,6 +28,7 @@ export type BackendHandlerOptions = Readonly<{
   prepareTransfer?: BackendPreparation;
   submit?: BackendSubmission;
   submission?: BackendSubmissionReader;
+  verifyAssertion?: typeof verifyPasskeyAssertion;
 }>;
 
 type ProvisioningInput = Readonly<{
@@ -56,6 +58,7 @@ export type BackendHandlerSet = Omit<BackendHandlers, "prepareTransfer" | "submi
   submit: (id: string, body: unknown) => Promise<unknown>;
   submission: (id: string) => unknown;
   storeCredential: (credential: StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>) => void;
+  verifyApproval: (safeTxHash: Hex, body: unknown) => Promise<VerifiedPasskeyApproval>;
   vaultRecord: () => BackendVaultRecord | undefined;
 }>;
 
@@ -68,6 +71,11 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     if (!credential.id || credential.id !== credential.credentialId) throw new Error("credential metadata is not self-consistent");
     const existing = credentials.get(passkeyRole);
     if (existing && existing.id !== credential.id) throw new Error(`${passkeyRole} credential is already registered`);
+    for (const [existingRole, current] of credentials) {
+      if (existingRole !== passkeyRole && (current.id === credential.id || Buffer.from(current.publicKey).equals(Buffer.from(credential.publicKey)) || (current.x === credential.x && current.y === credential.y))) {
+        throw new Error("primary and secondary credentials must be distinct");
+      }
+    }
     credentials.set(passkeyRole, Object.freeze({ ...credential, role: passkeyRole }));
   };
 
@@ -114,5 +122,31 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     return options.submission({ vault: requireVault(), id });
   };
 
-  return Object.freeze({ provisionVault, prepareTransfer, submit, submission, storeCredential, vaultRecord: () => vault });
+  const verifyApproval = async (safeTxHash: Hex, input: unknown): Promise<VerifiedPasskeyApproval> => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(safeTxHash)) throw new Error("server-held Safe transaction hash is invalid");
+    const body = record(input, "passkey approval");
+    const passkeyRole = role(body.role);
+    const assertion = record(body.assertion, "passkey assertion") as unknown as AuthenticationResponseJSON;
+    const stored = credentials.get(passkeyRole);
+    if (!stored) throw new Error(`${passkeyRole} credential is not registered`);
+    const currentVault = requireVault();
+    const approval = await (options.verifyAssertion ?? verifyPasskeyAssertion)({
+      role: passkeyRole,
+      safe: currentVault.safe,
+      chainId: options.config.chainId,
+      safeTxHash,
+      challenge: challengeForDigest(safeTxHash),
+      binding: { safe: currentVault.safe, chainId: options.config.chainId, safeTxHash },
+      rpId: options.config.rpId,
+      origin: options.config.origin,
+      credentialId: stored.id,
+      response: assertion,
+      credential: stored,
+    });
+    if (approval.role !== passkeyRole || approval.credentialId !== stored.id || approval.counter < stored.counter) throw new Error("verified passkey approval does not match stored credential metadata");
+    credentials.set(passkeyRole, Object.freeze({ ...stored, counter: approval.counter }));
+    return approval;
+  };
+
+  return Object.freeze({ provisionVault, prepareTransfer, submit, submission, storeCredential, verifyApproval, vaultRecord: () => vault });
 }

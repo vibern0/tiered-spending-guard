@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isLoopbackAddress, type BackendConfig } from "./config";
 import { RegistrationSessionStore } from "./session";
-import { verifyPasskeyRegistration, type RegistrationResponse } from "./webauthn";
+import { verifyPasskeyRegistration } from "./webauthn";
+import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { PreparedUsdcTransfer, SafeExecutionRequest } from "./vault";
 import { SubmissionJournal } from "./journal";
 
@@ -69,14 +70,14 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";
         const session = sessions.create(role);
-        return json(res, 200, { sessionId: session.id, challenge: session.challenge, rpId: session.rpId, origin: session.origin, role: session.role, userVerification: "required", authenticatorAttachment: "platform" });
+        return json(res, 200, { sessionId: session.id, challenge: session.challenge, rpId: session.rpId, origin: session.origin, role: session.role, userVerification: "required", authenticatorAttachment: session.authenticatorAttachment });
       }
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "verify") {
         const role = segments[2] as "primary" | "secondary";
-        const input = await body(req) as { sessionId?: string; registration?: RegistrationResponse };
+        const input = await body(req) as { sessionId?: string; registration?: RegistrationResponseJSON };
         if (!input.sessionId || !input.registration) throw new Error("registration session and response are required");
         const session = sessions.consume(input.sessionId, role);
-        const credential = await verifyPasskeyRegistration({ ...input.registration, role, challenge: session.challenge, rpId: session.rpId, origin: session.origin });
+        const credential = await verifyPasskeyRegistration({ role, credentialId: input.registration.id, challenge: session.challenge, rpId: session.rpId, origin: session.origin, response: input.registration });
         handlers.storeCredential?.(credential);
         return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter });
       }

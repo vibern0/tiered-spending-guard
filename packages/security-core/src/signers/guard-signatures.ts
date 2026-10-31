@@ -1,4 +1,4 @@
-import { toHex, type Hex } from "viem";
+import { isAddress, toHex, type Address, type Hex } from "viem";
 import { assertSameSignerRequest, assertVaultSignerPair, snapshotSafeSignerRequest, type SafeSignerRequest, type VaultSigner } from "./types";
 
 const hexBytes = (value: Hex): Uint8Array => Uint8Array.from(Buffer.from(value.slice(2), "hex"));
@@ -18,6 +18,24 @@ function contractPayload(signature: Hex, expected: VaultSigner): Hex {
 const slot = (address: string, offset: bigint): string => `${address.slice(2).padStart(64, "0")}${toHex(offset, { size: 32 }).slice(2)}00`;
 const tail = (payload: Hex): string => `${toHex(BigInt((payload.length - 2) / 2), { size: 32 }).slice(2)}${payload.slice(2)}`;
 
+export type VerifiedContractApproval = Readonly<{ address: Address; payload: Hex }>;
+
+function assertApproval(value: VerifiedContractApproval, label: string): void {
+  if (!isAddress(value.address)) throw new Error(`${label} signer address is invalid`);
+  if (!/^0x(?:[0-9a-f]{2})+$/i.test(value.payload)) throw new Error(`${label} verified passkey payload is invalid`);
+}
+
+/** Encodes already-verified contract-passkey payloads in the guard's primary-first layout. */
+export function encodeGuardContractSignatures(primary: VerifiedContractApproval, secondary?: VerifiedContractApproval): Hex {
+  assertApproval(primary, "primary");
+  if (!secondary) return `0x${slot(primary.address, 65n)}${tail(primary.payload)}` as Hex;
+  assertApproval(secondary, "secondary");
+  if (secondary.address.toLowerCase() === primary.address.toLowerCase()) throw new Error("primary and secondary passkey signers must be distinct");
+  const primaryOffset = 130n;
+  const secondaryOffset = primaryOffset + 32n + BigInt((primary.payload.length - 2) / 2);
+  return `0x${slot(primary.address, primaryOffset)}${slot(secondary.address, secondaryOffset)}${tail(primary.payload)}${tail(secondary.payload)}` as Hex;
+}
+
 /** Encodes the TieredSpendingGuard's primary-first signature layout. */
 export async function encodeGuardSafeSignatures(requestInput: SafeSignerRequest, primary: VaultSigner, secondary?: VaultSigner): Promise<Hex> {
   const request = snapshotSafeSignerRequest(requestInput);
@@ -30,8 +48,7 @@ export async function encodeGuardSafeSignatures(requestInput: SafeSignerRequest,
   };
   if (!secondary) {
     const signature = await signBound(primary);
-    contractPayload(signature, primary);
-    return signature;
+    return encodeGuardContractSignatures({ address: primary.address, payload: contractPayload(signature, primary) });
   }
   assertVaultSignerPair(primary, secondary);
   const primaryPayload = contractPayload(await signBound(primary), primary);
@@ -41,7 +58,5 @@ export async function encodeGuardSafeSignatures(requestInput: SafeSignerRequest,
     return `0x${slot(primary.address, 65n)}${tail(primaryPayload)}${extension.slice(2)}` as Hex;
   }
   const secondaryPayload = contractPayload(await signBound(secondary), secondary);
-  const primaryOffset = 130n;
-  const secondaryOffset = primaryOffset + 32n + BigInt((primaryPayload.length - 2) / 2);
-  return `0x${slot(primary.address, primaryOffset)}${slot(secondary.address, secondaryOffset)}${tail(primaryPayload)}${tail(secondaryPayload)}` as Hex;
+  return encodeGuardContractSignatures({ address: primary.address, payload: primaryPayload }, { address: secondary.address, payload: secondaryPayload });
 }

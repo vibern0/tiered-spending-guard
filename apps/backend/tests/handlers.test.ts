@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBackendHandlers } from "../src/handlers";
 import type { BackendConfig } from "../src/config";
 import type { ReviewedDeploymentEvidence, SafeExecutionRequest } from "../src/vault";
+import type { VerifiedPasskeyApproval } from "../src/webauthn";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
@@ -19,13 +20,15 @@ const config = {
 } satisfies BackendConfig;
 const artifacts = { verified: true, chainId: 11155111, safeSingleton: SAFE, safeProxyFactory: GUARD, passkeySignerFactory: PRIMARY, delayArtifactHash: HASH } satisfies ReviewedDeploymentEvidence;
 const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH } } as const;
+const publicKey = (fill: number) => Uint8Array.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20, ...new Uint8Array(32).fill(fill), 0x22, 0x58, 0x20, ...new Uint8Array(32).fill(fill + 1)]);
+const credential = (role: "primary" | "secondary", id: string, fill: number, counter = 0) => ({ role, id, credentialId: id, publicKey: publicKey(fill), counter, x: BigInt(fill), y: BigInt(fill + 1) });
 
 describe("server-authoritative backend handlers", () => {
   it("ignores browser deployment fields and binds provisioning to verified credentials", async () => {
     const deploy = vi.fn().mockResolvedValue(result);
     const handlers = createBackendHandlers({ config, artifacts, usdc: USDC, provisioner: { deploy } });
-    handlers.storeCredential({ role: "primary", id: "primary-credential", credentialId: "primary-credential", publicKey: "primary-key", counter: 0 });
-    handlers.storeCredential({ role: "secondary", id: "secondary-credential", credentialId: "secondary-credential", publicKey: "secondary-key", counter: 0 });
+    handlers.storeCredential(credential("primary", "primary-credential", 1));
+    handlers.storeCredential(credential("secondary", "secondary-credential", 3));
 
     await handlers.provisionVault({ chainId: 11155111, usdc: FORGED_USDC, primaryCredentialId: "primary-credential", secondaryCredentialId: "secondary-credential", safe: "0x9999999999999999999999999999999999999999", setupTransactionHash: "forged" });
 
@@ -40,13 +43,32 @@ describe("server-authoritative backend handlers", () => {
       transaction: { to: vault.usdc, value: 0n, data: "0x1234", operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: "0x0000000000000000000000000000000000000000", refundReceiver: "0x0000000000000000000000000000000000000000", nonce: 4n }, safeTxHash: HASH, expectedSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
     }));
     const handlers = createBackendHandlers({ config, artifacts, usdc: USDC, provisioner: { deploy: vi.fn().mockResolvedValue(result) }, prepareTransfer: prepare, submission: () => ({ state: "confirmed", transactionHash: HASH }) });
-    handlers.storeCredential({ role: "primary", id: "p", credentialId: "p", publicKey: "p", counter: 0 });
-    handlers.storeCredential({ role: "secondary", id: "s", credentialId: "s", publicKey: "s", counter: 0 });
+    handlers.storeCredential(credential("primary", "p", 1));
+    handlers.storeCredential(credential("secondary", "s", 3));
     await handlers.provisionVault({ chainId: 11155111, usdc: USDC, primaryCredentialId: "p", secondaryCredentialId: "s" });
 
     const request = await handlers.prepareTransfer({ safe: "0x9999999999999999999999999999999999999999", usdc: "0x9999999999999999999999999999999999999999", recipient: SAFE, amount: 1n, nonce: 999n });
     expect(request.safe).toBe(SAFE);
     expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ vault: expect.objectContaining(result), request: { recipient: SAFE, amount: 1n, idempotencyKey: undefined } }));
     expect(handlers.submission("request-1")).toEqual({ state: "confirmed", transactionHash: HASH });
+  });
+
+  it("rejects credential reuse and advances a role counter only after verified approval", async () => {
+    const verifyAssertion = vi.fn(async (input): Promise<VerifiedPasskeyApproval> => {
+      if (verifyAssertion.mock.calls.length === 2) throw new Error("assertion rejected");
+      return { role: input.role, credentialId: input.credentialId, counter: input.credential.counter + 1, payload: "0x1234" };
+    });
+    const handlers = createBackendHandlers({ config, artifacts, usdc: USDC, provisioner: { deploy: vi.fn().mockResolvedValue(result) }, verifyAssertion });
+    const primary = credential("primary", "p", 1);
+    handlers.storeCredential(primary);
+    expect(() => handlers.storeCredential(credential("secondary", "s", 1))).toThrow(/distinct/i);
+    handlers.storeCredential(credential("secondary", "s", 3));
+    await handlers.provisionVault({ chainId: 11155111, usdc: USDC, primaryCredentialId: "p", secondaryCredentialId: "s" });
+
+    const body = { role: "primary", assertion: { id: "p" } };
+    await expect(handlers.verifyApproval(HASH, body)).resolves.toMatchObject({ role: "primary", counter: 1 });
+    await expect(handlers.verifyApproval(HASH, body)).rejects.toThrow(/rejected/);
+    await expect(handlers.verifyApproval(HASH, body)).resolves.toMatchObject({ role: "primary", counter: 2 });
+    expect(verifyAssertion.mock.calls.map(([input]) => input.credential.counter)).toEqual([0, 1, 1]);
   });
 });

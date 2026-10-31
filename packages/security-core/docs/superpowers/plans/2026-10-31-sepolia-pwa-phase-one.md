@@ -241,7 +241,7 @@ git commit -m "feat: add closed wallet environment profiles"
 - `decodeP256Credential(publicKey): { x: bigint; y: bigint }` accepts COSE ES256/P-256 only.
 - `encodeGuardContractSignatures(primary: {address,payload}, secondary?: {address,payload}): Hex` preserves primary-first layout.
 
-- [ ] **Step 1: Write RED registration/assertion vectors**
+- [x] **Step 1: Write RED registration/assertion vectors**
 
 Test primary `platform`; secondary `cross-platform`; distinct credential IDs/public keys. Use genuine DER fixtures with short/long leading zeros. Reject nonminimal/negative/oversized `r/s`, trailing bytes, wrong curve/algorithm, wrong RP/origin/challenge/type/crossOrigin/UV/credential/role, altered JSON order/escaping, counter rollback.
 
@@ -252,7 +252,7 @@ expect(approval.payload).toEqual(encodeAbiParameters(
 ));
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix apps/backend test -- tests/webauthn.test.ts`
 
@@ -262,15 +262,15 @@ Run: `npm --prefix packages/security-core run test:unit -- test/unit/guard/signa
 
 Expected: FAIL; app expects P1363; role attachment hardcoded.
 
-- [ ] **Step 3: Implement server-verified pipeline**
+- [x] **Step 3: Implement server-verified pipeline**
 
 Use SimpleWebAuthn for ceremony verification. Parse DER strictly only after verification. Extract exact signed `clientDataJSON` suffix; never rebuild JSON. Backend stores public credential metadata outside repository. Update counter only after verified assertion. Compose Safe signature bundle only from verified payloads and server-held signer addresses.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run same three commands. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/app/src/lib/webauthn-passkey* apps/backend/src apps/backend/tests/webauthn.test.ts packages/security-core/src/signers/guard-signatures.ts packages/security-core/test/unit/guard/signatures.test.ts
