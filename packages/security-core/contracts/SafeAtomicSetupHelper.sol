@@ -14,6 +14,7 @@ interface IAtomicGuardSetup {
     function config() external view returns (address safe, address passkey, address ecdsaSecondary, address delay, uint64 periodSeconds, uint64 periodAnchor);
     function configureSafeContractSecondary(address signer, bool enabled) external;
     function safeContractSecondary() external view returns (address signer, uint8 kind, bool enabled);
+    function ecdsaSecondary() external view returns (address signer, uint8 kind, bool enabled);
     function setAssetPolicy(
         address token,
         uint256 basePerTransaction,
@@ -125,6 +126,7 @@ contract SafeAtomicSetupHelper {
         if (
             IAtomicGuardSetup(params.guard).maintenance() != params.maintenance ||
             !_isConfiguredSafeContractSecondary(params.guard, params.safeContractSecondary) ||
+            !_isConfiguredEcdsaSecondary(params.guard, params.ecdsaSecondary) ||
             !IAtomicDelaySetup(params.delay).isModuleEnabled(safe) ||
             !ISafeAtomicSelfSetup(safe).isModuleEnabled(params.delay)
         ) revert InvalidBinding();
@@ -142,5 +144,10 @@ contract SafeAtomicSetupHelper {
     function _isConfiguredSafeContractSecondary(address guard, address expectedSecondary) private view returns (bool) {
         (address signer, uint8 kind, bool enabled) = IAtomicGuardSetup(guard).safeContractSecondary();
         return signer == expectedSecondary && kind == 0 && enabled;
+    }
+
+    function _isConfiguredEcdsaSecondary(address guard, address expectedSecondary) private view returns (bool) {
+        (address signer, uint8 kind, bool enabled) = IAtomicGuardSetup(guard).ecdsaSecondary();
+        return signer == expectedSecondary && kind == 1 && enabled == (expectedSecondary != address(0));
     }
 }

@@ -11,6 +11,7 @@ export type AssetPolicy = Readonly<{
 
 export type SignerRole = "primary" | "secondary";
 export type SignerKind = "safe-contract" | "ecdsa-extension";
+export type SecondaryProfile = "dual" | "contract-only";
 
 export type ConfiguredSigner = Readonly<{
   address: Address;
@@ -24,6 +25,7 @@ export type VaultPolicy = Readonly<{
   safe: Address;
   primary?: Address;
   secondaries?: readonly ConfiguredSigner[];
+  secondaryProfile?: SecondaryProfile;
   /** @deprecated use primary */
   passkey: Address;
   /** @deprecated use secondaries */
@@ -44,7 +46,7 @@ export type AssetSpendState = Readonly<{
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const POLICY_REQUIRED_KEYS = ["chainId", "safe", "passkey", "ecdsaSecondary", "delay", "periodSeconds", "periodAnchor", "cooldownSeconds", "expirationSeconds", "assets"] as const;
-const POLICY_KEYS = [...POLICY_REQUIRED_KEYS, "primary", "secondaries"] as const;
+const POLICY_KEYS = [...POLICY_REQUIRED_KEYS, "primary", "secondaries", "secondaryProfile"] as const;
 const ASSET_KEYS = ["token", "basePerTransaction", "stepUpPerTransaction", "baseDailyLimit", "instantDailyLimit", "recipients"] as const;
 const SIGNER_KEYS = ["address", "role", "kind", "enabled"] as const;
 
@@ -73,19 +75,29 @@ export function assertValidVaultPolicy(policy: VaultPolicy): void {
   assertAddress("passkey", policy.passkey);
   assertAddress("ecdsaSecondary", policy.ecdsaSecondary);
   assertAddress("delay", policy.delay);
+  const secondaryProfile = policy.secondaryProfile ?? "dual";
+  if (secondaryProfile !== "dual" && secondaryProfile !== "contract-only") throw new Error("secondaryProfile is unsupported");
+  if (secondaryProfile === "dual" && policy.ecdsaSecondary.toLowerCase() === ZERO) throw new Error("dual profile requires a nonzero ECDSA secondary");
+  if (secondaryProfile === "contract-only" && policy.ecdsaSecondary.toLowerCase() !== ZERO) throw new Error("contract-only profile requires zero ECDSA secondary");
   const primary = policy.primary ?? policy.passkey;
   assertAddress("primary", primary);
   if (primary.toLowerCase() !== policy.passkey.toLowerCase()) throw new Error("primary must match passkey compatibility signer");
-  const secondaries = policy.secondaries ?? [{ address: policy.ecdsaSecondary, role: "secondary", kind: "ecdsa-extension", enabled: true } satisfies ConfiguredSigner];
+  const secondaries = policy.secondaries ?? (secondaryProfile === "dual"
+    ? [{ address: policy.ecdsaSecondary, role: "secondary", kind: "ecdsa-extension", enabled: true } satisfies ConfiguredSigner]
+    : []);
   if (!Array.isArray(secondaries) || secondaries.length === 0) throw new Error("at least one secondary signer is required");
   const signers = [primary.toLowerCase()];
   let hasEcdsaSecondary = false;
+  let safeContractSecondaryCount = 0;
   for (const [index, signer] of secondaries.entries()) {
     assertExactKeys(signer as unknown as Record<string, unknown>, SIGNER_KEYS, `secondaries[${index}]`);
     assertAddress(`secondaries[${index}].address`, signer.address);
     if (signer.role !== "secondary") throw new Error("secondary signer role must be secondary");
     if (signer.kind !== "safe-contract" && signer.kind !== "ecdsa-extension") throw new Error("secondary signer kind is unsupported");
     if (signer.enabled !== true) throw new Error("secondary signer must be enabled for this prototype");
+    if (signer.address.toLowerCase() === ZERO) throw new Error("secondary signer must be nonzero");
+    if (signer.kind === "safe-contract") safeContractSecondaryCount += 1;
+    if (secondaryProfile === "contract-only" && signer.kind !== "safe-contract") throw new Error("contract-only profile permits only a Safe-contract secondary");
     if (signer.address.toLowerCase() === policy.ecdsaSecondary.toLowerCase()) {
       if (signer.kind !== "ecdsa-extension") throw new Error("ecdsaSecondary secondary must use ecdsa-extension");
       hasEcdsaSecondary = true;
@@ -93,7 +105,8 @@ export function assertValidVaultPolicy(policy: VaultPolicy): void {
     signers.push(signer.address.toLowerCase());
   }
   if (new Set(signers).size !== signers.length) throw new Error("signers must be distinct");
-  if (!hasEcdsaSecondary) throw new Error("ecdsaSecondary compatibility signer must be a configured secondary");
+  if (secondaryProfile === "dual" && !hasEcdsaSecondary) throw new Error("ecdsaSecondary compatibility signer must be a configured secondary");
+  if (secondaryProfile === "contract-only" && (secondaries.length !== 1 || safeContractSecondaryCount !== 1)) throw new Error("contract-only profile requires exactly one Safe-contract secondary");
   if (policy.assets.length === 0) throw new Error("at least one asset is required");
 
   const tokens = new Set<string>();

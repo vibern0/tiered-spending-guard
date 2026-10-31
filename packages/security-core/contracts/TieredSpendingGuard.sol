@@ -134,12 +134,17 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     /// @param initialConfig Core Safe, signer, Delay, and spending-window settings.
     constructor(GuardConfig memory initialConfig) {
         if (
-            initialConfig.safe == address(0) || initialConfig.passkey == address(0) || initialConfig.ecdsaSecondary == address(0) ||
-            initialConfig.delay == address(0) || initialConfig.passkey == initialConfig.ecdsaSecondary || initialConfig.periodSeconds != 86400
+            initialConfig.safe == address(0) || initialConfig.passkey == address(0) || initialConfig.delay == address(0) ||
+            (initialConfig.ecdsaSecondary != address(0) && initialConfig.passkey == initialConfig.ecdsaSecondary) ||
+            initialConfig.periodSeconds != 86400
         ) revert InvalidConfig();
         config = initialConfig;
         primarySigner = SignerConfig(initialConfig.passkey, SignerRole.Primary, SignerKind.SafeContractSignature, true);
-        ecdsaSecondary = SecondarySignerConfig(initialConfig.ecdsaSecondary, SignerKind.EcdsaExtension, true);
+        ecdsaSecondary = SecondarySignerConfig(
+            initialConfig.ecdsaSecondary,
+            SignerKind.EcdsaExtension,
+            initialConfig.ecdsaSecondary != address(0)
+        );
     }
 
     /// @notice Sets or tightens the spending policy for one token.

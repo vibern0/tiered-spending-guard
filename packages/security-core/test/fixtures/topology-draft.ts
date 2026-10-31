@@ -49,8 +49,9 @@ export function buildVaultPlanDraft(input: Readonly<{ policy: VaultPolicy; safeP
   if (input.safeProxySaltNonce < 0n) throw new Error("salt nonce must not be negative");
   const safeContractSecondary = input.policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
   if (!safeContractSecondary) throw new Error("fail closed: Option B draft requires a safe-contract secondary");
+  const ecdsaSecondary = input.policy.secondaryProfile === "contract-only" ? ZERO : input.policy.ecdsaSecondary;
   const owners = [input.policy.passkey] as const;
-  const helperData = encodeFunctionData({ abi: HELPER_ABI, functionName: "setup", args: [{ guard: input.deployments.guard.address, delay: input.deployments.delay.address, maintenance: input.deployments.maintenance.address, passkey: input.policy.passkey, safeContractSecondary, ecdsaSecondary: input.policy.ecdsaSecondary, periodSeconds: BigInt(input.policy.periodSeconds), periodAnchor: input.policy.periodAnchor, assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })) }] });
+  const helperData = encodeFunctionData({ abi: HELPER_ABI, functionName: "setup", args: [{ guard: input.deployments.guard.address, delay: input.deployments.delay.address, maintenance: input.deployments.maintenance.address, passkey: input.policy.passkey, safeContractSecondary, ecdsaSecondary, periodSeconds: BigInt(input.policy.periodSeconds), periodAnchor: input.policy.periodAnchor, assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })) }] });
   const safeInitializer = encodeFunctionData({ abi: SAFE_ABI, functionName: "setup", args: [owners, 1n, input.deployments.setupHelper.address, helperData, ZERO, ZERO, 0n, ZERO] });
   const safeProxyDeployment: UnsignedSetupCall = { to: input.deployments.safeProxyFactory.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce] }) };
   const setup: UnsignedSetupCall[] = [];

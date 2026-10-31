@@ -56,6 +56,28 @@ describe("Task 10 adversarial threat-model matrix", () => {
     await exec(token.address, data, safeSecondary);
   });
 
+  it("contract-only profile has no ECDSA approval path", async () => {
+    const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address]);
+    const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ZERO, delay.address, 86400n, 0n]]);
+    const ownerSignature = passkeySignature(passkey.address);
+    const ownerCall = (to: Address, data: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, ownerSignature], { account: deployer.account });
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ]), functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
+    const data = encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [recipient.account.address, 300n] });
+    const extension = ecdsaSecondaryEnvelope(passkey.address, await signSafeTransaction(safe, ecdsaSecondary, token.address, data));
+
+    await expect(safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, extension], { account: deployer.account })).to.be.rejected;
+    await safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, safeContractSignatures(passkey.address, safeContractSecondary.address)], { account: deployer.account });
+  });
+
   it("bounds split base X and combined immediate Y spending", async () => {
     const f = await fixture();
     await f.exec(f.token.address, f.transfer(f.recipient.account.address, 60n), f.passkeySig);

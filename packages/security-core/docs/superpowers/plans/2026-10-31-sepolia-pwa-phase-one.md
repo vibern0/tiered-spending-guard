@@ -59,7 +59,7 @@
 - Produces: `secondaryProfile?: "dual" | "contract-only"`; PWA sets `contract-only`; `undefined` preserves historical `dual`.
 - Produces: contract-only state: `ecdsaSecondary.signer == address(0)`, `enabled == false`; safe-contract secondary nonzero/enabled.
 
-- [ ] **Step 1: Write RED contract/profile tests**
+- [x] **Step 1: Write RED contract/profile tests**
 
 ```ts
 it("atomically installs one primary and one contract secondary with ECDSA disabled", async () => {
@@ -76,23 +76,23 @@ it("rejects every terminal ECDSA extension in contract-only profile", async () =
 
 Also assert zero/missing contract secondary fails; dual historical fixture still passes; owner/module/fallback topology unchanged.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix packages/security-core test -- test/integration/atomic-setup-helper.test.ts test/integration/guard-signatures.test.ts test/integration/topology.test.ts test/integration/adversarial.test.ts`
 
 Expected: FAIL; constructor/policy/setup require ECDSA secondary.
 
-- [ ] **Step 3: Implement narrow profile**
+- [x] **Step 3: Implement narrow profile**
 
 Allow zero `initialConfig.ecdsaSecondary` only for explicit contract-only policy. Store disabled ECDSA config. Keep dual behavior byte-for-byte semantic compatible. Update setup/topology derivation and verification. Do not change supported calls, signature digest, Safe owner rules, repair authority, module graph.
 
-- [ ] **Step 4: Run GREEN plus invariants**
+- [x] **Step 4: Run GREEN plus invariants**
 
 Run: `npm --prefix packages/security-core test -- test/integration/atomic-setup-helper.test.ts test/integration/guard-signatures.test.ts test/integration/topology.test.ts test/integration/adversarial.test.ts test/invariant/call-graph.invariant.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Update call graph and commit**
+- [x] **Step 5: Update call graph and commit**
 
 Document contract-only profile; dual profile historical only; ECDSA extension rejected for PWA.
 

@@ -147,9 +147,10 @@ export function brandVerifiedVaultPrerequisitesForTestsOnly(value: VerifiedVault
 
 export function policyHash(policy: VaultPolicy): Hex {
   const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]])));
-  const secondaries = policy.secondaries ?? [{ address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }];
+  const contractOnly = policy.secondaryProfile === "contract-only";
+  const secondaries = policy.secondaries ?? (contractOnly ? [] : [{ address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }]);
   const safeContractSecondary = secondaries.find((signer) => signer.kind === "safe-contract") ?? { address: ZERO, role: "secondary" as const, kind: "safe-contract" as const, enabled: false };
-  const ecdsaSecondary = secondaries.find((signer) => signer.kind === "ecdsa-extension") ?? { address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true };
+  const ecdsaSecondary = secondaries.find((signer) => signer.kind === "ecdsa-extension") ?? { address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: !contractOnly };
   return keccak256(encodeAbiParameters(
     [
       { type: "uint256" },
@@ -230,6 +231,7 @@ function configuredOptionBSecondaries(policy: VaultPolicy): { safeContractSecond
   const safeContractSecondary = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
   const ecdsaSecondary = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.ecdsaSecondary))?.address;
   if (!safeContractSecondary) throw new Error("fail closed: Option B requires an enabled Safe-contract secondary");
+  if (policy.secondaryProfile === "contract-only") return { safeContractSecondary, ecdsaSecondary: ZERO };
   if (!ecdsaSecondary) throw new Error("fail closed: Option B requires an enabled ECDSA secondary");
   return { safeContractSecondary, ecdsaSecondary };
 }
@@ -439,7 +441,8 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   const ecdsaSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "ecdsaSecondary" });
   const initialized = stage === "after-setup";
   if (!Array.isArray(safeContractSecondaryConfig) || safeContractSecondaryConfig.length !== 3 || !same(safeContractSecondaryConfig[0] as Address, initialized ? plannedSigners.safeContractSecondary : ZERO) || safeContractSecondaryConfig[1] !== 0 || safeContractSecondaryConfig[2] !== initialized) throw new Error("fail closed: Safe-contract secondary binding mismatch");
-  if (!Array.isArray(ecdsaSecondaryConfig) || ecdsaSecondaryConfig.length !== 3 || !same(ecdsaSecondaryConfig[0] as Address, configuredEcdsaSecondary) || ecdsaSecondaryConfig[1] !== 1 || ecdsaSecondaryConfig[2] !== true) throw new Error("fail closed: ECDSA secondary binding mismatch");
+  const ecdsaExpectedEnabled = !same(configuredEcdsaSecondary, ZERO);
+  if (!Array.isArray(ecdsaSecondaryConfig) || ecdsaSecondaryConfig.length !== 3 || !same(ecdsaSecondaryConfig[0] as Address, configuredEcdsaSecondary) || ecdsaSecondaryConfig[1] !== 1 || ecdsaSecondaryConfig[2] !== ecdsaExpectedEnabled) throw new Error("fail closed: ECDSA secondary binding mismatch");
   if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), initialized ? maintenance.address : ZERO)) throw new Error("fail closed: guard maintenance mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "owner"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay owner mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "avatar"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay avatar mismatch");

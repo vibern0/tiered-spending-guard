@@ -19,7 +19,7 @@ const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
 
 
 describe("TieredSpendingGuard against Safe 1.5", () => {
-  async function secondarySignerFixture(yubiEnabled = true) {
+  async function secondarySignerFixture(yubiEnabled = true, secondaryProfile: "dual" | "contract-only" = "dual") {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
@@ -27,7 +27,7 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     const { safe } = await deploySafeFixture(hre, deployer, [passkey.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, secondaryProfile === "contract-only" ? ZERO : ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const ownerCall = async (to: Address, data: Hex) => {
       const signature = passkeySignature(passkey.address);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
@@ -66,6 +66,15 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
     await expect(f.exec(f.transfer(300n), f.safeContractSecondaryStep())).to.be.rejected;
     await f.exec(f.transfer(300n), await f.ecdsaSecondaryStep(f.transfer(300n)));
+  });
+
+  it("contract-only profile rejects every terminal ECDSA extension", async () => {
+    const f = await secondarySignerFixture(true, "contract-only");
+    const data = f.transfer(300n);
+
+    await expect(f.exec(data, await f.ecdsaSecondaryStep(data))).to.be.rejected;
+    await f.exec(data, f.safeContractSecondaryStep());
+    expect((await f.guard.read.spendState([f.token.address]))[2]).to.equal(300n);
   });
 
   it("secondary signer Safe contract signatures accept non-empty ERC-1271 payloads", async () => {

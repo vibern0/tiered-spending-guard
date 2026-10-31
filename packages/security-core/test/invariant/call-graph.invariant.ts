@@ -49,4 +49,15 @@ describe("call graph security invariant", () => {
     expect(graph).to.contain("primary plus exactly one configured secondary");
     expect(graph).to.not.match(/two-owner|two owner|passkey\/Burner|\[passkey, Burner\]/i);
   });
+
+  it("keeps contract-only ECDSA authorization disabled without changing the dual profile", async () => {
+    const [deployer, primary, ecdsaSecondary, delay] = await hre.viem.getWalletClients();
+    const contractOnly = await hre.viem.deployContract("TieredSpendingGuard", [[deployer.account.address, primary.account.address, "0x0000000000000000000000000000000000000000", delay.account.address, 86400n, 0n]]);
+    const dual = await hre.viem.deployContract("TieredSpendingGuard", [[deployer.account.address, primary.account.address, ecdsaSecondary.account.address, delay.account.address, 86400n, 0n]]);
+
+    expect(await contractOnly.read.ecdsaSecondary()).to.deep.equal(["0x0000000000000000000000000000000000000000", 1, false]);
+    const dualEcdsa = await dual.read.ecdsaSecondary();
+    expect(dualEcdsa[0].toLowerCase()).to.equal(ecdsaSecondary.account.address.toLowerCase());
+    expect(dualEcdsa.slice(1)).to.deep.equal([1, true]);
+  });
 });

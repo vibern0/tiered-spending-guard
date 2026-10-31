@@ -94,8 +94,19 @@ function storageAddress(word: Hex): Address {
   return `0x${word.slice(-40)}` as Address;
 }
 
+function brandTestInfrastructure(value: DeploymentInfrastructure) {
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
+  try {
+    return brandVerifiedDeploymentInfrastructureForTestsOnly(value);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+}
+
 describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
-  async function deployAtomicTopology() {
+  async function deployAtomicTopology(secondaryProfile: "dual" | "contract-only" = "dual") {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const client = await hre.viem.getPublicClient();
     const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
@@ -108,6 +119,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const startingNonce = BigInt(await client.getTransactionCount({ address: deployer.account.address }));
     const saltNonce = 99n;
     const owners = [passkey.address] as const;
+    const configuredEcdsaSecondary = secondaryProfile === "contract-only" ? ZERO : ecdsaSecondary.account.address;
 
     const placeholderPolicy = {
       token: ZERO,
@@ -130,7 +142,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
         maintenance: maintenanceAddress,
         passkey: passkey.address,
         safeContractSecondary: safeContractSecondary.address,
-        ecdsaSecondary: ecdsaSecondary.account.address,
+        ecdsaSecondary: configuredEcdsaSecondary,
         periodSeconds: 86400,
         periodAnchor: 0,
         assets: [placeholderPolicy],
@@ -151,7 +163,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     });
     expect(initializerWithoutSafeAddress.toLowerCase()).not.to.contain("000000000000000000000000" + predictedSafe.slice(2).toLowerCase());
 
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, ecdsaSecondary.account.address, delayAddress, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, configuredEcdsaSecondary, delayAddress, 86400n, 0n]]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [predictedSafe, predictedSafe, predictedSafe, 10n, 60n]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delay.address, ZERO]);
     expect(guard.address.toLowerCase()).to.equal(guardAddress.toLowerCase());
@@ -165,7 +177,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const safe = await hre.viem.getContractAt("Safe", safeAddress);
     expect(await client.getBytecode({ address: safeAddress })).not.to.equal(undefined);
 
-    return { client, deployer, ecdsaSecondary, recipient, helper, singleton, factory, passkey, safeContractSecondary, guard, delay, maintenance, safe, safeAddress, initializerWithoutSafeAddress };
+    return { client, deployer, ecdsaSecondary, configuredEcdsaSecondary, recipient, helper, singleton, factory, passkey, safeContractSecondary, guard, delay, maintenance, safe, safeAddress, initializerWithoutSafeAddress };
   }
 
   it("atomically creates a sole-primary-owner Safe and guard-only secondaries", async () => {
@@ -193,6 +205,26 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     expect(await f.guard.read.allowedRecipient([ZERO, f.recipient.account.address])).to.equal(true);
   });
 
+  it("atomically installs one primary and one contract secondary with ECDSA disabled", async () => {
+    const f = await deployAtomicTopology("contract-only");
+
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address.toLowerCase()]);
+    expect(await f.safe.read.getThreshold()).to.equal(1n);
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: FALLBACK_HANDLER_SLOT }))!).toLowerCase()).to.equal(ZERO);
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: GUARD_SLOT }))!).toLowerCase()).to.equal(f.guard.address.toLowerCase());
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: MODULE_GUARD_SLOT }))!).toLowerCase()).to.equal(f.guard.address.toLowerCase());
+    expect((await f.safe.read.getModulesPaginated([SENTINEL_MODULES, 10n]))[0].map((module) => module.toLowerCase())).to.deep.equal([f.delay.address.toLowerCase()]);
+
+    const contractSecondary = await f.guard.read.safeContractSecondary();
+    expect(contractSecondary[0].toLowerCase()).to.equal(f.safeContractSecondary.address.toLowerCase());
+    expect(contractSecondary[1]).to.equal(0);
+    expect(contractSecondary[2]).to.equal(true);
+    const ecdsaSecondary = await f.guard.read.ecdsaSecondary();
+    expect(ecdsaSecondary[0].toLowerCase()).to.equal(ZERO);
+    expect(ecdsaSecondary[1]).to.equal(1);
+    expect(ecdsaSecondary[2]).to.equal(false);
+  });
+
   it("passes the post-setup prerequisite and full topology verifiers on the real Safe 1.5 proxy", async () => {
     const f = await deployAtomicTopology();
     const runtime = async (address: Address) => keccak256((await f.client.getBytecode({ address }))!);
@@ -202,7 +234,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const prerequisites = await verifyVaultPrerequisites(f.client, plan, "after-setup");
     const dep = (address: Address, version: string) => Object.freeze({ name: version, version, address, runtimeCodeHash: keccak256("0x60"), evidence: "verified" as const, source: "local fixture" });
     const singleton = { ...dep(f.singleton.address, "1.5.0"), supportsModuleGuards: true };
-    const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.freeze({ chainId: 31337, deployer: f.deployer.account.address, observedDeployerNonce: 0n, safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0"), passkeySigner: { name: "passkeySigner" as const, address: f.passkey.address, runtimeCodeHash: await runtime(f.passkey.address), bindingHash: keccak256("0x60"), source: "local fixture" }, dependencies: { safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0") } } satisfies DeploymentInfrastructure));
+    const deployments = brandTestInfrastructure(Object.freeze({ chainId: 31337, deployer: f.deployer.account.address, observedDeployerNonce: 0n, safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0"), passkeySigner: { name: "passkeySigner" as const, address: f.passkey.address, runtimeCodeHash: await runtime(f.passkey.address), bindingHash: keccak256("0x60"), source: "local fixture" }, dependencies: { safeSingleton: singleton, safeProxyFactory: dep(f.factory.address, "1.5.0"), passkeySignerFactory: dep(f.factory.address, "0.2.0"), passkeySignerVerifier: dep(f.factory.address, "0.2.0"), multiSendCallOnly: dep(f.factory.address, "1.5.0") } } satisfies DeploymentInfrastructure));
     const moduleSlot = (module: Address) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [module, 3n]));
     const readDelayModules = async (start: Address, pageSize: bigint) => {
       const modules: Address[] = [];
@@ -243,7 +275,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     await expect(f.helper.write.setup([params], { account: f.deployer.account })).to.be.rejected;
   });
 
-  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; guardEcdsaSecondary?: Address; extraOwner?: boolean }> = {}) {
+  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; guardEcdsaSecondary?: Address; helperSafeContractSecondary?: Address; extraOwner?: boolean }> = {}) {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const client = await hre.viem.getPublicClient();
     const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
@@ -267,7 +299,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
         delay: delayAddress,
         maintenance: maintenanceAddress,
         passkey: passkey.address,
-        safeContractSecondary: safeContractSecondary.address,
+        safeContractSecondary: overrides.helperSafeContractSecondary ?? safeContractSecondary.address,
         ecdsaSecondary: ecdsaSecondary.account.address,
         periodSeconds: 86400,
         periodAnchor: 0,
@@ -293,6 +325,10 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
 
   it("rejects a secondary added as a Safe owner during atomic setup", async () => {
     await expectCreationRevertsWith({ assetBasePerTransaction: 50n, extraOwner: true });
+  });
+
+  it("rejects atomic setup without a contract secondary", async () => {
+    await expectCreationRevertsWith({ assetBasePerTransaction: 50n, helperSafeContractSecondary: ZERO });
   });
 
   it("reverts Safe creation when the guard signer binding differs from helper params", async () => {
