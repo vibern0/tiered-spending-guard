@@ -1,9 +1,9 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { encodeAbiParameters, encodeFunctionData, getContractAddress, keccak256, type Address, type Hex } from "viem";
 import { ZERO, fn } from "../helpers/safe";
+import { safeSmartAccountArtifact } from "../helpers/safe-artifact";
 import { brandVerifiedDeploymentInfrastructureForTestsOnly, type DeploymentInfrastructure } from "../../src/config/deployments";
 import { policyHash, verifyVaultPrerequisites, type VaultDeploymentPlan } from "../../src/topology/build";
 import { verifyTopology } from "../../src/topology/verify";
@@ -79,13 +79,13 @@ const FACTORY_ABI = [
 
 const FACTORY_ARTIFACT = JSON.parse(
   readFileSync(
-    join(process.cwd(), "node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxyFactory.sol/SafeProxyFactory.json"),
+    safeSmartAccountArtifact("contracts/proxies/SafeProxyFactory.sol/SafeProxyFactory.json"),
     "utf8",
   ),
 ) as { abi: typeof FACTORY_ABI; bytecode: Hex };
 const SAFE_PROXY_ARTIFACT = JSON.parse(
   readFileSync(
-    join(process.cwd(), "node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json"),
+    safeSmartAccountArtifact("contracts/proxies/SafeProxy.sol/SafeProxy.json"),
     "utf8",
   ),
 ) as { bytecode: Hex };

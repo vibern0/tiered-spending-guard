@@ -1,9 +1,9 @@
 import { expect } from "chai";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPublicClient, custom, encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
+import { createPublicClient, custom, encodeAbiParameters, encodeDeployData, getContractAddress, getCreate2Address, keccak256, zeroHash, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import {
   USDC_RECYCLE_CONTINUATION_COMMANDS,
@@ -29,8 +29,21 @@ import { createOrdinaryScenarioStore, PRODUCTION_ORDINARY_SCENARIO_DOMAIN } from
 import { reconstructReviewedPlan } from "../../../scripts/live/ordinary-scenario-review-cli";
 import { successorReceiptInclusion } from "../../support/usdc-successor-fixture";
 import { attachUsdcRecycleContinuation } from "../../../scripts/live/ordinary-scenario-usdc-recycle-continuation-proposal";
+import { safePasskeyArtifact, safeSmartAccountArtifact } from "../../helpers/safe-artifact";
 
 const fixtureDirectory = join(__dirname, "../../fixtures");
+const repositoryDirectory = join(__dirname, "../../../../..");
+const externalOrdinaryScenarioArtifacts = [
+  ".superpowers/sdd/2026-10-19-native-safe-4337/task-0-package-2026-10-24-nonce-673/decoded-review.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/task-0-package-2026-10-24-nonce-673/public-manifest.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/safe-creation-2026-10-27/public-passkey-bindings.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-public.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/observer-test-channel-proof.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-public.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/repair-secondary-creation-quote.json",
+  ".superpowers/sdd/2026-10-19-native-safe-4337/observer-startup-after-compat-2026-10-27/startup-proof.json",
+].map(relativePath => join(repositoryDirectory, relativePath));
+const externalOrdinaryScenarioIt = externalOrdinaryScenarioArtifacts.every(existsSync) ? it : it.skip;
 
 function priorProvider(source: UsdcSuccessorSource): UsdcSuccessorEvidenceProvider {
   const snapshot = { number: 12_019_201n, hash: "0xd7fceb0b7f4bbb2164db7a23d2452944889035f25307a69bfb93845ebafbc251" as Hex, timestamp: 1_793_273_232n };
@@ -81,8 +94,8 @@ function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof pre
   const original = prepared.authorized.source.prior.original, action = prepared.authorized.proposal.actions[0]!, before = action.before;
   const config = readOrdinaryReviewConfig(join(__dirname, "../../../config/sepolia.ordinary-review.json"));
   const reviewedPolicy = { ...buildOrdinaryReviewPolicyDraft(config, 673n), safe: original.safe };
-  const bindings = JSON.parse(readFileSync(join(__dirname, "../../../../../.superpowers/sdd/2026-10-19-native-safe-4337/safe-creation-2026-10-27/public-passkey-bindings.json"), "utf8"));
-  const safeProxyArtifact = JSON.parse(readFileSync(join(__dirname, "../../../node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json"), "utf8"));
+  const safeProxyArtifact = JSON.parse(readFileSync(safeSmartAccountArtifact("contracts/proxies/SafeProxy.sol/SafeProxy.json"), "utf8"));
+  const passkeyProxyArtifact = JSON.parse(readFileSync(safePasskeyArtifact("contracts/SafeWebAuthnSignerProxy.sol/SafeWebAuthnSignerProxy.json"), "utf8")) as { abi: readonly unknown[]; bytecode: Hex };
   const maintenance = "0x3d20c6c361bdb1970827c9450beec0e3cd78e654" as Address, safeSingleton = "0xff51a5898e281db6dfc7855790607438df2ca44b" as Address;
   const zero = "0x0000000000000000000000000000000000000000" as Address, sentinel = "0x0000000000000000000000000000000000000001" as Address;
   const queueAction = prepared.authorized.source.prior.recovery.actions.find(candidate => candidate.kind === "queue-proposal" && candidate.queue?.fingerprint === before.queueFingerprint)!;
@@ -106,7 +119,11 @@ function createDefaultCompositionHarness(prepared: Awaited<ReturnType<typeof pre
       call: async (input: { to?: Address }) => { if (!input.to) { const addresses = ["0xc3ba1567fb0e5961e9e4fd72f88b2ac3318360a3", original.guard, original.delay, maintenance, original.safe] as Address[]; return { data: runtime(addresses[creationCalls++ % 5]!) }; } counters.simulations++; return { data: encodeAbiParameters([{ type: "bool" }], [true]) }; },
       readContract: async ({ address, functionName, args = [] }: { address: Address; functionName: string; args?: readonly unknown[] }) => {
         const lower = address.toLowerCase(), token = String(args[0] ?? "").toLowerCase();
-        if (functionName === "getSigner") return BigInt(String(args[0])) === 10342510752483659319190807637330965811978365685423845568184481734592673940696n ? PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate : BigInt(String(args[0])) === BigInt(bindings.primary.x) ? original.primarySigner : original.safeContractSecondary;
+        if (functionName === "getSigner") {
+          const singleton = getContractAddress({ from: address, nonce: 1n });
+          const bytecode = encodeDeployData({ abi: passkeyProxyArtifact.abi as never, bytecode: passkeyProxyArtifact.bytecode, args: [singleton, ...args] as never });
+          return getCreate2Address({ from: address, salt: zeroHash, bytecode });
+        }
         if (functionName === "proxyCreationCode") return safeProxyArtifact.bytecode as Hex;
         if (functionName === "config") return [original.safe, original.primarySigner, original.ecdsaSecondary, original.delay, 86_400n, 0n];
         if (functionName === "safeContractSecondary") return [repairState?.rotated ? PRODUCTION_REPAIR_EXECUTION_DOMAIN.candidate : original.safeContractSecondary, 0, true];
@@ -271,14 +288,14 @@ describe("ordinary USDC recycle continuation CLI", function () {
     } finally { prepared.cleanup(); }
   });
 
-  it("runs the actual default reader and context to one fail-closed funder-signing boundary", async function () {
+  externalOrdinaryScenarioIt("runs the actual default reader and context to one fail-closed funder-signing boundary", async function () {
     const prepared = await preparePublicCli();
     const counters = { codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 };
     const delaySource = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8"), savedFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response(delaySource, { status: 200 })) as typeof fetch;
     const dependencies = (argv: readonly string[], environment: Record<string, string>) => {
       const harness = createDefaultCompositionHarness(prepared, counters);
-      const production = createUsdcRecycleContinuationProductionDependencies(join(__dirname, "../../../../.."), argv, { createHarness: () => harness, wait: async () => undefined, now: prepared.providers.now });
+      const production = createUsdcRecycleContinuationProductionDependencies(repositoryDirectory, argv, { createHarness: () => harness, wait: async () => undefined, now: prepared.providers.now });
       return { ...production, environment, providers: prepared.providers, now: prepared.providers.now };
     };
     try {
@@ -290,7 +307,7 @@ describe("ordinary USDC recycle continuation CLI", function () {
     } finally { globalThis.fetch = savedFetch; prepared.cleanup(); }
   });
 
-  it("composes the actual recycle loader, production repair adapter, and atomic store", async function () {
+  externalOrdinaryScenarioIt("composes the actual recycle loader, production repair adapter, and atomic store", async function () {
     const prepared = await preparePublicCli();
     const counters = { codeFailures: 0, signs: 0, broadcasts: 0, simulations: 0 };
     const delaySource = readFileSync(join(fixtureDirectory, "ordinary-usdc-recycle-continuation-delay-mastercopies.public.json"), "utf8"), savedFetch = globalThis.fetch;
@@ -308,7 +325,7 @@ describe("ordinary USDC recycle continuation CLI", function () {
       journal.liveJournal.entries.push(...records.filter(record => record.status === "confirmed").map((record: any, index) => ({ id: record.id, intentHash: record.intentHash, transactionHash: record.transactionHash, nonce: 900 + index, reserved: BigInt(record.ourReceiptGasCost), status: "success", receipt: record.receipt })));
       writeFileSync(prepared.tracked.path, `${JSON.stringify(journal, (_key, value) => typeof value === "bigint" ? value.toString() : value)}\n`);
 
-      const repository = join(__dirname, "../../../../..");
+      const repository = repositoryDirectory;
       const repairState = { rotated: false };
       const harness = createDefaultCompositionHarness(prepared, counters, false, repairState);
       let reconstruction: Awaited<ReturnType<typeof reconstructReviewedPlan>> | undefined;

@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 import { expect } from "chai";
 import { type Address, type Hex } from "viem";
 import { deriveComponentAddresses, deriveSafeProxyAddress } from "../../../src/topology/addressing";
+import { safeSmartAccountArtifact } from "../../helpers/safe-artifact";
 
 const SAFE_PROXY_ARTIFACT = JSON.parse(
   readFileSync(
-    "node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json",
+    safeSmartAccountArtifact("contracts/proxies/SafeProxy.sol/SafeProxy.json"),
     "utf8",
   ),
 ) as { bytecode: Hex };
