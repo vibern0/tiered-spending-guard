@@ -1,7 +1,7 @@
 # Sepolia PWA Phase One Design
 
 **Date:** 2026-10-31  
-**Status:** Proposed; awaiting product approval before implementation planning  
+**Status:** Approved 2026-10-31
 **Baseline:** `origin/main` at `6bcc266`  
 **Target:** Installable PWA proving the existing ordinary-Safe X/Y/Z policy on Sepolia
 
@@ -141,6 +141,8 @@ Configuration is validated as one closed profile. No wildcard origins, preview d
 `localhost` and an HTTPS hostname are different WebAuthn relying parties. Their credentials are intentionally not portable. Each environment provisions its own disposable Safe. Switching profiles never relabels an existing vault or silently creates replacement credentials.
 
 The primary uses a platform authenticator. Phase One completion requires a genuinely distinct secondary credential, preferably a cross-platform authenticator/security key. A second credential on the same device may unblock local development only behind an explicit warning: it demonstrates contract behavior but not device-factor separation, so it cannot satisfy the final localhost or HTTPS/mobile evidence gate.
+
+Phase One uses a contract-only secondary profile. No ECDSA secondary, placeholder EOA, Burner card, or third signing path is installed. Current ordinary-Safe setup code still requires an enabled ECDSA secondary; implementation must remove that requirement from the existing `TieredSpendingGuard` profile, atomic setup, policy builder, and verifier before provisioning. This is a narrow change to the approved guard and its existing setup helpers, not a new contract or execution path. Adversarial tests must prove ECDSA extensions cannot satisfy Phase One approval.
 
 ## Provisioning
 
