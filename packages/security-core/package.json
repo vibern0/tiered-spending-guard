@@ -34,7 +34,8 @@
     "scenario:usdc-fresh": "tsx scripts/live/ordinary-scenario-usdc-fresh-successor-cli.ts",
     "pwa:capture-usdc-profile": "tsx scripts/pwa/capture-usdc-profile.ts",
     "pwa:observe": "tsx scripts/pwa/observe.ts",
-    "pwa:evidence": "tsx scripts/pwa/package-evidence.ts"
+    "pwa:evidence": "tsx scripts/pwa/package-evidence.ts",
+    "pwa:rehearse:local": "tsx scripts/pwa/rehearse-local.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "0.15.5",

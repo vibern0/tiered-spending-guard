@@ -307,6 +307,43 @@ npm --prefix packages/security-core run pwa:evidence -- \
 
 Review `manifest.json`, every record hash, source identity, transaction hash, and observer process identity. The command refuses overwrite, symlinks, authority-shaped fields, or malformed records. It never signs, submits, broadcasts, retries a transaction, or grants approval.
 
+## Gated localhost PWA rehearsal
+
+The localhost rehearsal catalog is fixed: provision the fresh local-RP Safe, fund exactly 8 USDC, execute X=1 USDC, execute Y=2 USDC, queue 4 USDC, cancel it, requeue the same 4 USDC, prove early execution rejects without broadcast, then execute after Z. The terminal state must be 1 USDC in the Safe, 7 USDC delivered to the fixed recipient, base/instant counters 1/3 USDC, and no queue. The review caps eight broadcast stages at an aggregate 14,500,000 gas and 14,500,000,000,000,000 wei maximum gas outlay; these are ceilings, not estimates or authority.
+
+Prepare a data-only input with the exact planned Safe/guard/Delay, public credential hashes, fixed USDC/recipient, deployment/policy/topology hashes, two-source observer identity, confirmation depth, and an exclusive ISO deadline. Generate only the unsigned review package, then stop:
+
+```sh
+npm run pwa:rehearse:local -- review \
+  /absolute/public/localhost-review-input.json \
+  /absolute/new-localhost-review-package
+```
+
+The package states `authorization: NONE`. Independently review its `reviewHash`, SHA-256 manifest, every action, credential binding, principal, gas/fee ceiling, observer lifetime, and deadline. A one-action approval must bind the exact review hash, next action id, reviewed adapter SHA-256, and expiry. This plan and a generated package are not approval to fund, sign, open a passkey ceremony, or broadcast.
+
+After a separate exact approval, one action only may run:
+
+```sh
+PWA_LOCAL_SUBMIT=YES npm run pwa:rehearse:local -- submit-one \
+  /absolute/review.json \
+  /absolute/one-action-approval.json \
+  /absolute/localhost-journal.json \
+  /absolute/reviewed-localhost-adapter.ts
+```
+
+The adapter must durably materialize the exact backend/PWA action and return its transaction hash before the runner records `pending` and permits its single broadcast. A successful action is terminal only with canonical block identity and a separate observer-record hash. A revert stops the rehearsal. Generate and review a fresh approval for the next action; never loop `submit-one`.
+
+If and only if the journal already contains one exact pending hash, reconcile it keylessly:
+
+```sh
+npm run pwa:rehearse:local -- resume-one \
+  /absolute/review.json \
+  /absolute/localhost-journal.json \
+  /absolute/read-only-resume-adapter.ts
+```
+
+`resume-one` rejects submit flags and signing material, admits only a single `reconcile` capability, and cannot sign or rebroadcast. Do not create the localhost evidence document or check Task 11 complete until every approved action, early-rejection proof, observer record, terminal state, install/reload proof, and full deterministic gate output actually exists.
+
 ## Forbidden paths
 
 Direct owner transfers that do not satisfy the guard tier, unlisted modules, fallback handlers, delegatecalls outside the fixed maintenance path, batches, approvals, Permit/Permit2, arbitrary messages, approved-hash authorization, unknown calldata, unknown recipients, broad recovery fields, signer-only shortcuts, relayer discretion, and UI-only authorization are forbidden. Monitoring is mandatory evidence, not an authorizer.
