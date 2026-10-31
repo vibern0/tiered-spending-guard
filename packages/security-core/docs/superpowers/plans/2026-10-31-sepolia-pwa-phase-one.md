@@ -551,25 +551,25 @@ git commit -m "feat: finish PWA vault journeys"
 - `packagePwaEvidence(inputDirectory, outputDirectory): PwaEvidenceManifest`; no authority/signers/RPC write.
 - Observer binds receipt/block/hash, exact outer envelope, Safe/Delay effects, USDC balances/counters, queue tuple/time, topology/profile hash.
 
-- [ ] **Step 1: Write RED observer/evidence tests**
+- [x] **Step 1: Write RED observer/evidence tests**
 
 Accept canonical X/Y/queue/cancel/execute. Reject outer success with inner failure, wrong event, wrong block hash, reorg, missing confirmations, stale queue, balance/counter mismatch, same RPC disagreement, missing receipt, notification-delivery claim. Manifest requires separate observer process identity and no signing/write method.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm --prefix packages/security-core test -- test/unit/pwa/observer.test.ts test/integration/pwa-evidence.test.ts`
 
 Expected: FAIL; PWA observer absent.
 
-- [ ] **Step 3: Implement read-only observer/package**
+- [x] **Step 3: Implement read-only observer/package**
 
 Reuse guard/Delay decoders and topology verifier. No notifier/outbox/webhook. Label in-app activity non-independent. Add `pwa:observe`, `pwa:evidence` scripts.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run same command. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/security-core/src/pwa packages/security-core/scripts/pwa packages/security-core/test packages/security-core/package.json packages/security-core/docs/security apps/app/README.md apps/backend/README.md

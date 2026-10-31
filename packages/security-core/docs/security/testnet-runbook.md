@@ -284,6 +284,29 @@ The temporary test receiver's public hash and successful metadata probe establis
 
 For the ordinary observer run, configure `MONITOR_WEBHOOK_URL` only in the external live environment. The watcher must reject a missing, non-HTTPS, credential-bearing, private-address, or DNS-ambiguous endpoint before scanning. Delay setup logs such as `EnabledModule(address)` are well-formed unrelated topics and must produce neither a ledger alert nor a queue/state read; exact `TransactionAdded` and `TxNonceSet` topics remain subject to full decode and queue binding, and malformed expected activity must stop the scan. Retain the canonical outer transaction/receipt and block identity, pre-block Safe nonce, ordered earlier same-block Safe execution events, derived target nonce, decoded `execTransaction` fields, recomputed `getTransactionHash`, matching `ExecutionSuccess.txHash`, guard event, event-block spend tuple, persisted alert, and durable delivery receipt. Reconcile the receiver's independently recorded body hash with the ledger payload hash. Do not retain the URL, headers, or provider credentials. The receiver descriptor/probe remains configuration evidence; actual activity delivery and closed-browser proof are `NOT_RUN` until the separately approved live matrix is performed.
 
+## PWA receipt observer and public evidence
+
+Run the observer as a separate clean process. Its adapter must export only `createObserverBinding`, construct exactly two independently identified public read-only clients, and expose no signer, raw-transaction, write-RPC, backend, or notification capability. Do not place RPC credentials, passkey assertions, signer material, relay keys, or backend secrets in that process. The adapter must bind its returned observer identity to the executable SHA-256 supplied by the runner.
+
+```sh
+npm --prefix packages/security-core run pwa:observe -- \
+  /absolute/reviewed/read-only-observer-adapter.ts \
+  0xRECEIPT_HASH \
+  /absolute/new-records/base.json
+```
+
+Run once for every canonical live receipt only after the required confirmations. Any missing receipt, provider disagreement, reorg, inner Safe failure, unexpected event, state-effect mismatch, stale queue, topology/profile mismatch, or extra write-shaped client method is a hard stop. The record says `notificationDelivery: not-claimed`; Activity UI and observer output are not notification delivery.
+
+Package only resulting public JSON records into a new directory:
+
+```sh
+npm --prefix packages/security-core run pwa:evidence -- \
+  /absolute/validated-records \
+  /absolute/new-public-evidence-package
+```
+
+Review `manifest.json`, every record hash, source identity, transaction hash, and observer process identity. The command refuses overwrite, symlinks, authority-shaped fields, or malformed records. It never signs, submits, broadcasts, retries a transaction, or grants approval.
+
 ## Forbidden paths
 
 Direct owner transfers that do not satisfy the guard tier, unlisted modules, fallback handlers, delegatecalls outside the fixed maintenance path, batches, approvals, Permit/Permit2, arbitrary messages, approved-hash authorization, unknown calldata, unknown recipients, broad recovery fields, signer-only shortcuts, relayer discretion, and UI-only authorization are forbidden. Monitoring is mandatory evidence, not an authorizer.

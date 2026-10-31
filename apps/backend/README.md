@@ -58,3 +58,5 @@ npm --prefix apps/backend run typecheck
 ```
 
 Live Sepolia rehearsal remains separately authorized, capped, and recorded. No backend test proves hardware/WebAuthn UX or production readiness.
+
+The backend is not the independent receipt observer. Run the security-core observer in a separate clean process with public read-only RPC access and no backend, relay, signer, credential, or deployment secret. Observer records explicitly make no notification-delivery claim and never authorize a submission.

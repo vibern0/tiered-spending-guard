@@ -32,7 +32,9 @@
     "scenario:execute": "tsx scripts/live/ordinary-scenario-executor-cli.ts",
     "scenario:repair": "tsx scripts/live/ordinary-scenario-repair-session.ts",
     "scenario:usdc-fresh": "tsx scripts/live/ordinary-scenario-usdc-fresh-successor-cli.ts",
-    "pwa:capture-usdc-profile": "tsx scripts/pwa/capture-usdc-profile.ts"
+    "pwa:capture-usdc-profile": "tsx scripts/pwa/capture-usdc-profile.ts",
+    "pwa:observe": "tsx scripts/pwa/observe.ts",
+    "pwa:evidence": "tsx scripts/pwa/package-evidence.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "0.15.5",

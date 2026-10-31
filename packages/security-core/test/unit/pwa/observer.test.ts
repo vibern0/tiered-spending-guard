@@ -1,0 +1,278 @@
+import { expect } from "chai";
+import {
+  encodeAbiParameters,
+  encodeEventTopics,
+  encodeFunctionData,
+  getAddress,
+  parseAbi,
+  type Address,
+  type Hex,
+} from "viem";
+import {
+  observePwaReceipt,
+  type PwaObservedState,
+  type PwaObserverBinding,
+  type PwaObserverClient,
+  type PwaObserverReceipt,
+  type PwaObserverTransaction,
+} from "../../../src/pwa/observer";
+import {
+  brandVerifiedPwaSnapshotForTestsOnly,
+  preparePwaIntent,
+  type PreparedPwaIntent,
+  type VerifiedPwaSnapshot,
+} from "../../../src/pwa";
+import { PWA_RECIPIENT, SEPOLIA_USDC_ADDRESS } from "../../../src/pwa/profile";
+import { queueFingerprint } from "../../../src/queue/delay";
+
+const a = (value: number) => getAddress(`0x${value.toString(16).padStart(40, "0")}`);
+const h = (value: number) => `0x${value.toString(16).padStart(64, "0")}` as Hex;
+const SAFE_ABI = parseAbi([
+  "function execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes) returns (bool)",
+  "event ExecutionSuccess(bytes32 indexed txHash,uint256 payment)",
+  "event ExecutionFailure(bytes32 indexed txHash,uint256 payment)",
+]);
+const GUARD_ABI = parseAbi([
+  "event TransferAuthorized(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)",
+]);
+const DELAY_ABI = parseAbi([
+  "event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)",
+  "event TxNonceSet(uint256 nonce)",
+]);
+
+const safe = a(1);
+const guard = a(2);
+const delay = a(3);
+const primary = a(4);
+const secondary = a(5);
+const usdc = SEPOLIA_USDC_ADDRESS;
+const recipient = PWA_RECIPIENT;
+
+function queued(createdAt = 800n) {
+  const data = `0xa9059cbb${recipient.slice(2).padStart(64, "0")}${(4_000_000n).toString(16).padStart(64, "0")}`.toLowerCase() as Hex;
+  const item = { safe, delay, to: usdc, value: 0n, data, operation: 0 as const, queueNonce: 4n };
+  return Object.freeze({
+    ...item,
+    queueFingerprint: queueFingerprint(item),
+    createdAt,
+    readyAt: createdAt + 120n,
+    expiresAt: createdAt + 720n,
+  });
+}
+
+function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnapshot {
+  process.env.NODE_ENV = "test";
+  return brandVerifiedPwaSnapshotForTestsOnly(Object.freeze({
+    formatVersion: 1,
+    chainId: 11155111,
+    blockNumber: 90n,
+    blockHash: h(90),
+    timestamp: 1_000n,
+    deploymentsHash: h(91),
+    policyHash: h(92),
+    safe,
+    guard,
+    delay,
+    usdc,
+    recipient,
+    primaryPasskey: primary,
+    secondaryPasskey: secondary,
+    safeNonce: 9n,
+    spendState: Object.freeze({ window: 0n, baseSpent: 0n, instantSpent: 0n }),
+    limits: Object.freeze({ basePerTransaction: 1_000_000n, baseDailyLimit: 1_000_000n, stepUpPerTransaction: 3_000_000n, instantDailyLimit: 3_000_000n }),
+    cooldownSeconds: 120n,
+    expirationSeconds: 600n,
+    queueHeadNonce: 4n,
+    queueTailNonce: 4n,
+    queueHead: null,
+    ...overrides,
+  }));
+}
+
+type Kind = "base" | "step-up" | "queue" | "cancel" | "execute";
+
+function prepared(kind: Kind): PreparedPwaIntent {
+  if (kind === "base") return preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 1_000_000n });
+  if (kind === "step-up") return preparePwaIntent(snapshot({ spendState: { window: 0n, baseSpent: 1_000_000n, instantSpent: 1_000_000n } }), { kind: "transfer", recipient, amount: 2_000_000n });
+  if (kind === "queue") return preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 4_000_000n });
+  const queueHead = queued();
+  const withQueue = snapshot({ queueHead, queueHeadNonce: 4n, queueTailNonce: 5n });
+  const binding = { queueNonce: queueHead.queueNonce, queueFingerprint: queueHead.queueFingerprint };
+  return preparePwaIntent(withQueue, kind === "cancel" ? { kind: "cancel-queued", ...binding } : { kind: "execute-ready", ...binding });
+}
+
+function state(intent: PreparedPwaIntent, phase: "before" | "after"): PwaObservedState {
+  const beforeQueue = intent.kind === "cancel-queued" || intent.kind === "execute-ready" ? queued() : null;
+  const amount = intent.amount;
+  const isSigned = "safeTx" in intent;
+  const beforeSpend = "expectedSpend" in intent ? intent.expectedSpend : { window: 0n, baseSpent: 0n, instantSpent: 0n };
+  let queueHead = beforeQueue;
+  let queueHeadNonce = 4n;
+  let queueTailNonce = beforeQueue ? 5n : 4n;
+  let safeNonce = 9n;
+  let safeUsdcBalance = 8_000_000n;
+  let recipientUsdcBalance = 10_000_000n;
+  let spendState = { ...beforeSpend };
+  if (phase === "after") {
+    if (isSigned) safeNonce += 1n;
+    if (intent.kind === "base-transfer") {
+      safeUsdcBalance -= amount;
+      recipientUsdcBalance += amount;
+      spendState = { ...beforeSpend, baseSpent: beforeSpend.baseSpent + amount, instantSpent: beforeSpend.instantSpent + amount };
+    } else if (intent.kind === "step-up-transfer") {
+      safeUsdcBalance -= amount;
+      recipientUsdcBalance += amount;
+      spendState = { ...beforeSpend, instantSpent: beforeSpend.instantSpent + amount };
+    } else if (intent.kind === "queue-transfer") {
+      const queuedIntent = intent.queue!;
+      queueTailNonce = 5n;
+      queueHead = {
+        safe,
+        delay,
+        to: queuedIntent.to,
+        value: queuedIntent.value,
+        data: queuedIntent.data,
+        operation: queuedIntent.operation,
+        queueNonce: queuedIntent.queueNonce,
+        queueFingerprint: queuedIntent.queueFingerprint,
+        createdAt: 1000n,
+        readyAt: 1120n,
+        expiresAt: 1720n,
+      };
+    } else if (intent.kind === "cancel-queued") {
+      queueHeadNonce = 5n;
+      queueHead = null;
+    } else if (intent.kind === "execute-ready") {
+      queueHeadNonce = 5n;
+      queueHead = null;
+      safeUsdcBalance -= amount;
+      recipientUsdcBalance += amount;
+    }
+  }
+  return Object.freeze({
+    safeNonce,
+    queueHeadNonce,
+    queueTailNonce,
+    safeUsdcBalance,
+    recipientUsdcBalance,
+    spendState: Object.freeze(spendState),
+    queueHead,
+    deploymentsHash: intent.deploymentsHash,
+    policyHash: intent.policyHash,
+    topologyReportHash: h(93),
+  });
+}
+
+function eventLog(address: Address, topics: readonly Hex[], data: Hex, index: number) {
+  return Object.freeze({ address, blockNumber: 100n, blockHash: h(100), transactionHash: h(500), logIndex: index, topics, data, removed: false });
+}
+
+function logs(intent: PreparedPwaIntent, failure = false) {
+  const output = [];
+  if ("safeTx" in intent) {
+    output.push(eventLog(safe, encodeEventTopics({ abi: SAFE_ABI, eventName: failure ? "ExecutionFailure" : "ExecutionSuccess", args: { txHash: intent.safeTxHash } }), encodeAbiParameters([{ type: "uint256" }], [0n]), 0));
+  }
+  if (intent.kind === "base-transfer" || intent.kind === "step-up-transfer") {
+    const after = state(intent, "after").spendState;
+    output.push(eventLog(guard, encodeEventTopics({ abi: GUARD_ABI, eventName: "TransferAuthorized" }), encodeAbiParameters([
+      { type: "uint8" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
+    ], [intent.kind === "base-transfer" ? 0 : 1, usdc, recipient, intent.amount, after.baseSpent, after.instantSpent, after.window]), 1));
+  } else if (intent.kind === "queue-transfer") {
+    output.push(eventLog(delay, encodeEventTopics({ abi: DELAY_ABI, eventName: "TransactionAdded", args: { queueNonce: intent.queue!.queueNonce, txHash: intent.queue!.queueFingerprint } }), encodeAbiParameters([
+      { type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" },
+    ], [intent.queue!.to, intent.queue!.value, intent.queue!.data, intent.queue!.operation]), 1));
+  } else if (intent.kind === "cancel-queued") {
+    output.push(eventLog(delay, encodeEventTopics({ abi: DELAY_ABI, eventName: "TxNonceSet" }), encodeAbiParameters([{ type: "uint256" }], [5n]), 1));
+  }
+  return Object.freeze(output);
+}
+
+function transaction(intent: PreparedPwaIntent): PwaObserverTransaction {
+  if ("safeTx" in intent) {
+    return Object.freeze({
+      hash: h(500),
+      to: safe,
+      value: 0n,
+      input: encodeFunctionData({
+        abi: SAFE_ABI,
+        functionName: "execTransaction",
+        args: [intent.safeTx.to, intent.safeTx.value, intent.safeTx.data, intent.safeTx.operation, intent.safeTx.safeTxGas, intent.safeTx.baseGas, intent.safeTx.gasPrice, intent.safeTx.gasToken, intent.safeTx.refundReceiver, `0x${"11".repeat(65)}`],
+      }),
+    });
+  }
+  return Object.freeze({ hash: h(500), to: intent.call.to, value: intent.call.value, input: intent.call.data });
+}
+
+function receipt(intent: PreparedPwaIntent, failure = false): PwaObserverReceipt {
+  return Object.freeze({ transactionHash: h(500), status: "success", blockNumber: 100n, blockHash: h(100), logs: logs(intent, failure) });
+}
+
+function client(intent: PreparedPwaIntent, source: string, overrides: Partial<PwaObserverClient> = {}): PwaObserverClient {
+  const before = state(intent, "before");
+  const after = state(intent, "after");
+  return Object.freeze({
+    source,
+    async getBlockNumber() { return 105n; },
+    async getTransactionReceipt() { return receipt(intent); },
+    async getTransaction() { return transaction(intent); },
+    async getBlock({ blockNumber }) { return Object.freeze({ number: blockNumber, hash: blockNumber === 100n ? h(100) : h(99), timestamp: blockNumber === 100n ? 1_000n : 999n }); },
+    async readStateAt(blockNumber) { return blockNumber === 100n ? after : before; },
+    ...overrides,
+  });
+}
+
+function binding(intent: PreparedPwaIntent, overrides: Partial<PwaObserverBinding> = {}): PwaObserverBinding {
+  return Object.freeze({
+    intent,
+    profileHash: h(94),
+    topologyReportHash: h(93),
+    confirmations: 6,
+    observer: Object.freeze({ processId: "observer-fixture-1", executableHash: h(95), startedAt: "2026-10-31T20:00:00.000Z" }),
+    clients: Object.freeze([client(intent, "provider-a"), client(intent, "provider-b")]),
+    ...overrides,
+  });
+}
+
+describe("independent PWA receipt observer", () => {
+  it("accepts canonical X, Y, queue, cancel, and ready execution receipts", async () => {
+    for (const kind of ["base", "step-up", "queue", "cancel", "execute"] as const) {
+      const intent = prepared(kind);
+      const record = await observePwaReceipt(binding(intent), h(500));
+      expect(record).to.include({ kind: intent.kind, transactionHash: h(500), blockHash: h(100), profileHash: h(94), topologyReportHash: h(93), notificationDelivery: "not-claimed" });
+      expect(record.observer.processId).to.equal("observer-fixture-1");
+      expect(record.sources).to.deep.equal(["provider-a", "provider-b"]);
+    }
+  });
+
+  it("rejects outer success with inner failure, wrong events, stale queues, and state-effect mismatches", async () => {
+    const base = prepared("base");
+    await expect(observePwaReceipt(binding(base, { clients: [client(base, "a", { async getTransactionReceipt() { return receipt(base, true); } }), client(base, "b", { async getTransactionReceipt() { return receipt(base, true); } })] }), h(500))).to.be.rejectedWith(/inner|failure/i);
+    await expect(observePwaReceipt(binding(base, { clients: [client(base, "a", { async getTransactionReceipt() { return { ...receipt(base), logs: receipt(base).logs.slice(0, 1) }; } }), client(base, "b", { async getTransactionReceipt() { return { ...receipt(base), logs: receipt(base).logs.slice(0, 1) }; } })] }), h(500))).to.be.rejectedWith(/event|effect/i);
+
+    const cancel = prepared("cancel");
+    const stale = { ...state(cancel, "after"), queueHeadNonce: 4n, queueHead: queued() };
+    await expect(observePwaReceipt(binding(cancel, { clients: [client(cancel, "a", { async readStateAt(block) { return block === 100n ? stale : state(cancel, "before"); } }), client(cancel, "b", { async readStateAt(block) { return block === 100n ? stale : state(cancel, "before"); } })] }), h(500))).to.be.rejectedWith(/queue|effect/i);
+
+    const execute = prepared("execute");
+    const wrongBalance = { ...state(execute, "after"), safeUsdcBalance: 8_000_000n };
+    await expect(observePwaReceipt(binding(execute, { clients: [client(execute, "a", { async readStateAt(block) { return block === 100n ? wrongBalance : state(execute, "before"); } }), client(execute, "b", { async readStateAt(block) { return block === 100n ? wrongBalance : state(execute, "before"); } })] }), h(500))).to.be.rejectedWith(/balance|effect/i);
+  });
+
+  it("rejects missing/unconfirmed/reorged receipts and disagreement between independent RPC views", async () => {
+    const intent = prepared("base");
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a", { async getTransactionReceipt() { return null; } }), client(intent, "b")] }), h(500))).to.be.rejectedWith(/missing|receipt/i);
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a", { async getBlockNumber() { return 104n; } }), client(intent, "b", { async getBlockNumber() { return 104n; } })] }), h(500))).to.be.rejectedWith(/confirmation/i);
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a", { async getBlock() { return { number: 100n, hash: h(999), timestamp: 1_000n }; } }), client(intent, "b", { async getBlock() { return { number: 100n, hash: h(999), timestamp: 1_000n }; } })] }), h(500))).to.be.rejectedWith(/canonical|reorg|block/i);
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "same-provider"), client(intent, "same-provider")] }), h(500))).to.be.rejectedWith(/independent|source/i);
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a"), client(intent, "b", { async getTransaction() { return { ...transaction(intent), input: "0x" }; } })] }), h(500))).to.be.rejectedWith(/disagree|envelope/i);
+  });
+
+  it("rejects clients with signing/write capability and any notification-delivery claim", async () => {
+    const intent = prepared("base");
+    const writable = { ...client(intent, "provider-a"), sendRawTransaction: async () => h(1) } as unknown as PwaObserverClient;
+    await expect(observePwaReceipt(binding(intent, { clients: [writable, client(intent, "provider-b")] }), h(500))).to.be.rejectedWith(/read.only|write|sign/i);
+    const inheritedWrite = Object.assign(Object.create({ sendRawTransaction: async () => h(1) }), client(intent, "provider-a")) as PwaObserverClient;
+    await expect(observePwaReceipt(binding(intent, { clients: [inheritedWrite, client(intent, "provider-b")] }), h(500))).to.be.rejectedWith(/plain|read.only|write|sign/i);
+    await expect(observePwaReceipt({ ...binding(intent), notificationDelivery: "delivered" } as unknown as PwaObserverBinding, h(500))).to.be.rejectedWith(/notification/i);
+  });
+});
