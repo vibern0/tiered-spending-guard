@@ -41,4 +41,3 @@ The backend removes `reviewedArtifactsPath`; concrete provisioning uses the comm
 ## Rollback
 
 Revert this change as one commit. Existing external review, approval, and journal data is not modified. No migration deletes files. The retired JSON may remain on disk but is never read.
-

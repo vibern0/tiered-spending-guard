@@ -141,6 +141,21 @@ export async function resolvePasskeySignerRuntimeCodeHash(input: Readonly<{
   return keccak256(result.data);
 }
 
+export async function resolvePwaSignerRuntimeCodeHashes(input: Readonly<{
+  client: Readonly<{ call(args: { data: Hex }): Promise<{ data?: Hex }> }>;
+  singleton: Address;
+  primaryCredential: Readonly<{ x: bigint; y: bigint }>;
+  secondaryCredential: Readonly<{ x: bigint; y: bigint }>;
+  verifiers: bigint;
+}>): Promise<Readonly<{ primary: Hex; secondary: Hex }>> {
+  const [primary, secondary] = await Promise.all([
+    resolvePasskeySignerRuntimeCodeHash({ client: input.client, singleton: input.singleton, credential: input.primaryCredential, verifiers: input.verifiers }),
+    resolvePasskeySignerRuntimeCodeHash({ client: input.client, singleton: input.singleton, credential: input.secondaryCredential, verifiers: input.verifiers }),
+  ]);
+  if (same(primary, secondary)) failClosed("distinct credentials must produce distinct signer runtime hashes");
+  return Object.freeze({ primary, secondary });
+}
+
 type SafeDeploymentAsset = Readonly<{
   contractName: string;
   version: string;
@@ -289,10 +304,7 @@ export async function resolvePwaPlanningInfrastructure(
   if (typeof singleton !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(singleton)) failClosed("passkey factory returned an invalid singleton address");
   const [primaryAddress, secondaryAddress] = await Promise.all([predict(input.primaryCredential, "primary"), predict(input.secondaryCredential, "secondary")]);
   if (same(primaryAddress, secondaryAddress)) failClosed("primary and secondary passkey signers must be distinct");
-  const [primaryRuntimeCodeHash, secondaryRuntimeCodeHash] = await Promise.all([
-    resolvePasskeySignerRuntimeCodeHash({ client, singleton: singleton as Address, credential: input.primaryCredential, verifiers }),
-    resolvePasskeySignerRuntimeCodeHash({ client, singleton: singleton as Address, credential: input.secondaryCredential, verifiers }),
-  ]);
+  const signerRuntimeCodeHashes = await resolvePwaSignerRuntimeCodeHashes({ client, singleton: singleton as Address, primaryCredential: input.primaryCredential, secondaryCredential: input.secondaryCredential, verifiers });
   const primaryBinding = Object.freeze({ ...input.primaryCredential, verifiers });
   const secondaryBinding = Object.freeze({ ...input.secondaryCredential, verifiers });
   const result = Object.freeze({
@@ -308,7 +320,7 @@ export async function resolvePwaPlanningInfrastructure(
       name: "passkeySigner" as const,
       address: primaryAddress,
       bindingHash: passkeySignerBindingHash({ factory: dependencies.passkeySignerFactory.address, ...primaryBinding }),
-      expectedRuntimeCodeHash: primaryRuntimeCodeHash,
+      expectedRuntimeCodeHash: signerRuntimeCodeHashes.primary,
       source: "official Safe WebAuthn signer factory prediction",
       binding: primaryBinding,
     }),
@@ -316,7 +328,7 @@ export async function resolvePwaPlanningInfrastructure(
       name: "passkeySigner" as const,
       address: secondaryAddress,
       bindingHash: passkeySignerBindingHash({ factory: dependencies.passkeySignerFactory.address, ...secondaryBinding }),
-      expectedRuntimeCodeHash: secondaryRuntimeCodeHash,
+      expectedRuntimeCodeHash: signerRuntimeCodeHashes.secondary,
       source: "official Safe WebAuthn signer factory prediction",
       binding: secondaryBinding,
     }),

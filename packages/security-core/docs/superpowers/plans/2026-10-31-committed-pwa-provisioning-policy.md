@@ -40,11 +40,11 @@
 - Produces: `loadCommittedZodiacDelayArtifact()`; credential-specific runtime derivation inside `resolvePwaPlanningInfrastructure`.
 - Consumes: pinned package artifacts, verified factory/singleton/verifier, `ArtifactResolutionClient.call`.
 
-- [ ] Write failing tests for committed Delay loading, artifact-anchor mutation, and distinct credential runtime hashes.
-- [ ] Run focused tests; verify expected failures.
-- [ ] Implement committed artifact loading and signer derivation; remove caller-selected Delay source.
-- [ ] Run focused and full security-core tests; verify pass.
-- [ ] Commit.
+- [x] Write failing tests for committed Delay loading, artifact-anchor mutation, and distinct credential runtime hashes.
+- [x] Run focused tests; verify expected failures.
+- [x] Implement committed artifact loading and signer derivation; remove caller-selected Delay source.
+- [x] Run focused and full security-core tests; verify pass.
+- [x] Commit.
 
 ### Task 2: Remove backend reviewed-artifacts configuration
 
@@ -58,12 +58,12 @@
 - Consumes: committed profile, salt `0`, per-credential runtime evidence from Task 1.
 - Produces: backend config without `reviewedArtifactsPath`; explicit retired-setting rejection.
 
-- [ ] Write failing backend/config and provisioning tests proving no reviewed JSON is required and the retired variable is rejected.
-- [ ] Run focused tests; verify expected failures.
-- [ ] Implement committed composition and distinct signer transaction hashes.
-- [ ] Port the Node ESM/CommonJS package interop regression test and fix.
-- [ ] Run backend and focused core tests; verify pass.
-- [ ] Commit.
+- [x] Write failing backend/config and provisioning tests proving no reviewed JSON is required and the retired variable is rejected.
+- [x] Run focused tests; verify expected failures.
+- [x] Implement committed composition and distinct signer transaction hashes.
+- [x] Port the Node ESM/CommonJS package interop regression test and fix.
+- [x] Run backend and focused core tests; verify pass.
+- [x] Commit.
 
 ### Task 3: Document, verify, and review the migration
 
@@ -75,8 +75,7 @@
 - Consumes: Tasks 1–2 behavior.
 - Produces: operator migration instructions and evidence.
 
-- [ ] Update call graph, dependency review, and backend environment instructions.
-- [ ] Run `npm run check` and `git diff --check`; verify pass.
-- [ ] Perform fresh whole-branch review; fix important findings with RED→GREEN tests.
-- [ ] Commit final documentation/fixes.
-
+- [x] Update call graph, dependency review, and backend environment instructions.
+- [x] Run `npm run check` and `git diff --check`; verify pass.
+- [x] Perform fresh whole-branch review; fix important findings with RED→GREEN tests.
+- [x] Commit final documentation/fixes.

@@ -4,6 +4,7 @@ import {
   assertReviewedSafePasskeySignerProxyArtifact,
   isVerifiedDeploymentInfrastructure,
   resolvePasskeySignerRuntimeCodeHash,
+  resolvePwaSignerRuntimeCodeHashes,
   verifyOfficialDeploymentDependencies,
 } from "../../../src/config/deployments";
 import SafeWebAuthnSignerProxyArtifact from "@safe-global/safe-passkey/build/artifacts/contracts/SafeWebAuthnSignerProxy.sol/SafeWebAuthnSignerProxy.json";
@@ -37,6 +38,16 @@ describe("deployment registry", () => {
     expect(primary).to.match(/^0x[0-9a-f]{64}$/);
     expect(secondary).to.match(/^0x[0-9a-f]{64}$/);
     expect(primary).not.to.equal(secondary);
+  });
+
+  it("rejects a simulation provider that returns one runtime for distinct credentials", async () => {
+    await expect(resolvePwaSignerRuntimeCodeHashes({
+      client: { async call() { return { data: "0x6000" as Hex }; } },
+      singleton: "0x0000000000000000000000000000000000000011" as Address,
+      primaryCredential: { x: 1n, y: 2n },
+      secondaryCredential: { x: 3n, y: 4n },
+      verifiers: 0x22n,
+    })).to.be.rejectedWith(/distinct signer runtime hashes/i);
   });
 
   it("pins the Safe 1.5 Sepolia MultiSendCallOnly official deployment evidence", () => {
