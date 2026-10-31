@@ -50,7 +50,7 @@ function confirmed(action: { id: string; commitment: Hex }, index: number, nonce
     gasUsed: 100_000n + BigInt(index),
     effectiveGasPrice: 100n,
     blockNumber: 12_029_600n + BigInt(index),
-    blockHash: h(String(index + 5)),
+    blockHash: h("5678"[index / 2]!),
   };
   return {
     record: {
@@ -62,14 +62,15 @@ function confirmed(action: { id: string; commitment: Hex }, index: number, nonce
       evidenceHash: h("b"),
       receipt,
       receiptInclusion: {
+        transactionHash,
         blockNumber: receipt.blockNumber.toString(),
         blockHash: receipt.blockHash,
-        transactionIndex: 1,
-        confirmations: 6,
-        checkedAtBlock: (receipt.blockNumber + 5n).toString(),
+        blockTimestamp: (1_793_364_000n + BigInt(index)).toString(),
+        effectivePeriod: "1793318400",
       },
       observerEvidenceHash: index === 0 ? null : h("c"),
       outerNonce: nonce,
+      ...([2, 6].includes(index) ? { queueCreatedAt: "1793364000" } : {}),
       ourReceiptGasCost: (receipt.gasUsed * receipt.effectiveGasPrice).toString(),
       ourPrincipalDelta: "0",
     },

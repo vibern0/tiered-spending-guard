@@ -2,6 +2,7 @@ import { expect } from "chai";
 import { decodeFunctionData } from "viem";
 import { sha256 } from "../../../scripts/plan-deployment";
 import { usdcDelayedSuccessorSourceJournalBytesSha256 } from "../../../scripts/live/ordinary-scenario-usdc-delayed-successor-certificate";
+import { createUsdcDelayedSuccessorSourceForTestsOnly } from "../../../scripts/live/ordinary-scenario-usdc-delayed-successor-certificate";
 import {
   attachUsdcDelayedSuccessorForTestsOnly,
   createUsdcDelayedSuccessorProposal,
@@ -75,5 +76,14 @@ describe("ordinary USDC delayed-tier successor proposal", function () {
     expect(attached.usdcDelayedSuccessor.actions).to.have.length(5);
     expect(attached.usdcDelayedSuccessor.actions.every(action => action.status === "approved")).to.equal(true);
     expect(() => attachUsdcDelayedSuccessorForTestsOnly(attached, fixture.proposal, fixture.approval)).to.throw(/already|successor|attachment/i);
+  });
+
+  it("reconstructs the same immutable source after descendant live progress", async function () {
+    const fixture = await approvedDelayedSuccessor();
+    const attached = attachUsdcDelayedSuccessorForTestsOnly(fixture.journal, fixture.proposal, fixture.approval);
+    const transactionHash = `0x${"7".repeat(64)}` as const, intentHash = `0x${"8".repeat(64)}` as const;
+    attached.liveJournal.entries.push({ id: fixture.proposal.actions[0]!.id, intentHash, transactionHash, nonce: 917, reserved: 1n, status: "pending" });
+    const rebuilt = createUsdcDelayedSuccessorSourceForTestsOnly({ prior: fixture.source.prior, delayedCertificate: fixture.source.delayedCertificate, delayedProposal: fixture.source.delayedProposal, delayedApproval: fixture.source.delayedApproval, journal: attached });
+    expect(rebuilt.sourceJournalHash).to.equal(fixture.source.sourceJournalHash);
   });
 });

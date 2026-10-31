@@ -70,7 +70,7 @@ const serializedPredecessor = (journal: OrdinaryScenarioJournal): string => `${J
 export const usdcDelayedCompletionSourceJournalBytesSha256 = (journal: OrdinaryScenarioJournal): Hex => `0x${createHash("sha256").update(serializedPredecessor(journal)).digest("hex")}` as Hex;
 
 export function usdcDelayedCompletionPredecessorValue(journal: OrdinaryScenarioJournal): unknown {
-  const { usdcDelayedCompletion: _ignored, ...predecessor } = journal;
+  const { usdcDelayedCompletion: _ignored, usdcDelayedSuccessor: _successor, ...predecessor } = journal as OrdinaryScenarioJournal & { usdcDelayedSuccessor?: unknown };
   return { ...predecessor, liveJournal: { ...predecessor.liveJournal, entries: predecessor.liveJournal.entries.slice(0, 15) } };
 }
 

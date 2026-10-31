@@ -38,6 +38,15 @@ import {
   type UsdcDelayedCompletionProposal,
   type UsdcDelayedCompletionStorage,
 } from "./ordinary-scenario-usdc-delayed-completion-proposal";
+import { usdcDelayedSuccessorPredecessorValue, type UsdcDelayedSuccessorSource } from "./ordinary-scenario-usdc-delayed-successor-certificate";
+import {
+  assertUsdcDelayedSuccessorAdmission,
+  assertUsdcDelayedSuccessorAuthorization,
+  assertUsdcDelayedSuccessorAuthorizationForTestsOnly,
+  type UsdcDelayedSuccessorApproval,
+  type UsdcDelayedSuccessorProposal,
+  type UsdcDelayedSuccessorStorage,
+} from "./ordinary-scenario-usdc-delayed-successor-proposal";
 import {
   assertUsdcRecycleContinuationAdmission,
   assertUsdcRecycleContinuationAuthorization,
@@ -91,6 +100,10 @@ const DELAYED_COMPLETION_REJECTION_IDS = new Set([
   "usdc-delayed-completion-direct-above-y-rejection", "usdc-delayed-completion-queue-cancel-early-rejection",
   "usdc-delayed-completion-queue-cancelled-execution-rejection", "usdc-delayed-completion-queue-expiry-early-rejection",
   "usdc-delayed-completion-queue-expired-execution-rejection", "usdc-delayed-completion-queue-execute-early-rejection",
+]);
+const DELAYED_SUCCESSOR_REJECTION_IDS = new Set([
+  "usdc-delayed-successor-expired-execution-rejection",
+  "usdc-delayed-successor-queue-execute-early-rejection",
 ]);
 const RECYCLED_STEP_UP_USDC = 10_000_000n;
 const RECYCLED_DELAYED_USDC = 1_000_000n;
@@ -355,6 +368,7 @@ export type OrdinaryScenarioJournal = {
   usdcRecycleContinuation?: UsdcRecycleContinuationStorage;
   usdcFreshSuccessor?: UsdcFreshSuccessorStorage;
   usdcDelayedCompletion?: UsdcDelayedCompletionStorage;
+  usdcDelayedSuccessor?: UsdcDelayedSuccessorStorage;
   repairContinuation?: {
     schemaVersion: 1;
     predecessor?: Readonly<{ kind: "terminal-first38-v1" | "expired-hashless-continuation-v1" | "usdc-period-successor-v1" | "usdc-recycle-continuation-v1"; actionCount: 38 | 41; prefixHash: Hex; certificateHash: Hex | null; continuationProposalHash: Hex | null; continuationApprovalHash: Hex | null; observerIdentityHash: Hex | null; observerEvidenceHash: Hex; continuationHeaderHash?: Hex; effectivePeriod?: string; rawNativeSpend?: Readonly<{ window: string; baseSpent: string; instantSpent: string }>; rawUsdcSpend?: Readonly<{ window: string; baseSpent: string; instantSpent: string }> }>;
@@ -375,7 +389,8 @@ export type OrdinaryScenarioExecutionView =
   | Readonly<{ kind: "usdc-period-successor-v1"; source: UsdcSuccessorSource; successor: UsdcSuccessorProposal; approval?: UsdcSuccessorApproval; proposal: OrdinaryScenarioProposal }>
   | Readonly<{ kind: "usdc-recycle-continuation-v1"; source: UsdcRecycleContinuationSource; continuation: UsdcRecycleContinuationProposal; approval?: UsdcRecycleContinuationApproval; proposal: OrdinaryScenarioProposal }>
   | Readonly<{ kind: "usdc-fresh-period-successor-v1"; source: UsdcRecycleContinuationSource; successor: UsdcFreshSuccessorProposal; approval?: UsdcFreshSuccessorApproval; proposal: OrdinaryScenarioProposal }>
-  | Readonly<{ kind: "usdc-delayed-completion-v1"; source: UsdcDelayedCompletionSource; completion: UsdcDelayedCompletionProposal; approval?: UsdcDelayedCompletionApproval; proposal: OrdinaryScenarioProposal }>;
+  | Readonly<{ kind: "usdc-delayed-completion-v1"; source: UsdcDelayedCompletionSource; completion: UsdcDelayedCompletionProposal; approval?: UsdcDelayedCompletionApproval; proposal: OrdinaryScenarioProposal }>
+  | Readonly<{ kind: "usdc-delayed-successor-v1"; source: UsdcDelayedSuccessorSource; successor: UsdcDelayedSuccessorProposal; approval?: UsdcDelayedSuccessorApproval; proposal: OrdinaryScenarioProposal }>;
 const executionViews = new WeakSet<object>();
 
 export function createOriginalOrdinaryScenarioExecutionView(proposal: OrdinaryScenarioProposal): OrdinaryScenarioExecutionView {
@@ -537,7 +552,7 @@ export function selectUsdcFreshSuccessorSubmissionAction(source: UsdcRecycleCont
 }
 
 function delayedCompletionPredecessorProjection(journal: OrdinaryScenarioJournal): unknown {
-  const { usdcDelayedCompletion: _ignored, ...predecessor } = journal;
+  const { usdcDelayedCompletion: _ignored, usdcDelayedSuccessor: _successor, ...predecessor } = journal;
   return { ...predecessor, liveJournal: { ...predecessor.liveJournal, entries: predecessor.liveJournal.entries.slice(0, 15) } };
 }
 
@@ -605,6 +620,73 @@ function selectDelayedCompletionSubmissionAction(source: UsdcDelayedCompletionSo
 }
 export function selectUsdcDelayedCompletionSubmissionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope { return selectDelayedCompletionSubmissionAction(source, completion, approval, journal, assertUsdcDelayedCompletionAuthorization); }
 export function selectUsdcDelayedCompletionSubmissionActionForTestsOnly(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope { return selectDelayedCompletionSubmissionAction(source, completion, approval, journal, assertUsdcDelayedCompletionAuthorizationForTestsOnly); }
+
+function createDelayedSuccessorExecutionView(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval | undefined, assertAuthorization: typeof assertUsdcDelayedSuccessorAuthorization): OrdinaryScenarioExecutionView {
+  if (!same(publicHash(usdcDelayedSuccessorPredecessorValue(source.journal)), successor.sourceJournalHash) || !same(source.sourceJournalHash, successor.sourceJournalHash)) throw new Error("delayed successor frozen predecessor changed");
+  if (approval !== undefined) assertAuthorization(successor, approval);
+  const nativeBridge = source.prior.historical.prior.recovery.actions.slice(0, 3).map(continuationScope);
+  const oldConfirmed = source.prior.historical.priorProposal.actions.slice(0, 2).map(usdcSuccessorScope);
+  const delayedBridge = source.delayedProposal.actions.slice(0, 8).map(continuationScope);
+  const actions = successor.actions.map(continuationScope);
+  const proposal = deepFreeze({ ...source.prior.historical.prior.original, proposalHash: successor.proposalHash, observerEvidenceHash: successor.observer.probeEvidenceHash, baselineActualCostWei: (BigInt(source.delayedProposal.reservation.priorActualGasCostWei) + BigInt(source.delayedProposal.reservation.priorPrincipalWei)).toString(), actions: [...nativeBridge, ...oldConfirmed, ...delayedBridge, ...actions] });
+  const view = Object.freeze({ kind: "usdc-delayed-successor-v1" as const, source, successor, ...(approval === undefined ? {} : { approval }), proposal });
+  executionViews.add(view);
+  return view;
+}
+export function createUsdcDelayedSuccessorExecutionView(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval?: UsdcDelayedSuccessorApproval): OrdinaryScenarioExecutionView { return createDelayedSuccessorExecutionView(source, successor, approval, assertUsdcDelayedSuccessorAuthorization); }
+export function createUsdcDelayedSuccessorExecutionViewForTestsOnly(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval?: UsdcDelayedSuccessorApproval): OrdinaryScenarioExecutionView { return createDelayedSuccessorExecutionView(source, successor, approval, assertUsdcDelayedSuccessorAuthorizationForTestsOnly); }
+
+function projectUsdcDelayedSuccessorJournal(journal: OrdinaryScenarioJournal, progressed: readonly OrdinaryScenarioActionRecord[]): OrdinaryScenarioJournal {
+  const nativeBridge = journal.hashlessContinuation?.actions.slice(0, 3).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? [];
+  const oldConfirmed = journal.usdcSuccessor?.actions.slice(0, 2).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status === "confirmed") ?? [];
+  const delayedBridge = journal.usdcDelayedCompletion?.actions.slice(0, 9).filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved") ?? [];
+  if (nativeBridge.length !== 3 || oldConfirmed.length !== 2 || delayedBridge.length !== 9 || delayedBridge[8]!.status !== "signed-simulated") throw new Error("delayed successor historical dependency bridge is incomplete");
+  return structuredClone({ ...journal, actions: [...nativeBridge, ...oldConfirmed, ...delayedBridge, ...progressed] });
+}
+
+function assertDelayedSuccessorJournal(journal: OrdinaryScenarioJournal, source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval, assertAuthorization: typeof assertUsdcDelayedSuccessorAuthorization): void {
+  assertAuthorization(successor, approval);
+  const attached = journal.usdcDelayedSuccessor;
+  if (!attached || !journal.usdcDelayedCompletion || journal.liveJournal.entries.length < 19 || !same(publicHash(usdcDelayedSuccessorPredecessorValue(journal)), successor.sourceJournalHash)) throw new Error("delayed successor predecessor, sole sibling, or live prefix changed");
+  if (attached.schemaVersion !== 1 || attached.scope !== successor.scope || !same(attached.sourceJournalHash, successor.sourceJournalHash) || !same(attached.certificateHash, successor.certificateHash) || !same(attached.proposalHash, successor.proposalHash) || !same(attached.approvalHash, approval.approvalHash) || attached.minimumOuterNonce !== successor.minimumOuterNonce || attached.effectivePeriod !== successor.effectivePeriod || attached.deadline !== successor.deadline || attached.maximumReservationWei !== successor.reservation.successorMaximumReservationWei || attached.maxBroadcastAttempts !== 1 || attached.repairAuthority !== "NONE" || attached.actions.length !== 5 || attached.actionCommitments.length !== 5) throw new Error("delayed successor immutable header mismatch");
+  let approvedTail = false; const broadcasts: OrdinaryScenarioActionRecord[] = [];
+  for (let index = 0; index < successor.actions.length; index++) {
+    const expected = successor.actions[index]!, commitment = attached.actionCommitments[index]!, actual = attached.actions[index]!;
+    if (commitment.id !== expected.id || commitment.commitment !== expected.commitment || actual.id !== expected.id || actual.commitment !== expected.commitment) throw new Error("delayed successor catalog lineage mismatch");
+    if (actual.status === "approved") { approvedTail = true; if (Object.keys(actual).sort().join(",") !== "commitment,id,status") throw new Error("delayed successor approved row carries progress"); continue; }
+    if (approvedTail) throw new Error("delayed successor progress must be a contiguous prefix");
+    const rejection = DELAYED_SUCCESSOR_REJECTION_IDS.has(actual.id);
+    if (rejection && actual.status === "rejection-proved") {
+      if (!actual.evidenceHash || actual.intentHash !== undefined || actual.transactionHash !== undefined || actual.receipt !== undefined) throw new Error("delayed successor rejection proof carries broadcast evidence");
+      continue;
+    }
+    if (rejection && actual.status !== "materialized") throw new Error("delayed successor rejection outcome mismatch");
+    if (!rejection && actual.status === "rejection-proved") throw new Error("delayed successor success row became a proof");
+    if (actual.status === "outer-pending" || actual.status === "confirmed" || actual.status === "reverted" || actual.status === "stopped") {
+      if (!actual.intentHash || !actual.transactionHash) throw new Error("delayed successor broadcast row lacks durable hashes");
+      broadcasts.push(actual);
+    }
+    if (actual.finalOuterMaterialization && (actual.finalOuterMaterialization.proposalHash !== successor.proposalHash || actual.finalOuterMaterialization.actionCommitment !== expected.commitment || actual.finalOuterMaterialization.outerNonce < successor.minimumOuterNonce)) throw new Error("delayed successor durable materialization drift");
+  }
+  const suffix = journal.liveJournal.entries.slice(19);
+  if (suffix.length !== broadcasts.length || suffix.some((entry, index) => entry.id !== broadcasts[index]!.id || !same(entry.transactionHash, broadcasts[index]!.transactionHash!))) throw new Error("delayed successor live suffix is orphaned, reordered, or mixed");
+}
+export function assertUsdcDelayedSuccessorJournal(journal: OrdinaryScenarioJournal, source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval): void { return assertDelayedSuccessorJournal(journal, source, successor, approval, assertUsdcDelayedSuccessorAuthorization); }
+export function assertUsdcDelayedSuccessorJournalForTestsOnly(journal: OrdinaryScenarioJournal, source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval): void { return assertDelayedSuccessorJournal(journal, source, successor, approval, assertUsdcDelayedSuccessorAuthorizationForTestsOnly); }
+
+function selectDelayedSuccessorSubmissionAction(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval, journal: OrdinaryScenarioJournal, assertAuthorization: typeof assertUsdcDelayedSuccessorAuthorization): OrdinaryScenarioActionScope {
+  const view = createDelayedSuccessorExecutionView(source, successor, approval, assertAuthorization);
+  assertDelayedSuccessorJournal(journal, source, successor, approval, assertAuthorization);
+  const progressed = journal.usdcDelayedSuccessor!.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
+  const binding: ApprovalBinding = { proposal: view.proposal, actions: successor.actions.map(continuationScope), actionCount: successor.actions.length, maximumApprovedReservation: BigInt(successor.reservation.successorMaximumReservationWei) };
+  const action = nextAction(binding, projectUsdcDelayedSuccessorJournal(journal, progressed));
+  if (!action) throw new Error("delayed successor submission is complete");
+  const attached = journal.usdcDelayedSuccessor!.actions.find(entry => entry.id === action.id);
+  if (!attached || attached.status !== "approved") throw new Error("delayed successor requires one fresh approved action");
+  return action;
+}
+export function selectUsdcDelayedSuccessorSubmissionAction(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope { return selectDelayedSuccessorSubmissionAction(source, successor, approval, journal, assertUsdcDelayedSuccessorAuthorization); }
+export function selectUsdcDelayedSuccessorSubmissionActionForTestsOnly(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope { return selectDelayedSuccessorSubmissionAction(source, successor, approval, journal, assertUsdcDelayedSuccessorAuthorizationForTestsOnly); }
 
 /** Select one exact fresh submission from validated attached continuation progress. */
 export function selectExpiredHashlessContinuationSubmissionAction(original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval, journal: OrdinaryScenarioJournal): OrdinaryScenarioActionScope {
@@ -1006,6 +1088,7 @@ type ExecutionBoundary = Readonly<{
   recycleContinuation?: UsdcRecycleContinuationProposal;
   freshSuccessor?: UsdcFreshSuccessorProposal;
   delayedCompletion?: UsdcDelayedCompletionProposal;
+  delayedSuccessor?: UsdcDelayedSuccessorProposal;
   staleUsdcSpend?: SpendState;
 }>;
 
@@ -1030,7 +1113,7 @@ function assertFreshState(action: OrdinaryScenarioActionScope, proposal: Ordinar
     if (state.blockTimestamp < periodAnchor) throw new Error("ordinary scenario successor canonical timestamp precedes period anchor");
     const effectiveWindow = periodAnchor + ((state.blockTimestamp - periodAnchor) / PERIOD_SECONDS) * PERIOD_SECONDS;
     if (effectiveWindow !== boundary.effectivePeriod) throw new Error("ordinary scenario successor effective period rollover requires new review");
-    const staleFreshAction = boundary.delayedCompletion !== undefined || boundary.freshSuccessor !== undefined && (action.id === "usdc-fresh-successor-prefund-all" || action.id === "usdc-fresh-successor-base-x");
+    const staleFreshAction = boundary.delayedCompletion !== undefined || boundary.delayedSuccessor !== undefined || boundary.freshSuccessor !== undefined && (action.id === "usdc-fresh-successor-prefund-all" || action.id === "usdc-fresh-successor-base-x");
     const expectedUsdcWindow = staleFreshAction ? boundary.staleUsdcSpend?.window : action.before.usdcBaseSpent === "0" && action.before.usdcInstantSpent === "0" ? 0n : boundary.effectivePeriod;
     if (expectedUsdcWindow === undefined || state.usdcSpend.window !== expectedUsdcWindow) throw new Error("ordinary scenario successor raw USDC period drift");
     if (staleFreshAction && JSON.stringify(publicValue(state.usdcSpend)) !== JSON.stringify(publicValue(boundary.staleUsdcSpend))) throw new Error("ordinary scenario fresh successor stale USDC tuple drift");
@@ -1050,7 +1133,7 @@ function assertFreshState(action: OrdinaryScenarioActionScope, proposal: Ordinar
     const evidence = state.dependencies.find((entry) => entry.actionId === dependency);
     if (!terminal || (terminal.status !== "confirmed" && terminal.status !== "rejection-proved") || !terminal.evidenceHash || !evidence || !same(evidence.evidenceHash, terminal.evidenceHash) || (terminal.transactionHash && (!evidence.transactionHash || !same(evidence.transactionHash, terminal.transactionHash)))) throw new Error(`ordinary scenario dependency evidence mismatch for ${dependency}`);
   }
-  const establishedPrefix = action.asset === "native" ? "native-" : boundary.delayedCompletion ? "usdc-delayed-completion-" : boundary.freshSuccessor ? "usdc-fresh-successor-" : "usdc-";
+  const establishedPrefix = action.asset === "native" ? "native-" : boundary.delayedSuccessor ? "usdc-delayed-successor-" : boundary.delayedCompletion ? "usdc-delayed-completion-" : boundary.freshSuccessor ? "usdc-fresh-successor-" : "usdc-";
   const established = [...journal.actions].reverse().find((entry) => entry.establishedWindow !== undefined && entry.id.startsWith(establishedPrefix));
   if (established) {
     const storedWindow = action.asset === "native" ? state.nativeSpend.window : state.usdcSpend.window;
@@ -1246,10 +1329,10 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   }
   const confirmation = await context.confirm(action, entry, recordEntry);
   if (boundary.effectivePeriod !== undefined) {
-    const stalePrefund = boundary.delayedCompletion !== undefined || boundary.freshSuccessor !== undefined && action.id === "usdc-fresh-successor-prefund-all";
+    const stalePrefund = boundary.delayedCompletion !== undefined || boundary.delayedSuccessor !== undefined || boundary.freshSuccessor !== undefined && action.id === "usdc-fresh-successor-prefund-all";
     const expectedUsdcSpend = stalePrefund ? boundary.staleUsdcSpend : undefined;
     if (JSON.stringify(publicValue(confirmation.postState.nativeSpend)) !== JSON.stringify(publicValue(boundary.rawNativeSpend)) || (expectedUsdcSpend ? JSON.stringify(publicValue(confirmation.postState.usdcSpend)) !== JSON.stringify(publicValue(expectedUsdcSpend)) : confirmation.postState.usdcSpend.window !== boundary.effectivePeriod)) {
-      if (boundary.freshSuccessor !== undefined || boundary.delayedCompletion !== undefined) {
+      if (boundary.freshSuccessor !== undefined || boundary.delayedCompletion !== undefined || boundary.delayedSuccessor !== undefined) {
         recordEntry.status = "stopped";
         recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, receiptInclusion: recordEntry.receiptInclusion, poststate: controlledState(confirmation.postState), reason: "fresh-successor-raw-spend-drift" });
         store.save(journal);
@@ -1259,7 +1342,7 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
   }
   try { assertControlledState(confirmation.postState, action.after, "post-receipt"); expectedEffect(action, proposal, confirmation.effect); }
   catch (error) {
-    if (boundary.freshSuccessor !== undefined || boundary.delayedCompletion !== undefined) {
+    if (boundary.freshSuccessor !== undefined || boundary.delayedCompletion !== undefined || boundary.delayedSuccessor !== undefined) {
       recordEntry.status = "stopped";
       recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, receiptInclusion: recordEntry.receiptInclusion, poststate: controlledState(confirmation.postState), effect: confirmation.effect, reason: "fresh-successor-poststate-drift" });
       store.save(journal);
@@ -1276,7 +1359,7 @@ async function resumePending(action: OrdinaryScenarioActionScope, proposal: Ordi
     if (confirmation.effect.kind !== "delay-lifecycle" || !confirmation.postState.queue || confirmation.effect.createdAt !== confirmation.postState.queue.createdAt) throw new Error("ordinary scenario Delay lifecycle createdAt mismatch");
   }
   recordEntry.status = "confirmed";
-  if (boundary.freshSuccessor !== undefined || boundary.delayedCompletion !== undefined) recordEntry.observerEvidenceHash = confirmation.observerEvidenceHash;
+  if (boundary.freshSuccessor !== undefined || boundary.delayedCompletion !== undefined || boundary.delayedSuccessor !== undefined) recordEntry.observerEvidenceHash = confirmation.observerEvidenceHash;
   recordEntry.evidenceHash = publicHash({ receipt: entry.receipt, effect: confirmation.effect, poststate: controlledState(confirmation.postState), basis: poststateBasis, observerEvidenceHash: confirmation.observerEvidenceHash });
   if (confirmation.effect.kind === "safe-execution" && confirmation.effect.queueCreatedAt !== undefined) recordEntry.queueCreatedAt = confirmation.effect.queueCreatedAt.toString();
   if (action.kind === "base-transfer") {
@@ -1330,6 +1413,11 @@ async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioP
     if ([0, 2, 6, 10].includes(index)) assertUsdcDelayedCompletionAdmission(boundary.delayedCompletion, action.id, state.blockTimestamp, context.now?.() ?? new Date(), "scenario");
     assertUsdcDelayedCompletionAdmission(boundary.delayedCompletion, action.id, state.blockTimestamp, context.now?.() ?? new Date(), "private");
   }
+  if (boundary.delayedSuccessor) {
+    const index = boundary.delayedSuccessor.actions.findIndex(candidate => candidate.id === action.id);
+    if ([0, 2].includes(index)) assertUsdcDelayedSuccessorAdmission(boundary.delayedSuccessor, action.id, state.blockTimestamp, context.now?.() ?? new Date(), "scenario");
+    assertUsdcDelayedSuccessorAdmission(boundary.delayedSuccessor, action.id, state.blockTimestamp, context.now?.() ?? new Date(), "private");
+  }
   const wait = timingGate(action, proposal, journal, state); if (wait) return wait;
   const remaining = approvedRemainingReservation(proposal, binding, journal);
   if (BigInt(proposal.baselineActualCostWei) + remaining > PHASE_OUTLAY_LIMIT) throw new Error("ordinary scenario package phase accounting exceeds approval");
@@ -1350,7 +1438,7 @@ async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioP
       if (!same(keccak256(rawOuter), source.transactionHash) || !same(sender, proposal.funder) || outer.type !== "eip1559" || outer.chainId !== CHAIN_ID || source.outerNonce === undefined || !source.gas || !source.maxFeePerGas || !source.maxPriorityFeePerGas || !source.outerTo || !source.outerValue || !source.outerDataHash || outer.nonce !== source.outerNonce || outer.gas?.toString() !== source.gas || outer.maxFeePerGas?.toString() !== source.maxFeePerGas || outer.maxPriorityFeePerGas?.toString() !== source.maxPriorityFeePerGas || !outer.to || !same(outer.to, source.outerTo) || (outer.value ?? 0n).toString() !== source.outerValue || !same(keccak256(outer.data ?? "0x"), source.outerDataHash)) throw new Error("ordinary scenario replay signed outer transaction does not match the confirmed source");
       if (prepared.liveIntent.nonce !== source.outerNonce || prepared.liveIntent.gas.toString() !== source.gas || prepared.liveIntent.maxFeePerGas.toString() !== source.maxFeePerGas || prepared.liveIntent.maxPriorityFeePerGas.toString() !== source.maxPriorityFeePerGas || !prepared.liveIntent.to || !same(prepared.liveIntent.to, source.outerTo) || prepared.liveIntent.value.toString() !== source.outerValue || !same(keccak256(prepared.liveIntent.data), source.outerDataHash)) throw new Error("ordinary scenario replay source envelope mismatch");
       recordEntry.transactionHash = source.transactionHash;
-    } else if (!PUBLIC_REJECTION_KINDS.has(action.kind) && !(boundary.delayedCompletion && DELAYED_COMPLETION_REJECTION_IDS.has(action.id))) prepared = await context.materialize(action, state);
+    } else if (!PUBLIC_REJECTION_KINDS.has(action.kind) && !(boundary.delayedCompletion && DELAYED_COMPLETION_REJECTION_IDS.has(action.id)) && !(boundary.delayedSuccessor && DELAYED_SUCCESSOR_REJECTION_IDS.has(action.id))) prepared = await context.materialize(action, state);
     if (prepared) {
       await validatePrepared(action, proposal, prepared, state, context);
       recordEntry.requestHash = prepared.requestHash; recordEntry.signatureBundleHash = prepared.signatureBundleHash; recordEntry.signedCalldataHash = prepared.signedCalldataHash; recordEntry.outerDataHash = keccak256(prepared.liveIntent.data);
@@ -1386,6 +1474,7 @@ async function executeResolvedOrdinaryScenarioAction(proposal: OrdinaryScenarioP
       if (boundary.recycleContinuation) assertUsdcRecycleContinuationAdmission(boundary.recycleContinuation, action.id, fresh.blockTimestamp, context.now?.() ?? new Date(), "broadcast");
       if (boundary.freshSuccessor) assertUsdcFreshSuccessorAdmission(boundary.freshSuccessor, action.id, fresh.blockTimestamp, context.now?.() ?? new Date(), "broadcast");
       if (boundary.delayedCompletion) assertUsdcDelayedCompletionAdmission(boundary.delayedCompletion, action.id, fresh.blockTimestamp, context.now?.() ?? new Date(), "broadcast");
+      if (boundary.delayedSuccessor) assertUsdcDelayedSuccessorAdmission(boundary.delayedSuccessor, action.id, fresh.blockTimestamp, context.now?.() ?? new Date(), "broadcast");
       if (fresh.outerNonce !== prepared.liveIntent.nonce || fresh.fees.maxFeePerGas !== prepared.liveIntent.maxFeePerGas || fresh.fees.maxPriorityFeePerGas !== prepared.liveIntent.maxPriorityFeePerGas || fresh.funderNativeBalance < approvedRemainingReservation(proposal, binding, journal)) {
         if (boundary.recycleContinuation) { recordEntry.status = "stopped"; store.save(journal); }
         throw new Error("ordinary scenario outer signing preflight drift");
@@ -1689,6 +1778,32 @@ async function executeDelayedCompletionAction(source: UsdcDelayedCompletionSourc
 export function executeUsdcDelayedCompletionAction(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> { return executeDelayedCompletionAction(source, completion, approval, store, context, assertUsdcDelayedCompletionAuthorization); }
 export function executeUsdcDelayedCompletionActionForTestsOnly(source: UsdcDelayedCompletionSource, completion: UsdcDelayedCompletionProposal, approval: UsdcDelayedCompletionApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> { return executeDelayedCompletionAction(source, completion, approval, store, context, assertUsdcDelayedCompletionAuthorizationForTestsOnly); }
 
+async function executeDelayedSuccessorAction(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext, assertAuthorization: typeof assertUsdcDelayedSuccessorAuthorization): Promise<OrdinaryScenarioExecutionResult> {
+  if (!approval) throw new Error("delayed successor exact approval is required");
+  const view = createDelayedSuccessorExecutionView(source, successor, approval, assertAuthorization);
+  const sourceStore: OrdinaryScenarioStore = {
+    load: () => {
+      const current = store.load(); assertDelayedSuccessorJournal(current, source, successor, approval, assertAuthorization);
+      const progressed = current.usdcDelayedSuccessor!.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
+      return projectUsdcDelayedSuccessorJournal(current, progressed);
+    },
+    save: projected => {
+      const current = store.load(); assertDelayedSuccessorJournal(current, source, successor, approval, assertAuthorization);
+      const progressed = new Map(projected.actions.filter(entry => entry.id.startsWith("usdc-delayed-successor-")).map(entry => [entry.id, entry]));
+      const storage = current.usdcDelayedSuccessor! as UsdcDelayedSuccessorStorage & { actions: Array<Readonly<{ id: string; commitment: Hex; status: "approved" }> | OrdinaryScenarioActionRecord> };
+      storage.actions.splice(0, storage.actions.length, ...successor.actions.map(action => progressed.get(action.id) ?? { id: action.id, commitment: action.commitment, status: "approved" as const }));
+      current.liveJournal = projected.liveJournal;
+      assertDelayedSuccessorJournal(current, source, successor, approval, assertAuthorization);
+      store.save(current);
+    },
+  };
+  const binding: ApprovalBinding = { proposal: view.proposal, actions: successor.actions.map(continuationScope), actionCount: successor.actions.length, maximumApprovedReservation: BigInt(successor.reservation.successorMaximumReservationWei) };
+  const guardedContext: OrdinaryScenarioExecutionContext = { ...context, readState: async (action, phase) => { const state = await context.readState(action, phase); if (state.outerNonce < successor.minimumOuterNonce) throw new Error("delayed successor outer nonce is below persisted minimum checkpoint"); return state; } };
+  return executeResolvedOrdinaryScenarioAction(view.proposal, binding, sourceStore, guardedContext, () => undefined, successor.reservation.successorMaximumReservationWei, { rawNativeSpend: source.delayedCertificate.rawNativeSpend, effectivePeriod: BigInt(successor.effectivePeriod), delayedSuccessor: successor, staleUsdcSpend: source.delayedCertificate.rawUsdcSpend });
+}
+export function executeUsdcDelayedSuccessorAction(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> { return executeDelayedSuccessorAction(source, successor, approval, store, context, assertUsdcDelayedSuccessorAuthorization); }
+export function executeUsdcDelayedSuccessorActionForTestsOnly(source: UsdcDelayedSuccessorSource, successor: UsdcDelayedSuccessorProposal, approval: UsdcDelayedSuccessorApproval | undefined, store: OrdinaryScenarioStore, context: OrdinaryScenarioExecutionContext): Promise<OrdinaryScenarioExecutionResult> { return executeDelayedSuccessorAction(source, successor, approval, store, context, assertUsdcDelayedSuccessorAuthorizationForTestsOnly); }
+
 function assertHashlessContinuationJournal(journal: OrdinaryScenarioJournal, original: OrdinaryScenarioProposal, continuation: ExpiredHashlessContinuationProposal, approval: ExpiredHashlessContinuationApproval): void {
   const attached = journal.hashlessContinuation;
   if (!attached || journal.usdcRecycleContinuation !== undefined || journal.actions.length !== 19 || journal.liveJournal.entries.length < 10 || hashHistoricalPrefix(journal) !== continuation.historicalPrefixHash) throw new Error("hashless continuation historical 19/10 prefix mismatch or execution is frozen by the recycle continuation sibling");
@@ -1742,7 +1857,7 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
   assertOrdinaryDomain(domain);
   let parsed: unknown; try { parsed = JSON.parse(serialized); } catch { throw new Error("ordinary scenario journal must be JSON"); }
   const value = record(parsed, "ordinary scenario journal");
-  exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...(value.repairContinuation === undefined ? [] : ["repairContinuation"]), ...(value.hashlessContinuation === undefined ? [] : ["hashlessContinuation"]), ...(value.usdcSuccessor === undefined ? [] : ["usdcSuccessor"]), ...(value.usdcRecycleContinuation === undefined ? [] : ["usdcRecycleContinuation"]), ...(value.usdcFreshSuccessor === undefined ? [] : ["usdcFreshSuccessor"]), ...(value.usdcDelayedCompletion === undefined ? [] : ["usdcDelayedCompletion"])], "ordinary scenario journal");
+  exactKeys(value, ["schemaVersion", "chainId", "reviewPackageHash", "proposalHash", "approvalHash", "funder", "liveJournal", "actions", ...(value.repairContinuation === undefined ? [] : ["repairContinuation"]), ...(value.hashlessContinuation === undefined ? [] : ["hashlessContinuation"]), ...(value.usdcSuccessor === undefined ? [] : ["usdcSuccessor"]), ...(value.usdcRecycleContinuation === undefined ? [] : ["usdcRecycleContinuation"]), ...(value.usdcFreshSuccessor === undefined ? [] : ["usdcFreshSuccessor"]), ...(value.usdcDelayedCompletion === undefined ? [] : ["usdcDelayedCompletion"]), ...(value.usdcDelayedSuccessor === undefined ? [] : ["usdcDelayedSuccessor"])], "ordinary scenario journal");
   const live = record(value.liveJournal, "embedded live journal");
   exactKeys(live, ["chainId", "funder", "entries"], "embedded live journal");
   if (value.schemaVersion !== 1 || value.chainId !== domain.chainId || live.chainId !== domain.chainId) throw new Error("ordinary scenario persisted journal chain mismatch");
@@ -1945,6 +2060,36 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (BigInt(deadline) !== BigInt(effectivePeriod) + PERIOD_SECONDS) throw new Error("USDC delayed completion deadline mismatch");
     usdcDelayedCompletion = { schemaVersion: 1, scope: "ordinary-usdc-delayed-tier-completion-v1", sourceJournalHash: hash(completion.sourceJournalHash, "USDC delayed completion source journal hash"), certificateHash: hash(completion.certificateHash, "USDC delayed completion certificate hash"), proposalHash: hash(completion.proposalHash, "USDC delayed completion proposal hash"), approvalHash: hash(completion.approvalHash, "USDC delayed completion approval hash"), minimumOuterNonce, effectivePeriod, deadline, actionCommitments: commitments, maximumReservationWei: decimal(completion.maximumReservationWei, "USDC delayed completion maximum reservation").toString(), maxBroadcastAttempts: 1, repairAuthority: "NONE", actions: completionActions };
   }
+  let usdcDelayedSuccessor: UsdcDelayedSuccessorStorage | undefined;
+  if (value.usdcDelayedSuccessor !== undefined) {
+    const successor = record(value.usdcDelayedSuccessor, "USDC delayed successor");
+    exactKeys(successor, ["schemaVersion", "scope", "sourceJournalHash", "certificateHash", "proposalHash", "approvalHash", "minimumOuterNonce", "effectivePeriod", "deadline", "actionCommitments", "maximumReservationWei", "maxBroadcastAttempts", "repairAuthority", "actions"], "USDC delayed successor");
+    const minimumOuterNonce = Number(successor.minimumOuterNonce);
+    if (successor.schemaVersion !== 1 || successor.scope !== "ordinary-usdc-delayed-tier-successor-v1" || successor.maxBroadcastAttempts !== 1 || successor.repairAuthority !== "NONE" || !Number.isSafeInteger(minimumOuterNonce) || minimumOuterNonce < 0) throw new Error("USDC delayed successor immutable header mismatch");
+    const commitments = array(successor.actionCommitments, "USDC delayed successor commitments").map((raw, index) => { const item = record(raw, `USDC delayed successor commitment ${index}`); exactKeys(item, ["id", "commitment"], `USDC delayed successor commitment ${index}`); return { id: text(item.id, "USDC delayed successor commitment id"), commitment: hash(item.commitment, "USDC delayed successor commitment") }; });
+    const successorActions = array(successor.actions, "USDC delayed successor actions").map((raw, index) => {
+      const rawItem = record(raw, `USDC delayed successor action ${index}`);
+      if (rawItem.status === "approved") { exactKeys(rawItem, ["id", "commitment", "status"], `USDC delayed successor action ${index}`); return { id: text(rawItem.id, "USDC delayed successor action id"), commitment: hash(rawItem.commitment, "USDC delayed successor action commitment"), status: "approved" as const }; }
+      const item = rawItem as unknown as OrdinaryScenarioActionRecord;
+      if (!item.id.startsWith("usdc-delayed-successor-") || !HASH.test(String(item.commitment)) || !["materialized", "signed-simulated", "outer-pending", "confirmed", "rejection-proved", "reverted", "stopped"].includes(item.status)) throw new Error("USDC delayed successor action identity or status mismatch");
+      const allowed = new Set(["id", "commitment", "status", "materializationHash", "finalOuterMaterialization", "prestateHash", "outerNonce", "gas", "maxFeePerGas", "maxPriorityFeePerGas", "requestHash", "signatureBundleHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerTo", "outerValue", "outerDataHash", "evidenceHash", "observerEvidenceHash", "receipt", "receiptInclusion", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost", "externalFunderDelta", "externalFunderDeltaClassification"]);
+      if (Object.keys(item).some(key => !allowed.has(key))) throw new Error("USDC delayed successor action has unknown fields");
+      for (const key of ["materializationHash", "prestateHash", "requestHash", "signedCalldataHash", "simulationEvidenceHash", "intentHash", "transactionHash", "outerDataHash", "evidenceHash"] as const) if (item[key] !== undefined) hash(item[key], `USDC delayed successor action ${key}`);
+      if (item.observerEvidenceHash !== undefined && item.observerEvidenceHash !== null) hash(item.observerEvidenceHash, "USDC delayed successor observer evidence hash");
+      if (item.signatureBundleHash !== undefined && item.signatureBundleHash !== null) hash(item.signatureBundleHash, "USDC delayed successor signature bundle hash");
+      for (const key of ["gas", "maxFeePerGas", "maxPriorityFeePerGas", "outerValue", "queueCreatedAt", "establishedWindow", "funderNativeBefore", "funderNativeAfter", "ourPrincipalDelta", "ourReceiptGasCost"] as const) if (item[key] !== undefined) decimal(item[key], `USDC delayed successor action ${key}`);
+      if (item.outerNonce !== undefined && (!Number.isSafeInteger(item.outerNonce) || item.outerNonce < minimumOuterNonce)) throw new Error("USDC delayed successor outer nonce is below persisted minimum");
+      if (item.outerTo !== undefined) address(item.outerTo, "USDC delayed successor outer target");
+      if (item.receipt) item.receipt = decodeReceipt(item.receipt);
+      if (item.receiptInclusion) item.receiptInclusion = decodeSuccessorReceiptInclusion(item.receiptInclusion);
+      if (item.finalOuterMaterialization !== undefined) item.finalOuterMaterialization = decodeFinalOuterMaterialization(item.finalOuterMaterialization);
+      return item;
+    });
+    if (commitments.length !== 5 || successorActions.length !== 5 || commitments.some((entry, index) => !entry.id.startsWith("usdc-delayed-successor-") || entry.id !== successorActions[index]!.id || entry.commitment !== successorActions[index]!.commitment) || new Set(commitments.map(entry => entry.id)).size !== 5) throw new Error("USDC delayed successor catalog lineage mismatch");
+    const effectivePeriod = decimal(successor.effectivePeriod, "USDC delayed successor effective period").toString(), deadline = decimal(successor.deadline, "USDC delayed successor deadline").toString();
+    if (BigInt(deadline) !== BigInt(effectivePeriod) + PERIOD_SECONDS) throw new Error("USDC delayed successor deadline mismatch");
+    usdcDelayedSuccessor = { schemaVersion: 1, scope: "ordinary-usdc-delayed-tier-successor-v1", sourceJournalHash: hash(successor.sourceJournalHash, "USDC delayed successor source journal hash"), certificateHash: hash(successor.certificateHash, "USDC delayed successor certificate hash"), proposalHash: hash(successor.proposalHash, "USDC delayed successor proposal hash"), approvalHash: hash(successor.approvalHash, "USDC delayed successor approval hash"), minimumOuterNonce, effectivePeriod, deadline, actionCommitments: commitments, maximumReservationWei: decimal(successor.maximumReservationWei, "USDC delayed successor maximum reservation").toString(), maxBroadcastAttempts: 1, repairAuthority: "NONE", actions: successorActions };
+  }
   if (repairContinuation !== undefined && hashlessContinuation !== undefined) {
     const predecessor = repairContinuation.predecessor;
     if (!predecessor) throw new Error("repair/hashless coexistence requires a validated continuation predecessor");
@@ -1960,7 +2105,7 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (predecessor.actionCount !== 41 || !exactLineage || expectedLiveRecords.length !== 24 || !exactLiveCatalog || !exactRepairSuffix) throw new Error("hashless and repair continuation coexistence lacks a complete validated repair lineage");
   }
   if (usdcSuccessor !== undefined && (hashlessContinuation === undefined || (repairContinuation !== undefined && repairContinuation.predecessor?.kind !== "usdc-period-successor-v1" && repairContinuation.predecessor?.kind !== "usdc-recycle-continuation-v1") || actions.length !== 19 || entries.length < 13 || hashlessContinuation.actions.slice(0, 3).some(entry => entry.status !== "confirmed") || hashlessContinuation.actions.slice(3).some(entry => entry.status !== "approved"))) throw new Error("USDC successor requires exact closed recovery source");
-  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, ...(repairContinuation === undefined ? {} : { repairContinuation }), ...(hashlessContinuation === undefined ? {} : { hashlessContinuation }), ...(usdcSuccessor === undefined ? {} : { usdcSuccessor }), ...(usdcRecycleContinuation === undefined ? {} : { usdcRecycleContinuation }), ...(usdcFreshSuccessor === undefined ? {} : { usdcFreshSuccessor }), ...(usdcDelayedCompletion === undefined ? {} : { usdcDelayedCompletion }) };
+  const journal: OrdinaryScenarioJournal = { schemaVersion: 1, chainId: domain.chainId, reviewPackageHash: hash(value.reviewPackageHash, "journal package hash"), proposalHash: hash(value.proposalHash, "journal proposal hash"), approvalHash: hash(value.approvalHash, "journal approval hash"), funder: address(value.funder, "journal funder"), liveJournal: { chainId: domain.chainId, funder: address(live.funder, "embedded funder"), entries }, actions, ...(repairContinuation === undefined ? {} : { repairContinuation }), ...(hashlessContinuation === undefined ? {} : { hashlessContinuation }), ...(usdcSuccessor === undefined ? {} : { usdcSuccessor }), ...(usdcRecycleContinuation === undefined ? {} : { usdcRecycleContinuation }), ...(usdcFreshSuccessor === undefined ? {} : { usdcFreshSuccessor }), ...(usdcDelayedCompletion === undefined ? {} : { usdcDelayedCompletion }), ...(usdcDelayedSuccessor === undefined ? {} : { usdcDelayedSuccessor }) };
   if (usdcSuccessor !== undefined) {
     if (!same(usdcSuccessor.sourceHash, APPROVED_USDC_SUCCESSOR_SOURCE) || !same(hashUsdcSuccessorSource(journal), APPROVED_USDC_SUCCESSOR_SOURCE)) throw new Error("USDC successor fixed source hash mismatch");
     const progressed = usdcSuccessor.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved"); const expectedLive = progressed.filter(entry => entry.intentHash !== undefined && entry.transactionHash !== undefined); const suffix = entries.slice(13, 13 + expectedLive.length);
@@ -1979,8 +2124,15 @@ function decodeJournal(serialized: string, identity: Readonly<{ proposalHash: He
     if (!usdcFreshSuccessor || usdcFreshSuccessor.actions[0]?.status !== "signed-simulated" || usdcFreshSuccessor.actions.slice(1).some(entry => entry.status !== "approved")) throw new Error("USDC delayed completion requires the exact stopped fresh predecessor");
     const progressed = usdcDelayedCompletion.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
     const expectedLive = progressed.filter(entry => entry.intentHash !== undefined && entry.transactionHash !== undefined);
-    const suffix = entries.slice(15);
-    if (suffix.length !== expectedLive.length || suffix.some((entry, index) => entry.id !== expectedLive[index]!.id || !same(entry.transactionHash, expectedLive[index]!.transactionHash!))) throw new Error("USDC delayed completion live suffix is orphaned, reordered, or mixed");
+    const suffix = entries.slice(15, 15 + expectedLive.length);
+    if (suffix.length !== expectedLive.length || suffix.some((entry, index) => entry.id !== expectedLive[index]!.id || !same(entry.transactionHash, expectedLive[index]!.transactionHash!)) || (usdcDelayedSuccessor === undefined && entries.length !== 15 + expectedLive.length)) throw new Error("USDC delayed completion live suffix is orphaned, reordered, or mixed");
+  }
+  if (usdcDelayedSuccessor !== undefined) {
+    if (!usdcDelayedCompletion || entries.length < 19) throw new Error("USDC delayed successor requires exact progressed delayed completion");
+    const progressed = usdcDelayedSuccessor.actions.filter((entry): entry is OrdinaryScenarioActionRecord => entry.status !== "approved");
+    const expectedLive = progressed.filter(entry => entry.intentHash !== undefined && entry.transactionHash !== undefined);
+    const suffix = entries.slice(19);
+    if (suffix.length !== expectedLive.length || suffix.some((entry, index) => entry.id !== expectedLive[index]!.id || !same(entry.transactionHash, expectedLive[index]!.transactionHash!))) throw new Error("USDC delayed successor live suffix is orphaned, reordered, or mixed");
   }
   if (hashlessContinuation && (actions.length !== 19 || entries.length < 10 || !same(hashHistoricalPrefix(journal), APPROVED_HASHLESS_PREFIX))) throw new Error("hashless continuation fixed historical prefix mismatch");
   if (!same(journal.proposalHash, identity.proposalHash) || !same(journal.approvalHash, identity.approvalHash) || !same(journal.funder, identity.funder)) throw new Error("ordinary scenario persisted journal identity mismatch");
@@ -2072,6 +2224,19 @@ export function createOrdinaryScenarioStore(path: string, identity: Readonly<{ p
       if (changed.length === 1) {
         const selected = priorActions.findIndex(entry => entry.status !== "confirmed" && entry.status !== "rejection-proved");
         if (selected < 0 || changed[0] !== selected) throw new Error("USDC delayed completion save changed a row other than the selected catalog head");
+      }
+    }
+    if (prior.usdcDelayedSuccessor) {
+      if (!next.usdcDelayedSuccessor) throw new Error("USDC delayed successor cannot be deleted");
+      if (publicHash(usdcDelayedSuccessorPredecessorValue(prior)) !== publicHash(usdcDelayedSuccessorPredecessorValue(next))) throw new Error("USDC delayed successor frozen source predecessor changed");
+      const { actions: priorActions, ...priorHeader } = prior.usdcDelayedSuccessor; const { actions: nextActions, ...nextHeader } = next.usdcDelayedSuccessor;
+      if (JSON.stringify(priorHeader) !== JSON.stringify(nextHeader) || nextActions.length !== priorActions.length) throw new Error("USDC delayed successor immutable header or catalog changed");
+      priorActions.forEach((entry, index) => assertActionProgress(entry as typeof entry & Record<string, unknown>, nextActions[index] as typeof entry & Record<string, unknown>, "USDC delayed successor"));
+      const changed = priorActions.flatMap((entry, index) => publicHash(entry) === publicHash(nextActions[index]) ? [] : [index]);
+      if (changed.length > 1) throw new Error("USDC delayed successor save may change only one selected row");
+      if (changed.length === 1) {
+        const selected = priorActions.findIndex(entry => entry.status !== "confirmed" && entry.status !== "rejection-proved");
+        if (selected < 0 || changed[0] !== selected) throw new Error("USDC delayed successor save changed a row other than selected catalog head");
       }
     }
     if (prior.repairContinuation) {

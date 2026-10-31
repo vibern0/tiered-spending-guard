@@ -74,7 +74,7 @@ const testCertificates = new WeakSet<object>();
 
 export function usdcDelayedSuccessorPredecessorValue(journal: OrdinaryScenarioJournal): unknown {
   const { usdcDelayedSuccessor: _ignored, ...predecessor } = journal as OrdinaryScenarioJournal & { usdcDelayedSuccessor?: unknown };
-  return predecessor;
+  return { ...predecessor, liveJournal: { ...predecessor.liveJournal, entries: predecessor.liveJournal.entries.slice(0, 19) } };
 }
 
 const serializedPredecessor = (journal: OrdinaryScenarioJournal): string => `${JSON.stringify(publicValue(usdcDelayedSuccessorPredecessorValue(journal)))}\n`;
@@ -88,7 +88,7 @@ function exactProgressedSource(input: SourceInput, testOnly: boolean): OrdinaryS
   assertAuthorization(input.delayedProposal, input.delayedApproval);
   if (!verified) throw new Error("delayed successor requires the exact opaque delayed-completion certificate authority");
   const attached = input.journal.usdcDelayedCompletion;
-  if (!attached || input.journal.usdcDelayedSuccessor !== undefined || input.journal.liveJournal.entries.length !== 19 || attached.actions.length !== 13 || attached.actionCommitments.length !== 13) throw new Error("delayed successor source is not the exact progressed predecessor");
+  if (!attached || input.journal.liveJournal.entries.length < 19 || attached.actions.length !== 13 || attached.actionCommitments.length !== 13) throw new Error("delayed successor source is not the exact progressed predecessor");
   if (!same(attached.proposalHash, input.delayedProposal.proposalHash) || !same(attached.approvalHash, input.delayedApproval.approvalHash) || !same(attached.certificateHash, input.delayedCertificate.certificateHash) || attached.scope !== input.delayedProposal.scope || attached.repairAuthority !== "NONE") throw new Error("delayed successor predecessor authority mismatch");
   const statuses = ["confirmed", "rejection-proved", "confirmed", "rejection-proved", "confirmed", "rejection-proved", "confirmed", "rejection-proved", "signed-simulated", "approved", "approved", "approved", "approved"];
   for (let index = 0; index < attached.actions.length; index++) {
@@ -97,12 +97,14 @@ function exactProgressedSource(input: SourceInput, testOnly: boolean): OrdinaryS
     if (action.status !== statuses[index]) throw new Error(`delayed successor predecessor row ${index + 1} status changed`);
     if (index >= 9 && Object.keys(action).sort().join(",") !== "commitment,id,status") throw new Error("delayed successor untouched old tail changed");
   }
-  const liveSuffix = input.journal.liveJournal.entries.slice(15);
+  const liveSuffix = input.journal.liveJournal.entries.slice(15, 19);
   const broadcastIndexes = [0, 2, 4, 6];
   if (liveSuffix.length !== 4 || liveSuffix.some((entry, index) => {
     const record = attached.actions[broadcastIndexes[index]!] as OrdinaryScenarioActionRecord;
     return entry.id !== record.id || record.status !== "confirmed" || !record.transactionHash || !same(entry.transactionHash, record.transactionHash);
   })) throw new Error("delayed successor live suffix does not match confirmed predecessor broadcasts");
+  const descendantSuffix = input.journal.liveJournal.entries.slice(19);
+  if ((input.journal.usdcDelayedSuccessor === undefined && descendantSuffix.length !== 0) || descendantSuffix.length > 3 || descendantSuffix.some((entry, index) => !entry.id.startsWith("usdc-delayed-successor-") || descendantSuffix.findIndex(candidate => candidate.id === entry.id) !== index)) throw new Error("delayed successor descendant live suffix is mixed or duplicated");
   const stopped = attached.actions[8] as OrdinaryScenarioActionRecord;
   const requiredHashes = [stopped.materializationHash, stopped.prestateHash, stopped.requestHash, stopped.signedCalldataHash, stopped.simulationEvidenceHash, stopped.outerDataHash];
   if (stopped.id !== "usdc-delayed-completion-queue-expiry-skip" || stopped.status !== "signed-simulated" || stopped.outerNonce !== 916 || !stopped.finalOuterMaterialization || requiredHashes.some(value => typeof value !== "string" || !HASH.test(value)) || stopped.intentHash !== undefined || stopped.transactionHash !== undefined || stopped.receipt !== undefined || stopped.receiptInclusion !== undefined || input.journal.liveJournal.entries.some(entry => entry.id === stopped.id)) throw new Error("delayed successor stopped row is not the exact hashless row");
@@ -188,13 +190,36 @@ export function serializeUsdcDelayedSuccessorCertificate(certificate: VerifiedUs
   return `${JSON.stringify(publicValue(certificate))}\n`;
 }
 
-async function reverifyCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], sourceAuthority: WeakSet<object>, certificateAuthority: WeakSet<object>, testOnly: boolean): Promise<VerifiedUsdcDelayedSuccessorCertificate> {
+async function reverifyCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], sourceAuthority: WeakSet<object>, certificateAuthority: WeakSet<object>, testOnly: boolean, reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedSuccessorCertificate> {
   let parsed: any; try { parsed = JSON.parse(serialized); } catch { throw new Error("delayed successor recorded certificate must be JSON"); }
   if (!parsed || parsed.kind !== "VERIFIED_USDC_DELAYED_SUCCESSOR_CERTIFICATE" || parsed.scope !== USDC_DELAYED_SUCCESSOR_SCOPE || !same(parsed.certificateHash, expectedHash)) throw new Error("delayed successor recorded certificate identity mismatch");
-  const fresh = await verifyCertificate(source, providers, sourceAuthority, certificateAuthority, testOnly);
-  if (!same(fresh.certificateHash, expectedHash) || JSON.stringify(publicValue(fresh)) !== JSON.stringify(parsed)) throw new Error("delayed successor recorded certificate contains unchecked or changed claims");
-  return fresh;
+  const { certificateHash, ...recordedBody } = parsed;
+  if (!same(publicHash(recordedBody), certificateHash) || !sourceAuthority.has(source) || providers.length !== 2 || providers[0] === providers[1]) throw new Error("delayed successor recorded certificate hash or authority mismatch");
+  exactProgressedSource(source, testOnly);
+  if (!same(publicHash(usdcDelayedSuccessorPredecessorValue(source.journal)), parsed.sourceJournalHash) || !same(source.sourceJournalHash, parsed.sourceJournalHash) || !same(source.sourceJournalBytesSha256, parsed.sourceJournalBytesSha256)) throw new Error("delayed successor recorded source changed");
+  const blockNumber = BigInt(parsed.snapshot.blockNumber), minimumOuterNonce = Number(parsed.minimumOuterNonce);
+  const tips = await Promise.all([providers[0].readLatestBlock(), providers[1].readLatestBlock()] as const);
+  const [leftBlock, rightBlock, leftState, rightState, leftSnapshotNonce, rightSnapshotNonce, leftLatest, rightLatest, leftPending, rightPending] = await Promise.all([
+    providers[0].readBlock(blockNumber), providers[1].readBlock(blockNumber), providers[0].readControlledState(blockNumber), providers[1].readControlledState(blockNumber),
+    providers[0].readTransactionCount(source.journal.funder, blockNumber), providers[1].readTransactionCount(source.journal.funder, blockNumber),
+    providers[0].readTransactionCount(source.journal.funder, "latest"), providers[1].readTransactionCount(source.journal.funder, "latest"),
+    providers[0].readTransactionCount(source.journal.funder, "pending"), providers[1].readTransactionCount(source.journal.funder, "pending"),
+  ]);
+  if (!leftBlock || !rightBlock || tips.some(tip => tip.number - blockNumber + 1n < 6n) || !same(leftBlock.hash, parsed.snapshot.blockHash) || publicHash(leftBlock) !== publicHash(rightBlock) || publicHash(leftState) !== publicHash(rightState) || !same(publicHash(leftState), parsed.snapshot.stateHash) || leftSnapshotNonce !== minimumOuterNonce || rightSnapshotNonce !== minimumOuterNonce || minimumOuterNonce < source.stoppedRow.outerNonce! + 1) throw new Error("delayed successor recorded canonical snapshot changed or lacks confirmations");
+  assertState(source, leftState, leftBlock.timestamp);
+  const resolved = leftLatest === rightLatest && leftPending === rightPending && leftLatest === leftPending && leftLatest >= minimumOuterNonce;
+  const knownPending = reconciliation !== undefined && Number.isSafeInteger(reconciliation.outerNonce) && leftLatest === rightLatest && leftPending === rightPending && reconciliation.outerNonce === leftLatest && leftPending >= leftLatest && leftPending <= leftLatest + 1 && reconciliation.outerNonce >= minimumOuterNonce;
+  const resolvedProgress = reconciliation !== undefined && Number.isSafeInteger(reconciliation.outerNonce) && leftLatest === rightLatest && leftPending === rightPending && leftLatest > reconciliation.outerNonce && leftPending === leftLatest && reconciliation.outerNonce >= minimumOuterNonce;
+  if (!resolved && !knownPending && !resolvedProgress) throw new Error("delayed successor current outer nonce is pending or inconsistent");
+  const rechecks = await Promise.all([providers[0].readBlock(blockNumber), providers[1].readBlock(blockNumber)] as const);
+  if (!rechecks[0] || !rechecks[1] || publicHash(rechecks[0]) !== publicHash(leftBlock) || publicHash(rechecks[1]) !== publicHash(leftBlock)) throw new Error("delayed successor recorded snapshot reorg detected");
+  const stopped = source.stoppedRow, stoppedRow = Object.freeze({ id: stopped.id, commitment: stopped.commitment, status: "signed-simulated" as const, outerNonce: stopped.outerNonce!, materializationHash: stopped.materializationHash!, prestateHash: stopped.prestateHash!, requestHash: stopped.requestHash!, signedCalldataHash: stopped.signedCalldataHash!, simulationEvidenceHash: stopped.simulationEvidenceHash!, outerDataHash: stopped.outerDataHash! });
+  const expectedBody = { kind: "VERIFIED_USDC_DELAYED_SUCCESSOR_CERTIFICATE" as const, scope: USDC_DELAYED_SUCCESSOR_SCOPE, sourceJournalHash: source.sourceJournalHash, sourceJournalBytesSha256: source.sourceJournalBytesSha256, snapshot: Object.freeze({ blockNumber: leftBlock.number.toString(), blockHash: leftBlock.hash, timestamp: leftBlock.timestamp.toString(), stateHash: publicHash(leftState) }), effectivePeriod: leftBlock.timestamp / PERIOD_SECONDS * PERIOD_SECONDS, minimumOuterNonce, safeNonce: leftState.safeNonce, delayQueueNonce: leftState.delayQueueNonce, delayTxNonce: leftState.delayTxNonce, safeUsdcBalance: leftState.safeUsdcBalance, funderUsdcBalance: leftState.funderUsdcBalance, rawNativeSpend: Object.freeze({ ...leftState.nativeSpend }), rawUsdcSpend: Object.freeze({ ...leftState.usdcSpend }), activeQueue: Object.freeze({ ...leftState.queue! }), stoppedRow };
+  if (!same(publicHash(expectedBody), certificateHash) || JSON.stringify(publicValue(expectedBody)) !== JSON.stringify(recordedBody)) throw new Error("delayed successor recorded certificate contains unchecked or changed claims");
+  const restored = Object.freeze({ ...expectedBody, certificateHash }) as VerifiedUsdcDelayedSuccessorCertificate;
+  certificateAuthority.add(restored);
+  return restored;
 }
 
-export function reverifyUsdcDelayedSuccessorCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedSuccessorCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, productionSources, productionCertificates, false); }
-export function reverifyUsdcDelayedSuccessorCertificateForTestsOnly(serialized: string, expectedHash: Hex, source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider]): Promise<VerifiedUsdcDelayedSuccessorCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, testSources, testCertificates, true); }
+export function reverifyUsdcDelayedSuccessorCertificate(serialized: string, expectedHash: Hex, source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedSuccessorCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, productionSources, productionCertificates, false, reconciliation); }
+export function reverifyUsdcDelayedSuccessorCertificateForTestsOnly(serialized: string, expectedHash: Hex, source: UsdcDelayedSuccessorSource, providers: readonly [UsdcFreshSuccessorEvidenceProvider, UsdcFreshSuccessorEvidenceProvider], reconciliation?: Readonly<{ outerNonce: number }>): Promise<VerifiedUsdcDelayedSuccessorCertificate> { return reverifyCertificate(serialized, expectedHash, source, providers, testSources, testCertificates, true, reconciliation); }

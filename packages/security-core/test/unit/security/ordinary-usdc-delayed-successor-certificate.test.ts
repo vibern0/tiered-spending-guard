@@ -4,6 +4,8 @@ import {
   createUsdcDelayedSuccessorSourceForTestsOnly,
   isVerifiedUsdcDelayedSuccessorCertificate,
   isVerifiedUsdcDelayedSuccessorCertificateForTestsOnly,
+  reverifyUsdcDelayedSuccessorCertificateForTestsOnly,
+  serializeUsdcDelayedSuccessorCertificate,
   verifyUsdcDelayedSuccessorCertificate,
   verifyUsdcDelayedSuccessorCertificateForTestsOnly,
 } from "../../../scripts/live/ordinary-scenario-usdc-delayed-successor-certificate";
@@ -55,5 +57,25 @@ describe("ordinary USDC delayed-tier successor certificate", function () {
     const certificate = await verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, await delayedSuccessorProviders(fixture, { snapshotNonce: 920, latestNonce: 920, pendingNonce: 920 }));
     expect(certificate.minimumOuterNonce).to.equal(920);
     await expect(verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, await delayedSuccessorProviders(fixture, { snapshotNonce: 920, latestNonce: 920, pendingNonce: 921 }))).to.be.rejectedWith(/pending|nonce|inconsistent/i);
+  });
+
+  it("replays the recorded snapshot while allowing later resolved nonce progress", async function () {
+    const fixture = await createDelayedSuccessorFixture();
+    const source = createUsdcDelayedSuccessorSourceForTestsOnly({ prior: fixture.source, delayedCertificate: fixture.certificate, delayedProposal: fixture.proposal, delayedApproval: fixture.approval, journal: fixture.journal });
+    const certificate = await verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, await delayedSuccessorProviders(fixture));
+    const restored = await reverifyUsdcDelayedSuccessorCertificateForTestsOnly(serializeUsdcDelayedSuccessorCertificate(certificate), certificate.certificateHash, source, await delayedSuccessorProviders(fixture, { snapshotNonce: 917, latestNonce: 919, pendingNonce: 919 }));
+    expect(restored.certificateHash).to.equal(certificate.certificateHash);
+    await expect(reverifyUsdcDelayedSuccessorCertificateForTestsOnly(serializeUsdcDelayedSuccessorCertificate(certificate), certificate.certificateHash, source, await delayedSuccessorProviders(fixture, { snapshotNonce: 917, latestNonce: 919, pendingNonce: 920 }))).to.be.rejectedWith(/pending|nonce|inconsistent/i);
+  });
+
+  it("permits only the journal-bound pending nonce during resume", async function () {
+    const fixture = await createDelayedSuccessorFixture();
+    const source = createUsdcDelayedSuccessorSourceForTestsOnly({ prior: fixture.source, delayedCertificate: fixture.certificate, delayedProposal: fixture.proposal, delayedApproval: fixture.approval, journal: fixture.journal });
+    const certificate = await verifyUsdcDelayedSuccessorCertificateForTestsOnly(source, await delayedSuccessorProviders(fixture));
+    const serialized = serializeUsdcDelayedSuccessorCertificate(certificate);
+    const providers = await delayedSuccessorProviders(fixture, { snapshotNonce: 917, latestNonce: 919, pendingNonce: 920 });
+    const restored = await reverifyUsdcDelayedSuccessorCertificateForTestsOnly(serialized, certificate.certificateHash, source, providers, { outerNonce: 919 });
+    expect(restored.certificateHash).to.equal(certificate.certificateHash);
+    await expect(reverifyUsdcDelayedSuccessorCertificateForTestsOnly(serialized, certificate.certificateHash, source, providers, { outerNonce: 918 })).to.be.rejectedWith(/pending|nonce|inconsistent|unresolved/i);
   });
 });
