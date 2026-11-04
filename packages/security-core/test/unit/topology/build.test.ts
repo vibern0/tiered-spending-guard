@@ -53,7 +53,7 @@ const policyBase = {
   periodAnchor: 0n,
   cooldownSeconds: 3600,
   expirationSeconds: 86400,
-  assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20), a(21)] }],
+  assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, baseRecipientMode: "allowlisted", recipients: [a(20), a(21)] }],
 } satisfies VaultPolicy;
 const registry: DeploymentInfrastructureRegistry = {
   11155111: {
@@ -271,6 +271,11 @@ describe("buildVaultPlan", () => {
       { address: a(4), role: "secondary", kind: "ecdsa-extension", enabled: true },
       { address: policyBase.ecdsaSecondary, role: "secondary", kind: "safe-contract", enabled: true },
     ] as never })).not.to.equal(baseline);
+  });
+
+  it("policy hash binds the base recipient mode", () => {
+    expect(policyHash({ ...policyBase, assets: [{ ...policyBase.assets[0]!, baseRecipientMode: "allowlisted" }] }))
+      .not.to.equal(policyHash({ ...policyBase, assets: [{ ...policyBase.assets[0]!, baseRecipientMode: "any-valid-address" }] }));
   });
 
   it("brands prerequisite evidence only after all four planned deployments and bindings match", async () => {

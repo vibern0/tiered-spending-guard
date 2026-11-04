@@ -63,7 +63,7 @@ function queued(createdAt = 800n) {
 function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnapshot {
   process.env.NODE_ENV = "test";
   return brandVerifiedPwaSnapshotForTestsOnly(Object.freeze({
-    formatVersion: 1,
+    formatVersion: 2,
     chainId: 11155111,
     blockNumber: 90n,
     blockHash: h(90),
@@ -74,7 +74,8 @@ function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnap
     guard,
     delay,
     usdc,
-    recipient,
+    baseRecipientMode: "any-valid-address",
+    elevatedRecipients: [recipient] as const,
     primaryPasskey: primary,
     secondaryPasskey: secondary,
     safeNonce: 9n,

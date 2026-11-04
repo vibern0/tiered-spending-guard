@@ -140,6 +140,7 @@ describe("VaultProvider", () => {
           new Response(
             JSON.stringify({
               ok: true,
+              writesReady: true,
               chainId: 11155111,
               profileId: "https",
               origin: "https://vault.example",
@@ -497,7 +498,7 @@ it("logs one safe correlated frontend diagnostic for a backend provisioning fail
   const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, chainId: 11155111, profileId: "local", origin: "http://localhost:5173", rpId: "localhost" }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ ok: true, writesReady: true, chainId: 11155111, profileId: "local", origin: "http://localhost:5173", rpId: "localhost" }), { status: 200 });
     return new Response(JSON.stringify({ error: "provisioning quote nonce mismatch for secondary-signer: expected 1032, observed 1033", code: "provisioning_nonce_mismatch", stage: "provisioning-quote", requestId: "request-123" }), { status: 400, headers: { "x-request-id": "request-123" } });
   }));
   const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client: makeClient() }) });

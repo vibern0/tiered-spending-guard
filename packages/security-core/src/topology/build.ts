@@ -150,7 +150,7 @@ export function brandVerifiedVaultPrerequisitesForTestsOnly(value: VerifiedVault
 }
 
 export function policyHash(policy: VaultPolicy): Hex {
-  const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]])));
+  const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint8" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, asset.baseRecipientMode === "any-valid-address" ? 1 : 0, [...asset.recipients]])));
   const contractOnly = policy.secondaryProfile === "contract-only";
   const secondaries = policy.secondaries ?? (contractOnly ? [] : [{ address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }]);
   const safeContractSecondary = secondaries.find((signer) => signer.kind === "safe-contract") ?? { address: ZERO, role: "secondary" as const, kind: "safe-contract" as const, enabled: false };

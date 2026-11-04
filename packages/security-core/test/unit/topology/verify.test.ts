@@ -24,7 +24,7 @@ const policy: VaultPolicy = {
   periodAnchor: 0n,
   cooldownSeconds: 3600,
   expirationSeconds: 86400,
-  assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20)] }],
+  assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, baseRecipientMode: "allowlisted", recipients: [a(20)] }],
 };
 const code = "0x6001" as Hex; const runtimeHash = keccak256(code); const zero = a(0);
 const sentinel = a(1);

@@ -16,14 +16,15 @@ export const LOCAL_PWA_ACTION_IDS = Object.freeze([
 
 export type LocalPwaActionId = typeof LOCAL_PWA_ACTION_IDS[number];
 export type LocalPwaReviewInput = Readonly<{
-  formatVersion: 1;
+  formatVersion: 2;
   profileId: "local";
   chainId: typeof SEPOLIA_CHAIN_ID;
   safe: Address;
   guard: Address;
   delay: Address;
   usdc: Address;
-  recipient: Address;
+  baseRecipientMode: "any-valid-address";
+  elevatedRecipients: readonly [Address, ...Address[]];
   primaryCredentialHash: Hex;
   secondaryCredentialHash: Hex;
   deploymentsHash: Hex;
@@ -88,10 +89,10 @@ const ACTION_BLUEPRINTS = Object.freeze([
 ] as const);
 
 function validateInput(input: LocalPwaReviewInput): void {
-  assertKeys(input, ["formatVersion", "profileId", "chainId", "safe", "guard", "delay", "usdc", "recipient", "primaryCredentialHash", "secondaryCredentialHash", "deploymentsHash", "policyHash", "topologyReportHash", "observer", "deadline"], "localhost review input");
-  if (input.formatVersion !== 1 || input.profileId !== "local" || input.chainId !== SEPOLIA_CHAIN_ID) throw new Error("localhost review profile identity mismatch");
-  for (const [value, label] of [[input.safe, "safe"], [input.guard, "guard"], [input.delay, "delay"], [input.usdc, "usdc"], [input.recipient, "recipient"]] as const) if (!isAddress(value) || getAddress(value) !== value) throw new Error(`${label} must be a canonical address`);
-  if (!same(input.usdc, SEPOLIA_USDC_ADDRESS) || !same(input.recipient, PWA_RECIPIENT)) throw new Error("localhost review token or recipient differs from the fixed profile");
+  assertKeys(input, ["formatVersion", "profileId", "chainId", "safe", "guard", "delay", "usdc", "baseRecipientMode", "elevatedRecipients", "primaryCredentialHash", "secondaryCredentialHash", "deploymentsHash", "policyHash", "topologyReportHash", "observer", "deadline"], "localhost review input");
+  if (input.formatVersion !== 2 || input.profileId !== "local" || input.chainId !== SEPOLIA_CHAIN_ID) throw new Error("localhost review profile identity mismatch");
+  for (const [value, label] of [[input.safe, "safe"], [input.guard, "guard"], [input.delay, "delay"], [input.usdc, "usdc"]] as const) if (!isAddress(value) || getAddress(value) !== value) throw new Error(`${label} must be a canonical address`);
+  if (!same(input.usdc, SEPOLIA_USDC_ADDRESS) || input.baseRecipientMode !== "any-valid-address" || input.elevatedRecipients.length !== 1 || !same(input.elevatedRecipients[0]!, PWA_RECIPIENT) || input.elevatedRecipients.some((recipient) => !isAddress(recipient) || getAddress(recipient) !== recipient)) throw new Error("localhost review recipient policy differs from the fixed profile");
   for (const [value, label] of [[input.primaryCredentialHash, "primary credential"], [input.secondaryCredentialHash, "secondary credential"], [input.deploymentsHash, "deployments"], [input.policyHash, "policy"], [input.topologyReportHash, "topology"]] as const) assertHash(value, label);
   if (same(input.primaryCredentialHash, input.secondaryCredentialHash)) throw new Error("primary and secondary credential bindings must differ");
   assertKeys(input.observer, ["processId", "executableHash", "sources", "confirmations"], "localhost observer");

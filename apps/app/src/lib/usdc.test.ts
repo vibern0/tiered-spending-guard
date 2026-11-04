@@ -27,7 +27,7 @@ describe("classify", () => {
     expect(classify(s, to, usdc(1)).lane).toBe("base");
     expect(classify(s, to, usdc(2)).lane).toBe("step-up");
     expect(classify(s, to, usdc(4)).lane).toBe("delayed");
-    expect(classify(s, "0x" + "9".repeat(40), usdc(1)).lane).toBe("blocked");
+    expect(classify(s, "0x" + "9".repeat(40), usdc(1)).lane).toBe("base");
     expect(classify({ ...s, frozen: true }, to, usdc(1)).lane).toBe("blocked");
   });
 });
