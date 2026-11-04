@@ -16,10 +16,10 @@ const a = (value: number) => `0x${value.toString(16).padStart(40, "0")}` as `0x$
 
 function review() {
   return createLocalPwaReview({
-    formatVersion: 1,
+    formatVersion: 2,
     profileId: "local",
     chainId: 11155111,
-    safe: a(1), guard: a(2), delay: a(3), usdc: SEPOLIA_USDC_ADDRESS, recipient: PWA_RECIPIENT,
+    safe: a(1), guard: a(2), delay: a(3), usdc: SEPOLIA_USDC_ADDRESS, baseRecipientMode: "any-valid-address", elevatedRecipients: [PWA_RECIPIENT],
     primaryCredentialHash: h(4), secondaryCredentialHash: h(5), deploymentsHash: h(6), policyHash: h(7), topologyReportHash: h(8),
     observer: { processId: "pwa-local-observer", executableHash: h(9), sources: ["provider-a", "provider-b"], confirmations: 6 },
     deadline: "2026-11-01T12:00:00.000Z",

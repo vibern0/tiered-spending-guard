@@ -66,7 +66,10 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         res.setHeader("vary", "Origin");
       }
       if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-      if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") return json(res, 200, { ok: true, chainId: config.chainId, profileId: config.id, origin: config.origin, rpId: config.rpId });
+      if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") {
+        const writesReady = Boolean(handlers.prepareTransfer && handlers.submit && handlers.submission);
+        return json(res, 200, { ok: true, writesReady, chainId: config.chainId, profileId: config.id, origin: config.origin, rpId: config.rpId });
+      }
       const segments = pathSegments(req.url ?? "/");
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";
@@ -87,7 +90,7 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       if (req.method === "POST" && segments.join("/") === "v1/vaults/plan") return json(res, 200, await handlers.planVault(await body(req)));
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));
       if (req.method === "POST" && segments.join("/") === "v1/submissions/prepare") {
-        if (!handlers.prepareTransfer) throw new Error("submission preparation unavailable");
+        if (!handlers.prepareTransfer) return json(res, 503, { error: "submission runtime is not ready" });
         const request = await handlers.prepareTransfer(await body(req));
         return json(res, 200, request);
       }

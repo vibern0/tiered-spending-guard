@@ -26,8 +26,8 @@ function queue(createdAt = 800n) {
 function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnapshot {
   process.env.NODE_ENV = "test";
   return brandVerifiedPwaSnapshotForTestsOnly(Object.freeze({
-    formatVersion: 1, chainId: 11155111, blockNumber: 100n, blockHash: h(100), timestamp: 1_000n,
-    deploymentsHash: h(101), policyHash: h(102), safe, guard: a(2), delay, usdc, recipient,
+    formatVersion: 2, chainId: 11155111, blockNumber: 100n, blockHash: h(100), timestamp: 1_000n,
+    deploymentsHash: h(101), policyHash: h(102), safe, guard: a(2), delay, usdc, baseRecipientMode: "any-valid-address", elevatedRecipients: [recipient],
     primaryPasskey: a(4), secondaryPasskey: a(5), safeNonce: 9n,
     spendState: Object.freeze({ window: 0n, baseSpent: 0n, instantSpent: 0n }),
     limits: Object.freeze({ basePerTransaction: 1_000_000n, baseDailyLimit: 1_000_000n, stepUpPerTransaction: 3_000_000n, instantDailyLimit: 3_000_000n }),
@@ -79,8 +79,29 @@ describe("closed PWA intents", () => {
     expect(() => preparePwaIntent(snapshot(), { kind: "skip-expired", ...binding })).to.throw(/not expired/i);
   });
 
-  it("rejects browser-selected recipient, invalid amount, stale queue identity, direct above-Y forcing, and caller-shaped snapshots", () => {
-    expect(() => preparePwaIntent(snapshot(), { kind: "transfer", recipient: a(99), amount: 1n })).to.throw(/recipient/i);
+  it("permits arbitrary base recipients but requires elevated membership for step-up and delayed lanes", () => {
+    expect(preparePwaIntent(snapshot(), { kind: "transfer", recipient: a(99), amount: 1n }).kind).to.equal("base-transfer");
+    expect(() => preparePwaIntent(snapshot(), { kind: "transfer", recipient: a(99), amount: 2_000_000n })).to.throw(/elevated allowlisted/i);
+  });
+
+  it("builds a hash-bound delayed recipient addition with both approvals", () => {
+    const candidate = a(99);
+    const prepared = preparePwaIntent(snapshot(), { kind: "add-recipient", recipient: candidate });
+    expect(prepared.kind).to.equal("add-recipient");
+    expect(prepared.requiredApprovals).to.deep.equal(["primary", "secondary"]);
+    expect(prepared.recipient).to.equal(candidate);
+    expect(prepared.safeTx.to).to.equal(delay);
+    const outer = decodeFunctionData({ abi: DELAY_ABI, data: prepared.safeTx.data });
+    expect(outer.functionName).to.equal("execTransactionFromModule");
+    expect(outer.args[0]).to.equal(a(2));
+    const repair = decodeFunctionData({ abi: parseAbi(["function repairPolicy(bytes32,address,uint256,uint256,uint256,uint256,address[],uint8)"]), data: outer.args[2] });
+    expect(repair.functionName).to.equal("repairPolicy");
+    expect(repair.args).to.deep.equal([h(102), usdc, 1_000_000n, 3_000_000n, 1_000_000n, 3_000_000n, [recipient, candidate], 1]);
+    expect(() => preparePwaIntent(snapshot(), { kind: "add-recipient", recipient })).to.throw(/already elevated/i);
+    expect(() => preparePwaIntent(snapshot(), { kind: "add-recipient", recipient: candidate, calldata: "0x" } as never)).to.throw(/unsupported field/i);
+  });
+
+  it("rejects invalid amount, stale queue identity, direct above-Y forcing, and caller-shaped snapshots", () => {
     expect(() => preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 0n })).to.throw(/amount/i);
     expect(() => preparePwaIntent(snapshot(), { kind: "execute-ready", queueNonce: 5n, queueFingerprint: queue().queueFingerprint })).to.throw(/head|queue/i);
     expect(() => preparePwaIntent(snapshot(), { kind: "execute-ready", queueNonce: 4n, queueFingerprint: h(999) })).to.throw(/fingerprint/i);

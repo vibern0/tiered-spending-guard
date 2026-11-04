@@ -26,6 +26,7 @@ const asset: AssetPolicy = {
   stepUpPerTransaction: 500n,
   baseDailyLimit: 1_000n,
   instantDailyLimit: 2_000n,
+  baseRecipientMode: "allowlisted",
   recipients: [RECIPIENT],
 };
 const nativeAsset: AssetPolicy = { ...asset, token: ZERO };
@@ -70,7 +71,33 @@ const tokenTransfer = (value: bigint, overrides: Partial<ClassifiableAction> = {
   ...overrides,
 });
 
+const tokenTransferTo = (recipient: Address, value: bigint, overrides: Partial<ClassifiableAction> = {}): ClassifiableAction =>
+  tokenTransfer(value, {
+    data: encodeFunctionData({ abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }], functionName: "transfer", args: [recipient, value] }),
+    ...overrides,
+  });
+
 describe("classifyAction", () => {
+  it("allows an unlisted valid USDC recipient only in the open base lane", () => {
+    const openBasePolicy = {
+      ...policy,
+      assets: [{ ...asset, baseRecipientMode: "any-valid-address" }],
+    } as VaultPolicy;
+
+    expect(classifyAction(openBasePolicy, tokenTransferTo(OTHER, 100n), state, 1n)).to.equal("base");
+    expect(classifyAction(openBasePolicy, tokenTransferTo(ZERO, 100n), state, 1n)).to.equal("blocked");
+    expect(classifyAction(openBasePolicy, tokenTransferTo(OTHER, 101n), state, 1n, true)).to.equal("blocked");
+    expect(classifyAction(openBasePolicy, tokenTransferTo(OTHER, 2_001n), state, 1n, true)).to.equal("blocked");
+  });
+
+  it("rejects a legacy asset policy without an explicit base recipient mode", () => {
+    const { baseRecipientMode: _discarded, ...legacyAsset } = {
+      ...asset,
+      baseRecipientMode: "allowlisted",
+    };
+    expect(() => assertValidVaultPolicy({ ...policy, assets: [legacyAsset] as never })).to.throw();
+  });
+
   it("classifies native and ERC-20 transfers across X and Y with cumulative state", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 100n), state, 1n)).to.equal("base");
     expect(classifyAction(policy, transfer(RECIPIENT, 101n, { secondaryApproved: true }), state, 1n)).to.equal("step-up");

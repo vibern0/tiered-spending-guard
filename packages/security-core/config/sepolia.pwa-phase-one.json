@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "chainId": 11155111,
   "token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
   "runtimeCodeHash": "0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb",
@@ -19,7 +19,10 @@
     "cooldownSeconds": 120,
     "expirationSeconds": 600
   },
-  "recipient": "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc",
+  "baseRecipientMode": "any-valid-address",
+  "elevatedRecipients": [
+    "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc"
+  ],
   "amounts": {
     "base": "1000000",
     "stepUp": "2000000",

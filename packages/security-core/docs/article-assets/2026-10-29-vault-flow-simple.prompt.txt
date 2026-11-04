@@ -1,0 +1,51 @@
+Generated using built-in imagegen, editing the previous detailed infographic into a simpler article image.
+Image: 2026-10-29-vault-flow-simple.png
+Alt text: One vault branches into three spending paths. Small payments within the base daily allowance require a passkey and can be sent immediately. Larger payments within the shared daily cap require a passkey and second signer and can be sent immediately. Payments above the daily cap require both factors, a waiting period with time to cancel, then explicit execution. All instant payments share the same daily cap. Sepolia testnet prototype.
+
+PROMPT
+
+Edit the attached infographic into a radically simpler article illustration. Replace the entire dense layout; keep only the underlying idea and the restrained navy/teal/amber palette. The previous image is a content reference, not a layout to preserve.
+
+Create a minimal landscape editorial infographic with a pure white background, enormous whitespace, large readable typography, a simple centered vault outline icon, and THREE clean columns below it. Fewer than 85 words in the entire image. No technical architecture, Safe version, guard/module wiring, contract names, test statistics, security checklists, large blocks of text, legends, gradients, drop shadows or decorative details. Flat vector-like design, generous margins, very light dividers. Make it instantly understandable in five seconds.
+
+Use ONLY this text, verbatim:
+
+Top title:
+"ONE VAULT. THREE SPENDING RULES."
+
+Small centered label beneath the vault icon:
+"Your funds"
+
+Split the vault into three clear outgoing branches, one per column. These are alternative paths, NOT sequential stages.
+
+Left column, muted teal, single key outline icon:
+"SMALL PAYMENTS"
+"Within base daily allowance"
+"Passkey"
+downward arrow
+"Send now"
+
+Middle column, navy blue, two key outline icons:
+"LARGER PAYMENTS"
+"Within shared daily cap"
+"Passkey + second signer"
+downward arrow
+"Send now"
+
+Right column, muted amber, clock outline icon:
+"ABOVE DAILY CAP"
+"Passkey + second signer"
+downward arrow
+"Wait"
+downward arrow
+"Execute"
+A small red side branch from Wait:
+"Time to cancel"
+
+One concise explanatory line centered beneath all three columns:
+"All instant payments count toward the same daily cap."
+
+Small quiet footer:
+"Sepolia testnet prototype"
+
+Accuracy: the base allowance and larger-payment path share the same total immediate daily cap. Larger-payment co-approval does not add another budget. Above that cap, both factors approve an onchain proposal and then a mandatory delay starts. Execution after the delay is explicitly triggered, not automatic. Do not imply arbitrary person can cancel; the text "Time to cancel" merely shows the intervention window. Draw clear branches without crossed lines. Keep all lettering crisp and spelled correctly. Prioritize simplicity above ornament.

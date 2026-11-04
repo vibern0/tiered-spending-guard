@@ -70,13 +70,13 @@ function currentWindow(policy: VaultPolicy, now: bigint): bigint {
   return policy.periodAnchor + ((now - policy.periodAnchor) / BigInt(policy.periodSeconds)) * BigInt(policy.periodSeconds);
 }
 
-function decodeTransfer(action: ClassifiableAction, asset: AssetPolicy): bigint | undefined {
+function decodeTransfer(action: ClassifiableAction, asset: AssetPolicy): Readonly<{ recipient: Address; amount: bigint }> | undefined {
   const data = action.data.toLowerCase();
-  if (same(asset.token, ZERO)) return data === "0x" && action.value > 0n && asset.recipients.some((allowed) => same(allowed, action.to)) ? action.value : undefined;
+  if (same(asset.token, ZERO)) return data === "0x" && action.value > 0n && isAddress(action.to) && !same(action.to, ZERO) ? { recipient: action.to, amount: action.value } : undefined;
   if (!same(action.to, asset.token) || action.value !== 0n || !data.startsWith(`0x${TRANSFER_SELECTOR}`) || data.length !== 2 + 8 + 64 + 64) return undefined;
   const recipient = `0x${data.slice(10 + 24, 10 + 64)}`;
-  if (!isAddress(recipient) || !asset.recipients.some((allowed) => same(allowed, recipient))) return undefined;
-  return BigInt(`0x${data.slice(10 + 64, 10 + 128)}`);
+  if (!isAddress(recipient) || same(recipient, ZERO)) return undefined;
+  return { recipient, amount: BigInt(`0x${data.slice(10 + 64, 10 + 128)}`) };
 }
 
 function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction): boolean {
@@ -101,15 +101,18 @@ export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, 
   if (recognizedDelayedAction(policy, action)) return "delayed";
   const asset = policy.assets.find((candidate) => same(candidate.token, action.to) || (same(candidate.token, ZERO) && action.data === "0x"));
   if (!asset) return "blocked";
-  const amount = decodeTransfer(action, asset);
-  if (amount === undefined || amount <= 0n) return "blocked";
-  if (amount > asset.instantDailyLimit) return "delayed";
+  const transfer = decodeTransfer(action, asset);
+  if (transfer === undefined || transfer.amount <= 0n) return "blocked";
+  const { amount, recipient } = transfer;
   const window = currentWindow(policy, now);
   if (state.window < policy.periodAnchor || state.window % BigInt(policy.periodSeconds) !== 0n || state.window > window) return "blocked";
   const baseSpent = state.window === window ? state.baseSpent : 0n;
   const instantSpent = state.window === window ? state.instantSpent : 0n;
   if (baseSpent < 0n || instantSpent < 0n || baseSpent > instantSpent || baseSpent > asset.baseDailyLimit || instantSpent > asset.instantDailyLimit) return "blocked";
-  if (amount <= asset.basePerTransaction && amount <= asset.baseDailyLimit - baseSpent && amount <= asset.instantDailyLimit - instantSpent) return "base";
+  const recipientAllowlisted = asset.recipients.some((allowed) => same(allowed, recipient));
+  if (!secondaryApproved && (asset.baseRecipientMode === "any-valid-address" || recipientAllowlisted) && amount <= asset.basePerTransaction && amount <= asset.baseDailyLimit - baseSpent && amount <= asset.instantDailyLimit - instantSpent) return "base";
+  if (!recipientAllowlisted) return "blocked";
+  if (amount > asset.instantDailyLimit) return "delayed";
   if (secondaryApproved && amount <= asset.stepUpPerTransaction && amount <= asset.instantDailyLimit - instantSpent) return "step-up";
   return "blocked";
 }

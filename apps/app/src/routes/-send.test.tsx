@@ -14,7 +14,7 @@ describe("send policy boundary", () => {
     expect(classify(state, RECIPIENT, usdc(1))).toMatchObject({ lane: "blocked" });
   });
 
-  it("classifies only a verified allowlisted USDC recipient against chain-derived limits", () => {
+  it("allows any valid recipient in the base lane but keeps elevated lanes allowlisted", () => {
     const state = {
       ...emptyState(),
       writable: true,
@@ -26,8 +26,7 @@ describe("send policy boundary", () => {
     expect(classify(state, RECIPIENT, usdc(1))).toMatchObject({ lane: "base" });
     expect(classify(state, RECIPIENT, usdc(2))).toMatchObject({ lane: "step-up" });
     expect(classify(state, RECIPIENT, usdc(4))).toMatchObject({ lane: "delayed" });
-    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(1))).toMatchObject({
-      lane: "blocked",
-    });
+    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(1))).toMatchObject({ lane: "base" });
+    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(2))).toMatchObject({ lane: "blocked" });
   });
 });

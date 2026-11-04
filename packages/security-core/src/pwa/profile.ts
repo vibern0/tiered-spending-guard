@@ -3,6 +3,7 @@ import CommittedPwaPhaseOneProfile from "../../config/sepolia.pwa-phase-one.json
 
 export const SEPOLIA_CHAIN_ID = 11155111 as const;
 export const SEPOLIA_USDC_ADDRESS = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+/** Initial elevated recipient; the onchain list may only be extended through delayed repair. */
 export const PWA_RECIPIENT = "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc" as Address;
 export const REVIEWED_USDC_RUNTIME_CODE_HASH = "0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb" as Hex;
 export const REVIEWED_USDC_BLOCK_NUMBER = 12_034_092n;
@@ -35,7 +36,7 @@ export type ReviewedUsdcIdentity = Readonly<{
 }>;
 
 export type PwaPhaseOneProfile = Readonly<{
-  formatVersion: 1;
+  formatVersion: 2;
   chainId: typeof SEPOLIA_CHAIN_ID;
   token: Address;
   runtimeCodeHash: Hex;
@@ -52,7 +53,8 @@ export type PwaPhaseOneProfile = Readonly<{
     instantDailyLimit: bigint;
   }>;
   delay: Readonly<{ cooldownSeconds: 120; expirationSeconds: 600 }>;
-  recipient: Address;
+  baseRecipientMode: "any-valid-address";
+  elevatedRecipients: readonly [Address, ...Address[]];
   amounts: Readonly<{ base: bigint; stepUp: bigint; delayed: bigint; funding: bigint }>;
   identityReview: Readonly<{
     blockNumber: bigint;
@@ -108,8 +110,8 @@ export function validateUsdc(value: IdentityFields): void {
 
 export function loadPwaPhaseOneProfile(value: unknown): PwaPhaseOneProfile {
   const input = object(value, "profile");
-  exactKeys(input, ["formatVersion", "chainId", "token", "runtimeCodeHash", "name", "symbol", "decimals", "secondaryProfile", "periodSeconds", "periodAnchor", "limits", "delay", "recipient", "amounts", "identityReview"], "profile");
-  if (input.formatVersion !== 1) throw new Error("unsupported profile formatVersion");
+  exactKeys(input, ["formatVersion", "chainId", "token", "runtimeCodeHash", "name", "symbol", "decimals", "secondaryProfile", "periodSeconds", "periodAnchor", "limits", "delay", "baseRecipientMode", "elevatedRecipients", "amounts", "identityReview"], "profile");
+  if (input.formatVersion !== 2) throw new Error("unsupported profile formatVersion");
   if (input.chainId !== SEPOLIA_CHAIN_ID) throw new Error("PWA profile supports only Ethereum Sepolia");
   validateUsdc(input as unknown as IdentityFields);
   if (input.secondaryProfile !== "contract-only") throw new Error("PWA profile must use contract-only secondary authorization");
@@ -131,6 +133,15 @@ export function loadPwaPhaseOneProfile(value: unknown): PwaPhaseOneProfile {
   const delayInput = object(input.delay, "delay");
   exactKeys(delayInput, ["cooldownSeconds", "expirationSeconds"], "delay");
   if (delayInput.cooldownSeconds !== 120 || delayInput.expirationSeconds !== 600) throw new Error("PWA profile does not match canonical delay");
+
+  if (input.baseRecipientMode !== "any-valid-address") throw new Error("PWA profile requires an explicit open base recipient mode");
+  if (!Array.isArray(input.elevatedRecipients) || input.elevatedRecipients.length === 0) throw new Error("PWA profile requires elevated recipients");
+  const elevatedRecipients = input.elevatedRecipients.map((value, index) => {
+    if (typeof value !== "string" || !isAddress(value) || value.toLowerCase() === "0x0000000000000000000000000000000000000000") throw new Error(`elevatedRecipients[${index}] must be a nonzero address`);
+    return getAddress(value);
+  });
+  if (new Set(elevatedRecipients.map((recipient) => recipient.toLowerCase())).size !== elevatedRecipients.length) throw new Error("elevatedRecipients must be distinct");
+  if (elevatedRecipients.length !== 1 || elevatedRecipients[0]!.toLowerCase() !== PWA_RECIPIENT.toLowerCase()) throw new Error("PWA profile does not match the reviewed initial elevated recipients");
 
   const amountsInput = object(input.amounts, "amounts");
   exactKeys(amountsInput, ["base", "stepUp", "delayed", "funding"], "amounts");
@@ -156,7 +167,7 @@ export function loadPwaPhaseOneProfile(value: unknown): PwaPhaseOneProfile {
   if (identityReview.blockNumber !== REVIEWED_USDC_BLOCK_NUMBER || identityReview.blockHash !== REVIEWED_USDC_BLOCK_HASH) throw new Error("identityReview does not match the committed two-provider artifact");
 
   return Object.freeze({
-    formatVersion: 1 as const,
+    formatVersion: 2 as const,
     chainId: SEPOLIA_CHAIN_ID,
     token: SEPOLIA_USDC_ADDRESS,
     runtimeCodeHash: REVIEWED_USDC_RUNTIME_CODE_HASH,
@@ -168,7 +179,8 @@ export function loadPwaPhaseOneProfile(value: unknown): PwaPhaseOneProfile {
     periodAnchor,
     limits,
     delay: Object.freeze({ cooldownSeconds: 120 as const, expirationSeconds: 600 as const }),
-    recipient: exactAddress(input.recipient, PWA_RECIPIENT, "recipient"),
+    baseRecipientMode: "any-valid-address" as const,
+    elevatedRecipients: Object.freeze(elevatedRecipients) as readonly [Address, ...Address[]],
     amounts,
     identityReview,
   });

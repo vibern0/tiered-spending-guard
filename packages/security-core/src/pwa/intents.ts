@@ -2,6 +2,7 @@ import {
   encodeFunctionData,
   getAddress,
   hashTypedData,
+  isAddress,
   isAddressEqual,
   keccak256,
   parseAbi,
@@ -15,23 +16,25 @@ import { buildCancellationTransaction, buildExecutionTransaction, buildQueueTran
 import { SAFE_TX_TYPES, type SafeTxMessage } from "../signers/types";
 import { canonicalSubmissionJson, snapshotPreparedPwaIntent } from "../transport/validate";
 import type { PreparedDirectPwaIntent, PreparedPwaIntent, PreparedSignedPwaIntent, PwaQueueBinding, SimulationEvidence } from "../transport/types";
-import { PWA_RECIPIENT, SEPOLIA_CHAIN_ID, SEPOLIA_USDC_ADDRESS } from "./profile";
+import { SEPOLIA_CHAIN_ID, SEPOLIA_USDC_ADDRESS } from "./profile";
 import { isVerifiedPwaProvisioningResult, type PwaProvisioningResult } from "./provisioning";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const ERC20_ABI = parseAbi(["function transfer(address,uint256) returns (bool)"]);
 const DELAY_ABI = parseAbi(["function skipExpired()"]);
+const GUARD_ABI = parseAbi(["function repairPolicy(bytes32,address,uint256,uint256,uint256,uint256,address[],uint8)"]);
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 
 export type TransferIntent = Readonly<{ kind: "transfer"; recipient: Address; amount: bigint }>;
+export type AddRecipientIntent = Readonly<{ kind: "add-recipient"; recipient: Address }>;
 export type CancelQueuedIntent = Readonly<{ kind: "cancel-queued"; queueNonce: bigint; queueFingerprint: Hex }>;
 export type ExecuteReadyIntent = Readonly<{ kind: "execute-ready"; queueNonce: bigint; queueFingerprint: Hex }>;
 export type SkipExpiredIntent = Readonly<{ kind: "skip-expired"; queueNonce: bigint; queueFingerprint: Hex }>;
-export type PwaIntent = TransferIntent | CancelQueuedIntent | ExecuteReadyIntent | SkipExpiredIntent;
+export type PwaIntent = TransferIntent | AddRecipientIntent | CancelQueuedIntent | ExecuteReadyIntent | SkipExpiredIntent;
 
 export type VerifiedPwaQueueItem = PwaQueueBinding & Readonly<{ safe: Address; delay: Address }>;
 export type VerifiedPwaSnapshot = Readonly<{
-  formatVersion: 1;
+  formatVersion: 2;
   chainId: typeof SEPOLIA_CHAIN_ID;
   blockNumber: bigint;
   blockHash: Hex;
@@ -42,7 +45,8 @@ export type VerifiedPwaSnapshot = Readonly<{
   guard: Address;
   delay: Address;
   usdc: Address;
-  recipient: Address;
+  baseRecipientMode: "any-valid-address";
+  elevatedRecipients: readonly [Address, ...Address[]];
   primaryPasskey: Address;
   secondaryPasskey: Address;
   safeNonce: bigint;
@@ -71,8 +75,9 @@ const preparedIntents = new WeakSet<object>();
 function same(left: string, right: string): boolean { return left.toLowerCase() === right.toLowerCase(); }
 
 function assertSnapshot(snapshot: VerifiedPwaSnapshot): void {
-  if (snapshot.formatVersion !== 1 || snapshot.chainId !== SEPOLIA_CHAIN_ID || snapshot.blockNumber < 0n || snapshot.timestamp < 0n || !HASH.test(snapshot.blockHash) || !HASH.test(snapshot.deploymentsHash) || !HASH.test(snapshot.policyHash)) throw new Error("invalid verified PWA snapshot identity");
-  if (!isAddressEqual(snapshot.usdc, SEPOLIA_USDC_ADDRESS) || !isAddressEqual(snapshot.recipient, PWA_RECIPIENT)) throw new Error("verified PWA snapshot does not match fixed USDC/recipient profile");
+  if (snapshot.formatVersion !== 2 || snapshot.chainId !== SEPOLIA_CHAIN_ID || snapshot.blockNumber < 0n || snapshot.timestamp < 0n || !HASH.test(snapshot.blockHash) || !HASH.test(snapshot.deploymentsHash) || !HASH.test(snapshot.policyHash)) throw new Error("invalid verified PWA snapshot identity");
+  if (!isAddressEqual(snapshot.usdc, SEPOLIA_USDC_ADDRESS) || snapshot.baseRecipientMode !== "any-valid-address" || snapshot.elevatedRecipients.length === 0) throw new Error("verified PWA snapshot does not match recipient policy");
+  if (snapshot.elevatedRecipients.some((recipient) => !isAddress(recipient) || same(recipient, ZERO)) || new Set(snapshot.elevatedRecipients.map((recipient) => recipient.toLowerCase())).size !== snapshot.elevatedRecipients.length) throw new Error("verified PWA elevated recipients are invalid");
   if (snapshot.limits.basePerTransaction !== 1_000_000n || snapshot.limits.baseDailyLimit !== 1_000_000n || snapshot.limits.stepUpPerTransaction !== 3_000_000n || snapshot.limits.instantDailyLimit !== 3_000_000n || snapshot.cooldownSeconds !== 120n || snapshot.expirationSeconds !== 600n) throw new Error("verified PWA snapshot does not match fixed X/Y/Z profile");
   if (snapshot.safeNonce < 0n || snapshot.queueHeadNonce < 0n || snapshot.queueTailNonce < snapshot.queueHeadNonce) throw new Error("verified PWA snapshot nonce is invalid");
   if (snapshot.spendState.window < 0n || snapshot.spendState.baseSpent < 0n || snapshot.spendState.instantSpent < snapshot.spendState.baseSpent || snapshot.spendState.baseSpent > snapshot.limits.baseDailyLimit || snapshot.spendState.instantSpent > snapshot.limits.instantDailyLimit) throw new Error("verified PWA snapshot spend state is invalid");
@@ -86,7 +91,7 @@ function assertSnapshot(snapshot: VerifiedPwaSnapshot): void {
 function freezeSnapshot(snapshot: VerifiedPwaSnapshot): VerifiedPwaSnapshot {
   const value = Object.freeze({
     ...snapshot,
-    safe: getAddress(snapshot.safe), guard: getAddress(snapshot.guard), delay: getAddress(snapshot.delay), usdc: getAddress(snapshot.usdc), recipient: getAddress(snapshot.recipient), primaryPasskey: getAddress(snapshot.primaryPasskey), secondaryPasskey: getAddress(snapshot.secondaryPasskey),
+    safe: getAddress(snapshot.safe), guard: getAddress(snapshot.guard), delay: getAddress(snapshot.delay), usdc: getAddress(snapshot.usdc), elevatedRecipients: Object.freeze(snapshot.elevatedRecipients.map(getAddress)) as readonly [Address, ...Address[]], primaryPasskey: getAddress(snapshot.primaryPasskey), secondaryPasskey: getAddress(snapshot.secondaryPasskey),
     spendState: Object.freeze({ ...snapshot.spendState }), limits: Object.freeze({ ...snapshot.limits }),
     queueHead: snapshot.queueHead ? Object.freeze({ ...snapshot.queueHead, safe: getAddress(snapshot.queueHead.safe), delay: getAddress(snapshot.queueHead.delay), to: getAddress(snapshot.queueHead.to) }) : null,
   });
@@ -102,7 +107,7 @@ export async function captureVerifiedPwaSnapshot(vault: PwaProvisioningResult, b
   const state = await reader.readAt(blockNumber);
   const after = await reader.getBlock({ blockNumber });
   if (after.number !== blockNumber || !after.hash || !same(before.hash, after.hash)) throw new Error("PWA snapshot block reorg detected");
-  const snapshot = freezeSnapshot({ ...state, formatVersion: 1, chainId: SEPOLIA_CHAIN_ID, blockNumber, blockHash: before.hash, timestamp: before.timestamp });
+  const snapshot = freezeSnapshot({ ...state, formatVersion: 2, chainId: SEPOLIA_CHAIN_ID, blockNumber, blockHash: before.hash, timestamp: before.timestamp });
   if (!isAddressEqual(snapshot.safe, vault.safe) || !isAddressEqual(snapshot.guard, vault.guard) || !isAddressEqual(snapshot.delay, vault.delay) || !isAddressEqual(snapshot.usdc, vault.usdc) || !isAddressEqual(snapshot.primaryPasskey, vault.primaryPasskey) || !isAddressEqual(snapshot.secondaryPasskey, vault.secondaryPasskey) || !same(snapshot.deploymentsHash, vault.deploymentsHash) || !same(snapshot.policyHash, vault.policyHash)) throw new Error("PWA snapshot does not match verified provisioning/topology evidence");
   return snapshot;
 }
@@ -117,7 +122,7 @@ function snapshotHash(snapshot: VerifiedPwaSnapshot): Hex {
 }
 
 function exactIntentKeys(intent: PwaIntent): void {
-  const expected = intent.kind === "transfer" ? ["kind", "recipient", "amount"] : ["kind", "queueNonce", "queueFingerprint"];
+  const expected = intent.kind === "transfer" ? ["kind", "recipient", "amount"] : intent.kind === "add-recipient" ? ["kind", "recipient"] : ["kind", "queueNonce", "queueFingerprint"];
   const actual = Object.keys(intent);
   if (actual.length !== expected.length || actual.some((key) => !expected.includes(key))) throw new Error("PWA intent contains an unsupported field");
 }
@@ -130,12 +135,12 @@ function safeTx(snapshot: VerifiedPwaSnapshot, to: Address, data: Hex): SafeTxMe
   return Object.freeze({ to, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: snapshot.safeNonce });
 }
 
-function signed(snapshot: VerifiedPwaSnapshot, kind: PreparedSignedPwaIntent["kind"], to: Address, data: Hex, amount: bigint, approvals: PreparedSignedPwaIntent["requiredApprovals"], queue: PwaQueueBinding | null): PreparedSignedPwaIntent {
+function signed(snapshot: VerifiedPwaSnapshot, kind: PreparedSignedPwaIntent["kind"], recipient: Address, to: Address, data: Hex, amount: bigint, approvals: PreparedSignedPwaIntent["requiredApprovals"], queue: PwaQueueBinding | null): PreparedSignedPwaIntent {
   const transaction = safeTx(snapshot, to, data);
   const prepared = Object.freeze({
     version: 1 as const, kind, snapshotHash: snapshotHash(snapshot), chainId: SEPOLIA_CHAIN_ID,
     blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash, timestamp: snapshot.timestamp, deploymentsHash: snapshot.deploymentsHash, policyHash: snapshot.policyHash,
-    safe: snapshot.safe, guard: snapshot.guard, delay: snapshot.delay, asset: snapshot.usdc, recipient: snapshot.recipient, amount,
+    safe: snapshot.safe, guard: snapshot.guard, delay: snapshot.delay, asset: snapshot.usdc, recipient, amount,
     expectedSpend: Object.freeze({ ...snapshot.spendState }), queue, requiredApprovals: approvals, safeTx: transaction,
     safeTxHash: hashTypedData({ domain: { chainId: SEPOLIA_CHAIN_ID, verifyingContract: snapshot.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: transaction }),
   });
@@ -159,7 +164,7 @@ function direct(snapshot: VerifiedPwaSnapshot, kind: PreparedDirectPwaIntent["ki
   const prepared = Object.freeze({
     version: 1 as const, kind, snapshotHash: snapshotHash(snapshot), chainId: SEPOLIA_CHAIN_ID,
     blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash, timestamp: snapshot.timestamp, deploymentsHash: snapshot.deploymentsHash, policyHash: snapshot.policyHash,
-    safe: snapshot.safe, guard: snapshot.guard, delay: snapshot.delay, asset: snapshot.usdc, recipient: snapshot.recipient,
+    safe: snapshot.safe, guard: snapshot.guard, delay: snapshot.delay, asset: snapshot.usdc, recipient: decodeTransferRecipient(item.data),
     amount: decodeTransferAmount(item.data), queue: queueBinding(item), requiredApprovals: Object.freeze([]) as readonly [], call: Object.freeze({ to: snapshot.delay, value: 0n as const, data, operation: 0 as const }),
   });
   snapshotPreparedPwaIntent(prepared);
@@ -172,31 +177,47 @@ function decodeTransferAmount(data: Hex): bigint {
   return BigInt(`0x${data.slice(74)}`);
 }
 
+function decodeTransferRecipient(data: Hex): Address {
+  if (!data.toLowerCase().startsWith("0xa9059cbb") || data.length !== 138) throw new Error("queue head is not an exact USDC transfer");
+  return getAddress(`0x${data.slice(34, 74)}`);
+}
+
 export function preparePwaIntent(snapshot: VerifiedPwaSnapshot, intent: PwaIntent): PreparedPwaIntent {
   if (!verifiedSnapshots.has(snapshot)) throw new Error("verified snapshot is required");
   exactIntentKeys(intent);
   if (intent.kind === "transfer") {
-    if (!isAddressEqual(intent.recipient, snapshot.recipient)) throw new Error("transfer recipient does not match the fixed profile");
+    if (!isAddress(intent.recipient) || same(intent.recipient, ZERO)) throw new Error("transfer recipient must be a nonzero address");
     if (intent.amount <= 0n) throw new Error("transfer amount must be positive");
-    const data = transferData(snapshot.recipient, intent.amount);
-    const policy = { chainId: SEPOLIA_CHAIN_ID, safe: snapshot.safe, passkey: snapshot.primaryPasskey, primary: snapshot.primaryPasskey, ecdsaSecondary: ZERO, secondaries: [{ address: snapshot.secondaryPasskey, role: "secondary" as const, kind: "safe-contract" as const, enabled: true }], secondaryProfile: "contract-only" as const, delay: snapshot.delay, periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: Number(snapshot.cooldownSeconds), expirationSeconds: Number(snapshot.expirationSeconds), assets: [{ token: snapshot.usdc, ...snapshot.limits, recipients: [snapshot.recipient] }] };
+    const recipient = getAddress(intent.recipient);
+    const data = transferData(recipient, intent.amount);
+    const policy = { chainId: SEPOLIA_CHAIN_ID, safe: snapshot.safe, passkey: snapshot.primaryPasskey, primary: snapshot.primaryPasskey, ecdsaSecondary: ZERO, secondaries: [{ address: snapshot.secondaryPasskey, role: "secondary" as const, kind: "safe-contract" as const, enabled: true }], secondaryProfile: "contract-only" as const, delay: snapshot.delay, periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: Number(snapshot.cooldownSeconds), expirationSeconds: Number(snapshot.expirationSeconds), assets: [{ token: snapshot.usdc, ...snapshot.limits, baseRecipientMode: snapshot.baseRecipientMode, recipients: snapshot.elevatedRecipients }] };
     const action = { to: snapshot.usdc, value: 0n, data, operation: 0 as const, signer: snapshot.primaryPasskey };
     const withoutSecondary = classifyAction(policy, action, snapshot.spendState, snapshot.timestamp, false);
-    if (withoutSecondary === "base") return signed(snapshot, "base-transfer", snapshot.usdc, data, intent.amount, Object.freeze(["primary"]), null);
+    if (withoutSecondary === "base") return signed(snapshot, "base-transfer", recipient, snapshot.usdc, data, intent.amount, Object.freeze(["primary"]), null);
     const withSecondary = classifyAction(policy, action, snapshot.spendState, snapshot.timestamp, true);
-    if (withSecondary === "step-up") return signed(snapshot, "step-up-transfer", snapshot.usdc, data, intent.amount, Object.freeze(["primary", "secondary"]), null);
+    if (withSecondary === "step-up") return signed(snapshot, "step-up-transfer", recipient, snapshot.usdc, data, intent.amount, Object.freeze(["primary", "secondary"]), null);
+    if (!snapshot.elevatedRecipients.some((allowed) => isAddressEqual(allowed, recipient))) throw new Error("recipient is not elevated allowlisted; add it through delayed maintenance first");
     const queueItem = Object.freeze({ queueNonce: snapshot.queueTailNonce, queueFingerprint: queueFingerprint({ safe: snapshot.safe, delay: snapshot.delay, to: snapshot.usdc, value: 0n, data, operation: 0, queueNonce: snapshot.queueTailNonce }), to: snapshot.usdc, value: 0n, data, operation: 0 as const, createdAt: 0n, readyAt: 0n, expiresAt: 0n });
     const queueTransaction = buildQueueTransaction({ safe: snapshot.safe, delay: snapshot.delay, to: snapshot.usdc, value: 0n, data, operation: 0, queueNonce: snapshot.queueTailNonce });
-    return signed(snapshot, "queue-transfer", queueTransaction.to, queueTransaction.data, intent.amount, Object.freeze(["primary", "secondary"]), queueItem);
+    return signed(snapshot, "queue-transfer", recipient, queueTransaction.to, queueTransaction.data, intent.amount, Object.freeze(["primary", "secondary"]), queueItem);
+  }
+  if (intent.kind === "add-recipient") {
+    if (!isAddress(intent.recipient) || same(intent.recipient, ZERO)) throw new Error("recipient addition must use a nonzero address");
+    const recipient = getAddress(intent.recipient);
+    if (snapshot.elevatedRecipients.some((allowed) => isAddressEqual(allowed, recipient))) throw new Error("recipient is already elevated allowlisted");
+    const repair = encodeFunctionData({ abi: GUARD_ABI, functionName: "repairPolicy", args: [snapshot.policyHash, snapshot.usdc, snapshot.limits.basePerTransaction, snapshot.limits.stepUpPerTransaction, snapshot.limits.baseDailyLimit, snapshot.limits.instantDailyLimit, [...snapshot.elevatedRecipients, recipient], 1] });
+    const queueItem = Object.freeze({ queueNonce: snapshot.queueTailNonce, queueFingerprint: queueFingerprint({ safe: snapshot.safe, delay: snapshot.delay, to: snapshot.guard, value: 0n, data: repair, operation: 0, queueNonce: snapshot.queueTailNonce }), to: snapshot.guard, value: 0n, data: repair, operation: 0 as const, createdAt: 0n, readyAt: 0n, expiresAt: 0n });
+    const queueTransaction = buildQueueTransaction({ safe: snapshot.safe, delay: snapshot.delay, to: snapshot.guard, value: 0n, data: repair, operation: 0, queueNonce: snapshot.queueTailNonce });
+    return signed(snapshot, "add-recipient", recipient, queueTransaction.to, queueTransaction.data, 0n, Object.freeze(["primary", "secondary"]), queueItem);
   }
   const item = head(snapshot, intent);
   if (!isAddressEqual(item.to, snapshot.usdc)) throw new Error("queue head token is not the fixed USDC asset");
   const amount = decodeTransferAmount(item.data);
-  const encodedRecipient = getAddress(`0x${item.data.slice(34, 74)}`);
-  if (!isAddressEqual(encodedRecipient, snapshot.recipient) || amount <= 0n) throw new Error("queue head transfer does not match the fixed recipient");
+  const encodedRecipient = decodeTransferRecipient(item.data);
+  if (!snapshot.elevatedRecipients.some((allowed) => isAddressEqual(allowed, encodedRecipient)) || amount <= 0n) throw new Error("queue head transfer does not match an elevated recipient");
   if (intent.kind === "cancel-queued") {
     const cancellation = buildCancellationTransaction(snapshot.delay, item.queueNonce + 1n);
-    return signed(snapshot, "cancel-queued", cancellation.to, cancellation.data, amount, Object.freeze(["primary", "secondary"]), queueBinding(item));
+    return signed(snapshot, "cancel-queued", encodedRecipient, cancellation.to, cancellation.data, amount, Object.freeze(["primary", "secondary"]), queueBinding(item));
   }
   if (intent.kind === "execute-ready") {
     if (snapshot.timestamp < item.readyAt) throw new Error("Delay cooldown has not elapsed");

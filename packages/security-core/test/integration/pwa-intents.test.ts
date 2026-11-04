@@ -21,8 +21,8 @@ function snapshot(): VerifiedPwaSnapshot {
   const data = `0xa9059cbb${recipient.slice(2).padStart(64, "0")}${(4_000_000n).toString(16).padStart(64, "0")}`.toLowerCase() as Hex;
   const item = { safe, delay, to: usdc, value: 0n, data, operation: 0 as const, queueNonce: 4n };
   return brandVerifiedPwaSnapshotForTestsOnly(Object.freeze({
-    formatVersion: 1, chainId: 11155111, blockNumber: 100n, blockHash: h(100), timestamp: 1_000n,
-    deploymentsHash: h(101), policyHash: h(102), safe, guard: a(2), delay, usdc, recipient,
+    formatVersion: 2, chainId: 11155111, blockNumber: 100n, blockHash: h(100), timestamp: 1_000n,
+    deploymentsHash: h(101), policyHash: h(102), safe, guard: a(2), delay, usdc, baseRecipientMode: "any-valid-address", elevatedRecipients: [recipient],
     primaryPasskey: a(4), secondaryPasskey: a(5), safeNonce: 9n,
     spendState: { window: 0n, baseSpent: 0n, instantSpent: 0n }, limits: { basePerTransaction: 1_000_000n, baseDailyLimit: 1_000_000n, stepUpPerTransaction: 3_000_000n, instantDailyLimit: 3_000_000n },
     cooldownSeconds: 120n, expirationSeconds: 600n, queueHeadNonce: 4n, queueTailNonce: 5n,
@@ -70,7 +70,7 @@ describe("PWA intent simulation boundary", () => {
       async call() { throw new Error("execution reverted: cooldown"); },
     });
     expect(failed).to.deep.include({ ok: false, reason: "execution reverted: cooldown" });
-    const prepared = preparePwaIntent(snapshot(), { kind: "transfer", recipient: snapshot().recipient, amount: 1_000_000n });
+    const prepared = preparePwaIntent(snapshot(), { kind: "transfer", recipient: snapshot().elevatedRecipients[0]!, amount: 1_000_000n });
     await expect(simulatePwaIntent(prepared, {
       async getBlock({ blockNumber }) { return { number: blockNumber, hash: h(999) }; }, async call() { return { data: "0x" as Hex }; },
     })).to.be.rejectedWith(/block|reorg/i);

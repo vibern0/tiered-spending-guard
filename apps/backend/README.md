@@ -19,7 +19,7 @@ export BACKEND_PROVISIONING_REVIEW_DIRECTORY=/absolute/path/outside/repository/p
 export BACKEND_PROFILE=local
 export BACKEND_ORIGIN=http://localhost:5173
 export BACKEND_RP_ID=localhost
-npm --prefix apps/backend run dev
+pnpm --dir apps/backend dev
 ```
 
 For the later HTTPS/mobile rehearsal, set `BACKEND_PROFILE=https`, `BACKEND_ORIGIN` to the one exact stable PWA origin, and `BACKEND_RP_ID` to that origin's exact hostname. HTTPS mode rejects missing, wildcard, path-bearing, credential-bearing, IP, mixed-protocol, or mismatched values. The server still binds only to `127.0.0.1`; a separately reviewed temporary TLS ingress must supply access control and must not expose a public unauthenticated route.
@@ -36,7 +36,7 @@ After `POST /v1/vaults/plan`, independently review the generated package, write 
 
 All responses are JSON with `cache-control: no-store`. Errors use `{ "error": string }`. Requests with an `Origin` must match `BACKEND_ORIGIN`; non-loopback direct sockets are rejected. HTTPS-profile CORS responses allow credentials only for that exact origin.
 
-The three `/v1/submissions` routes below exist only when the process is composed with a `ConfiguredSubmissionRuntime`. `npm --prefix apps/backend run dev` does not install a placeholder signer, relay, or hidden sponsor; it fails closed with those routes unavailable.
+The three `/v1/submissions` routes below exist only when the process is composed with a `ConfiguredSubmissionRuntime`. `pnpm --dir apps/backend dev` does not install a placeholder signer, relay, or hidden sponsor; it fails closed with those routes unavailable.
 
 - `GET /health` returns process readiness, `{ ok, chainId, profileId, origin, rpId }`. The browser rejects any identity mismatch before opening a WebAuthn ceremony. It does not claim that a vault is provisioned or that chain state is healthy.
 - `POST /v1/registrations/{primary|secondary}/options` creates a one-use platform, user-verified WebAuthn registration session.
@@ -54,8 +54,8 @@ The backend relay account pays gas only. Safe owners, the spending guard, Delay,
 ## Verify
 
 ```sh
-npm --prefix apps/backend test
-npm --prefix apps/backend run typecheck
+pnpm --dir apps/backend test
+pnpm --dir apps/backend run typecheck
 ```
 
 Live Sepolia rehearsal remains separately authorized, capped, and recorded. No backend test proves hardware/WebAuthn UX or production readiness.

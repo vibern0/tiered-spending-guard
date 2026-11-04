@@ -17,12 +17,14 @@ const repairSignerAbi = fn("repairSigner", [
 ]);
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const repairPolicyAbi = fn("repairPolicy", [
+  { name: "expectedPolicyHash", type: "bytes32" },
   { name: "token", type: "address" },
   { name: "basePerTx", type: "uint256" },
   { name: "stepUpPerTx", type: "uint256" },
   { name: "baseDaily", type: "uint256" },
   { name: "instantDaily", type: "uint256" },
   { name: "recipients", type: "address[]" },
+  { name: "baseRecipientMode", type: "uint8" },
 ]);
 const replaceSignerAbi = fn("replaceSigner", [
   { name: "guard", type: "address" },
@@ -97,7 +99,8 @@ describe("Single-owner guard maintenance", () => {
     await f.passkeyAndSecondary(f.guard.address, freeze);
     expect(await f.guard.read.frozen()).to.equal(true);
 
-    const queuedRepair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, 1n, 2n, 1n, 2n, [f.recipient.account.address]] });
+    const policyHash = await f.guard.read.policyHash();
+    const queuedRepair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [policyHash, ZERO, 1n, 2n, 1n, 2n, [f.recipient.account.address], 0] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, queuedRepair, 0] });
     await f.passkeyAndSecondary(f.delay.address, queued);
     expect(await f.delay.read.queueNonce()).to.equal(1n);

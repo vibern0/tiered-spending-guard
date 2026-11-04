@@ -70,7 +70,6 @@ export function assertBackendWebAuthnIdentity(id: "local" | "https", origin: str
 }
 
 export function loadBackendConfig(env: BackendEnvironment = process.env): BackendConfig {
-  if (env["BACKEND_REVIEWED_ARTIFACTS"] !== undefined) throw new Error("BACKEND_REVIEWED_ARTIFACTS is retired; remove it because reviewed policy and artifacts are committed in security-core");
   const id = env["BACKEND_PROFILE"];
   if (id !== "local" && id !== "https") throw new Error("BACKEND_PROFILE must be local or https");
   const relayPrivateKey = env["BACKEND_RELAY_PRIVATE_KEY"];

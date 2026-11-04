@@ -91,7 +91,7 @@ function makeClient(
         ],
         frozen: false,
         getConfiguredTokens: [USDC],
-        assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n],
+        assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n, 1],
         getPolicyRecipients: [RECIPIENT],
         spendState: [0n, values.baseSpent ?? 0n, 0n],
         owner: SAFE,

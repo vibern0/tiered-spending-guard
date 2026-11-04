@@ -1,0 +1,59 @@
+Created with built-in imagegen, editing 2026-10-29-vault-flow-editorial.png.
+Image: 2026-10-29-vault-flow-editorial-v2.png
+Source: ../evidence/2026-10-29-paused-checkpoint.md
+Alt text: One Safe branches into three spending paths. Small payments within remaining X and Y require a passkey; larger payments within shared Y require a passkey and second signer. Both can execute immediately. Withdrawals above remaining Y require both approvals then mandatory delay Z, starting when queued, with independent alerts and cancellation requiring both factors. Base spending consumes X and shared Y; step-up spending consumes shared Y. Limits are per asset per day. Sepolia testnet prototype.
+
+PROMPT
+
+Use case: style-transfer / infographic-diagram.
+Edit the attached editorial infographic into a slightly more informative version. Preserve the chosen visual identity: warm ivory paper, refined black serif headline, clear sans-serif diagram labels, extremely thin connectors, burnt-orange emphasis only on the delayed path, minimal boxes, no icons. Keep the elegant horizontal three-row diagram with a source on the left and outcomes on the right. This should remain a quiet magazine illustration, not a dashboard or technical architecture chart. Do not add contract wiring, test counts, implementation checklists, extra decorative elements, or a legend.
+
+Keep the content around 110 words. Make the headline slightly smaller than the original so the added detail fits comfortably. Large readable type, generous whitespace, all labels fully contained, no overlap. Use one landscape page, approximately 3:2.
+
+Use ONLY the following copy and structure, with exact spelling:
+
+Headline:
+"One vault. Three spending rules."
+
+A small understated subtitle beneath it:
+"Rules enforced onchain. Approvals bind the exact transaction."
+
+Source box at left, centered between the rows:
+"Your funds"
+small second line:
+"One Safe"
+
+Source branches into THREE ALTERNATIVE paths, never a sequence:
+1. First row, black:
+Heading "Small payments · X"
+Condition "Within remaining X and Y"
+Arrow to "Passkey"
+Arrow to bold outcome "Send now"
+
+2. Second row, black:
+Heading "Larger payments · Y"
+Condition "Within remaining shared Y"
+Arrow to "Passkey + second signer"
+Arrow to bold outcome "Send now"
+
+3. Third row, burnt orange:
+Heading "Delayed withdrawals · Z"
+Condition "Above remaining shared Y"
+Approval line "Passkey + second signer"
+Arrow to a small orange-outline "Wait Z" box.
+A small label directly beneath that box: "Starts when queued"
+Then arrow to an orange-outline "Execute" box.
+A separate curved branch from the waiting box goes to a small pale-rust cancellation callout:
+"Cancel with both factors"
+Label this side branch discreetly:
+"Independent alert"
+Make clear the alert is observational and not the source of spending authority; it is a label for the chance to intervene during the wait, not an automatic cancellation trigger. Do not draw an alert as a signer or an approval.
+
+Under a thin horizontal rule at bottom, two short lines of medium-size type:
+"Base consumes X + shared Y. Step-up consumes shared Y."
+"Limits are per asset, per day."
+
+Small footer:
+"Sepolia testnet prototype"
+
+Accuracy: X is the passkey-only cumulative daily allowance. Y is the shared cumulative instant allowance, including base plus step-up; the budgets never add to X+Y capacity. 0<X<Y. Z is a mandatory post-approval delay starting at canonical queue inclusion. Execution afterward is explicitly triggered, not automatically scheduled. Cancellation requires primary and one configured secondary. All assets stay in the one Safe. Do not imply the independent alert authorizes anything. Do not add a recovery owner, account abstraction, or production completion. The two bottom accounting sentences replace the reference image's longer large bottom caption. Preserve the editorial style and restraint.

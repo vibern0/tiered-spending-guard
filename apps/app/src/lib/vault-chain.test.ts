@@ -48,7 +48,7 @@ function client(overrides: Record<string, unknown> = {}): PublicClient {
           0n,
         ],
         getConfiguredTokens: [USDC],
-        assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n],
+        assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n, 1],
         getPolicyRecipients: ["0x7777777777777777777777777777777777777777"],
         spendState: [0n, 0n, 0n],
         owner: SAFE,

@@ -15,7 +15,7 @@ const CODE = "0x6001" as Hex;
 const RECIPIENT = "0xaD4D5cd2Ec5beCdB9608baD4c36F0dBe8b2492Bc" as Address;
 
 const profileInput = () => ({
-  formatVersion: 1,
+  formatVersion: 2,
   chainId: 11155111,
   token: SEPOLIA_USDC_ADDRESS,
   runtimeCodeHash: REVIEWED_USDC_RUNTIME_CODE_HASH,
@@ -32,7 +32,8 @@ const profileInput = () => ({
     instantDailyLimit: "3000000",
   },
   delay: { cooldownSeconds: 120, expirationSeconds: 600 },
-  recipient: RECIPIENT,
+  baseRecipientMode: "any-valid-address",
+  elevatedRecipients: [RECIPIENT],
   amounts: { base: "1000000", stepUp: "2000000", delayed: "4000000", funding: "8000000" },
   identityReview: {
     blockNumber: "12034092",
@@ -70,7 +71,8 @@ describe("Sepolia PWA Phase One profile", () => {
     expect(profile.delay).to.deep.equal({ cooldownSeconds: 120, expirationSeconds: 600 });
     expect(profile.amounts).to.deep.equal({ base: 1_000_000n, stepUp: 2_000_000n, delayed: 4_000_000n, funding: 8_000_000n });
     expect(profile.periodAnchor).to.equal(0n);
-    expect(profile.recipient).to.equal(RECIPIENT);
+    expect(profile.baseRecipientMode).to.equal("any-valid-address");
+    expect(profile.elevatedRecipients).to.deep.equal([RECIPIENT]);
   });
 
   it("rejects unknown fields at every profile boundary", () => {
@@ -79,14 +81,15 @@ describe("Sepolia PWA Phase One profile", () => {
     expect(() => loadPwaPhaseOneProfile(mutate((value) => Object.assign(value.identityReview, { rpcResponse: "trusted" })))).to.throw("unknown identityReview field");
   });
 
-  it("rejects wrong token identity, metadata, runtime hash, and recipient", () => {
+  it("rejects wrong token identity, metadata, runtime hash, and elevated-recipient policy", () => {
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.token = RECIPIENT; }))).to.throw("token");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.runtimeCodeHash = `0x${"00".repeat(32)}`; }))).to.throw("runtime code hash");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.identityReview.blockHash = `0x${"00".repeat(32)}`; }))).to.throw("two-provider artifact");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.name = "USD Coin"; }))).to.throw("metadata");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.symbol = "EURC"; }))).to.throw("metadata");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.decimals = 18; }))).to.throw("metadata");
-    expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.recipient = SEPOLIA_USDC_ADDRESS; }))).to.throw("recipient");
+    expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.elevatedRecipients = []; }))).to.throw("elevated recipients");
+    expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.baseRecipientMode = "allowlisted"; }))).to.throw("open base recipient mode");
   });
 
   it("rejects floats, negative and noncanonical decimal strings", () => {
@@ -100,6 +103,10 @@ describe("Sepolia PWA Phase One profile", () => {
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.limits.instantDailyLimit = "4000000"; }))).to.throw("canonical Y limits");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.periodAnchor = "1"; }))).to.throw("epoch-aligned");
     expect(() => loadPwaPhaseOneProfile(mutate((value) => { value.secondaryProfile = "dual"; }))).to.throw("contract-only");
+  });
+
+  it("rejects legacy profile versions instead of inferring open-base behavior", () => {
+    expect(() => loadPwaPhaseOneProfile({ ...profileInput(), formatVersion: 1 })).to.throw("formatVersion");
   });
 });
 

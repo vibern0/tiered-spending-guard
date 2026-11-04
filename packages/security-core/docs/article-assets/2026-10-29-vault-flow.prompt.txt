@@ -1,0 +1,103 @@
+Article infographic: current ordinary-Safe structure, 29 October 2026.
+Generated with the built-in imagegen tool; final image includes one targeted label-correction edit.
+Source: ../evidence/2026-10-29-paused-checkpoint.md
+Suggested caption: One asset-holding Safe enforces a passkey-only base allowance X, shared immediate allowance Y, and cancellable delay Z. The lower strip records the incomplete Sepolia verification checkpoint on 29 October 2026.
+Alt text: Primary passkey and a guard-validated secondary authorize one Safe. TieredSpendingGuard constrains owner and module execution, with Zodiac Delay as the only enabled module. Base spending consumes X and shared Y; step-up spending consumes shared Y; larger withdrawals queue, wait Z, and can be cancelled. Sepolia testing and incomplete acceptance status appear below.
+
+GENERATION PROMPT
+
+Use case: infographic-diagram.
+Asset type: a high-resolution, publication-ready landscape infographic for a technical article. Create one polished standalone image, approximately 2400 x 1600 pixels, with crisp readable typesetting and ample whitespace.
+
+Subject: the CURRENT ordinary-Safe Sepolia vault structure and X/Y/Z transaction flow as documented on 29 Oct 2026. This is a testnet prototype; do not depict the planned ERC-4337 handler or gas sponsorship as implemented.
+
+Visual style: restrained Swiss editorial information design, warm white background, near-black text, thin precise charcoal connectors, navy structural elements. Use muted teal for base tier, blue for step-up, amber for delayed tier, muted red for cancellation/rejection. Flat vector-like diagrams with subtle line icons; no 3D, gradients, decorative crypto coins, robot art, stock photos, or invented logos. Strong typographic hierarchy. Text must be highly legible at article width. All arrows must have clear endpoints and no accidental cross-connections.
+
+Overall layout:
+Top: title and concise subtitle.
+Upper middle: a compact full-width structure diagram.
+Main middle: three equal, generously spaced cards for X, Y, Z with a shared spend-accounting band beneath.
+Bottom: a narrow testing/status strip plus small planned-next note. Align to a rigorous grid. Keep everything inside generous page margins.
+
+Exact title: "ONE SAFE. THREE SPENDING TIERS."
+Exact subtitle: "Onchain policy + exact transaction approval + cancellable delay"
+Small top-right badge: "SEPOLIA PROTOTYPE"
+
+Structure diagram, left to right:
+Left two small credential labels:
+"Primary passkey"
+"Sole Safe owner"
+and beneath:
+"Secondary signer"
+"Guard-validated co-approval"
+A grouping connector leads to one central outlined box labeled:
+"ONE ASSET-HOLDING SAFE"
+"Safe 1.5"
+Attached immediately below the Safe is a smaller policy box:
+"TieredSpendingGuard"
+"Guards owner + module execution"
+To the right of Safe/policy is the Delay box:
+"Zodiac Delay"
+"Only enabled module"
+Show a primary owner-transaction arrow feeding the Safe and its guard, and a queue arrow from the guarded Safe to Delay. A return arrow from Delay toward the Safe is clearly labeled "Ready execution -> module guard". Every asset transfer originates at the Safe; the guard and Delay do not hold the vault's assets. The secondary must NOT be depicted as an additional Safe owner.
+
+Three tier cards below the structure, reading left to right:
+
+LEFT CARD muted teal:
+large "X"
+"BASE"
+"Primary passkey"
+"Within remaining X and Y"
+"Consumes X + shared Y"
+"Execute immediately"
+
+MIDDLE CARD blue:
+large "Y"
+"STEP-UP"
+"Primary + one secondary"
+"Within remaining shared Y"
+"Consumes shared Y"
+"Execute immediately"
+
+RIGHT CARD amber:
+large "Z"
+"DELAYED"
+"Primary + one secondary"
+"Exceeds remaining shared Y"
+Flow inside card: "Queue exact transfer" -> "Wait Z" -> "Execute when ready"
+A side branch from the waiting stage leads to muted-red "Cancel".
+Tiny note below that branch: "Cancellation requires both factors"
+Do not imply automatic scheduled execution.
+
+Below the three cards a prominent shared accounting band with two exact text lines:
+"0 < X < Y | Limits are per asset, per daily period"
+"Base + step-up spending share Y. A second signature never increases the limit."
+Use a small X subsegment nested inside a Y total bar if helpful; do not draw X and Y as additive budgets.
+
+Compact security line beneath:
+"Native + selected ERC-20 transfers only"
+"Approvals, arbitrary calls and replay rejected"
+Use subtle shield/cross icons.
+
+BOTTOM STRIP, exact header: "HOW IT IS VERIFIED"
+Three compact steps connected left-to-right:
+"Local adversarial tests" -> "Bounded Sepolia transactions" -> "Receipts + independent alerts"
+Tiny clarification beneath: "Alerts observe; they never authorize."
+Then a status line, use exact wording:
+"29 OCT 2026 | 15 successful scenario transactions | 610 regular tests passing"
+A separate amber status badge:
+"ACCEPTANCE OPEN: 2 coverage failures"
+No checkmark or green completion badge beside overall acceptance.
+Final small note:
+"Next: close ordinary-Safe gates, then implement native ERC-4337"
+Footer:
+"Security research and testnet prototype. Independent review and audit required."
+
+Accuracy constraints: Main flow depicts the existing ordinary Safe model. Both guard slots use the same policy guard. Delay is the sole enabled execution module. Signatures bind exact transaction fields. X is a passkey-only cumulative daily cap; Y is the shared immediate cumulative daily cap, NOT an additional allowance. Z is the post-approval queue cooldown. Independent monitoring applies to step-up and queue lifecycle; do not imply a mandatory base-transfer alert. The 15 successful records are scenario-journal transactions, excluding deployment receipts. Automated tests do not establish browser/hardware UX. Do not add user EOAs, backend keys, AA modules, custody intermediaries, or production-readiness claims. Keep labeling concise and spell all text correctly.
+
+TARGETED EDIT PROMPT
+
+Edit this infographic with ONLY these two text corrections. Preserve all other text, colors, typography, layout, diagram, illustration, dimensions and details exactly.
+1. Under the upper-right Zodiac Delay box, replace the small parenthetical "(schedules execution only)" with "(queues approved actions)".
+2. Above the upper arrow from Safe to Delay, replace "Queue (if Z)" with "Queue (delayed tier)".
+Do not add automatic execution, a scheduler, or a relayer. The design requires an explicit later execution after the cooldown; Delay itself holds no vault assets. Keep everything else unchanged.

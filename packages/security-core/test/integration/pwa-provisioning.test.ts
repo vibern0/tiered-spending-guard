@@ -132,7 +132,8 @@ describe("PWA provisioning", () => {
       stepUpPerTransaction: profile().limits.stepUpPerTransaction,
       baseDailyLimit: profile().limits.baseDailyLimit,
       instantDailyLimit: profile().limits.instantDailyLimit,
-      recipients: [profile().recipient],
+      baseRecipientMode: profile().baseRecipientMode,
+      recipients: [...profile().elevatedRecipients],
     }]);
     for (const transaction of first.transactions.slice(0, 2)) {
       const decoded = decodeFunctionData({ abi: CREATE_SIGNER_ABI, data: transaction.data });
@@ -151,7 +152,7 @@ describe("PWA provisioning", () => {
     await expect(createPwaProvisioningPlan({ ...base, primaryCredential: { ...primaryCredential, x: 9n } })).to.be.rejected;
     await expect(createPwaProvisioningPlan({ ...base, expectedDeployerNonce: 12n })).to.be.rejectedWith(/nonce/i);
     await expect(createPwaProvisioningPlan({ ...base, safeProxySaltNonce: -1n })).to.be.rejectedWith(/salt/i);
-    await expect(createPwaProvisioningPlan({ ...base, profile: { ...base.profile, recipient: address(9) } as never })).to.be.rejected;
+    await expect(createPwaProvisioningPlan({ ...base, profile: { ...base.profile, elevatedRecipients: [address(9)] } as never })).to.be.rejected;
     await expect(createPwaProvisioningPlan({ ...base, profile: { ...base.profile, token: address(9) } as never })).to.be.rejected;
     await expect(createPwaProvisioningPlan({ ...base, profile: { ...base.profile, limits: { ...base.profile.limits, baseDailyLimit: 2n } } as never })).to.be.rejected;
     await expect(createPwaProvisioningPlan({ ...base, profile: { ...base.profile, limits: { ...base.profile.limits, instantDailyLimit: 4n } } as never })).to.be.rejected;

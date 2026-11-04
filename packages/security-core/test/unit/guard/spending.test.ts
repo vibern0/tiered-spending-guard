@@ -21,7 +21,7 @@ describe("TieredSpendingGuard spending policy", () => {
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
     await expect(guard.read.assetPolicy([token.address])).to.eventually.deep.equal([
-      0n, 0n, 0n, 0n,
+      0n, 0n, 0n, 0n, 0,
     ]);
   });
 });

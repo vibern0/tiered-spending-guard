@@ -40,7 +40,7 @@ const GUARD_ABI = parseAbi([
   "function config() view returns (address safe,address passkey,address ecdsaSecondary,address delay,uint64 periodSeconds,uint64 periodAnchor)",
   "function frozen() view returns (bool)",
   "function getConfiguredTokens() view returns (address[])",
-  "function assetPolicy(address) view returns (uint256 basePerTransaction,uint256 stepUpPerTransaction,uint256 baseDailyLimit,uint256 instantDailyLimit)",
+  "function assetPolicy(address) view returns (uint256 basePerTransaction,uint256 stepUpPerTransaction,uint256 baseDailyLimit,uint256 instantDailyLimit,uint8 baseRecipientMode)",
   "function getPolicyRecipients(address) view returns (address[])",
   "function spendState(address) view returns (uint256 window,uint256 baseSpent,uint256 instantSpent)",
 ]);
@@ -105,6 +105,7 @@ export type VaultAssetPolicy = Readonly<{
   stepUpPerTransaction: bigint;
   baseDailyLimit: bigint;
   instantDailyLimit: bigint;
+  baseRecipientMode: "allowlisted" | "any-valid-address";
   recipients: readonly Address[];
 }>;
 
@@ -413,7 +414,7 @@ export async function readVaultSnapshot(
     let spendState: VaultSpendState | undefined;
     if (configuredTokens.some((token) => sameAddress(token, config.usdc))) {
       const [asset, recipients, spend] = await Promise.all([
-        readAt<readonly [bigint, bigint, bigint, bigint]>(config.guard, GUARD_ABI, "assetPolicy", [
+        readAt<readonly [bigint, bigint, bigint, bigint, number]>(config.guard, GUARD_ABI, "assetPolicy", [
           config.usdc,
         ]),
         readAt<readonly Address[]>(config.guard, GUARD_ABI, "getPolicyRecipients", [config.usdc]),
@@ -427,8 +428,15 @@ export async function readVaultSnapshot(
         stepUpPerTransaction: asset[1],
         baseDailyLimit: asset[2],
         instantDailyLimit: asset[3],
+        baseRecipientMode: asset[4] === 1 ? "any-valid-address" : asset[4] === 0 ? "allowlisted" : (() => { throw new VaultHealthError("policy-invalid", "guard has an unknown base recipient mode"); })(),
         recipients,
       };
+      if (policy.baseRecipientMode !== "any-valid-address")
+        failures.push({
+          code: "policy-invalid",
+          message: "This vault uses the prior all-lanes recipient policy and is not writable with the open-base profile.",
+          blocking: true,
+        });
       spendState = { window: spend[0], baseSpent: spend[1], instantSpent: spend[2] };
     }
 

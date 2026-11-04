@@ -64,7 +64,7 @@ export type PwaQueueBinding = Readonly<{
 
 export type PreparedSignedPwaIntent = Readonly<{
   version: 1;
-  kind: "base-transfer" | "step-up-transfer" | "queue-transfer" | "cancel-queued";
+  kind: "base-transfer" | "step-up-transfer" | "queue-transfer" | "add-recipient" | "cancel-queued";
   snapshotHash: Hex;
   chainId: 11155111;
   blockNumber: bigint;

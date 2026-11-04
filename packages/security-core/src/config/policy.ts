@@ -6,6 +6,7 @@ export type AssetPolicy = Readonly<{
   stepUpPerTransaction: bigint;
   baseDailyLimit: bigint;
   instantDailyLimit: bigint;
+  baseRecipientMode: "allowlisted" | "any-valid-address";
   recipients: readonly Address[];
 }>;
 
@@ -47,7 +48,7 @@ export type AssetSpendState = Readonly<{
 const ZERO = "0x0000000000000000000000000000000000000000";
 const POLICY_REQUIRED_KEYS = ["chainId", "safe", "passkey", "ecdsaSecondary", "delay", "periodSeconds", "periodAnchor", "cooldownSeconds", "expirationSeconds", "assets"] as const;
 const POLICY_KEYS = [...POLICY_REQUIRED_KEYS, "primary", "secondaries", "secondaryProfile"] as const;
-const ASSET_KEYS = ["token", "basePerTransaction", "stepUpPerTransaction", "baseDailyLimit", "instantDailyLimit", "recipients"] as const;
+const ASSET_KEYS = ["token", "basePerTransaction", "stepUpPerTransaction", "baseDailyLimit", "instantDailyLimit", "baseRecipientMode", "recipients"] as const;
 const SIGNER_KEYS = ["address", "role", "kind", "enabled"] as const;
 
 function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], path: string, required: readonly string[] = allowed): void {
@@ -117,11 +118,12 @@ export function assertValidVaultPolicy(policy: VaultPolicy): void {
     if (tokens.has(token)) throw new Error("asset tokens must be distinct");
     tokens.add(token);
     for (const [name, value] of Object.entries(asset)) {
-      if (name !== "token" && name !== "recipients") assertNonNegative(`assets[${index}].${name}`, value as bigint);
+      if (name !== "token" && name !== "recipients" && name !== "baseRecipientMode") assertNonNegative(`assets[${index}].${name}`, value as bigint);
     }
     if (asset.basePerTransaction <= 0n || asset.stepUpPerTransaction <= 0n) throw new Error("transaction caps must be positive");
     if (asset.baseDailyLimit <= 0n || asset.instantDailyLimit <= asset.baseDailyLimit) throw new Error("must satisfy 0 < X < Y");
     if (asset.basePerTransaction > asset.baseDailyLimit || asset.stepUpPerTransaction > asset.instantDailyLimit) throw new Error("transaction cap exceeds daily limit");
+    if (asset.baseRecipientMode !== "allowlisted" && asset.baseRecipientMode !== "any-valid-address") throw new Error("baseRecipientMode is unsupported");
     if (asset.recipients.length === 0) throw new Error("asset recipients must not be empty");
     const recipients = new Set<string>();
     for (const recipient of asset.recipients) {

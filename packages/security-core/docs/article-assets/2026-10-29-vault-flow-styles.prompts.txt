@@ -1,0 +1,97 @@
+Three article infographic alternatives generated with the built-in imagegen tool.
+Reference image: 2026-10-29-vault-flow-simple.png
+Source: ../evidence/2026-10-29-paused-checkpoint.md
+
+1. Monochrome wireframe
+Image: 2026-10-29-vault-flow-wireframe.png
+
+Use case: style-transfer.
+Create ONE standalone landscape infographic for a technical article. The attached image is the content reference. Preserve its simple three-path explanation but completely redesign its visual style and composition. Do not make a collage of alternatives. No additional statistics, technical details, contract names or wiring. Generous whitespace and large readable text; article-ready, approximately 3:2 landscape.
+
+The structure: one vault branches into THREE ALTERNATIVE paths. This is not a sequence of increasingly mandatory steps. Within each path, arrows show the authorization/execution flow. The waiting stage has a clearly distinct cancellation branch.
+
+Use only the following copy, preserving these meanings and spelling:
+Title: "One vault. Three spending rules."
+Source: "Your funds"
+Path 1 heading: "Small payments"
+Path 1 condition: "Within base daily allowance"
+Path 1 approval: "Passkey"
+Path 1 outcome: "Send now"
+Path 2 heading: "Larger payments"
+Path 2 condition: "Within shared daily cap"
+Path 2 approval: "Passkey + second signer"
+Path 2 outcome: "Send now"
+Path 3 heading: "Above daily cap"
+Path 3 approval: "Passkey + second signer"
+Path 3 flow: "Wait" then "Execute"
+Cancellation branch from Wait: "Time to cancel"
+Bottom clarification: "All instant payments count toward the same daily cap."
+Small footer: "Sepolia testnet prototype"
+
+No other copy. Case styling can change. Do not add checkmarks implying production certification or completed review. The daily cap is shared by both instant paths. The delayed path requires both approvals then a mandatory wait and separately triggered execution; do not imply automatic execution. Keep the diagram easier to read than its reference. No corporate clipart, chunky key icons, gradients, shadows or glossy panels.
+
+STYLE: A beautiful low-fidelity product wireframe, black ink on pure white. Delicate 1-pixel technical line work, square-corner boxes, dashed guide lines used sparingly, small monospace labels mixed with a refined plain sans serif. Zero color, zero illustration. A restrained small title at upper left, not an enormous headline. A simple outlined box "Your funds" branches into three horizontally aligned lanes or cards. The boxes and connectors themselves carry the idea. Make the resulting page feel like an exceptional engineer's clean wireframe from a design notebook, deliberately spare and precise. Let whitespace dominate.
+
+----------------------------------------
+
+2. Hand-drawn notebook
+Image: 2026-10-29-vault-flow-notebook.png
+
+Use case: style-transfer.
+Create ONE standalone landscape infographic for a technical article. The attached image is the content reference. Preserve its simple three-path explanation but completely redesign its visual style and composition. Do not make a collage of alternatives. No additional statistics, technical details, contract names or wiring. Generous whitespace and large readable text; article-ready, approximately 3:2 landscape.
+
+The structure: one vault branches into THREE ALTERNATIVE paths. This is not a sequence of increasingly mandatory steps. Within each path, arrows show the authorization/execution flow. The waiting stage has a clearly distinct cancellation branch.
+
+Use only the following copy, preserving these meanings and spelling:
+Title: "One vault. Three spending rules."
+Source: "Your funds"
+Path 1 heading: "Small payments"
+Path 1 condition: "Within base daily allowance"
+Path 1 approval: "Passkey"
+Path 1 outcome: "Send now"
+Path 2 heading: "Larger payments"
+Path 2 condition: "Within shared daily cap"
+Path 2 approval: "Passkey + second signer"
+Path 2 outcome: "Send now"
+Path 3 heading: "Above daily cap"
+Path 3 approval: "Passkey + second signer"
+Path 3 flow: "Wait" then "Execute"
+Cancellation branch from Wait: "Time to cancel"
+Bottom clarification: "All instant payments count toward the same daily cap."
+Small footer: "Sepolia testnet prototype"
+
+No other copy. Case styling can change. Do not add checkmarks implying production certification or completed review. The daily cap is shared by both instant paths. The delayed path requires both approvals then a mandatory wait and separately triggered execution; do not imply automatic execution. Keep the diagram easier to read than its reference. No corporate clipart, chunky key icons, gradients, shadows or glossy panels.
+
+STYLE: A thoughtfully hand-drawn notebook diagram on warm off-white paper. Charcoal pen outlines with subtly imperfect curves and arrows, small understated handwritten lettering that is exceptionally legible. Very faint dot grid. Single tiny muted rust accent only for the cancellation branch. No saturated colors. A small hand-sketched vault at top feeding three roomy branches. Handdrawn thin rectangles and unhurried generous spacing. Human, quiet, intellectually clear, tasteful like a published engineering field note. Avoid childish doodles, tiny decorative objects, smudges, tilted text or excessive roughness. Keep paper flat, no photographed desk or perspective.
+
+----------------------------------------
+
+3. Minimal editorial
+Image: 2026-10-29-vault-flow-editorial.png
+
+Use case: style-transfer.
+Create ONE standalone landscape infographic for a technical article. The attached image is the content reference. Preserve its simple three-path explanation but completely redesign its visual style and composition. Do not make a collage of alternatives. No additional statistics, technical details, contract names or wiring. Generous whitespace and large readable text; article-ready, approximately 3:2 landscape.
+
+The structure: one vault branches into THREE ALTERNATIVE paths. This is not a sequence of increasingly mandatory steps. Within each path, arrows show the authorization/execution flow. The waiting stage has a clearly distinct cancellation branch.
+
+Use only the following copy, preserving these meanings and spelling:
+Title: "One vault. Three spending rules."
+Source: "Your funds"
+Path 1 heading: "Small payments"
+Path 1 condition: "Within base daily allowance"
+Path 1 approval: "Passkey"
+Path 1 outcome: "Send now"
+Path 2 heading: "Larger payments"
+Path 2 condition: "Within shared daily cap"
+Path 2 approval: "Passkey + second signer"
+Path 2 outcome: "Send now"
+Path 3 heading: "Above daily cap"
+Path 3 approval: "Passkey + second signer"
+Path 3 flow: "Wait" then "Execute"
+Cancellation branch from Wait: "Time to cancel"
+Bottom clarification: "All instant payments count toward the same daily cap."
+Small footer: "Sepolia testnet prototype"
+
+No other copy. Case styling can change. Do not add checkmarks implying production certification or completed review. The daily cap is shared by both instant paths. The delayed path requires both approvals then a mandatory wait and separately triggered execution; do not imply automatic execution. Keep the diagram easier to read than its reference. No corporate clipart, chunky key icons, gradients, shadows or glossy panels.
+
+STYLE: Sophisticated editorial information design for a technology journal: warm ivory background, black fine lines, restrained burnt-orange accent solely on the delayed path. Beautiful medium-size serif title with generous leading; small grotesk sans-serif for labels. Clean asymmetric typesetting and rigorous baseline alignment. No icons at all: typography, thin rules, and arrows are the entire visual language. One compact source label near upper left flows into three spacious horizontal rows, each containing condition -> approval -> result. The third row has its explicit wait and a small elegant cancellation branch. Bottom clarification spans the width. Feel like a premium magazine diagram, not a slide deck or marketing infographic. Make this visibly different from a three-column card layout.

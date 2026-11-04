@@ -376,6 +376,7 @@ export async function checkBackendHealth(
   });
   let payload: {
     ok?: unknown;
+    writesReady?: unknown;
     error?: unknown;
     chainId?: unknown;
     profileId?: unknown;
@@ -391,6 +392,8 @@ export async function checkBackendHealth(
     throw new Error(
       `Backend health check failed: ${typeof payload.error === "string" ? payload.error : `HTTP ${response.status}`}`,
     );
+  if (payload.writesReady !== true)
+    throw new Error("Backend health check failed: submission runtime is not ready");
   if (
     payload.chainId !== profile.chainId ||
     payload.profileId !== profile.id ||
@@ -655,13 +658,15 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
   if (amount <= 0n) return { lane: "blocked", reason: "Enter an amount above 0 USDC." };
   if (amount > s.balance)
     return { lane: "blocked", reason: "This is more than your available balance." };
+  if (amount <= s.policy.basePerTxCap && s.spentFirstSigner + amount <= s.policy.firstSignerDaily && s.spentInstant + amount <= s.policy.instantDaily)
+    return { lane: "base" };
   if (!s.recipients.some((r) => r.address.toLowerCase() === to.toLowerCase()))
-    return { lane: "blocked", reason: "This recipient is not on your allowed list." };
+    return { lane: "blocked", reason: "This amount needs an elevated lane, so add this recipient through delayed maintenance first." };
   if (s.spentInstant + amount > s.policy.instantDaily) return { lane: "delayed" };
   if (amount > s.policy.perTxCap)
     return { lane: "blocked", reason: "This is above the maximum for an instant transfer." };
   if (s.spentFirstSigner + amount > s.policy.firstSignerDaily) return { lane: "step-up" };
-  return { lane: "base" };
+  return { lane: "blocked", reason: "This transfer does not fit an available lane." };
 }
 
 type Ctx = {

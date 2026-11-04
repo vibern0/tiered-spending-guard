@@ -49,14 +49,10 @@ function SendPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const pickManual = () => {
-    if (!isAddress(manual)) return setError("That doesn't look like a valid account address.");
+    if (!isAddress(manual) || /^0x0{40}$/i.test(manual)) return setError("That doesn't look like a valid account address.");
     const known = state.recipients.find((r) => r.address.toLowerCase() === manual.toLowerCase());
-    if (!known)
-      return setError(
-        "This recipient is not on your allowed list. Add it in Limits & security first.",
-      );
     setError(null);
-    setTo(known);
+    setTo(known ?? { name: shortAddr(manual), address: manual });
     setStep("amount");
   };
 

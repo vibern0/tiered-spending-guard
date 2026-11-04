@@ -26,6 +26,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     enum AuthorizationTier { Base, StepUp, DelayedProposal, Emergency }
     enum SignerRole { Primary, Secondary }
     enum SignerKind { SafeContractSignature, EcdsaExtension }
+    enum BaseRecipientMode { Allowlisted, AnyNonZero }
 
     struct GuardConfig {
         address safe;
@@ -54,6 +55,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         uint256 stepUpPerTransaction;
         uint256 baseDailyLimit;
         uint256 instantDailyLimit;
+        BaseRecipientMode baseRecipientMode;
     }
 
     struct SpendState {
@@ -71,8 +73,9 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     bytes4 private constant REPLACE_SIGNER_SELECTOR = bytes4(keccak256("replaceSigner(address,uint8,address,address,address,uint256,bytes)"));
     bytes4 private constant CONFIGURE_SAFE_CONTRACT_SECONDARY_SELECTOR = bytes4(keccak256("configureSafeContractSecondary(address,bool)"));
     bytes4 private constant SAFE_REMOVE_OWNER_SELECTOR = bytes4(keccak256("removeOwner(address,address,uint256)"));
-    bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(address,uint256,uint256,uint256,uint256,address[])"));
-    bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
+    bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(bytes32,address,uint256,uint256,uint256,uint256,address[],uint8)"));
+    bytes4 private constant LEGACY_SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
+    bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[],uint8)"));
 
     GuardConfig public config;
     mapping(address => AssetPolicy) public assetPolicy;
@@ -164,6 +167,31 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         uint256 instantDailyLimit,
         address[] calldata recipients
     ) external onlySafe {
+        _setAssetPolicyImmediate(token, basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit, recipients, BaseRecipientMode.Allowlisted);
+    }
+
+    function setAssetPolicy(
+        address token,
+        uint256 basePerTransaction,
+        uint256 stepUpPerTransaction,
+        uint256 baseDailyLimit,
+        uint256 instantDailyLimit,
+        address[] calldata recipients,
+        uint8 rawBaseRecipientMode
+    ) external onlySafe {
+        if (rawBaseRecipientMode > uint8(BaseRecipientMode.AnyNonZero)) revert InvalidAssetPolicy();
+        _setAssetPolicyImmediate(token, basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit, recipients, BaseRecipientMode(rawBaseRecipientMode));
+    }
+
+    function _setAssetPolicyImmediate(
+        address token,
+        uint256 basePerTransaction,
+        uint256 stepUpPerTransaction,
+        uint256 baseDailyLimit,
+        uint256 instantDailyLimit,
+        address[] calldata recipients,
+        BaseRecipientMode baseRecipientMode
+    ) internal {
         if (
             basePerTransaction == 0 || stepUpPerTransaction == 0 || baseDailyLimit == 0 ||
             instantDailyLimit <= baseDailyLimit || basePerTransaction > baseDailyLimit ||
@@ -172,11 +200,12 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         AssetPolicy memory previous = assetPolicy[token];
         if (previous.instantDailyLimit != 0) {
             if (basePerTransaction > previous.basePerTransaction || stepUpPerTransaction > previous.stepUpPerTransaction || baseDailyLimit > previous.baseDailyLimit || instantDailyLimit > previous.instantDailyLimit) revert InvalidAssetPolicy();
+            if (uint8(baseRecipientMode) > uint8(previous.baseRecipientMode)) revert InvalidAssetPolicy();
             for (uint256 i; i < recipients.length; ++i) {
                 if (!allowedRecipient[token][recipients[i]]) revert InvalidAssetPolicy();
             }
         }
-        assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
+        assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit, baseRecipientMode);
         if (!configuredToken[token]) { configuredToken[token] = true; configuredTokens.push(token); }
         address[] storage previousRecipients = policyRecipients[token];
         for (uint256 i; i < previousRecipients.length; ++i) {
@@ -243,13 +272,14 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     /// @param baseDaily New passkey-only daily cap.
     /// @param instantDaily New shared immediate daily cap.
     /// @param recipients New exact recipient allowlist for the asset.
-    function repairPolicy(address token, uint256 basePerTx, uint256 stepUpPerTx, uint256 baseDaily, uint256 instantDaily, address[] calldata recipients) external onlySafe {
+    function repairPolicy(bytes32 expectedPolicyHash, address token, uint256 basePerTx, uint256 stepUpPerTx, uint256 baseDaily, uint256 instantDaily, address[] calldata recipients, uint8 rawBaseRecipientMode) external onlySafe {
+        if (expectedPolicyHash != this.policyHash() || rawBaseRecipientMode > uint8(BaseRecipientMode.AnyNonZero)) revert InvalidRepair();
         if (recipients.length == 0) revert InvalidRepair();
         for (uint256 i; i < recipients.length; ++i) {
             if (recipients[i] == address(0)) revert InvalidRepair();
             for (uint256 j; j < i; ++j) if (recipients[i] == recipients[j]) revert InvalidRepair();
         }
-        _setAssetPolicy(token, basePerTx, stepUpPerTx, baseDaily, instantDaily, recipients);
+        _setAssetPolicy(token, basePerTx, stepUpPerTx, baseDaily, instantDaily, recipients, BaseRecipientMode(rawBaseRecipientMode));
     }
 
     modifier onlySafe() {
@@ -278,7 +308,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         for (uint256 i; i < configuredTokens.length; ++i) {
             address token = configuredTokens[i];
             AssetPolicy memory p = assetPolicy[token];
-            assets[i] = keccak256(abi.encode(token, p.basePerTransaction, p.stepUpPerTransaction, p.baseDailyLimit, p.instantDailyLimit, policyRecipients[token]));
+            assets[i] = keccak256(abi.encode(token, p.basePerTransaction, p.stepUpPerTransaction, p.baseDailyLimit, p.instantDailyLimit, p.baseRecipientMode, policyRecipients[token]));
         }
         return keccak256(abi.encode(
             block.chainid,
@@ -543,7 +573,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
         AssetPolicy memory policy = assetPolicy[token];
         if (policy.instantDailyLimit == 0) revert UnsupportedTransfer();
-        if (!allowedRecipient[token][recipient]) revert RecipientNotAllowed();
+        if (recipient == address(0)) revert RecipientNotAllowed();
         if (amount == 0) revert UnsupportedTransfer();
 
         uint256 window = _currentWindow();
@@ -552,6 +582,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
         AuthorizationTier tier;
         if (!secondaryApproved) {
+            if (policy.baseRecipientMode == BaseRecipientMode.Allowlisted && !allowedRecipient[token][recipient]) revert RecipientNotAllowed();
             if (
                 amount > policy.basePerTransaction || amount > policy.baseDailyLimit - state.baseSpent ||
                 amount > policy.instantDailyLimit - state.instantSpent
@@ -559,6 +590,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             tier = AuthorizationTier.Base;
             state.baseSpent += amount;
         } else {
+            if (!allowedRecipient[token][recipient]) revert RecipientNotAllowed();
             if (amount > policy.stepUpPerTransaction || amount > policy.instantDailyLimit - state.instantSpent) revert TransferExceedsLimit();
             tier = AuthorizationTier.StepUp;
         }
@@ -649,16 +681,23 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
     /// @dev Accepts only canonical ABI encoding for direct delayed policy repair.
     function _isExactPolicyRepair(bytes memory data) internal pure returns (bool) {
-        if (data.length < 4 + 32 * 6 || bytes4(data) != REPAIR_POLICY_SELECTOR) return false;
-        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(_copy(data, 4), (address, uint256, uint256, uint256, uint256, address[]));
-        return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_POLICY_SELECTOR, token, a, b, c, d, recipients));
+        if (data.length < 4 + 32 * 8 || bytes4(data) != REPAIR_POLICY_SELECTOR) return false;
+        (bytes32 expectedPolicyHash, address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients, uint8 baseRecipientMode) = abi.decode(_copy(data, 4), (bytes32, address, uint256, uint256, uint256, uint256, address[], uint8));
+        return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_POLICY_SELECTOR, expectedPolicyHash, token, a, b, c, d, recipients, baseRecipientMode));
     }
 
     /// @dev Accepts only canonical ABI encoding for immediate policy tightening.
     function _isExactSetAssetPolicy(bytes calldata data) internal pure returns (bool) {
-        if (data.length < 4 + 32 * 6 || bytes4(data[:4]) != SET_ASSET_POLICY_SELECTOR) return false;
-        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(data[4:], (address, uint256, uint256, uint256, uint256, address[]));
-        return keccak256(data) == keccak256(abi.encodeWithSelector(SET_ASSET_POLICY_SELECTOR, token, a, b, c, d, recipients));
+        if (data.length < 4) return false;
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == LEGACY_SET_ASSET_POLICY_SELECTOR) {
+            if (data.length < 4 + 32 * 6) return false;
+            (address legacyToken, uint256 legacyA, uint256 legacyB, uint256 legacyC, uint256 legacyD, address[] memory legacyRecipients) = abi.decode(data[4:], (address, uint256, uint256, uint256, uint256, address[]));
+            return keccak256(data) == keccak256(abi.encodeWithSelector(LEGACY_SET_ASSET_POLICY_SELECTOR, legacyToken, legacyA, legacyB, legacyC, legacyD, legacyRecipients));
+        }
+        if (selector != SET_ASSET_POLICY_SELECTOR || data.length < 4 + 32 * 7) return false;
+        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients, uint8 baseRecipientMode) = abi.decode(data[4:], (address, uint256, uint256, uint256, uint256, address[], uint8));
+        return keccak256(data) == keccak256(abi.encodeWithSelector(SET_ASSET_POLICY_SELECTOR, token, a, b, c, d, recipients, baseRecipientMode));
     }
 
     /// @dev Recognizes delayed delegatecall maintenance actions and exact lengths.
@@ -712,9 +751,9 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     /// @dev Internal policy replacement used by delayed repair.
-    function _setAssetPolicy(address token, uint256 basePerTransaction, uint256 stepUpPerTransaction, uint256 baseDailyLimit, uint256 instantDailyLimit, address[] calldata recipients) internal {
+    function _setAssetPolicy(address token, uint256 basePerTransaction, uint256 stepUpPerTransaction, uint256 baseDailyLimit, uint256 instantDailyLimit, address[] calldata recipients, BaseRecipientMode baseRecipientMode) internal {
         if (basePerTransaction == 0 || stepUpPerTransaction == 0 || baseDailyLimit == 0 || instantDailyLimit <= baseDailyLimit || basePerTransaction > baseDailyLimit || stepUpPerTransaction > instantDailyLimit) revert InvalidAssetPolicy();
-        assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
+        assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit, baseRecipientMode);
         if (!configuredToken[token]) { configuredToken[token] = true; configuredTokens.push(token); }
         address[] storage previousRecipients = policyRecipients[token];
         for (uint256 i; i < previousRecipients.length; ++i) allowedRecipient[token][previousRecipients[i]] = false;

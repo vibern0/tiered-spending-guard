@@ -15,6 +15,7 @@ export type BackendVaultRecord = Readonly<VaultProvisioningResult & {
 
 export type BackendIntent =
   | Readonly<{ kind: "transfer"; recipient: unknown; amount: unknown; idempotencyKey: unknown }>
+  | Readonly<{ kind: "add-recipient"; recipient: unknown; idempotencyKey: unknown }>
   | Readonly<{ kind: "cancel-queued" | "execute-ready" | "skip-expired"; queueNonce: unknown; queueFingerprint: unknown; idempotencyKey: unknown }>;
 export type BackendPreparation = (input: Readonly<{ vault: BackendVaultRecord; request: BackendIntent }>) => Promise<BackendPreparedSubmission>;
 export type BackendSubmission = (input: Readonly<{ vault: BackendVaultRecord; id: string; body: unknown }>) => Promise<unknown>;
@@ -112,10 +113,12 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     if (!options.prepareTransfer) throw new Error("submission preparation unavailable");
     const request = record(input, "transfer request");
     const kind = request.kind;
-    const expected = kind === "transfer" ? ["kind", "recipient", "amount", "idempotencyKey"] : ["kind", "queueNonce", "queueFingerprint", "idempotencyKey"];
-    if (!["transfer", "cancel-queued", "execute-ready", "skip-expired"].includes(String(kind)) || Object.keys(request).length !== expected.length || Object.keys(request).some((key) => !expected.includes(key))) throw new Error("submission preparation body contains an unsupported field");
+    const expected = kind === "transfer" ? ["kind", "recipient", "amount", "idempotencyKey"] : kind === "add-recipient" ? ["kind", "recipient", "idempotencyKey"] : ["kind", "queueNonce", "queueFingerprint", "idempotencyKey"];
+    if (!["transfer", "add-recipient", "cancel-queued", "execute-ready", "skip-expired"].includes(String(kind)) || Object.keys(request).length !== expected.length || Object.keys(request).some((key) => !expected.includes(key))) throw new Error("submission preparation body contains an unsupported field");
     const intent = (kind === "transfer"
       ? { kind, recipient: request.recipient, amount: request.amount, idempotencyKey: request.idempotencyKey }
+      : kind === "add-recipient"
+        ? { kind, recipient: request.recipient, idempotencyKey: request.idempotencyKey }
       : { kind, queueNonce: request.queueNonce, queueFingerprint: request.queueFingerprint, idempotencyKey: request.idempotencyKey }) as BackendIntent;
     const prepared = await options.prepareTransfer({ vault: requireVault(), request: intent });
     if (prepared.id !== request.idempotencyKey || prepared.publicRequest.kind !== kind || prepared.publicRequest.idempotencyKey !== request.idempotencyKey) throw new Error("prepared request does not match the server-held intent");

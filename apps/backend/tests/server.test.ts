@@ -35,7 +35,7 @@ describe("backend HTTP boundary", () => {
     const response = await fetch(`${origin}/health`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ ok: true, chainId: 11155111, profileId: "local", origin: config.origin, rpId: "localhost" });
+    expect(await response.json()).toEqual({ ok: true, writesReady: false, chainId: 11155111, profileId: "local", origin: config.origin, rpId: "localhost" });
   });
 
   it("rejects wrong origin, malformed JSON, and unknown routes", async () => {

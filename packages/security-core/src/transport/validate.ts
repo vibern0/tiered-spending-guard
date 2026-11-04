@@ -199,7 +199,7 @@ export function snapshotPreparedPwaIntent(input: unknown): PreparedPwaIntent {
   if (!isRecord(input)) throw new Error("prepared PWA intent must be an object");
   const direct = input.kind === "execute-ready" || input.kind === "skip-expired";
   assertExactKeys(input, direct ? PWA_DIRECT_KEYS : PWA_SIGNED_KEYS, "prepared PWA intent");
-  if (input.version !== 1 || !["base-transfer", "step-up-transfer", "queue-transfer", "cancel-queued", "execute-ready", "skip-expired"].includes(String(input.kind))) throw new Error("unsupported prepared PWA intent");
+  if (input.version !== 1 || !["base-transfer", "step-up-transfer", "queue-transfer", "add-recipient", "cancel-queued", "execute-ready", "skip-expired"].includes(String(input.kind))) throw new Error("unsupported prepared PWA intent");
   if (input.chainId !== 11155111) throw new Error("prepared PWA intent must use Sepolia");
   const common = {
     version: 1 as const,

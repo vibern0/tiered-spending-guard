@@ -16,8 +16,10 @@ const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
   { name: "enabled", type: "bool" },
 ]);
 const repairPolicyAbi = fn("repairPolicy", [
+  { name: "expectedPolicyHash", type: "bytes32" },
   { name: "token", type: "address" }, { name: "basePerTx", type: "uint256" }, { name: "stepUpPerTx", type: "uint256" },
   { name: "baseDaily", type: "uint256" }, { name: "instantDaily", type: "uint256" }, { name: "recipients", type: "address[]" },
+  { name: "baseRecipientMode", type: "uint8" },
 ]);
 const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
 const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
@@ -178,7 +180,8 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
   it("keeps policy repair delayed, including deliberate weakening", async () => {
     const f = await fixture();
     const queueRepair = async (base: bigint, stepUp: bigint, daily: bigint, instant: bigint) => {
-      const repair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, base, stepUp, daily, instant, [f.recipient.account.address]] });
+      const policyHash = await f.guard.read.policyHash();
+      const repair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [policyHash, ZERO, base, stepUp, daily, instant, [f.recipient.account.address], 0] });
       const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repair, 0] });
       const signature = await f.passkeyAndSecondary(f.delay.address, queued);
       await f.execute(f.delay.address, queued, signature);
@@ -202,6 +205,32 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect(weakened[1]).to.equal(100n);
     expect(weakened[2]).to.equal(50n);
     expect(weakened[3]).to.equal(100n);
+  });
+
+  it("fails a queued recipient addition as stale after the policy changes", async () => {
+    const f = await fixture();
+    const expectedPolicyHash = await f.guard.read.policyHash();
+    const repair = encodeFunctionData({
+      abi: repairPolicyAbi,
+      functionName: "repairPolicy",
+      args: [expectedPolicyHash, ZERO, 50n, 100n, 50n, 100n, [f.recipient.account.address, f.replacement.account.address], 0],
+    });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repair, 0] });
+    await f.execute(f.delay.address, queued, await f.passkeyAndSecondary(f.delay.address, queued));
+
+    const immediateTightening = encodeFunctionData({
+      abi: fn("setAssetPolicy", [
+        { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+        { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+      ]),
+      functionName: "setAssetPolicy",
+      args: [ZERO, 40n, 90n, 40n, 90n, [f.recipient.account.address]],
+    });
+    await f.execute(f.guard.address, immediateTightening, f.passkeySig);
+
+    await time.increase(10);
+    await expect(f.executeNext(f.guard.address, 0n, repair)).to.be.rejected;
+    expect(await f.guard.read.allowedRecipient([ZERO, f.replacement.account.address])).to.equal(false);
   });
 
   it("rejects a contract that imitates the guard interfaces during replacement", async () => {

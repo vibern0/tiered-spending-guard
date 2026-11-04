@@ -274,7 +274,7 @@ function assertCanonicalProfile(profile: PwaPhaseOneProfile): void {
   if (profile.chainId !== SEPOLIA_CHAIN_ID || !isAddressEqual(profile.token, SEPOLIA_USDC_ADDRESS) || profile.runtimeCodeHash.toLowerCase() !== REVIEWED_USDC_RUNTIME_CODE_HASH || profile.name !== "USDC" || profile.symbol !== "USDC" || profile.decimals !== 6) throw new Error("PWA provisioning requires the reviewed Sepolia USDC profile");
   if (profile.secondaryProfile !== "contract-only" || profile.periodSeconds !== 86400 || profile.periodAnchor !== 0n) throw new Error("PWA provisioning requires the fixed contract-only daily profile");
   if (profile.limits.basePerTransaction !== 1_000_000n || profile.limits.baseDailyLimit !== 1_000_000n || profile.limits.stepUpPerTransaction !== 3_000_000n || profile.limits.instantDailyLimit !== 3_000_000n) throw new Error("PWA provisioning requires canonical X/Y limits");
-  if (profile.delay.cooldownSeconds !== 120 || profile.delay.expirationSeconds !== 600 || !isAddressEqual(profile.recipient, PWA_RECIPIENT)) throw new Error("PWA provisioning requires canonical recipient and Z delay");
+  if (profile.delay.cooldownSeconds !== 120 || profile.delay.expirationSeconds !== 600 || profile.baseRecipientMode !== "any-valid-address" || profile.elevatedRecipients.length !== 1 || !isAddressEqual(profile.elevatedRecipients[0]!, PWA_RECIPIENT)) throw new Error("PWA provisioning requires canonical recipient policy and Z delay");
 }
 
 function fixedPolicy(input: Readonly<{ profile: PwaPhaseOneProfile; safe: Address; primaryPasskey: Address; secondaryPasskey: Address; delay: Address }>): VaultPolicy {
@@ -291,7 +291,7 @@ function fixedPolicy(input: Readonly<{ profile: PwaPhaseOneProfile; safe: Addres
     periodAnchor: input.profile.periodAnchor,
     cooldownSeconds: input.profile.delay.cooldownSeconds,
     expirationSeconds: input.profile.delay.expirationSeconds,
-    assets: [{ token: SEPOLIA_USDC_ADDRESS, basePerTransaction: input.profile.limits.basePerTransaction, stepUpPerTransaction: input.profile.limits.stepUpPerTransaction, baseDailyLimit: input.profile.limits.baseDailyLimit, instantDailyLimit: input.profile.limits.instantDailyLimit, recipients: [PWA_RECIPIENT] }],
+    assets: [{ token: SEPOLIA_USDC_ADDRESS, basePerTransaction: input.profile.limits.basePerTransaction, stepUpPerTransaction: input.profile.limits.stepUpPerTransaction, baseDailyLimit: input.profile.limits.baseDailyLimit, instantDailyLimit: input.profile.limits.instantDailyLimit, baseRecipientMode: input.profile.baseRecipientMode, recipients: [...input.profile.elevatedRecipients] }],
   });
 }
 

@@ -10,6 +10,29 @@ const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
 
 
 describe("TieredSpendingGuard spending against Safe 1.5", () => {
+  it("permits an unlisted recipient only for a primary-only transfer in open base mode", async () => {
+    const [deployer, ecdsaSecondary, recipient, unlisted] = await hre.viem.getWalletClients();
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, ecdsaSecondary.account.address]);
+    const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 1_000n]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
+    const sign = async (to: Address, data: Hex) => signSafeTransaction(safe, ecdsaSecondary, to, data);
+    const execute = async (to: Address, data: Hex, signature: Hex) =>
+      safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
+    const policyData = encodeFunctionData({ abi: fn("setAssetPolicy", [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+      { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }, { name: "baseRecipientMode", type: "uint8" },
+    ]), functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 500n, [recipient.account.address], 1] });
+    await execute(guard.address, policyData, await sign(guard.address, policyData));
+    const setGuard = encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] });
+    await execute(safe.address, setGuard, await sign(safe.address, setGuard));
+    const transfer = (to: Address, amount: bigint) => encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [to, amount] });
+
+    await execute(token.address, transfer(unlisted.account.address, 100n), passkeySignature(passkey.address));
+    await expect(execute(token.address, transfer(unlisted.account.address, 101n), ecdsaSecondaryEnvelope(passkey.address, await signSafeTransaction(safe, ecdsaSecondary, token.address, transfer(unlisted.account.address, 101n))))).to.be.rejected;
+  });
+
   it("secondary signer Safe contract approval spends under the shared Y limit", async () => {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
