@@ -59,7 +59,7 @@ export type VaultPlanInput = Readonly<{
   artifacts: ReviewedVaultArtifacts;
   deployments: VerifiedDeploymentInfrastructure | PwaPlanningInfrastructure;
   /** Reviewed transactions deliberately preceding the four prerequisites. */
-  plannedPrefixTransactionCount?: 0 | 2;
+  plannedPrefixTransactionCount?: number;
   /** Number of consecutively journaled prerequisite deployments being resumed. */
   completedPrerequisites?: 0 | 1 | 2 | 3 | 4;
 }>;
@@ -292,7 +292,11 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   if (!isOfficialVerifiedDeployments(input.deployments) && !isPwaPlanningInfrastructure(input.deployments)) throw new Error("fail closed: deployments must come from a verified resolver");
   if (!same(input.deployments.deployer, input.deployer)) throw new Error("fail closed: deployer does not match verified deployment infrastructure");
   const completedPrerequisites = input.completedPrerequisites ?? 0;
-  const prefix = BigInt(input.plannedPrefixTransactionCount ?? 0);
+  const plannedPrefixTransactionCount = input.plannedPrefixTransactionCount ?? 0;
+  if (!Number.isSafeInteger(plannedPrefixTransactionCount) || plannedPrefixTransactionCount < 0) throw new Error("fail closed: planned prefix transaction count is invalid");
+  if (!isPwaPlanningInfrastructure(input.deployments) && plannedPrefixTransactionCount !== 0) throw new Error("fail closed: only PWA planning may include a transaction prefix");
+  if (isPwaPlanningInfrastructure(input.deployments) && plannedPrefixTransactionCount !== 0 && plannedPrefixTransactionCount < 2) throw new Error("fail closed: PWA planning prefix must include both signer transactions");
+  const prefix = BigInt(plannedPrefixTransactionCount);
   if (input.deployments.observedDeployerNonce !== input.startingNonce - prefix + BigInt(completedPrerequisites)) {
     throw new Error("fail closed: deployer resume nonce does not match journaled prerequisites");
   }

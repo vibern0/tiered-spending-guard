@@ -1,7 +1,10 @@
 # Phase One Automated PWA Provisioning Design
 
-**Status:** Proposed scope amendment
+**Status:** Implemented Phase One amendment
 **Date:** 2026-11-01
+
+> **2026-11-01 dynamic-envelope and recovery amendment:**
+> [Dynamic PWA Provisioning Envelope and Recovery Design](2026-11-01-dynamic-pwa-provisioning-envelope-and-recovery-design.md) is authoritative where this document previously described fixed per-transaction gas/fee caps, one seven-transaction approval, or a hard stop for every non-empty provisioning journal. Phase One now uses one dual-provider quote and one append-only authorization record per transaction, permits only an exactly verified confirmed prefix of length `1..6` to resume, and requires both recovered passkeys to rebind before any spending path is available.
 
 ## Intent
 
@@ -14,7 +17,7 @@ This amendment knowingly trusts the Phase One backend process for deployment aut
 - Start provisioning automatically after successful secondary-passkey registration; no additional user click.
 - Keep all browser inputs outside deployment addresses, policy, transactions, gas, fees, artifacts, and authorization.
 - Preserve unsigned deterministic review-package generation before any broadcast.
-- Generate one exact in-memory authorization from committed Sepolia caps and the pending plan.
+- Generate one exact per-transaction authorization from a canonical dual-provider quote and the pending plan transaction.
 - Recheck chain, nonce, code absence/presence, gas estimate, fee quote, reservation, receipts, and final topology.
 - Keep the authorization source behind an interface that a later KMS/HSM-backed independent approver can implement.
 - Remove `BACKEND_PROVISIONING_APPROVAL` and `BACKEND_PROVISIONING_APPROVAL_HASH_FILE` from Phase One configuration.
@@ -25,7 +28,7 @@ This amendment knowingly trusts the Phase One backend process for deployment aut
 - Protection from arbitrary code execution in the backend process or complete compromise of its host.
 - Mainnet, production readiness, audit claims, remote deployment, or a public provisioning service.
 - A KMS, HSM, TEE, remote approver, second RPC trust domain, or locked onchain bootstrap factory in this change.
-- Automatic recovery from a backend restart that loses the current in-memory passkey-registration session.
+- Recovery of anything except an exact, canonical, six-confirmation successful prefix of the reviewed seven-transaction plan.
 - Automatic retry after an unknown broadcast outcome, nonce drift, code drift, fee-cap breach, failed simulation, or failed topology verification.
 - Funding the resulting Safe or beginning the X/Y/Z rehearsal automatically.
 
@@ -68,13 +71,13 @@ backend loads both server-held verified credentials
 security-core resolves committed Sepolia plan and writes unsigned review package
           |
           v
-ProvisioningAuthorizer.authorize(plan, currentPublicFacts)
+ProvisioningAuthorizer.authorizeTransaction(plan, nextTransaction, quote, budgetFacts)
           |
           +-- Phase One: committed local caps, same backend process
           +-- Future: verified signed KMS/HSM attestation
           |
           v
-existing approval validator + durable executor
+append-only authorization sidecar + durable executor
           |
           v
 receipt/runtime checks after each transaction
@@ -88,7 +91,7 @@ only verified public vault projection returned to the browser
 
 ## Authorization boundary
 
-Add a provider-neutral `ProvisioningAuthorizer` interface. It consumes the branded `PwaProvisioningPlan` plus current public fee/gas facts and returns the existing canonical `PwaProvisioningApproval`. It has no relay account, private key, signing callback, broadcast callback, journal writer, or browser input.
+The provider-neutral `ProvisioningAuthorizer` consumes the branded `PwaProvisioningPlan`, its next exact transaction, the confirmed journal prefix, one canonical dual-provider quote, and aggregate budget facts. It returns the exact transaction envelope to sign. It has no relay account, private key, signing callback, broadcast callback, journal writer, or browser input.
 
 The Phase One implementation accepts only:
 
@@ -96,27 +99,24 @@ The Phase One implementation accepts only:
 - the committed PWA profile and fixed Safe proxy salt `0`;
 - exactly seven ordered transaction IDs: `primary-signer`, `secondary-signer`, `setup-helper`, `guard`, `delay`, `maintenance`, `safe-proxy`;
 - each plan transaction's exact nonce;
-- committed per-transaction gas ceilings;
-- a committed maximum fee per gas and maximum priority fee per gas;
 - the existing aggregate Phase One outlay ceiling of `0.05 ETH`.
 
-The authorizer returns no arbitrary field. `assertPwaProvisioningApproval` remains the final structural and plan-binding gate. `pwaProvisioningApprovalHash` may be retained as an audit identity, but it is not called independent approval and is not accepted from a file.
-
-The existing approval fields remain the exact EIP-1559 transaction fields that will be signed. `gasLimit` is the committed per-ID ceiling used as the signed transaction gas limit; unused gas is not paid. `maxFeePerGas` and `maxPriorityFeePerGas` are the committed maxima used as the exact signed fee fields. Fresh estimates and fee reads are admission checks beneath those exact values, not replacements selected after authorization.
+The authorizer returns no arbitrary field. Each authorization binds the package, plan, immutable transaction, common quote block, both committed provider observations, the 30% policy margin, exact signed EIP-1559 fields, and prior/resulting budget facts. It is persisted before signing in a versioned append-only sidecar. This is backend-local consistency and cost evidence, not independent approval.
 
 ## Gas and fee handling
 
-Add a committed Sepolia provisioning-cap artifact separate from the X/Y/Z wallet profile. Each transaction ID has one maximum gas limit derived from local integration measurements and a reviewed margin. The artifact also fixes fee ceilings and the aggregate outlay ceiling.
+The committed Sepolia automation artifact contains ratios and economic bounds, not contract-specific gas constants: 30% gas/fee margin, 10% maximum estimate divergence, maximum two-block quote lag, six confirmations, and the `0.05 ETH` aggregate outlay ceiling.
 
 Before each signature, the executor must:
 
 1. recheck the exact pending plan transaction and deployer nonce;
 2. recheck all prior expected runtimes and all future code absence;
-3. estimate/simulate the current transaction at the current state;
-4. reject an estimate above its committed gas ceiling;
-5. read current EIP-1559 fee data and reject the operation when the current recommended fee fields exceed the exact committed signed maxima;
-6. recheck the aggregate reservation against `0.05 ETH`;
-7. sign only the exact bounded transaction already admitted by the authorization.
+3. make both committed providers agree on chain, common canonical block/hash, and exact nonce;
+4. estimate the same transaction on both providers and reject divergence above 10%;
+5. set the exact gas limit to the higher estimate plus 30%, and derive EIP-1559 fields from the common base fee and higher observed tip plus 30%;
+6. require the relay to agree on the quote-block hash and exact latest/pending nonce;
+7. recheck confirmed actual cost plus pending/new reservation against `0.05 ETH` and relay balance against pending/new reservation;
+8. persist the exact authorization record, then sign only that envelope.
 
 Later transactions are checked only after earlier receipts have six confirmations and their canonical block identity and runtimes are re-read, allowing state-dependent Safe-proxy estimation without trusting a pre-deployment aggregate estimate. A receipt with fewer than six confirmations never advances the sequence.
 
@@ -133,7 +133,7 @@ The endpoint accepts no package hash or deployment field. It loads the two serve
 
 After the browser successfully verifies the secondary registration, it stores the public secondary credential ID locally and immediately calls this endpoint. Normal success requires no additional click. The UI displays `Provisioning and verifying…` until the endpoint returns the final verified projection.
 
-If provisioning fails before a durable transaction hash, the UI displays the fail-closed error and may explicitly retry the same closed operation. During the same backend process, a pending hash or uncertain broadcast permits reconciliation only and never a replacement signature or broadcast. A backend restart with any non-empty provisioning journal is a hard startup stop because credential metadata and the branded plan are process-local. Phase One does not reconstruct, reconcile, sign, broadcast, or report readiness after that restart; recovery requires a separately reviewed procedure.
+If provisioning fails before a durable transaction hash, the UI displays the fail-closed error and may explicitly retry the same closed operation. A pending or uncertain broadcast permits reconciliation only and never a replacement signature or blind rebroadcast. On restart, an empty journal starts normal onboarding; an exact successful prefix of length `1..6` is rebuilt and verified through both committed providers, the unique review package, onchain transactions/receipts, intent hashes, runtimes, future code absence, and latest/pending relay nonce. Any other non-empty journal hard-stops. Startup itself never broadcasts; the empty auto-provision request resumes the first missing transaction.
 
 ## Configuration migration
 
@@ -161,7 +161,7 @@ The review package and journal remain outside the repository. Existing approval 
 - The old `ready-to-plan`, `awaiting-operator`, and `approved` states are removed from the supported flow.
 - No plan, refresh-approval, or provision button remains.
 - The browser never receives the automatic authorization, raw deployment transactions, relay key, or journal.
-- Wallet configuration is persisted only after the backend returns verified final topology evidence.
+- Wallet configuration is persisted after the backend returns verified final topology evidence. A recovered vault then prompts `Verify first signer` and `Verify second signer`; all spending paths remain blocked until both assertions rebind to the reviewed public keys.
 - Failure leaves public credential progress visible and the wallet unfunded/unready.
 
 ## KMS/HSM migration

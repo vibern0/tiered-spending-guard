@@ -30,11 +30,13 @@ import {
 import {
   challengeForSafeDigest,
   createVaultPasskey,
+  rebindPasskey as performPasskeyRebind,
   signSafeDigest,
   type PasskeyRegistration,
 } from "./webauthn-passkey";
 import { loadWalletEnvironmentProfile, type WalletEnvironmentProfile } from "./environment-profile";
 import { runWalletCriticalFlow } from "./pwa";
+import { BackendRequestError } from "./provisioning-errors";
 
 export type Recipient = { name: string; address: string };
 export type Policy = {
@@ -90,6 +92,13 @@ export type VaultProvisioningResult = Readonly<{
     setupTransactionHash: `0x${string}`;
     verificationReportHash: `0x${string}`;
   }>;
+  credentialRebind?: CredentialRebindStatus;
+}>;
+
+export type CredentialRebindStatus = Readonly<{
+  required: boolean;
+  primary: "required" | "ready";
+  secondary: "required" | "ready";
 }>;
 
 export type BackendRegistrationOptions = Readonly<{
@@ -102,7 +111,15 @@ export type BackendRegistrationOptions = Readonly<{
   authenticatorAttachment: "platform" | "cross-platform";
 }>;
 
-export type ProvisioningSummary = Readonly<{ packageHash: Hex }>;
+export type BackendRebindOptions = Readonly<{
+  sessionId: string;
+  challenge: string;
+  rpId: string;
+  origin: string;
+  role: "primary" | "secondary";
+  userVerification: "required";
+}>;
+
 export type PreparedSubmission = Readonly<{
   id: string;
   requestHash: Hex;
@@ -147,11 +164,8 @@ export type SubmissionIntent =
 export type VaultBackend = Readonly<{
   health?: () => Promise<void>;
   registerPasskey: (role: "primary" | "secondary") => Promise<PasskeyRegistration>;
-  planVault: (
-    input: Readonly<{ primaryCredentialId: string; secondaryCredentialId: string }>,
-  ) => Promise<ProvisioningSummary>;
-  refreshProvisioningApproval: (packageHash: Hex) => Promise<Readonly<{ approved: boolean }>>;
-  provisionVault: (input: Readonly<{ packageHash: Hex }>) => Promise<VaultProvisioningResult>;
+  autoProvisionVault: () => Promise<VaultProvisioningResult>;
+  rebindPasskey?: (role: "primary" | "secondary", credentialId: string) => Promise<CredentialRebindStatus>;
   prepareIntent: (input: SubmissionIntent) => Promise<PreparedSubmission>;
   submit: (
     id: string,
@@ -273,8 +287,8 @@ export type WalletSetupState = Readonly<{
   secondaryCredentialId?: string | undefined;
   secondaryAuthenticator?: "platform" | "cross-platform" | undefined;
   distinctSecondary: boolean;
-  packageHash?: Hex | undefined;
-  provisioning: "registering" | "ready-to-plan" | "awaiting-operator" | "approved" | "provisioned";
+  provisioning: "registering" | "provisioning" | "failed" | "provisioned";
+  credentialRebind: CredentialRebindStatus;
   receiptHash?: Hex | undefined;
   submissionIds: readonly string[];
 }>;
@@ -284,13 +298,22 @@ type UiState = {
   primaryCredentialId?: string | undefined;
   secondaryCredentialId?: string | undefined;
   secondaryAuthenticator?: "platform" | "cross-platform" | undefined;
-  packageHash?: Hex | undefined;
   provisioning: WalletSetupState["provisioning"];
+  credentialRebind: CredentialRebindStatus;
   receiptHash?: Hex | undefined;
   submissionIds: string[];
   deploymentHash?: Hex | undefined;
   policyHash?: Hex | undefined;
 };
+
+const readyCredentialRebind = (): CredentialRebindStatus => ({ required: false, primary: "ready", secondary: "ready" });
+
+function storedCredentialRebind(value: unknown): CredentialRebindStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return readyCredentialRebind();
+  const input = value as Record<string, unknown>;
+  if (typeof input["required"] !== "boolean" || !["required", "ready"].includes(String(input["primary"])) || !["required", "ready"].includes(String(input["secondary"]))) return readyCredentialRebind();
+  return { required: input["required"], primary: input["primary"] as "required" | "ready", secondary: input["secondary"] as "required" | "ready" };
+}
 
 function readUiState(profile: StorageProfile): UiState {
   try {
@@ -303,8 +326,12 @@ function readUiState(profile: StorageProfile): UiState {
       primaryCredentialId: parsed?.primaryCredentialId,
       secondaryCredentialId: parsed?.secondaryCredentialId,
       secondaryAuthenticator: parsed?.secondaryAuthenticator,
-      packageHash: parsed?.packageHash,
-      provisioning: parsed?.provisioning ?? "registering",
+      credentialRebind: storedCredentialRebind(parsed?.credentialRebind),
+      provisioning: parsed?.provisioning === "provisioning"
+        ? "failed"
+        : ["registering", "failed", "provisioned"].includes(String(parsed?.provisioning))
+          ? parsed!.provisioning as WalletSetupState["provisioning"]
+          : parsed?.primaryCredentialId && parsed?.secondaryCredentialId ? "failed" : "registering",
       receiptHash: parsed?.receiptHash,
       submissionIds: Array.isArray(parsed?.submissionIds)
         ? parsed.submissionIds.filter((id): id is string => typeof id === "string")
@@ -317,6 +344,7 @@ function readUiState(profile: StorageProfile): UiState {
       notifications: { email: true, push: false },
       rehearsed: false,
       provisioning: "registering",
+      credentialRebind: readyCredentialRebind(),
       submissionIds: [],
     };
   }
@@ -361,9 +389,13 @@ function saveConfig(profile: StorageProfile, config: VaultConfig): void {
   );
 }
 
+function saveUiState(profile: StorageProfile, state: UiState): void {
+  localStorage.setItem(walletStorageKey("ui", profile), JSON.stringify(state));
+}
+
 function defaultClient(): PublicClient | undefined {
   const rpcUrl = (import.meta.env["VITE_SEPOLIA_RPC_URL"] as string | undefined)?.trim();
-  return rpcUrl ? createPublicClient({ chain: sepolia, transport: http(rpcUrl) }) : undefined;
+  return rpcUrl ? createPublicClient({ chain: sepolia, batch: { multicall: { wait: 10 } }, transport: http(rpcUrl) }) : undefined;
 }
 
 export async function checkBackendHealth(
@@ -451,7 +483,25 @@ function defaultBackend(): VaultBackend {
       typeof payload.error === "string"
         ? payload.error
         : undefined;
-    if (!response.ok) throw new Error(error ?? `Backend request failed (${response.status})`);
+    if (!response.ok) {
+      const details = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+      const backendError = new BackendRequestError({
+        status: response.status,
+        message: error ?? `Backend request failed (${response.status})`,
+        ...(typeof details["code"] === "string" ? { code: details["code"] } : {}),
+        ...(typeof details["stage"] === "string" ? { stage: details["stage"] } : {}),
+        ...(typeof details["requestId"] === "string" ? { requestId: details["requestId"] } : response.headers.get("x-request-id") ? { requestId: response.headers.get("x-request-id")! } : {}),
+      });
+      console.error("Vault backend request failed", {
+        status: backendError.status,
+        code: backendError.code,
+        stage: backendError.stage,
+        requestId: backendError.requestId,
+        path: url,
+        message: backendError.message,
+      });
+      throw backendError;
+    }
     return payload as T;
   };
   return {
@@ -502,21 +552,23 @@ function defaultBackend(): VaultBackend {
       });
       return registration;
     },
-    async planVault(input) {
-      return json("/v1/vaults/plan", {
+    async autoProvisionVault() {
+      return json("/v1/vaults/auto-provision", {
         method: "POST",
-        body: JSON.stringify(input),
-      }) as Promise<ProvisioningSummary>;
-    },
-    async refreshProvisioningApproval() {
-      await checkBackendHealth(activeEnvironmentProfile());
-      return { approved: false };
-    },
-    async provisionVault(input) {
-      return json("/v1/vaults", {
-        method: "POST",
-        body: JSON.stringify(input),
+        body: "{}",
       }) as Promise<VaultProvisioningResult>;
+    },
+    async rebindPasskey(role, credentialId) {
+      const profile = activeEnvironmentProfile();
+      const options = await json<BackendRebindOptions>(`/v1/credentials/${role}/rebind/options`, { method: "POST", body: "{}" });
+      if (options.role !== role || options.origin !== profile.appOrigin || options.rpId !== profile.rpId || options.userVerification !== "required") throw new Error("Backend rebind profile does not match the active wallet environment");
+      const assertion = await performPasskeyRebind(options, credentialId);
+      const verified = await json<{ role: "primary" | "secondary"; credentialId: string; credentialRebind: CredentialRebindStatus }>(`/v1/credentials/${role}/rebind/verify`, {
+        method: "POST",
+        body: JSON.stringify({ sessionId: options.sessionId, assertion }),
+      });
+      if (verified.role !== role || verified.credentialId !== credentialId) throw new Error("Backend rebind result does not match the stored credential");
+      return verified.credentialRebind;
     },
     async prepareIntent(input) {
       return json("/v1/submissions/prepare", {
@@ -680,9 +732,9 @@ type Ctx = {
   refresh: () => Promise<void>;
   registerPrimary: () => Promise<void>;
   registerSecondary: () => Promise<void>;
-  planVault: () => Promise<void>;
-  refreshProvisioningApproval: () => Promise<void>;
-  provisionVault: () => Promise<void>;
+  retryProvisioning: () => Promise<void>;
+  rebindPrimary: () => Promise<void>;
+  rebindSecondary: () => Promise<void>;
   prepareTransfer: (
     input: Readonly<{ recipient: Address; amount: bigint }>,
   ) => Promise<SubmissionStatus>;
@@ -704,6 +756,9 @@ const requireOnline = () => {
   if (typeof navigator !== "undefined" && navigator.onLine === false)
     throw new Error("Wallet writes are unavailable while offline");
 };
+const requireCredentialRebindReady = (status: CredentialRebindStatus) => {
+  if (status.primary !== "ready" || status.secondary !== "ready") throw new Error("Verify both recovered signers before using the vault");
+};
 
 export function VaultProvider({
   children,
@@ -720,6 +775,10 @@ export function VaultProvider({
   const backend = useMemo(() => providedBackend ?? defaultBackend(), [providedBackend]);
   const [ui, setUi] = useState(() => readUiState(storageProfile));
   const prepared = useRef(new Map<string, PreparedSubmission>());
+  const automaticProvisioning = useRef<Promise<void> | undefined>(undefined);
+  const initialSnapshot = useRef<{ client: PublicClient | undefined; vault: string } | undefined>(
+    undefined,
+  );
   const refresh = useCallback(async () => {
     if (!config || !client) {
       const blank = emptyState();
@@ -764,14 +823,14 @@ export function VaultProvider({
     setHydrated(true);
   }, [providedConfig, storageProfile]);
   useEffect(() => {
-    if (hydrated) void refresh();
-  }, [config, hydrated, refresh]);
-  useEffect(() => {
-    if (!hydrated || !config || !client) return;
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 30_000);
-    return () => window.clearInterval(timer);
+    if (!hydrated) return;
+    const vault = config
+      ? [config.chainId, config.safe, config.guard, config.delay, config.usdc].join(":")
+      : "unprovisioned";
+    const previous = initialSnapshot.current;
+    if (previous && previous.client === client && previous.vault === vault) return;
+    initialSnapshot.current = { client, vault };
+    void refresh();
   }, [client, config, hydrated, refresh]);
   useEffect(() => {
     if (hydrated) localStorage.setItem(walletStorageKey("ui", storageProfile), JSON.stringify(ui));
@@ -788,104 +847,96 @@ export function VaultProvider({
       ),
     [],
   );
+  const completeProvisioning = useCallback(
+    () => {
+      if (automaticProvisioning.current) return automaticProvisioning.current;
+      let succeeded = false;
+      const operation = runWalletCriticalFlow(async () => {
+        setUi((current) => ({ ...current, provisioning: "provisioning" }));
+        try {
+          if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
+          requireOnline();
+          await backend.health?.();
+          const result = await backend.autoProvisionVault();
+          const credentialRebind = storedCredentialRebind(result.credentialRebind);
+          const next: VaultConfig = {
+            chainId: 11155111,
+            safe: result.safe,
+            guard: result.guard,
+            delay: result.delay,
+            usdc: result.usdc,
+            usdcCandidates: [DEFAULT_USDC],
+          };
+          saveConfig(storageProfile, next);
+          setUi((current) => {
+            const nextUi = {
+              ...current,
+              rehearsed: false,
+              provisioning: credentialRebind.required ? "provisioning" as const : "provisioned" as const,
+              credentialRebind,
+              receiptHash: result.evidence.setupTransactionHash,
+              deploymentHash: result.evidence.setupTransactionHash,
+              policyHash: result.evidence.verificationReportHash,
+            };
+            saveUiState(storageProfile, nextUi);
+            return nextUi;
+          });
+          setConfig(next);
+          succeeded = true;
+        } catch (error) {
+          automaticProvisioning.current = undefined;
+          setUi((current) => ({ ...current, provisioning: "failed" }));
+          throw error;
+        }
+      });
+      automaticProvisioning.current = operation;
+      void operation.finally(() => { if (!succeeded) automaticProvisioning.current = undefined; }).catch(() => undefined);
+      return operation;
+    },
+    [backend, client, storageProfile],
+  );
   const register = useCallback(
     (role: "primary" | "secondary") =>
       runWalletCriticalFlow(async () => {
         requireOnline();
         await backend.health?.();
         const registration = await backend.registerPasskey(role);
-        setUi((current) =>
-          role === "primary"
-            ? {
-                ...current,
-                primaryCredentialId: registration.credentialId,
-                provisioning: current.secondaryCredentialId ? "ready-to-plan" : "registering",
-              }
-            : {
-                ...current,
-                secondaryCredentialId: registration.credentialId,
-                secondaryAuthenticator: registration.response.authenticatorAttachment,
-                provisioning: current.primaryCredentialId ? "ready-to-plan" : "registering",
-              },
-        );
+        const otherRegistered = role === "primary" ? Boolean(ui.secondaryCredentialId) : Boolean(ui.primaryCredentialId);
+        const next = role === "primary"
+          ? { ...ui, primaryCredentialId: registration.credentialId, provisioning: otherRegistered ? "provisioning" as const : "registering" as const }
+          : { ...ui, secondaryCredentialId: registration.credentialId, secondaryAuthenticator: registration.response.authenticatorAttachment, provisioning: otherRegistered ? "provisioning" as const : "registering" as const };
+        saveUiState(storageProfile, next);
+        setUi(next);
+        if (otherRegistered) await completeProvisioning();
       }),
-    [backend],
+    [backend, completeProvisioning, storageProfile, ui],
   );
   const registerPrimary = useCallback(() => register("primary"), [register]);
   const registerSecondary = useCallback(() => register("secondary"), [register]);
-  const planVault = useCallback(
-    () =>
-      runWalletCriticalFlow(async () => {
-        requireOnline();
-        await backend.health?.();
-        if (!ui.primaryCredentialId || !ui.secondaryCredentialId)
-          throw new Error("Register both passkeys before creating the reviewed plan");
-        if (ui.primaryCredentialId === ui.secondaryCredentialId)
-          throw new Error("Primary and secondary passkeys must be distinct");
-        const plan = await backend.planVault({
-          primaryCredentialId: ui.primaryCredentialId,
-          secondaryCredentialId: ui.secondaryCredentialId,
-        });
-        setUi((current) => ({
-          ...current,
-          packageHash: plan.packageHash,
-          provisioning: "awaiting-operator",
-        }));
-      }),
-    [backend, ui.primaryCredentialId, ui.secondaryCredentialId],
-  );
-  const refreshProvisioningApproval = useCallback(
-    () =>
-      runWalletCriticalFlow(async () => {
-        requireOnline();
-        if (!ui.packageHash) throw new Error("Create a reviewed deployment plan first");
-        const approval = await backend.refreshProvisioningApproval(ui.packageHash);
-        setUi((current) => ({
-          ...current,
-          provisioning: approval.approved ? "approved" : "awaiting-operator",
-        }));
-      }),
-    [backend, ui.packageHash],
-  );
-  const completeProvisioning = useCallback(
-    async (packageHash: Hex) => {
-      if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
+  const retryProvisioning = useCallback(() => completeProvisioning(), [completeProvisioning]);
+  const rebind = useCallback(
+    (role: "primary" | "secondary") => runWalletCriticalFlow(async () => {
       requireOnline();
       await backend.health?.();
-      const result = await backend.provisionVault({ packageHash });
-      const next: VaultConfig = {
-        chainId: 11155111,
-        safe: result.safe,
-        guard: result.guard,
-        delay: result.delay,
-        usdc: result.usdc,
-        usdcCandidates: [DEFAULT_USDC],
-      };
-      saveConfig(storageProfile, next);
-      setUi((current) => ({
-        ...current,
-        rehearsed: false,
-        provisioning: "provisioned",
-        receiptHash: result.evidence.setupTransactionHash,
-        deploymentHash: result.evidence.setupTransactionHash,
-        policyHash: result.evidence.verificationReportHash,
-      }));
-      setConfig(next);
-    },
-    [backend, client, storageProfile],
+      const credentialId = role === "primary" ? ui.primaryCredentialId : ui.secondaryCredentialId;
+      if (!credentialId) throw new Error(`Stored ${role} credential ID is required for recovery verification`);
+      if (!backend.rebindPasskey) throw new Error("Recovered credential verification is unavailable");
+      const credentialRebind = await backend.rebindPasskey(role, credentialId);
+      setUi((current) => {
+        const nextUi = { ...current, credentialRebind, provisioning: credentialRebind.required ? "provisioning" as const : "provisioned" as const };
+        saveUiState(storageProfile, nextUi);
+        return nextUi;
+      });
+    }),
+    [backend, storageProfile, ui.primaryCredentialId, ui.secondaryCredentialId],
   );
-  const provisionVault = useCallback(
-    () =>
-      runWalletCriticalFlow(async () => {
-        if (!ui.packageHash) throw new Error("Create a reviewed deployment plan first");
-        await completeProvisioning(ui.packageHash);
-      }),
-    [completeProvisioning, ui.packageHash],
-  );
+  const rebindPrimary = useCallback(() => rebind("primary"), [rebind]);
+  const rebindSecondary = useCallback(() => rebind("secondary"), [rebind]);
   const approveSubmission = useCallback(
     (id: string, role: "primary" | "secondary" | "none") =>
       runWalletCriticalFlow(async () => {
         requireOnline();
+        requireCredentialRebindReady(ui.credentialRebind);
         const request = prepared.current.get(id);
         if (!request) throw new Error("Prepared submission is unavailable; prepare it again");
         let status: SubmissionStatus;
@@ -925,18 +976,20 @@ export function VaultProvider({
       state.safe,
       ui.primaryCredentialId,
       ui.secondaryCredentialId,
+      ui.credentialRebind,
     ],
   );
   const prepare = useCallback(
     async (intent: SubmissionIntent) => {
       requireOnline();
+      requireCredentialRebindReady(ui.credentialRebind);
       await backend.health?.();
       const request = await backend.prepareIntent(intent);
       prepared.current.set(request.id, request);
       rememberSubmission(request.id);
       return request;
     },
-    [backend, rememberSubmission],
+    [backend, rememberSubmission, ui.credentialRebind],
   );
   const prepareTransfer = useCallback(
     ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) =>
@@ -995,11 +1048,12 @@ export function VaultProvider({
   const reconcileSubmission = useCallback(
     async (id: string) => {
       requireOnline();
+      requireCredentialRebindReady(ui.credentialRebind);
       const status = await backend.submission(id);
       if (terminal(status)) await refresh();
       return status;
     },
-    [backend, refresh],
+    [backend, refresh, ui.credentialRebind],
   );
   const provision = useCallback(
     () =>
@@ -1010,19 +1064,18 @@ export function VaultProvider({
         const secondary = await backend.registerPasskey("secondary");
         if (primary.credentialId === secondary.credentialId)
           throw new Error("Primary and secondary passkeys must be distinct");
-        setUi((current) => ({
-          ...current,
+        const next = {
+          ...ui,
           primaryCredentialId: primary.credentialId,
           secondaryCredentialId: secondary.credentialId,
           secondaryAuthenticator: secondary.response.authenticatorAttachment,
-        }));
-        const plan = await backend.planVault({
-          primaryCredentialId: primary.credentialId,
-          secondaryCredentialId: secondary.credentialId,
-        });
-        await completeProvisioning(plan.packageHash);
+          provisioning: "provisioning" as const,
+        };
+        saveUiState(storageProfile, next);
+        setUi(next);
+        await completeProvisioning();
       }),
-    [backend, completeProvisioning],
+    [backend, completeProvisioning, storageProfile, ui],
   );
   const setup = useMemo<WalletSetupState>(
     () => ({
@@ -1030,8 +1083,8 @@ export function VaultProvider({
       secondaryCredentialId: ui.secondaryCredentialId,
       secondaryAuthenticator: ui.secondaryAuthenticator,
       distinctSecondary: ui.secondaryAuthenticator === "cross-platform",
-      packageHash: ui.packageHash,
       provisioning: ui.provisioning,
+      credentialRebind: ui.credentialRebind,
       receiptHash: ui.receiptHash,
       submissionIds: ui.submissionIds,
     }),
@@ -1045,14 +1098,14 @@ export function VaultProvider({
       hydrated,
       loading,
       hasAccount: Boolean(config),
-      canWrite: state.writable && state.health.length === 0,
+      canWrite: state.writable && state.health.length === 0 && ui.credentialRebind.primary === "ready" && ui.credentialRebind.secondary === "ready",
       finishSetup,
       refresh,
       registerPrimary,
       registerSecondary,
-      planVault,
-      refreshProvisioningApproval,
-      provisionVault,
+      retryProvisioning,
+      rebindPrimary,
+      rebindSecondary,
       prepareTransfer,
       approveSubmission,
       cancelQueued,
@@ -1067,13 +1120,14 @@ export function VaultProvider({
       hydrated,
       loading,
       config,
+      ui.credentialRebind,
       finishSetup,
       refresh,
       registerPrimary,
       registerSecondary,
-      planVault,
-      refreshProvisioningApproval,
-      provisionVault,
+      retryProvisioning,
+      rebindPrimary,
+      rebindSecondary,
       prepareTransfer,
       approveSubmission,
       cancelQueued,

@@ -10,8 +10,6 @@ const valid = {
   BACKEND_RPC_URL: "https://sepolia.example.invalid",
   BACKEND_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/backend-journal.json",
   BACKEND_PROVISIONING_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/provisioning-live-journal.json",
-  BACKEND_PROVISIONING_APPROVAL: "/tmp/recent-tx-safe-guard/provisioning-approval.json",
-  BACKEND_PROVISIONING_APPROVAL_HASH_FILE: "/tmp/recent-tx-safe-guard/provisioning-approval.sha256",
   BACKEND_PROVISIONING_REVIEW_DIRECTORY: "/tmp/recent-tx-safe-guard/provisioning-reviews",
 };
 
@@ -33,6 +31,11 @@ describe("backend configuration", () => {
 
   it("rejects the retired external reviewed-artifacts setting", () => {
     expect(() => loadBackendConfig({ ...valid, BACKEND_REVIEWED_ARTIFACTS: "/tmp/reviewed-artifacts.json" })).toThrow(/retired|remove/i);
+  });
+
+  it("rejects both retired operator approval settings", () => {
+    expect(() => loadBackendConfig({ ...valid, BACKEND_PROVISIONING_APPROVAL: "/tmp/approval.json" })).toThrow(/retired|remove/i);
+    expect(() => loadBackendConfig({ ...valid, BACKEND_PROVISIONING_APPROVAL_HASH_FILE: "/tmp/approval.hash" })).toThrow(/retired|remove/i);
   });
 
   it("requires every HTTPS identity field and rejects unsafe profile combinations", () => {

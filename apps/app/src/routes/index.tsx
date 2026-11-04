@@ -1,5 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertCircle, ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronRight,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { ActivityRow, Card, NetworkPill } from "@/components/wallet/ui";
 import { TopologyAlert } from "@/components/wallet/topology-alert";
 import { effectiveStatus, needsAttention } from "@/lib/activity-model";
@@ -27,7 +34,7 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
-  const { state, canWrite } = useVault();
+  const { state, canWrite, loading, refresh } = useVault();
   const now = useNow();
   const ob = state.onboarding;
   const setupDone = ob.firstSigner && ob.secondSigner && ob.limits && ob.rehearsed;
@@ -47,7 +54,19 @@ function HomePage() {
             <p className="font-semibold">Personal account</p>
           </div>
         </div>
-        <NetworkPill />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Refresh account"
+            disabled={loading}
+            onClick={() => void refresh()}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-semibold text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
+            Refresh
+          </button>
+          <NetworkPill />
+        </div>
       </header>
 
       {!setupDone && (

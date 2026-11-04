@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeProvisioningError } from "./provisioning-errors";
+import { BackendRequestError, describeProvisioningError } from "./provisioning-errors";
 
 describe("describeProvisioningError", () => {
   it("turns the missing RPC failure into an actionable setup message", () => {
@@ -18,5 +18,19 @@ describe("describeProvisioningError", () => {
     expect(
       describeProvisioningError(new Error("Backend health check failed: RPC unavailable")),
     ).toContain("backend is unhealthy");
+  });
+
+  it("turns a correlated nonce failure into an actionable retry message", () => {
+    const message = describeProvisioningError(new BackendRequestError({
+      status: 400,
+      message: "provisioning quote nonce mismatch for secondary-signer: expected 1032, observed 1033",
+      code: "provisioning_nonce_mismatch",
+      stage: "provisioning-quote",
+      requestId: "request-123",
+    }));
+
+    expect(message).toContain("secondary-signer");
+    expect(message).toMatch(/restart the backend/i);
+    expect(message).toContain("request-123");
   });
 });

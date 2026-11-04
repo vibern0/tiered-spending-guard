@@ -1,7 +1,7 @@
 import { type Address, type Hex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { createVaultPasskey, signSafeDigest } from "./webauthn-passkey";
+import { createVaultPasskey, rebindPasskey, signSafeDigest } from "./webauthn-passkey";
 
 vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: vi.fn(),
@@ -200,5 +200,30 @@ describe("signSafeDigest", () => {
       }) as never,
     );
     await expect(signSafeDigest(options)).rejects.toThrow();
+  });
+});
+
+describe("rebindPasskey", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    startAuthenticationMock.mockResolvedValue(assertion() as never);
+  });
+
+  it("uses the stored credential ID and fixed backend ceremony identity", async () => {
+    await expect(rebindPasskey({ role: "primary", challenge: CHALLENGE, rpId: "localhost", origin: "http://localhost:5173", userVerification: "required" }, CREDENTIAL)).resolves.toMatchObject({ id: CREDENTIAL });
+    expect(startAuthenticationMock).toHaveBeenCalledWith({ optionsJSON: { challenge: CHALLENGE, rpId: "localhost", userVerification: "required", allowCredentials: [{ id: CREDENTIAL, type: "public-key" }] } });
+  });
+
+  it("rejects response-ID, challenge, origin, and UP/UV changes", async () => {
+    const cases = [
+      assertion({ id: "other" }),
+      assertion({ response: { ...assertion().response, clientDataJSON: clientData("wrong") } }),
+      assertion({ response: { ...assertion().response, clientDataJSON: clientData(CHALLENGE, "https://evil.invalid") } }),
+      assertion({ response: { ...assertion().response, authenticatorData: bytesEncoded(new Uint8Array(37).fill(0)) } }),
+    ];
+    for (const response of cases) {
+      startAuthenticationMock.mockResolvedValueOnce(response as never);
+      await expect(rebindPasskey({ role: "primary", challenge: CHALLENGE, rpId: "localhost", origin: "http://localhost:5173", userVerification: "required" }, CREDENTIAL)).rejects.toThrow();
+    }
   });
 });

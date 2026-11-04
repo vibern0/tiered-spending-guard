@@ -12,20 +12,20 @@ Open your project in the [Lovable editor](https://lovable.dev) and keep building
 
 ## Development
 
-Prefer working locally? You need Node.js and pnpm — [install Node.js with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Prefer working locally? You need Node.js and pnpm.
 
 ```sh
 git clone <this-repository-url>
 cd <repository-name>
 pnpm install
-pnpm dev
+pnpm --dir apps/app dev
 ```
 
 ## Local wallet backend
 
 The wallet is a testnet-only USDC prototype. It pins Circle's Ethereum Sepolia USDC contract at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` and reviewed runtime hash `0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb`; active balances, policies, and transfers use six-decimal USDC bigint units. The canonical two-provider artifact and fixed X/Y/Z profile live in `packages/security-core/config/sepolia.pwa-phase-one.json`.
 
-The wallet requires the loopback backend for passkey registration, reviewed vault provisioning, and Safe submissions. Set `VITE_SEPOLIA_RPC_URL` for direct Sepolia reads and select one closed identity profile:
+The wallet requires the loopback backend for passkey registration, automatic local Phase One vault provisioning, and Safe submissions. Set `VITE_SEPOLIA_RPC_URL` for direct Sepolia reads and select one closed identity profile. The browser reads one verified snapshot when a configured vault loads, when the Send flow opens, on explicit user refresh, and after a terminal submission; it does not poll chain state in the background. Simultaneous contract reads are grouped through Sepolia Multicall3 with a 10 ms collection window, while retaining the pinned-block and final block-hash checks. This read policy limits hosted RPC use and grants no signing or write authority.
 
 ```sh
 # Fixed localhost profile (these are also its exact defaults)
@@ -47,7 +47,16 @@ Backend errors, unhealthy readiness, stale chain state, passkey cancellation, an
 
 ## Phase One journeys
 
-Onboarding registers the primary and secondary passkeys separately, creates an unsigned deployment package, waits for independent operator approval, and displays the canonical provisioning receipt. Public credential, vault, package, and submission identifiers are stored in environment-scoped versioned browser storage; assertions and signatures are process-local only.
+Onboarding registers the primary and secondary passkeys separately. Immediately after the second registration, it calls the backend's empty automatic-provisioning route and displays a provisioning/verifying state until the seven serial Sepolia deployments each have six confirmations and the final topology gate passes. A failure preserves the two public credential IDs, stores no vault configuration, and exposes an explicit retry. Public credential, vault, and submission identifiers are stored in environment-scoped versioned browser storage; assertions and signatures are process-local only.
+
+Run the backend and UI in separate terminals after setting their environment variables:
+
+```sh
+pnpm --dir apps/backend dev
+pnpm --dir apps/app dev
+```
+
+This Phase One automation trusts the backend for planning, local authorization, relay signing, and broadcast. Its authorizer limits the exact committed Sepolia shape and maximum cost but is not independent protection against backend compromise. A future separately administered KMS/policy service is required to split that trust boundary.
 
 The PWA exposes closed USDC transfer intents and the verified Delay queue lifecycle. X requests the primary passkey, Y and Z request primary then secondary over the same Safe digest, cancellation requires both, and ready execution or expired skipping is permissionless but tuple-bound. Limits and signer topology are read-only chain projections. Device time cannot make a queue item ready when the canonical snapshot timestamp says otherwise.
 

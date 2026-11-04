@@ -87,6 +87,8 @@ export type PwaPlanningInfrastructure = Readonly<{
   chainId: number;
   deployer: Address;
   observedDeployerNonce: bigint;
+  observedCurrentDeployerNonce?: bigint;
+  confirmedProvisioningPrefixLength?: number;
   safeSingleton: VerifiedDependency;
   safeProxyFactory: VerifiedDependency;
   passkeySignerFactory: VerifiedDependency;
@@ -284,20 +286,23 @@ export async function resolvePwaPlanningInfrastructure(
     expectedDeployerNonce: bigint;
     primaryCredential: Readonly<{ x: bigint; y: bigint }>;
     secondaryCredential: Readonly<{ x: bigint; y: bigint }>;
+    confirmedProvisioningPrefixLength?: number;
+    expectedCurrentDeployerNonce?: bigint;
   }>,
 ): Promise<PwaPlanningInfrastructure> {
   if (typeof client.getTransactionCount !== "function") failClosed("deployer nonce reader is required");
   if (typeof client.readContract !== "function") failClosed("passkey factory reader is required");
   const dependencies = await resolveInfrastructureDependencies(client, input.chainId, OFFICIAL_DEPLOYMENT_REGISTRY, { requireEvidence: true });
+  const confirmedProvisioningPrefixLength = input.confirmedProvisioningPrefixLength ?? 0;
+  if (!Number.isSafeInteger(confirmedProvisioningPrefixLength) || confirmedProvisioningPrefixLength < 0 || confirmedProvisioningPrefixLength > 6) failClosed("confirmed provisioning prefix length is invalid");
   const nonce = await client.getTransactionCount({ address: input.deployer });
-  const observedDeployerNonce = typeof nonce === "bigint" ? nonce : BigInt(nonce);
-  if (observedDeployerNonce !== input.expectedDeployerNonce) failClosed(`deployer nonce changed: expected ${input.expectedDeployerNonce}, observed ${observedDeployerNonce}`);
+  const observedCurrentDeployerNonce = typeof nonce === "bigint" ? nonce : BigInt(nonce);
+  const expectedCurrentDeployerNonce = input.expectedCurrentDeployerNonce ?? input.expectedDeployerNonce + BigInt(confirmedProvisioningPrefixLength);
+  if (observedCurrentDeployerNonce !== expectedCurrentDeployerNonce) failClosed(`deployer nonce changed: expected ${expectedCurrentDeployerNonce}, observed ${observedCurrentDeployerNonce}`);
   const verifiers = BigInt(dependencies.passkeySignerVerifier.address);
   const predict = async (credential: Readonly<{ x: bigint; y: bigint }>, label: "primary" | "secondary"): Promise<Address> => {
     const predicted = await client.readContract!({ address: dependencies.passkeySignerFactory.address, abi: PASSKEY_FACTORY_ABI, functionName: "getSigner", args: [credential.x, credential.y, verifiers] });
     if (typeof predicted !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(predicted)) failClosed(`passkey factory returned an invalid ${label} signer address`);
-    const existing = await client.getBytecode({ address: predicted as Address });
-    if (existing && existing !== "0x") failClosed(`${label} passkey signer already exists`);
     return predicted as Address;
   };
   const singleton = await client.readContract({ address: dependencies.passkeySignerFactory.address, abi: PASSKEY_FACTORY_ABI, functionName: "SINGLETON" });
@@ -305,12 +310,23 @@ export async function resolvePwaPlanningInfrastructure(
   const [primaryAddress, secondaryAddress] = await Promise.all([predict(input.primaryCredential, "primary"), predict(input.secondaryCredential, "secondary")]);
   if (same(primaryAddress, secondaryAddress)) failClosed("primary and secondary passkey signers must be distinct");
   const signerRuntimeCodeHashes = await resolvePwaSignerRuntimeCodeHashes({ client, singleton: singleton as Address, primaryCredential: input.primaryCredential, secondaryCredential: input.secondaryCredential, verifiers });
+  for (const [index, label, address, expectedRuntimeCodeHash] of [
+    [0, "primary", primaryAddress, signerRuntimeCodeHashes.primary],
+    [1, "secondary", secondaryAddress, signerRuntimeCodeHashes.secondary],
+  ] as const) {
+    const existing = await client.getBytecode({ address });
+    if (index < confirmedProvisioningPrefixLength) {
+      if (!existing || existing === "0x" || !same(keccak256(existing), expectedRuntimeCodeHash)) failClosed(`${label} passkey signer recovery runtime mismatch`);
+    } else if (existing && existing !== "0x") failClosed(`${label} passkey signer already exists`);
+  }
   const primaryBinding = Object.freeze({ ...input.primaryCredential, verifiers });
   const secondaryBinding = Object.freeze({ ...input.secondaryCredential, verifiers });
   const result = Object.freeze({
     chainId: input.chainId,
     deployer: input.deployer,
-    observedDeployerNonce,
+    observedDeployerNonce: input.expectedDeployerNonce,
+    observedCurrentDeployerNonce,
+    confirmedProvisioningPrefixLength,
     safeSingleton: dependencies.safeSingleton,
     safeProxyFactory: dependencies.safeProxyFactory,
     passkeySignerFactory: dependencies.passkeySignerFactory,

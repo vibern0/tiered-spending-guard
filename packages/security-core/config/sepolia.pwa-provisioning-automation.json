@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "scope": "sepolia-pwa-provisioning-automation",
+  "chainId": 11155111,
+  "profileRevision": "sepolia-pwa-phase-one-v1",
+  "safeProxySaltNonce": "0",
+  "gasMarginBps": "3000",
+  "feeMarginBps": "3000",
+  "maxEstimateDivergenceBps": "1000",
+  "maxHeadLagBlocks": "2",
+  "maxTotalOutlayWei": "50000000000000000"
+}

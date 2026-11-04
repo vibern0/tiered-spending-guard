@@ -1,8 +1,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import { expect, it } from "vitest";
 
 const appRoot = process.cwd();
+
+async function reserveFreePort(): Promise<number> {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.close();
+    throw new Error("failed to reserve a local test port");
+  }
+  const port = address.port;
+  server.close();
+  await once(server, "close");
+  return port;
+}
 
 async function stopProcess(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
@@ -18,7 +34,8 @@ async function stopProcess(child: ChildProcess): Promise<void> {
 }
 
 it("serves the wallet root through the real pnpm dev command", async () => {
-  const child = spawn(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["dev"], {
+  const port = await reserveFreePort();
+  const child = spawn(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["dev", "--port", String(port)], {
     cwd: appRoot,
     detached: process.platform !== "win32",
     env: process.env,
@@ -47,7 +64,7 @@ it("serves the wallet root through the real pnpm dev command", async () => {
       ),
     ]);
 
-    const response = await fetch("http://localhost:5173/");
+    const response = await fetch(`http://localhost:${port}/`);
 
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("<!DOCTYPE html>");
