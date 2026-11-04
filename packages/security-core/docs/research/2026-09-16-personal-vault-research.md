@@ -152,9 +152,11 @@ Rhinestone exposes developer infrastructure for passkeys, MFA, spending-limit ho
 
 ### Safe Research Policy Engine
 
-The [Safe Research Policy Engine](https://github.com/safe-research/policy-engine) is a promising general enforcement layer. It can install policy guards on transaction and module paths, apply deny-by-default policies, require co-signers or higher thresholds, restrict transfers, and delay configuration or guard removal.
+The [Safe Research Policy Engine](https://github.com/safe-research/policy-engine) is a closely related Safe-based project and a potential future consolidation or migration candidate. It provides a general mandatory-access-control layer that installs on transaction and module paths, applies deny-by-default policies, requires co-signers or higher thresholds, restricts transfers, and delays configuration or guard removal.
 
-It is not currently a production dependency for this project. Its README explicitly warns that it is unaudited and may contain serious security holes. It should be tracked as a possible future consolidation of the architecture, not treated as audited infrastructure.
+It overlaps with this project's dual-path enforcement, signature-extension, stateful-policy atomicity, transfer restriction, and delayed-weakening requirements. It does not currently provide the complete product policy: primary-passkey-only cumulative spending up to X, shared base-plus-step-up cumulative spending up to Y per token, and a cancellable delayed withdrawal tier Z. Its general policy interface also cannot reconstruct the complete Safe transaction hash because it omits the gas-refund fields; this project deliberately binds its tier authorization to the exact Safe transaction while separately enforcing zero refund behavior.
+
+Status checked 2026-11-04: upstream [records two Certora audits](https://github.com/safe-research/policy-engine/blob/main/audits/audit.md), one for the engine/guard finalized at `405ba1d91e85d0fd26abf0f645bf216822c8c595` and one for the listed policy implementations finalized at `8c300329d9c2158b7778066c0e1531bc1725056e`. The recorded scope excludes `OneTimeAllowPolicy`, vendored Safenet cryptography, test contracts, and the demo application. Upstream `main` subsequently changed, including security-relevant policy fixes, so those reports are not blanket evidence for every later commit or for this project's composition. Track the Policy Engine as a similar project and possible future architecture input, but do not deploy or trust it here without a new pinned-commit review, scope mapping, adversarial comparison, and explicit design amendment.
 
 ### ERC-8238
 
@@ -429,9 +431,9 @@ Deploy the research engine and add a custom tiered-spending policy to it.
 
 **Costs and risks**
 
-- Explicitly unaudited and still evolving
+- Audited in scoped snapshots, but still evolving beyond those audit commits
 - The listed policies do not supply the required cumulative X/Y behavior
-- The project would inherit a broader unreviewed framework while still writing security-critical policy Solidity
+- The project would inherit a broader framework and still require security-critical custom X/Y/Z policy Solidity plus a composition-specific review
 
 The recommended implementation studies this code and records the exact commit reviewed, but does not deploy it as an opaque dependency.
 

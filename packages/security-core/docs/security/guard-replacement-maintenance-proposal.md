@@ -36,9 +36,9 @@ Cons:
 - Safe MultiSend is a general batch mechanism implemented through delegatecall, conflicting with the narrow no-batch/delegatecall maintenance requirement.
 - Zodiac Delay queues and executes one target/value/calldata/operation tuple; it does not atomically update both Safe guard slots.
 
-Evidence: [Safe setGuard](https://docs.safe.global/reference-smart-account/guards/setGuard), [Safe setModuleGuard](https://docs.safe.global/reference-smart-account/guards/setModuleGuard), [Safe GuardManager](https://github.com/safe-fndn/safe-smart-account/blob/main/contracts/base/GuardManager.sol), [Safe MultiSend](https://github.com/safe-fndn/safe-smart-account/blob/main/contracts/libraries/MultiSend.sol), and [Zodiac Delay reference](https://docs.zodiac.eco/developers/delay/reference). The Safe Research Policy Engine demonstrates MultiSend as prior art for atomic removal, but remains explicitly unaudited and is not a deployment dependency.
+Evidence: [Safe setGuard](https://docs.safe.global/reference-smart-account/guards/setGuard), [Safe setModuleGuard](https://docs.safe.global/reference-smart-account/guards/setModuleGuard), [Safe GuardManager](https://github.com/safe-fndn/safe-smart-account/blob/main/contracts/base/GuardManager.sol), [Safe MultiSend](https://github.com/safe-fndn/safe-smart-account/blob/main/contracts/libraries/MultiSend.sol), and [Zodiac Delay reference](https://docs.zodiac.eco/developers/delay/reference). The Safe Research Policy Engine demonstrates MultiSend as prior art for atomic removal and now records scoped component audits, but it is not a deployment dependency and those audits do not cover this maintenance composition.
 
-Ruling: no existing primitive meets the required boundary; do not adopt MultiSend or the unaudited Policy Engine as a substitute for a reviewed maintenance design.
+Ruling: no existing primitive meets the required boundary; do not adopt MultiSend or the Policy Engine as a substitute for a reviewed maintenance design.
 
 ### 3. Revise the topology invariant
 

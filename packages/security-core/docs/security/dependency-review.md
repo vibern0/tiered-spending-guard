@@ -26,7 +26,7 @@ Safe v1.5 module guards are a hard requirement for later integration. The old `@
 
 - `@gnosis.pm/safe-contracts@1.3.0`: rejected; historical-only dependency and permissive mock integration.
 - Zodiac Roles `2.1.0` and Delay `1.1.0`: rejected as vulnerable releases identified by the research baseline. No old deployment address is reused.
-- Safe Research Policy Engine: rejected as a deployment dependency. Reviewed prior-art commit is `405ba1d91e85d0fd26abf0f645bf216822c8c595` from `safe-research/policy-engine` `main` on 2026-09-17. Its README warns that it is unaudited and may contain serious security holes. It is not compiled, deployed, or trusted by this repository.
+- Safe Research Policy Engine: retained as a closely related project and possible future comparison or migration candidate, but rejected as a deployment dependency. The locally reviewed prior-art commit is `405ba1d91e85d0fd26abf0f645bf216822c8c595` from `safe-research/policy-engine` `main` on 2026-09-17. As checked on 2026-11-04, upstream [records scoped Certora audits](https://github.com/safe-research/policy-engine/blob/main/audits/audit.md) finalized at that commit for the engine/guard and at `8c300329d9c2158b7778066c0e1531bc1725056e` for the listed policies, with explicit exclusions. Current upstream `main` (`8ee68a8cdac65b4aba5d9a10e9f9018c2efb10b3` when checked) contains later security-relevant fixes and is not treated as covered wholesale by those reports. The Policy Engine is not compiled, deployed, or trusted by this repository; adoption requires a new pinned-commit review and explicit architecture amendment.
 
 ## Evidence limits
 

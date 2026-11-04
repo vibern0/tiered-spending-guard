@@ -2,11 +2,23 @@
 
 **Reviewed commit:** `405ba1d91e85d0fd26abf0f645bf216822c8c595` from `safe-research/policy-engine` `main` (2026-09-17)
 
-**Status:** Prior art only. The Policy Engine is unaudited and is not a deployment dependency for this prototype.
+**Status:** Closely related prior art and a potential future comparison or migration candidate. It is not a deployment dependency for this prototype.
 
 ## Provenance and license
 
-The source was reviewed at the commit above in the Safe Research GitHub repository: <https://github.com/safe-research/policy-engine/tree/405ba1d91e85d0fd26abf0f645bf216822c8c595>. Its repository license and per-file SPDX notices govern any later reuse. This repository does not copy its implementation. The README itself warns that the code is unaudited and may contain serious security holes.
+The source was reviewed at the commit above in the Safe Research GitHub repository: <https://github.com/safe-research/policy-engine/tree/405ba1d91e85d0fd26abf0f645bf216822c8c595>. Its repository license and per-file SPDX notices govern any later reuse. This repository does not copy its implementation.
+
+## Similar-project status update
+
+Status checked 2026-11-04 against upstream `main` at `8ee68a8cdac65b4aba5d9a10e9f9018c2efb10b3`:
+
+- The project is a direct architectural analogue: a Safe transaction/module guard dispatches deny-by-default policies for owner and module executions.
+- Certora's [first recorded audit](https://github.com/safe-research/policy-engine/blob/main/audits/audit.md#audit-1) covered `PolicyEngine`, `SafePolicyGuard`, `AccessSelector`, and `SignatureExtension`, finalized at the locally reviewed `405ba1d91e85d0fd26abf0f645bf216822c8c595`. Five low-severity findings were reported; two were fixed and three acknowledged.
+- Certora's [second recorded audit](https://github.com/safe-research/policy-engine/blob/main/audits/audit.md#audit-2) covered the listed policy contracts and finalized at `8c300329d9c2158b7778066c0e1531bc1725056e`. It excluded `OneTimeAllowPolicy`; upstream also states that vendored Safenet cryptography, test contracts, and the demo application were outside the audit scope.
+- Upstream `main` continued changing after those snapshots. Later commits [restricted `NativeTransferPolicy` to plain transfers](https://github.com/safe-research/policy-engine/commit/5236128eac4ac3aeb05651bd6b71ecf3a17f712f) and [rejected module transactions in `CoSignerPolicy`](https://github.com/safe-research/policy-engine/commit/8ee68a8cdac65b4aba5d9a10e9f9018c2efb10b3), so the audit reports must be mapped to an exact candidate commit rather than applied to current `main` as a blanket claim.
+- The built-in policies still do not implement this project's shared per-token cumulative X/Y accounting or its cancellable delayed withdrawal tier Z. The general policy interface omits Safe refund fields and therefore cannot itself reconstruct the complete Safe transaction hash.
+
+Any proposal to adopt or extend the Policy Engine must pin a candidate commit, map every relied-on contract and change to audit scope, compare its exact transaction binding and post-audit fixes with `TieredSpendingGuard`, preserve the approved native Safe ERC-4337 constraints, and receive an explicit architecture amendment. Until then, it remains a similar project to monitor, not trusted infrastructure.
 
 ## Security lessons recorded
 
@@ -26,4 +38,4 @@ Safe contract signatures use the Safe signature encoding, including EIP-1271 con
 
 The Delay proposer/execution path is a module call that queues an exact target/value/calldata/operation tuple, waits for its cooldown, and then permits execution by an unprivileged executor. Its proposer and upstream Safe/module relationships must be checked from the deployed instance; an old or independently enabled module can bypass the intended delay.
 
-These notes are verification requirements for later integration, not evidence that this repository has audited or deployed the Policy Engine, Safe, passkey, or Delay composition.
+These notes are verification requirements for later integration, not evidence that this repository has audited or deployed the Policy Engine, Safe, passkey, or Delay composition. Upstream component audits do not audit this project's X/Y/Z policy or its complete configured call graph.

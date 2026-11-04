@@ -1,5 +1,7 @@
 # Single-Safe Tiered Spending Security Core Implementation Plan
 
+> **2026-11-04 similar-project status note:** Safe Research Policy Engine is a closely related project and possible future comparison or migration candidate. Upstream now records scoped Certora audits for the engine/guard and most listed policies; older statements below that it is wholly unaudited are superseded. Upstream `main` continued changing after the audit snapshots, the reports do not cover this project's X/Y/Z composition, and the Policy Engine remains prior art only. This note does not authorize compiling, deploying, or trusting it, and it does not alter the approved `TieredSpendingGuard` plus Zodiac Delay architecture.
+
 > **2026-10-09 supersession:** The [approved live-validation plan](2026-10-09-guard-live-validation.md) replaces the three-owner baseline with one primary-passkey owner and guard-only contract/ECDSA secondaries. Older owner-count and paired secondary/owner rotation requirements below are historical. Live and ERC-4337 gates remain unchecked until evidenced.
 
 > **2026-11-01 local Phase One provisioning amendment:** The [approved automatic-provisioning design](../specs/2026-11-01-phase-one-automated-pwa-provisioning-design.md) supersedes this plan's per-wallet human package-approval step only for the loopback `BACKEND_PROFILE=local` Ethereum Sepolia PWA flow. After the second passkey, the backend writes the unsigned review package, applies the committed gas/fee/outlay policy through the `ProvisioningAuthorizer` seam, executes seven transactions serially with six confirmations and canonical runtime checks, and returns only after final topology verification. The backend-local authorizer is consistency/cost bounding, not independent approval; KMS or an independently administered policy service remains required to mitigate backend compromise. Non-local, non-Sepolia, recovery, ordinary rehearsal, and production gates are unchanged.
@@ -35,7 +37,7 @@
 - Security-weakening changes execute only from the verified Delay module after Z. Immediate changes must be mechanically monotonic tightening.
 - Every authorization binds chain, Safe, destination, value, calldata, operation, gas/refund fields, and nonce.
 - Pin exact dependencies and record source commits, audits, canonical addresses, and runtime bytecode hashes.
-- Study Safe Research Policy Engine at one pinned commit for prior art; do not deploy it or call it an audited dependency.
+- Study Safe Research Policy Engine at one pinned commit as similar-project prior art; do not deploy it or treat its scoped component audits as an audit of this dependency choice or composition.
 - Stop and write a focused design proposal if the accepted properties require another custom security-critical contract beyond `TieredSpendingGuard` and internal libraries.
 
 ---
@@ -126,7 +128,7 @@ Remove `@gnosis.pm/safe-contracts`; install reviewed exact versions with `--save
 
 - [ ] **Step 4: Write the dependency review**
 
-For every deployed or compiled security dependency, record version, integrity, tag/commit, audit link, supported chain, canonical address source, runtime code hash, review date, and rejected vulnerable versions. Record the Policy Engine as unaudited prior art, not a deployment dependency.
+For every deployed or compiled security dependency, record version, integrity, tag/commit, audit link, supported chain, canonical address source, runtime code hash, review date, and rejected vulnerable versions. Record the Policy Engine as similar-project prior art with audit scope mapped to exact commits, not as a deployment dependency.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -209,7 +211,7 @@ Reject unsupported chains, zero code, mismatched hashes, unknown releases, known
 
 - [ ] **Step 2: Record exact upstream lessons**
 
-At the pinned Policy Engine commit, review `SafePolicyGuard`, `CoSignerPolicy`, `IncreasedThresholdPolicy`, `SignatureExtension`, and stateful-policy tests. Document dual guard installation, untrusted context, exact digest verification, `safeTxGas == 0`, `gasPrice == 0`, failed-module rollback, reentrancy gating, namespaced state, and the unaudited warning. Do not copy code without recording license and provenance.
+At the pinned Policy Engine commit, review `SafePolicyGuard`, `CoSignerPolicy`, `IncreasedThresholdPolicy`, `SignatureExtension`, and stateful-policy tests. Document dual guard installation, untrusted context, exact digest verification, `safeTxGas == 0`, `gasPrice == 0`, failed-module rollback, reentrancy gating, namespaced state, exact audit scope, and later security-relevant fixes. Do not copy code without recording license and provenance.
 
 - [ ] **Step 3: Verify exact Safe interfaces**
 
