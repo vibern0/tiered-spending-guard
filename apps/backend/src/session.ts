@@ -12,6 +12,15 @@ export type RegistrationSession = Readonly<{
   used: boolean;
 }>;
 
+export type RebindSession = Readonly<{
+  id: string;
+  role: BackendPasskeyRole;
+  challenge: string;
+  rpId: string;
+  origin: string;
+  expiresAt: number;
+}>;
+
 function sessionId(): string {
   return randomBytes(24).toString("base64url");
 }
@@ -52,5 +61,32 @@ export class RegistrationSessionStore {
   clear(role: BackendPasskeyRole): void {
     this.registeredRoles.delete(role);
     for (const [id, session] of this.sessions) if (session.role === role) this.sessions.delete(id);
+  }
+}
+
+export class RebindSessionStore {
+  private readonly sessions = new Map<string, RebindSession>();
+
+  constructor(
+    private readonly profile: Readonly<{ id: "local" | "https"; origin: string; rpId: string }>,
+    private readonly now: () => number = Date.now,
+  ) {
+    assertBackendWebAuthnIdentity(profile.id, profile.origin, profile.rpId);
+  }
+
+  create(role: BackendPasskeyRole): RebindSession {
+    if (this.profile.id !== "local") throw new Error("credential rebind is available only in the local recovery profile");
+    if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
+    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, expiresAt: this.now() + 5 * 60_000 });
+    this.sessions.set(session.id, session);
+    return session;
+  }
+
+  consume(id: string, role: BackendPasskeyRole): RebindSession {
+    const session = this.sessions.get(id);
+    this.sessions.delete(id);
+    if (!session || session.role !== role) throw new Error("unknown or already used credential rebind session");
+    if (session.expiresAt < this.now()) throw new Error("credential rebind session expired");
+    return session;
   }
 }

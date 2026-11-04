@@ -9,13 +9,17 @@ const FACTORY_ABI = parseAbi(["function createSigner(uint256 x,uint256 y,uint176
 const DAIMO_VERIFIER = BigInt(OFFICIAL_DEPLOYMENT_REGISTRY[SEPOLIA]!.passkeySignerVerifier.address!);
 const PASSKEY_FACTORY = OFFICIAL_DEPLOYMENT_REGISTRY[SEPOLIA]!.passkeySignerFactory.address!;
 
-type RpcReceipt = Readonly<{ transactionHash: Hex; status: "success" | "reverted"; gasUsed: bigint; effectiveGasPrice: bigint; blockNumber: bigint; blockHash: Hex }>;
+export type RpcReceipt = Readonly<{ transactionHash: Hex; status: "success" | "reverted"; gasUsed: bigint; effectiveGasPrice: bigint; blockNumber: bigint; blockHash: Hex }>;
 export type SepoliaRpc = Readonly<{
   getChainId(): Promise<number>;
   getTransactionCount(args: { address: Address }): Promise<number | bigint>;
   getBalance(args: { address: Address }): Promise<bigint>;
   sendRawTransaction(args: { serializedTransaction: Hex }): Promise<Hex>;
   getTransactionReceipt(args: { hash: Hex }): Promise<RpcReceipt>;
+  waitForTransactionReceipt(args: { hash: Hex; confirmations: number }): Promise<RpcReceipt>;
+  estimateGas(args: { account: Address; to?: Address; data: Hex; value: bigint }): Promise<bigint>;
+  estimateFeesPerGas(): Promise<Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>>;
+  getBlockNumber(): Promise<bigint>;
 }>;
 
 const decimal = (value: unknown, label: string): bigint => {
@@ -135,16 +139,18 @@ export async function withLiveJournalStore<T>(path: string, funder: Address, cal
 
 export function createSepoliaLiveContext(input: Readonly<{ account: Account; client: SepoliaRpc; verify(): Promise<void>; persist(journal: LiveJournal): Promise<void> }>): LiveContext {
   const funder = input.account.address;
+  const signTransaction = input.account.signTransaction;
+  if (!signTransaction) throw new Error("live account cannot sign transactions");
   return Object.freeze({
     funder,
     chainId: () => input.client.getChainId(),
     nonce: async () => Number(await input.client.getTransactionCount({ address: funder })),
     balance: () => input.client.getBalance({ address: funder }),
     verify: input.verify,
-    sign: (intent) => input.account.signTransaction({ chainId: SEPOLIA, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }),
+    sign: (intent) => signTransaction({ chainId: SEPOLIA, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }),
     broadcast: async (raw) => input.client.sendRawTransaction({ serializedTransaction: raw }),
     receipt: async (hash): Promise<LiveReceipt | undefined> => {
-      try { return await input.client.getTransactionReceipt({ hash }); } catch { return undefined; }
+      try { return await input.client.waitForTransactionReceipt({ hash, confirmations: 6 }); } catch { return undefined; }
     },
     persist: input.persist,
   });

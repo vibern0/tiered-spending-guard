@@ -2,6 +2,8 @@
 
 > **2026-10-09 supersession:** The [approved live-validation plan](2026-10-09-guard-live-validation.md) replaces the three-owner baseline with one primary-passkey owner and guard-only contract/ECDSA secondaries. Older owner-count and paired secondary/owner rotation requirements below are historical. Live and ERC-4337 gates remain unchecked until evidenced.
 
+> **2026-11-01 local Phase One provisioning amendment:** The [approved automatic-provisioning design](../specs/2026-11-01-phase-one-automated-pwa-provisioning-design.md) supersedes this plan's per-wallet human package-approval step only for the loopback `BACKEND_PROFILE=local` Ethereum Sepolia PWA flow. After the second passkey, the backend writes the unsigned review package, applies the committed gas/fee/outlay policy through the `ProvisioningAuthorizer` seam, executes seven transactions serially with six confirmations and canonical runtime checks, and returns only after final topology verification. The backend-local authorizer is consistency/cost bounding, not independent approval; KMS or an independently administered policy service remains required to mitigate backend compromise. Non-local, non-Sepolia, recovery, ordinary rehearsal, and production gates are unchanged.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build and prove a testnet-only Safe security core where one Safe permits primary-passkey-only spending up to daily X, requires one configured secondary signer up to shared daily Y, and requires a cancellable delay Z above Y.

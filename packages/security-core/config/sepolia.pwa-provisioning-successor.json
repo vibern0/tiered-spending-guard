@@ -1,0 +1,22 @@
+{
+  "formatVersion": 1,
+  "scope": "sepolia-pwa-provisioning-successor",
+  "chainId": 11155111,
+  "originalPackageHash": "0xb307bb0656badfbeed91e9a4df500f31c85482563bb908010a85ef1f807d49bc",
+  "confirmedPrefixLength": 2,
+  "consumedTransactions": [
+    {
+      "nonce": "961",
+      "transactionHash": "0x6cacf6952b13589f201d89c4bfa841c085f4de85aa53224cd36dac9e94f78e60"
+    },
+    {
+      "nonce": "962",
+      "transactionHash": "0xf2d4de5486ac5d0223604f421e95e4440b0bad490a9fc3e84cb1253aff359a9d"
+    },
+    {
+      "nonce": "963",
+      "transactionHash": "0x89759f451d5c9d62809f022207bd59107d6ece0ce38fe562ca90336d421cc3ef"
+    }
+  ],
+  "expectedNextNonce": "964"
+}

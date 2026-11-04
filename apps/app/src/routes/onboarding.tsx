@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Circle, Fingerprint, KeyRound, ShieldCheck, ListChecks } from "lucide-react";
 import { useState } from "react";
-import { Card, DRow, PrimaryButton, SecondaryButton, NetworkPill } from "@/components/wallet/ui";
+import { Card, DRow, PrimaryButton, NetworkPill } from "@/components/wallet/ui";
 import { formatUsdc } from "@/lib/usdc";
 import { describeProvisioningError } from "@/lib/provisioning-errors";
 import { useVault, type Onboarding } from "@/lib/vault-store";
@@ -33,16 +33,16 @@ const EXERCISES = [
   "Cancellation",
 ];
 
-function OnboardingPage() {
+export function OnboardingPage() {
   const {
     state,
     setup,
     loading,
     registerPrimary,
     registerSecondary,
-    planVault,
-    refreshProvisioningApproval,
-    provisionVault,
+    retryProvisioning,
+    rebindPrimary,
+    rebindSecondary,
     finishSetup,
   } = useVault();
   const nav = useNavigate();
@@ -159,46 +159,31 @@ function OnboardingPage() {
                         v={setup.distinctSecondary ? "Cross-platform" : "Same-device"}
                       />
                     </dl>
-                    {!setup.packageHash && (
-                      <PrimaryButton
-                        disabled={busy !== null}
-                        onClick={() => run("plan", planVault)}
-                      >
-                        {busy === "plan"
-                          ? "Creating reviewed package…"
-                          : "Create unsigned deployment plan"}
+                    {setup.provisioning === "provisioning" && (
+                      <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
+                        {setup.credentialRebind.required
+                          ? "Deployment verified. Verify both existing signers to unlock vault actions."
+                          : "Provisioning and verifying… Keep this page open while seven bounded Sepolia transactions confirm."}
+                      </p>
+                    )}
+                    {setup.credentialRebind.primary === "required" && (
+                      <PrimaryButton disabled={busy !== null} onClick={() => run("rebind-primary", rebindPrimary)}>
+                        <Fingerprint className="size-5" aria-hidden />
+                        {busy === "rebind-primary" ? "Verifying first signer…" : "Verify first signer"}
                       </PrimaryButton>
                     )}
-                    {setup.provisioning === "awaiting-operator" && (
-                      <>
-                        <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
-                          Awaiting separate operator review and approval of package{" "}
-                          {setup.packageHash}
-                        </p>
-                        <SecondaryButton
-                          disabled={busy !== null}
-                          onClick={() => run("approval", refreshProvisioningApproval)}
-                        >
-                          {busy === "approval" ? "Checking…" : "Refresh operator approval"}
-                        </SecondaryButton>
-                        <PrimaryButton
-                          disabled={busy !== null}
-                          onClick={() => run("provision", provisionVault)}
-                        >
-                          {busy === "provision"
-                            ? "Checking approval and provisioning…"
-                            : "Provision after operator approval"}
-                        </PrimaryButton>
-                      </>
+                    {setup.credentialRebind.primary === "ready" && setup.credentialRebind.secondary === "required" && (
+                      <PrimaryButton disabled={busy !== null} onClick={() => run("rebind-secondary", rebindSecondary)}>
+                        <KeyRound className="size-5" aria-hidden />
+                        {busy === "rebind-secondary" ? "Verifying second signer…" : "Verify second signer"}
+                      </PrimaryButton>
                     )}
-                    {setup.provisioning === "approved" && (
+                    {setup.provisioning === "failed" && !setup.credentialRebind.required && (
                       <PrimaryButton
                         disabled={busy !== null}
-                        onClick={() => run("provision", provisionVault)}
+                        onClick={() => run("retry", retryProvisioning)}
                       >
-                        {busy === "provision"
-                          ? "Provisioning and verifying receipt…"
-                          : "Provision reviewed vault"}
+                        {busy === "retry" ? "Provisioning and verifying…" : "Retry automatic provisioning"}
                       </PrimaryButton>
                     )}
                   </>

@@ -5,9 +5,7 @@ import {
   createPwaProvisioningPlan,
   createDurablePwaProvisioningExecutionContext,
   brandPwaProvisioningExecutionContextForTestsOnly,
-  executeApprovedPwaProvisioning,
-  provisioningPackageHash,
-  type PwaProvisioningApproval,
+  executePwaProvisioning,
 } from "../../src/pwa/provisioning";
 import { loadPwaPhaseOneProfile } from "../../src/pwa/profile";
 import {
@@ -35,7 +33,7 @@ function dependency(name: string, n: number, supportsModuleGuards = false): Veri
   return Object.freeze({ name, version: "test", address: address(n), runtimeCodeHash: hash(code(n)), evidence: "verified", source: "reviewed test fixture", ...(supportsModuleGuards ? { supportsModuleGuards: true } : {}) });
 }
 
-function planningInfrastructure(): PwaPlanningInfrastructure {
+function planningInfrastructure(confirmedProvisioningPrefixLength = 0, observedCurrentDeployerNonce = observedNonce + BigInt(confirmedProvisioningPrefixLength)): PwaPlanningInfrastructure {
   const dependencies = Object.freeze({
     safeSingleton: dependency("Safe singleton", 30, true),
     safeProxyFactory: dependency("Safe proxy factory", 31),
@@ -48,6 +46,8 @@ function planningInfrastructure(): PwaPlanningInfrastructure {
     chainId: 11155111,
     deployer,
     observedDeployerNonce: observedNonce,
+    observedCurrentDeployerNonce,
+    confirmedProvisioningPrefixLength,
     ...dependencies,
     primaryPasskeySigner: Object.freeze({ name: "passkeySigner", address: primary, expectedRuntimeCodeHash: hash(code(35)), bindingHash: hash(code(36)), source: "factory prediction", binding: { ...primaryCredential, verifiers: BigInt(dependencies.passkeySignerVerifier.address) } }),
     secondaryPasskeySigner: Object.freeze({ name: "passkeySigner", address: secondary, expectedRuntimeCodeHash: hash(code(37)), bindingHash: hash(code(38)), source: "factory prediction", binding: { ...secondaryCredential, verifiers: BigInt(dependencies.passkeySignerVerifier.address) } }),
@@ -72,8 +72,8 @@ function profile() {
   return loadPwaPhaseOneProfile(JSON.parse(readFileSync("config/sepolia.pwa-phase-one.json", "utf8")));
 }
 
-async function plan() {
-  const infrastructure = planningInfrastructure();
+async function plan(confirmedProvisioningPrefixLength = 0) {
+  const infrastructure = planningInfrastructure(confirmedProvisioningPrefixLength);
   return createPwaProvisioningPlan({
     profile: profile(),
     deployer,
@@ -83,8 +83,13 @@ async function plan() {
     secondaryCredential,
     infrastructure,
     artifacts: reviewedArtifacts(),
+    confirmedProvisioningPrefixLength,
     client: {
-      async getBytecode() { return undefined; },
+      async getBytecode({ address: target }) {
+        if (confirmedProvisioningPrefixLength > 0 && target.toLowerCase() === primary.toLowerCase()) return code(35);
+        if (confirmedProvisioningPrefixLength > 1 && target.toLowerCase() === secondary.toLowerCase()) return code(37);
+        return undefined;
+      },
       async readContract({ functionName, args }) {
         if (functionName !== "getSigner") throw new Error(`unexpected read ${functionName}`);
         return BigInt(String(args?.[0])) === primaryCredential.x ? primary : secondary;
@@ -93,20 +98,60 @@ async function plan() {
   });
 }
 
-function approvalFor(value: Awaited<ReturnType<typeof plan>>): PwaProvisioningApproval {
-  return {
-    formatVersion: 1,
-    scope: "sepolia-pwa-provisioning",
-    packageHash: provisioningPackageHash(value),
-    planHash: value.planHash,
-    transactions: value.transactions.map((transaction) => ({
-      id: transaction.id,
-      nonce: transaction.nonce.toString(),
-      gasLimit: "1000000",
-      maxFeePerGas: "2000000000",
-      maxPriorityFeePerGas: "1000000000",
-    })),
-  };
+async function successorPlan(confirmedSuccessorTransactionCount: 0 | 1 | 2 | 3 | 4 | 5 = 0) {
+  const prerequisiteStartingNonce = observedNonce + 4n;
+  const expectedCurrentDeployerNonce = prerequisiteStartingNonce + BigInt(confirmedSuccessorTransactionCount);
+  return createPwaProvisioningPlan({
+    profile: profile(),
+    deployer,
+    expectedDeployerNonce: observedNonce,
+    expectedCurrentDeployerNonce,
+    prerequisiteStartingNonce,
+    confirmedSuccessorTransactionCount,
+    safeProxySaltNonce: 7n,
+    primaryCredential,
+    secondaryCredential,
+    infrastructure: planningInfrastructure(2, expectedCurrentDeployerNonce),
+    artifacts: reviewedArtifacts(),
+    confirmedProvisioningPrefixLength: 2,
+    client: {
+      async getBytecode({ address: target }) {
+        if (target.toLowerCase() === primary.toLowerCase()) return code(35);
+        if (target.toLowerCase() === secondary.toLowerCase()) return code(37);
+        return undefined;
+      },
+      async readContract({ args }) { return BigInt(String(args?.[0])) === primaryCredential.x ? primary : secondary; },
+    },
+  });
+}
+
+async function prefixOneSuccessorPlan(confirmedSuccessorTransactionCount: 0 | 1 | 2 | 3 | 4 | 5 | 6 = 0) {
+  const successorStartingNonce = observedNonce + 2n;
+  const expectedCurrentDeployerNonce = successorStartingNonce + BigInt(confirmedSuccessorTransactionCount);
+  const verifiedDeploymentPrefixLength = confirmedSuccessorTransactionCount > 0 ? 2 : 1;
+  return createPwaProvisioningPlan({
+    profile: profile(),
+    deployer,
+    expectedDeployerNonce: observedNonce,
+    expectedCurrentDeployerNonce,
+    successorStartingNonce,
+    confirmedSuccessorTransactionCount,
+    safeProxySaltNonce: 7n,
+    primaryCredential,
+    secondaryCredential,
+    infrastructure: planningInfrastructure(verifiedDeploymentPrefixLength, expectedCurrentDeployerNonce),
+    artifacts: reviewedArtifacts(),
+    confirmedProvisioningPrefixLength: 1,
+    verifiedDeploymentPrefixLength,
+    client: {
+      async getBytecode({ address: target }) {
+        if (target.toLowerCase() === primary.toLowerCase()) return code(35);
+        if (verifiedDeploymentPrefixLength > 1 && target.toLowerCase() === secondary.toLowerCase()) return code(37);
+        return undefined;
+      },
+      async readContract({ args }) { return BigInt(String(args?.[0])) === primaryCredential.x ? primary : secondary; },
+    },
+  });
 }
 
 describe("PWA provisioning", () => {
@@ -161,12 +206,73 @@ describe("PWA provisioning", () => {
     await expect(createPwaProvisioningPlan({ ...base, infrastructure: changedFactory })).to.be.rejectedWith(/planning infrastructure/i);
   });
 
+  it("rebuilds only an explicitly verified recovery prefix while the fresh path stays strict", async () => {
+    for (const prefixLength of [1, 2, 3, 4, 5, 6]) {
+      const recovered = await plan(prefixLength);
+      expect(recovered.transactions[0]!.nonce).to.equal(observedNonce);
+      expect(recovered.infrastructure.confirmedProvisioningPrefixLength).to.equal(prefixLength);
+    }
+    const infrastructure = planningInfrastructure();
+    await expect(createPwaProvisioningPlan({
+      profile: profile(), deployer, expectedDeployerNonce: observedNonce, safeProxySaltNonce: 7n,
+      primaryCredential, secondaryCredential, infrastructure, artifacts: reviewedArtifacts(),
+      client: {
+        async getBytecode({ address: target }) { return target.toLowerCase() === primary.toLowerCase() ? code(35) : undefined; },
+        async readContract({ args }) { return BigInt(String(args?.[0])) === primaryCredential.x ? primary : secondary; },
+      },
+    })).to.be.rejectedWith(/already exists/i);
+  });
+
+  it("preserves signer lineage while rebasing only the successor suffix", async () => {
+    const original = await plan(2);
+    const successor = await successorPlan();
+    expect(successor.transactions.map(({ nonce }) => nonce)).to.deep.equal([11n, 12n, 15n, 16n, 17n, 18n, 19n]);
+    expect(successor.transactions.slice(0, 2)).to.deep.equal(original.transactions.slice(0, 2));
+    expect(successor.transactions[2]!.expectedCreatedAddress).not.to.equal(original.transactions[2]!.expectedCreatedAddress);
+    expect(successor.planHash).not.to.equal(original.planHash);
+  });
+
+  it("preserves one confirmed signer and rebases the secondary plus prerequisites", async () => {
+    const original = await plan(1);
+    const successor = await prefixOneSuccessorPlan();
+    expect(successor.transactions.map(({ id, nonce }) => [id, nonce])).to.deep.equal([
+      ["primary-signer", 11n], ["secondary-signer", 13n], ["setup-helper", 14n], ["guard", 15n], ["delay", 16n], ["maintenance", 17n], ["safe-proxy", 18n],
+    ]);
+    expect(successor.transactions[0]).to.deep.equal(original.transactions[0]);
+    expect(successor.transactions[1]!.data).to.equal(original.transactions[1]!.data);
+    expect(successor.transactions[1]!.expectedCreatedAddress).to.equal(original.transactions[1]!.expectedCreatedAddress);
+    expect(successor.transactions[2]!.expectedCreatedAddress).not.to.equal(original.transactions[2]!.expectedCreatedAddress);
+    expect(successor.planHash).not.to.equal(original.planHash);
+  });
+
+  it("rebuilds the prefix-one successor at every suffix restart nonce", async () => {
+    const initial = await prefixOneSuccessorPlan();
+    for (const confirmed of [1, 2, 3, 4, 5, 6] as const) {
+      const recovered = await prefixOneSuccessorPlan(confirmed);
+      expect(recovered.transactions).to.deep.equal(initial.transactions);
+      expect(recovered.planHash).to.equal(initial.planHash);
+      expect(recovered.infrastructure.observedCurrentDeployerNonce).to.equal(observedNonce + 2n + BigInt(confirmed));
+    }
+  });
+
+  it("rebuilds the real successor planner at every incomplete suffix restart nonce", async () => {
+    const initial = await successorPlan();
+    for (const confirmed of [1, 2, 3, 4, 5] as const) {
+      const recovered = await successorPlan(confirmed);
+      expect(recovered.transactions).to.deep.equal(initial.transactions);
+      expect(recovered.planHash).to.equal(initial.planHash);
+      expect(recovered.infrastructure.observedCurrentDeployerNonce).to.equal(observedNonce + 4n + BigInt(confirmed));
+    }
+  });
+
   it("never submits the Safe if any prerequisite fails", async () => {
     const value = await plan();
     const submitted: string[] = [];
     process.env.NODE_ENV = "test";
-    await expect(executeApprovedPwaProvisioning(value, approvalFor(value), brandPwaProvisioningExecutionContextForTestsOnly({
+    await expect(executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return 0; },
       async currentDeployerNonce() { return observedNonce; },
+      async authorize(transaction) { return { ...transaction, gasLimit: 1_000_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }; },
       async submit(transaction) {
         submitted.push(transaction.id);
         if (transaction.id === "maintenance") throw new Error("constructor reverted");
@@ -175,6 +281,74 @@ describe("PWA provisioning", () => {
       async verifyFinalTopology() { throw new Error("must not verify"); },
     }))).to.be.rejectedWith(/constructor reverted/);
     expect(submitted).not.to.include("safe-proxy");
+  });
+
+  it("skips the confirmed nonce prefix and authorizes each missing transaction before submission", async () => {
+    const value = await plan();
+    const events: string[] = [];
+    process.env.NODE_ENV = "test";
+    const result = await executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return 2; },
+      async currentDeployerNonce() { return observedNonce + 2n; },
+      async authorize(transaction) {
+        events.push(`authorize:${transaction.id}`);
+        return { ...transaction, gasLimit: 1_000_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
+      },
+      async submit(transaction) {
+        events.push(`submit:${transaction.id}`);
+        return { transactionHash: hash(code(Number(transaction.nonce))), receipt: { status: "success", blockNumber: transaction.nonce } };
+      },
+      async verifyFinalTopology() { events.push("verify"); return hash(code(99)); },
+    }));
+
+    expect(events.slice(0, 4)).to.deep.equal(["authorize:setup-helper", "submit:setup-helper", "authorize:guard", "submit:guard"]);
+    expect(events).not.to.include("authorize:primary-signer");
+    expect(events).not.to.include("submit:secondary-signer");
+    expect(events.at(-1)).to.equal("verify");
+    expect(result.safe).to.equal(value.safe);
+  });
+
+  it("rejects unrelated nonce advancement instead of skipping a missing reviewed transaction", async () => {
+    const value = await plan();
+    const authorize = async (transaction: PwaProvisioningTransaction) => ({ ...transaction, gasLimit: 1_000_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n });
+    await expect(executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return 2; },
+      async currentDeployerNonce() { return observedNonce + 4n; },
+      authorize,
+      async submit() { throw new Error("must not submit"); },
+      async verifyFinalTopology() { throw new Error("must not verify"); },
+    }))).to.be.rejectedWith(/first missing reviewed transaction setup-helper: expected .* observed/i);
+  });
+
+  it("uses the next reviewed row nonce for an approved noncontiguous successor", async () => {
+    const value = await successorPlan();
+    const submitted: string[] = [];
+    await executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return 2; },
+      async currentDeployerNonce() { return observedNonce + 4n; },
+      async authorize(transaction) { return { ...transaction, gasLimit: 1_000_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }; },
+      async submit(transaction) { submitted.push(transaction.id); return { transactionHash: hash(code(Number(transaction.nonce))), receipt: { status: "success", blockNumber: transaction.nonce } }; },
+      async verifyFinalTopology() { return hash(code(99)); },
+    }));
+    expect(submitted).to.deep.equal(["setup-helper", "guard", "delay", "maintenance", "safe-proxy"]);
+  });
+
+  it("restores a complete journal read-only and re-verifies topology without authorization or submission", async () => {
+    const value = await successorPlan(5);
+    let authorizations = 0;
+    let submissions = 0;
+    const topology = hash(code(99));
+    const result = await executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return value.transactions.length; },
+      async currentDeployerNonce() { return value.transactions.at(-1)!.nonce + 1n; },
+      async authorize(transaction) { authorizations += 1; return { ...transaction, gasLimit: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }; },
+      async submit() { submissions += 1; throw new Error("must not submit"); },
+      async completedSetupReceipt() { return { transactionHash: hash(code(98)), blockNumber: 100n }; },
+      async verifyFinalTopology() { return topology; },
+    }));
+    expect(result.topologyReportHash).to.equal(topology);
+    expect(authorizations).to.equal(0);
+    expect(submissions).to.equal(0);
   });
 
   it("uses durable submission and rejects fresh code drift before signing", async () => {
@@ -195,9 +369,13 @@ describe("PWA provisioning", () => {
     };
     const client = {
       async getTransactionCount() { return observedNonce; },
-      async getBytecode() { return undefined; },
+      async getBytecode({ address: target }: { address: Address }) { return broadcastHash && target.toLowerCase() === value.transactions[0]!.expectedCreatedAddress.toLowerCase() ? code(35) : undefined; },
       async readContract() { throw new Error("not reached"); },
       async getStorageAt() { return undefined; },
+      async estimateGas() { return 50_000n; },
+      async estimateFeesPerGas() { return { maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }; },
+      async getBlockNumber() { return 15n; },
+      async getTransactionReceipt({ hash: transactionHash }: { hash: Hex }) { return { transactionHash, status: "success" as const, gasUsed: 50_000n, effectiveGasPrice: 1n, blockNumber: 10n, blockHash: hash(code(10)) }; },
     };
     const context = createDurablePwaProvisioningExecutionContext({ plan: value, journal, liveContext, client });
     const first = value.transactions[0]!;

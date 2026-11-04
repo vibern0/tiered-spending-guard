@@ -1,5 +1,5 @@
 import { verifyAuthenticationResponse, verifyRegistrationResponse, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/server";
-import { bytesToHex, encodeAbiParameters, hexToBytes, type Address, type Hex } from "viem";
+import { bytesToHex, encodeAbiParameters, hexToBytes, toHex, type Address, type Hex } from "viem";
 import { assertBackendWebAuthnIdentity } from "./config";
 import { decodeP256Credential, decodeWebAuthnField, extractClientDataSuffix, parseP256DerSignature } from "./webauthn-signature";
 
@@ -29,6 +29,7 @@ export type AssertionInput = Readonly<{
 }>;
 
 export type VerifiedPasskeyApproval = Readonly<{ role: BackendPasskeyRole; credentialId: string; counter: number; payload: Hex }>;
+export type ReboundCredential = StoredCredential & Readonly<{ credentialId: string }>;
 
 type RegistrationVerification = Readonly<{ verified: boolean; credentialId: string; publicKey: Uint8Array; counter: number }>;
 type AssertionVerification = Readonly<{ verified: boolean; authenticationInfo?: Readonly<{ newCounter?: number }> }>;
@@ -72,6 +73,36 @@ async function defaultAssertionVerifier(input: Readonly<{ response: unknown; cre
     credential: { id: input.credential.id, publicKey: input.credential.publicKey as Uint8Array<ArrayBuffer>, counter: input.credential.counter },
   });
   return { verified: result.verified, authenticationInfo: result.authenticationInfo && { newCounter: result.authenticationInfo.newCounter } };
+}
+
+export function encodeP256CosePublicKey(coordinates: Readonly<{ x: bigint; y: bigint }>): Uint8Array {
+  if (coordinates.x < 0n || coordinates.y < 0n || coordinates.x >= 1n << 256n || coordinates.y >= 1n << 256n) throw new Error("P-256 coordinate is out of range");
+  const x = hexToBytes(toHex(coordinates.x, { size: 32 }));
+  const y = hexToBytes(toHex(coordinates.y, { size: 32 }));
+  return Uint8Array.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20, ...x, 0x22, 0x58, 0x20, ...y]);
+}
+
+export async function verifyPasskeyRebind(input: Readonly<{
+  role: BackendPasskeyRole;
+  coordinates: Readonly<{ x: bigint; y: bigint }>;
+  challenge: string;
+  rpId: string;
+  origin: string;
+  response: AuthenticationResponseJSON;
+}>, verifier: AssertionVerifier = defaultAssertionVerifier): Promise<ReboundCredential> {
+  role(input.role);
+  assertBackendWebAuthnIdentity(input.rpId === "localhost" ? "local" : "https", input.origin, input.rpId);
+  if (!input.challenge || !input.response.id || input.response.type !== "public-key") throw new Error("WebAuthn rebind response is malformed");
+  const publicKey = encodeP256CosePublicKey(input.coordinates);
+  const credential = Object.freeze({ role: input.role, id: input.response.id, publicKey, counter: 0, ...input.coordinates });
+  const result = await verifier({ response: input.response, credential, challenge: input.challenge, rpId: input.rpId, origin: input.origin });
+  if (!result.verified) throw new Error("WebAuthn rebind assertion was not verified");
+  const counter = result.authenticationInfo?.newCounter ?? 0;
+  if (!Number.isSafeInteger(counter) || counter < 0) throw new Error("WebAuthn rebind counter is invalid");
+  const authenticatorData = decodeWebAuthnField(input.response.response.authenticatorData, "WebAuthn authenticatorData");
+  if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x01) === 0 || (authenticatorData[32]! & 0x04) === 0) throw new Error("WebAuthn user presence and verification are required");
+  extractClientDataSuffix(input.response.response.clientDataJSON, { challenge: input.challenge, origin: input.origin });
+  return Object.freeze({ ...credential, credentialId: input.response.id, counter });
 }
 
 export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ credentialId: string }>> {

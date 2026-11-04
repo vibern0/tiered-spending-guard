@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, ArrowLeft, Clock, Fingerprint, KeyRound, Ban } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, DRow, Details, PrimaryButton, SecondaryButton } from "@/components/wallet/ui";
 import { LANE_COPY, fingerprintOf, type Lane } from "@/lib/activity-model";
 import { formatUsdc, parseUsdc } from "@/lib/usdc";
@@ -36,9 +36,10 @@ const LANE_ICON: Record<Lane, typeof Fingerprint> = {
 };
 
 function SendPage() {
-  const { state, sendUsdc } = useVault();
+  const { state, loading, refresh, sendUsdc } = useVault();
   const nav = useNavigate();
   const { busy } = useApproval();
+  const refreshedOnOpen = useRef(false);
   const [step, setStep] = useState<"to" | "amount" | "review">("to");
   const [to, setTo] = useState<Recipient | null>(null);
   const [manual, setManual] = useState("");
@@ -47,6 +48,12 @@ function SendPage() {
   const amount = parseUsdc(amountStr);
   const [snapshot, setSnapshot] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (refreshedOnOpen.current) return;
+    refreshedOnOpen.current = true;
+    void refresh();
+  }, [refresh]);
 
   const pickManual = () => {
     if (!isAddress(manual)) return setError("That doesn't look like a valid account address.");
@@ -195,14 +202,14 @@ function SendPage() {
             />
           )}
           <PrimaryButton
-            disabled={amount === null || amount <= 0n || lane === "blocked"}
+            disabled={loading || amount === null || amount <= 0n || lane === "blocked"}
             onClick={() => {
               setError(null);
               setSnapshot(stateKey());
               setStep("review");
             }}
           >
-            Review
+            {loading ? "Refreshing account…" : "Review"}
           </PrimaryButton>
         </>
       )}

@@ -18,7 +18,7 @@ import {
   type PwaPlanningInfrastructure,
   type ReadOnlyDeploymentClient,
 } from "../config/deployments";
-import type { VaultPolicy } from "../config/policy";
+import type { ConfiguredSigner, VaultPolicy } from "../config/policy";
 import {
   PWA_RECIPIENT,
   REVIEWED_USDC_RUNTIME_CODE_HASH,
@@ -37,13 +37,15 @@ import {
 } from "../topology/build";
 import { deriveComponentAddresses } from "../topology/addressing";
 import { isReviewedVaultArtifacts, resolveReviewedVaultArtifacts, type ArtifactResolutionClient, type ReviewedVaultArtifacts } from "../topology/reviewed-artifacts";
-import { submitLiveIntent, type LiveContext, type LiveJournal } from "../../scripts/live/submission";
+import { PHASE_OUTLAY_LIMIT, submitLiveIntent, type LiveContext, type LiveJournal, type LiveReceipt } from "../../scripts/live/submission";
 import { verifyTopology } from "../topology/verify";
 import { createLiveJournalStore, createSepoliaLiveContext, type SepoliaRpc } from "../../scripts/live/runtime";
 
+export { readLiveJournal } from "../../scripts/live/runtime";
+export type { LiveJournal } from "../../scripts/live/submission";
+
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
-const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const FACTORY_ABI = [
   { name: "getSigner", type: "function", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }], outputs: [{ type: "address" }] },
   { name: "createSigner", type: "function", stateMutability: "nonpayable", inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }], outputs: [{ type: "address" }] },
@@ -73,20 +75,6 @@ export type PwaProvisioningPlan = Readonly<{
   vaultPlan: VaultDeploymentPlan;
 }>;
 
-export type PwaProvisioningApproval = Readonly<{
-  formatVersion: 1;
-  scope: "sepolia-pwa-provisioning";
-  packageHash: Hex;
-  planHash: Hex;
-  transactions: readonly Readonly<{
-    id: PwaProvisioningTransactionId;
-    nonce: string;
-    gasLimit: string;
-    maxFeePerGas: string;
-    maxPriorityFeePerGas: string;
-  }>[];
-}>;
-
 export type PwaProvisioningReceipt = Readonly<{ status: "success"; blockNumber: bigint }>;
 export type ApprovedPwaProvisioningTransaction = PwaProvisioningTransaction & Readonly<{
   gasLimit: bigint;
@@ -94,14 +82,23 @@ export type ApprovedPwaProvisioningTransaction = PwaProvisioningTransaction & Re
   maxPriorityFeePerGas: bigint;
 }>;
 export type PwaProvisioningExecutionContext = Readonly<{
+  confirmedPrefixLength(): Promise<number>;
   currentDeployerNonce(): Promise<bigint>;
+  authorize?(transaction: PwaProvisioningTransaction): Promise<ApprovedPwaProvisioningTransaction>;
   submit(transaction: ApprovedPwaProvisioningTransaction): Promise<Readonly<{ transactionHash: Hex; receipt: PwaProvisioningReceipt }>>;
+  completedSetupReceipt?(): Promise<Readonly<{ transactionHash: Hex; blockNumber: bigint }> | undefined>;
   verifyFinalTopology(plan: PwaProvisioningPlan): Promise<Hex>;
 }>;
 const reviewedExecutionContexts = new WeakSet<object>();
 
 type PwaExecutionClient = ReadOnlyDeploymentClient & Readonly<{
   getStorageAt(args: { address: Address; slot: Hex }): Promise<Hex | undefined>;
+  getTransactionCount(args: { address: Address; blockTag?: "latest" | "pending" }): Promise<number | bigint>;
+  readContract(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown>;
+  estimateGas(args: { account: Address; to?: Address; data: Hex; value: bigint }): Promise<bigint>;
+  estimateFeesPerGas(): Promise<Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>>;
+  getBlockNumber(): Promise<bigint>;
+  getTransactionReceipt(args: { hash: Hex }): Promise<LiveReceipt>;
 }>;
 
 export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
@@ -109,12 +106,27 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
   journal: LiveJournal;
   liveContext: LiveContext;
   client: PwaExecutionClient;
+  authorize?(transaction: PwaProvisioningTransaction): Promise<ApprovedPwaProvisioningTransaction>;
 }>): PwaProvisioningExecutionContext {
   const verifyProgress = async (transaction: PwaProvisioningTransaction): Promise<void> => {
     const index = input.plan.transactions.findIndex((candidate) => candidate.id === transaction.id);
     if (index < 0) throw new Error("fail closed: provisioning transaction is not in the reviewed plan");
-    const observedNonceRaw = await input.client.getTransactionCount?.({ address: input.plan.deployer });
-    if (observedNonceRaw === undefined || BigInt(observedNonceRaw) !== transaction.nonce) throw new Error("fail closed: deployer nonce drift before provisioning transaction");
+    const planned = input.plan.transactions[index]!;
+    if (
+      transaction.nonce !== planned.nonce
+      || !isAddressEqual(transaction.to, planned.to)
+      || transaction.value !== planned.value
+      || transaction.data.toLowerCase() !== planned.data.toLowerCase()
+      || transaction.operation !== planned.operation
+      || !isAddressEqual(transaction.expectedCreatedAddress, planned.expectedCreatedAddress)
+      || transaction.creationCodeHash.toLowerCase() !== planned.creationCodeHash.toLowerCase()
+      || transaction.expectedRuntimeCodeHash.toLowerCase() !== planned.expectedRuntimeCodeHash.toLowerCase()
+    ) throw new Error("fail closed: provisioning transaction changed from the reviewed plan");
+    const [latestNonceRaw, pendingNonceRaw] = await Promise.all([
+      input.client.getTransactionCount({ address: input.plan.deployer, blockTag: "latest" }),
+      input.client.getTransactionCount({ address: input.plan.deployer, blockTag: "pending" }),
+    ]);
+    if (BigInt(latestNonceRaw) !== transaction.nonce || BigInt(pendingNonceRaw) !== transaction.nonce) throw new Error("fail closed: deployer latest/pending nonce drift before provisioning transaction");
     for (const [candidateIndex, candidate] of input.plan.transactions.entries()) {
       const code = await input.client.getBytecode({ address: candidate.expectedCreatedAddress });
       if (candidateIndex < index) {
@@ -127,6 +139,38 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
       const prerequisites = await verifyVaultPrerequisites(input.client, input.plan.vaultPlan, "before-setup");
       assertSafeCreationReady(input.plan.vaultPlan, prerequisites, transaction.nonce);
     }
+  };
+
+  const verifyAdmission = async (transaction: ApprovedPwaProvisioningTransaction): Promise<void> => {
+    const estimate = await input.client.estimateGas({
+      account: input.plan.deployer,
+      ...(isAddressEqual(transaction.to, ZERO) ? {} : { to: transaction.to }),
+      data: transaction.data,
+      value: transaction.value,
+    });
+    if (estimate > transaction.gasLimit) throw new Error(`fail closed: ${transaction.id} gas estimate exceeds its committed limit`);
+    const fees = await input.client.estimateFeesPerGas();
+    if (fees.maxFeePerGas > transaction.maxFeePerGas) throw new Error(`fail closed: ${transaction.id} maximum fee recommendation exceeds its committed limit`);
+    if (fees.maxPriorityFeePerGas > transaction.maxPriorityFeePerGas) throw new Error(`fail closed: ${transaction.id} priority fee recommendation exceeds its committed limit`);
+    const priorReservation = input.journal.entries.reduce((total, entry) => total + entry.reserved, 0n);
+    const reservation = transaction.value + transaction.gasLimit * transaction.maxFeePerGas;
+    if (priorReservation < 0n || priorReservation + reservation > PHASE_OUTLAY_LIMIT) throw new Error("fail closed: provisioning phase outlay limit exceeded");
+  };
+
+  const verifyConfirmed = async (transaction: PwaProvisioningTransaction, receipt: LiveReceipt): Promise<void> => {
+    const head = await input.client.getBlockNumber();
+    if (head < receipt.blockNumber + 5n) throw new Error(`fail closed: ${transaction.id} receipt has fewer than six confirmations`);
+    const canonical = await input.client.getTransactionReceipt({ hash: receipt.transactionHash });
+    if (
+      canonical.transactionHash !== receipt.transactionHash
+      || canonical.status !== receipt.status
+      || canonical.blockNumber !== receipt.blockNumber
+      || canonical.blockHash.toLowerCase() !== receipt.blockHash.toLowerCase()
+      || canonical.gasUsed !== receipt.gasUsed
+      || canonical.effectiveGasPrice !== receipt.effectiveGasPrice
+    ) throw new Error(`fail closed: ${transaction.id} canonical receipt changed`);
+    const runtime = await input.client.getBytecode({ address: transaction.expectedCreatedAddress });
+    if (!runtime || runtime === "0x" || keccak256(runtime).toLowerCase() !== transaction.expectedRuntimeCodeHash.toLowerCase()) throw new Error(`fail closed: ${transaction.id} runtime does not match the reviewed artifact`);
   };
 
   const verifyFinalTopology = async (): Promise<Hex> => {
@@ -148,7 +192,32 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
   };
 
   const context: PwaProvisioningExecutionContext = Object.freeze({
-    currentDeployerNonce: async () => BigInt(await input.liveContext.nonce()),
+    confirmedPrefixLength: async () => {
+      let prefixLength = 0;
+      for (const [index, entry] of input.journal.entries.entries()) {
+        const transaction = input.plan.transactions[index];
+        if (!transaction || entry.id !== `pwa-${transaction.id}` || entry.nonce !== Number(transaction.nonce)) throw new Error("fail closed: provisioning journal does not match the reviewed transaction prefix");
+        if (entry.status === "success") {
+          if (!entry.receipt || entry.receipt.status !== "success") throw new Error("fail closed: successful provisioning journal entry lacks its receipt");
+          prefixLength += 1;
+          continue;
+        }
+        if (entry.status !== "pending" || index !== input.journal.entries.length - 1) throw new Error("fail closed: provisioning journal is not a successful prefix plus at most one pending transaction");
+      }
+      return prefixLength;
+    },
+    currentDeployerNonce: async () => {
+      const pending = input.journal.entries.find((entry) => entry.status === "pending");
+      return pending ? BigInt(pending.nonce) : BigInt(await input.liveContext.nonce());
+    },
+    authorize: input.authorize,
+    async completedSetupReceipt() {
+      const transaction = input.plan.transactions.at(-1)!;
+      const entry = input.journal.entries.at(-1);
+      if (!entry || entry.id !== `pwa-${transaction.id}` || entry.nonce !== Number(transaction.nonce) || entry.status !== "success" || !entry.receipt) return undefined;
+      await verifyConfirmed(transaction, entry.receipt);
+      return Object.freeze({ transactionHash: entry.transactionHash, blockNumber: entry.receipt.blockNumber });
+    },
     async submit(transaction) {
       const intent = {
         id: `pwa-${transaction.id}`,
@@ -160,10 +229,14 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
         maxFeePerGas: transaction.maxFeePerGas,
         maxPriorityFeePerGas: transaction.maxPriorityFeePerGas,
       } as const;
-      if (!input.journal.entries.some((entry) => entry.id === intent.id)) await verifyProgress(transaction);
+      if (!input.journal.entries.some((entry) => entry.id === intent.id)) {
+        await verifyProgress(transaction);
+        await verifyAdmission(transaction);
+      }
       let entry = await submitLiveIntent(intent, input.journal, input.liveContext);
       if (entry.status === "pending") entry = await submitLiveIntent(intent, input.journal, input.liveContext);
       if (!entry.receipt || entry.status !== "success") throw new Error(`fail closed: ${transaction.id} lacks a canonical successful receipt`);
+      await verifyConfirmed(transaction, entry.receipt);
       return Object.freeze({ transactionHash: entry.transactionHash, receipt: Object.freeze({ status: "success" as const, blockNumber: entry.receipt.blockNumber }) });
     },
     verifyFinalTopology,
@@ -177,6 +250,7 @@ export function createPwaProvisioningRuntime(input: Readonly<{
   journalPath: string;
   account: Account;
   client: PwaExecutionClient & SepoliaRpc;
+  authorize?(transaction: PwaProvisioningTransaction): Promise<ApprovedPwaProvisioningTransaction>;
 }>): Readonly<{ context: PwaProvisioningExecutionContext; close(): void }> {
   if (!isAddressEqual(input.account.address, input.plan.deployer)) throw new Error("fail closed: provisioning account does not match reviewed deployer");
   const store = createLiveJournalStore(input.journalPath, input.account.address);
@@ -188,7 +262,7 @@ export function createPwaProvisioningRuntime(input: Readonly<{
     persist: async (value) => { store.save(value); },
   });
   try {
-    const context = createDurablePwaProvisioningExecutionContext({ plan: input.plan, journal, liveContext, client: input.client });
+    const context = createDurablePwaProvisioningExecutionContext({ plan: input.plan, journal, liveContext, client: input.client, authorize: input.authorize });
     return Object.freeze({ context, close: store.close });
   } catch (error) {
     store.close();
@@ -240,6 +314,12 @@ export type CreatePwaProvisioningPlanInput = Readonly<{
   infrastructure: PwaPlanningInfrastructure;
   artifacts: ReviewedVaultArtifacts;
   client: ProvisioningClient;
+  confirmedProvisioningPrefixLength?: number;
+  verifiedDeploymentPrefixLength?: number;
+  expectedCurrentDeployerNonce?: bigint;
+  successorStartingNonce?: bigint;
+  prerequisiteStartingNonce?: bigint;
+  confirmedSuccessorTransactionCount?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
 }>;
 
 export type ResolvePwaProvisioningPlanInput = Readonly<{
@@ -250,12 +330,39 @@ export type ResolvePwaProvisioningPlanInput = Readonly<{
   primaryCredential: PwaCredentialCoordinates;
   secondaryCredential: PwaCredentialCoordinates;
   client: PwaPlanResolutionClient;
+  confirmedProvisioningPrefixLength?: number;
+  verifiedDeploymentPrefixLength?: number;
+  expectedCurrentDeployerNonce?: bigint;
+  successorStartingNonce?: bigint;
+  prerequisiteStartingNonce?: bigint;
+  confirmedSuccessorTransactionCount?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
 }>;
 
-function exactKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
-  const allowed = new Set(expected);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`${label} contains unknown field ${key}`);
-  for (const key of expected) if (!(key in value)) throw new Error(`${label} is missing field ${key}`);
+function successorLayout(input: Readonly<{
+  expectedDeployerNonce: bigint;
+  confirmedProvisioningPrefixLength: number;
+  successorStartingNonce?: bigint;
+  prerequisiteStartingNonce?: bigint;
+  confirmedSuccessorTransactionCount?: number;
+  expectedCurrentDeployerNonce: bigint;
+}>): Readonly<{ successorStartingNonce?: bigint; prerequisiteNonce: bigint; secondarySignerNonce: bigint }> {
+  const successorStartingNonce = input.successorStartingNonce ?? input.prerequisiteStartingNonce;
+  const confirmedSuccessorTransactionCount = input.confirmedSuccessorTransactionCount ?? 0;
+  if (successorStartingNonce === undefined) {
+    if (confirmedSuccessorTransactionCount !== 0) throw new Error("fail closed: confirmed successor transactions require a successor starting nonce");
+    return Object.freeze({ prerequisiteNonce: input.expectedDeployerNonce + 2n, secondarySignerNonce: input.expectedDeployerNonce + 1n });
+  }
+  if (input.confirmedProvisioningPrefixLength < 1 || input.confirmedProvisioningPrefixLength > 2) throw new Error("fail closed: successor must preserve one or two confirmed signer transactions");
+  const remainingCount = 7 - input.confirmedProvisioningPrefixLength;
+  if (!Number.isSafeInteger(confirmedSuccessorTransactionCount) || confirmedSuccessorTransactionCount < 0 || confirmedSuccessorTransactionCount > remainingCount) throw new Error("fail closed: confirmed successor transaction count is invalid");
+  if (successorStartingNonce + BigInt(confirmedSuccessorTransactionCount) !== input.expectedCurrentDeployerNonce) throw new Error("fail closed: successor starting nonce does not match its verified current relay nonce");
+  const prerequisiteNonce = successorStartingNonce + BigInt(2 - input.confirmedProvisioningPrefixLength);
+  if (input.prerequisiteStartingNonce !== undefined && input.prerequisiteStartingNonce !== prerequisiteNonce) throw new Error("fail closed: successor prerequisite starting nonce is inconsistent");
+  return Object.freeze({
+    successorStartingNonce,
+    prerequisiteNonce,
+    secondarySignerNonce: input.confirmedProvisioningPrefixLength === 1 ? successorStartingNonce : input.expectedDeployerNonce + 1n,
+  });
 }
 
 function canonical(value: unknown): string {
@@ -284,7 +391,7 @@ function fixedPolicy(input: Readonly<{ profile: PwaPhaseOneProfile; safe: Addres
     passkey: input.primaryPasskey,
     primary: input.primaryPasskey,
     ecdsaSecondary: ZERO,
-    secondaries: [{ address: input.secondaryPasskey, role: "secondary", kind: "safe-contract", enabled: true }],
+    secondaries: [{ address: input.secondaryPasskey, role: "secondary", kind: "safe-contract", enabled: true } satisfies ConfiguredSigner],
     secondaryProfile: "contract-only",
     delay: input.delay,
     periodSeconds: 86400,
@@ -322,13 +429,20 @@ function signerTransaction(id: "primary-signer" | "secondary-signer", nonce: big
   });
 }
 
-async function predictedSigner(client: ProvisioningClient, infrastructure: PwaPlanningInfrastructure, credential: PwaCredentialCoordinates): Promise<Address> {
+async function predictedSigner(
+  client: ProvisioningClient,
+  infrastructure: PwaPlanningInfrastructure,
+  credential: PwaCredentialCoordinates,
+  options: Readonly<{ allowExisting?: boolean; expectedRuntimeCodeHash: Hex }>,
+): Promise<Address> {
   if (typeof client.readContract !== "function") throw new Error("fail closed: signer factory reader is required");
   const value = await client.readContract({ address: infrastructure.passkeySignerFactory.address, abi: FACTORY_ABI, functionName: "getSigner", args: [credential.x, credential.y, BigInt(infrastructure.passkeySignerVerifier.address)] });
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) throw new Error("fail closed: signer factory prediction is invalid");
   const signer = getAddress(value);
   const bytecode = await client.getBytecode({ address: signer });
-  if (bytecode && bytecode !== "0x") throw new Error("fail closed: credential-specific signer already exists");
+  if (options.allowExisting) {
+    if (!bytecode || bytecode === "0x" || keccak256(bytecode).toLowerCase() !== options.expectedRuntimeCodeHash.toLowerCase()) throw new Error("fail closed: recovered credential-specific signer runtime mismatch");
+  } else if (bytecode && bytecode !== "0x") throw new Error("fail closed: credential-specific signer already exists");
   return signer;
 }
 
@@ -336,28 +450,45 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
   assertCanonicalProfile(input.profile);
   if (!isPwaPlanningInfrastructure(input.infrastructure)) throw new Error("fail closed: PWA planning infrastructure must come from the reviewed resolver");
   if (!isReviewedVaultArtifacts(input.artifacts)) throw new Error("fail closed: reviewed PWA vault artifacts are required");
+  const confirmedProvisioningPrefixLength = input.confirmedProvisioningPrefixLength ?? 0;
+  if (!Number.isSafeInteger(confirmedProvisioningPrefixLength) || confirmedProvisioningPrefixLength < 0 || confirmedProvisioningPrefixLength > 6) throw new Error("fail closed: confirmed provisioning prefix length is invalid");
+  const verifiedDeploymentPrefixLength = input.verifiedDeploymentPrefixLength ?? confirmedProvisioningPrefixLength;
+  if (!Number.isSafeInteger(verifiedDeploymentPrefixLength) || verifiedDeploymentPrefixLength < confirmedProvisioningPrefixLength || verifiedDeploymentPrefixLength > 6) throw new Error("fail closed: verified deployment prefix length is invalid");
+  if ((input.infrastructure.confirmedProvisioningPrefixLength ?? 0) !== verifiedDeploymentPrefixLength) throw new Error("fail closed: planning infrastructure recovery prefix mismatch");
   if (input.infrastructure.chainId !== SEPOLIA_CHAIN_ID || !isAddressEqual(input.infrastructure.deployer, input.deployer)) throw new Error("fail closed: planning infrastructure identity mismatch");
   if (input.infrastructure.observedDeployerNonce !== input.expectedDeployerNonce) throw new Error("fail closed: deployer nonce does not match reviewed planning state");
+  const expectedCurrentDeployerNonce = input.expectedCurrentDeployerNonce ?? input.expectedDeployerNonce + BigInt(confirmedProvisioningPrefixLength);
+  if (input.infrastructure.observedCurrentDeployerNonce !== expectedCurrentDeployerNonce) throw new Error("fail closed: current deployer nonce does not match reviewed planning state");
   if (input.safeProxySaltNonce < 0n) throw new Error("fail closed: Safe proxy salt must not be negative");
   const primaryBinding = input.infrastructure.primaryPasskeySigner.binding;
   const secondaryBinding = input.infrastructure.secondaryPasskeySigner.binding;
   if (primaryBinding.x !== input.primaryCredential.x || primaryBinding.y !== input.primaryCredential.y || primaryBinding.verifiers !== BigInt(input.infrastructure.passkeySignerVerifier.address)) throw new Error("fail closed: primary credential coordinates do not match reviewed planning evidence");
   if (secondaryBinding.x !== input.secondaryCredential.x || secondaryBinding.y !== input.secondaryCredential.y || secondaryBinding.verifiers !== BigInt(input.infrastructure.passkeySignerVerifier.address)) throw new Error("fail closed: secondary credential coordinates do not match reviewed planning evidence");
-  const primaryPasskey = await predictedSigner(input.client, input.infrastructure, input.primaryCredential);
-  const secondaryPasskey = await predictedSigner(input.client, input.infrastructure, input.secondaryCredential);
+  const primaryPasskey = await predictedSigner(input.client, input.infrastructure, input.primaryCredential, { allowExisting: verifiedDeploymentPrefixLength > 0, expectedRuntimeCodeHash: input.infrastructure.primaryPasskeySigner.expectedRuntimeCodeHash });
+  const secondaryPasskey = await predictedSigner(input.client, input.infrastructure, input.secondaryCredential, { allowExisting: verifiedDeploymentPrefixLength > 1, expectedRuntimeCodeHash: input.infrastructure.secondaryPasskeySigner.expectedRuntimeCodeHash });
   if (!isAddressEqual(primaryPasskey, input.infrastructure.primaryPasskeySigner.address)) throw new Error("fail closed: primary credential does not match reviewed factory prediction");
   if (!isAddressEqual(secondaryPasskey, input.infrastructure.secondaryPasskeySigner.address)) throw new Error("fail closed: secondary credential does not match reviewed factory prediction");
   if (isAddressEqual(primaryPasskey, secondaryPasskey)) throw new Error("fail closed: primary and secondary credentials must be distinct");
 
-  const prerequisiteNonce = input.expectedDeployerNonce + 2n;
+  const layout = successorLayout({
+    expectedDeployerNonce: input.expectedDeployerNonce,
+    confirmedProvisioningPrefixLength,
+    successorStartingNonce: input.successorStartingNonce,
+    prerequisiteStartingNonce: input.prerequisiteStartingNonce,
+    confirmedSuccessorTransactionCount: input.confirmedSuccessorTransactionCount,
+    expectedCurrentDeployerNonce,
+  });
+  const prerequisiteNonce = layout.prerequisiteNonce;
+  const plannedPrefixTransactionCount = prerequisiteNonce - input.expectedDeployerNonce;
+  if (plannedPrefixTransactionCount < 2n || plannedPrefixTransactionCount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("fail closed: prerequisite starting nonce is invalid");
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: prerequisiteNonce });
   const policyBase = fixedPolicy({ profile: input.profile, safe: ZERO, primaryPasskey, secondaryPasskey, delay: components.delay });
   const safe = deriveVaultSafeProxyAddress({ policy: policyBase, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, safeProxyCreationCode: input.artifacts.safeProxyCreationCode, deployments: input.infrastructure });
   const policy = Object.freeze({ ...policyBase, safe });
-  const vaultPlan = buildVaultPlan({ policy, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, artifacts: input.artifacts, deployments: input.infrastructure, plannedPrefixTransactionCount: 2 });
+  const vaultPlan = buildVaultPlan({ policy, deployer: input.deployer, startingNonce: prerequisiteNonce, safeProxySaltNonce: input.safeProxySaltNonce, artifacts: input.artifacts, deployments: input.infrastructure, plannedPrefixTransactionCount: Number(plannedPrefixTransactionCount) });
   const signerTransactions = [
     signerTransaction("primary-signer", input.expectedDeployerNonce, input.primaryCredential, input.infrastructure.primaryPasskeySigner, input.infrastructure),
-    signerTransaction("secondary-signer", input.expectedDeployerNonce + 1n, input.secondaryCredential, input.infrastructure.secondaryPasskeySigner, input.infrastructure),
+    signerTransaction("secondary-signer", layout.secondarySignerNonce, input.secondaryCredential, input.infrastructure.secondaryPasskeySigner, input.infrastructure),
   ] as const;
   const transactions = Object.freeze([
     ...signerTransactions,
@@ -373,15 +504,27 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
 
 export async function resolvePwaProvisioningPlan(input: ResolvePwaProvisioningPlanInput): Promise<PwaProvisioningPlan> {
   assertCanonicalProfile(input.profile);
+  const confirmedProvisioningPrefixLength = input.confirmedProvisioningPrefixLength ?? 0;
+  const verifiedDeploymentPrefixLength = input.verifiedDeploymentPrefixLength ?? confirmedProvisioningPrefixLength;
   const infrastructure = await resolvePwaPlanningInfrastructure(input.client, {
     chainId: SEPOLIA_CHAIN_ID,
     deployer: input.deployer,
     expectedDeployerNonce: input.expectedDeployerNonce,
     primaryCredential: input.primaryCredential,
     secondaryCredential: input.secondaryCredential,
+    confirmedProvisioningPrefixLength: verifiedDeploymentPrefixLength,
+    expectedCurrentDeployerNonce: input.expectedCurrentDeployerNonce,
   });
-  const secondaryPasskey = await predictedSigner(input.client, infrastructure, input.secondaryCredential);
-  const prerequisiteNonce = input.expectedDeployerNonce + 2n;
+  const secondaryPasskey = await predictedSigner(input.client, infrastructure, input.secondaryCredential, { allowExisting: verifiedDeploymentPrefixLength > 1, expectedRuntimeCodeHash: infrastructure.secondaryPasskeySigner.expectedRuntimeCodeHash });
+  const expectedCurrentDeployerNonce = input.expectedCurrentDeployerNonce ?? input.expectedDeployerNonce + BigInt(confirmedProvisioningPrefixLength);
+  const prerequisiteNonce = successorLayout({
+    expectedDeployerNonce: input.expectedDeployerNonce,
+    confirmedProvisioningPrefixLength,
+    successorStartingNonce: input.successorStartingNonce,
+    prerequisiteStartingNonce: input.prerequisiteStartingNonce,
+    confirmedSuccessorTransactionCount: input.confirmedSuccessorTransactionCount,
+    expectedCurrentDeployerNonce,
+  }).prerequisiteNonce;
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: prerequisiteNonce });
   const proxyCreationCode = await input.client.readContract({ address: infrastructure.safeProxyFactory.address, abi: SAFE_PROXY_FACTORY_ABI, functionName: "proxyCreationCode" });
   if (typeof proxyCreationCode !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(proxyCreationCode)) throw new Error("fail closed: Safe proxy factory returned invalid creation code");
@@ -406,6 +549,20 @@ function reviewPayload(plan: PwaProvisioningPlan): unknown {
 
 export function provisioningPackageHash(plan: PwaProvisioningPlan): Hex {
   return keccak256(stringToHex(canonical(reviewPayload(plan))));
+}
+
+export function pwaProvisioningTransactionHash(transaction: PwaProvisioningTransaction): Hex {
+  return keccak256(stringToHex(canonical({
+    id: transaction.id,
+    nonce: transaction.nonce,
+    to: transaction.to,
+    value: transaction.value,
+    data: transaction.data,
+    operation: transaction.operation,
+    expectedCreatedAddress: transaction.expectedCreatedAddress,
+    creationCodeHash: transaction.creationCodeHash,
+    expectedRuntimeCodeHash: transaction.expectedRuntimeCodeHash,
+  })));
 }
 
 function repositoryRoot(): string {
@@ -449,49 +606,23 @@ export function writePwaProvisioningReview(plan: PwaProvisioningPlan, outputDire
   return { packageHash, path };
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
-  return value as Record<string, unknown>;
-}
-
-export function assertPwaProvisioningApproval(plan: PwaProvisioningPlan, value: unknown): PwaProvisioningApproval {
-  const approval = record(value, "provisioning approval");
-  exactKeys(approval, ["formatVersion", "scope", "packageHash", "planHash", "transactions"], "provisioning approval");
-  if (approval.formatVersion !== 1 || approval.scope !== "sepolia-pwa-provisioning") throw new Error("unsupported provisioning approval");
-  if (approval.packageHash !== provisioningPackageHash(plan) || approval.planHash !== plan.planHash) throw new Error("provisioning approval hash mismatch");
-  if (!Array.isArray(approval.transactions) || approval.transactions.length !== plan.transactions.length) throw new Error("provisioning approval transaction count mismatch");
-  const transactions = approval.transactions.map((item, index) => {
-    const transaction = record(item, `provisioning approval transaction ${index}`);
-    exactKeys(transaction, ["id", "nonce", "gasLimit", "maxFeePerGas", "maxPriorityFeePerGas"], `provisioning approval transaction ${index}`);
-    const planned = plan.transactions[index]!;
-    if (transaction.id !== planned.id || transaction.nonce !== planned.nonce.toString()) throw new Error("provisioning approval transaction identity mismatch");
-    for (const field of ["nonce", "gasLimit", "maxFeePerGas", "maxPriorityFeePerGas"] as const) if (typeof transaction[field] !== "string" || !DECIMAL.test(transaction[field] as string)) throw new Error(`provisioning approval ${field} is not canonical`);
-    if (BigInt(transaction.gasLimit as string) === 0n || BigInt(transaction.maxFeePerGas as string) === 0n || BigInt(transaction.maxPriorityFeePerGas as string) > BigInt(transaction.maxFeePerGas as string)) throw new Error("provisioning approval fee fields are invalid");
-    return Object.freeze(transaction) as PwaProvisioningApproval["transactions"][number];
-  });
-  return Object.freeze({ formatVersion: 1, scope: "sepolia-pwa-provisioning", packageHash: approval.packageHash as Hex, planHash: approval.planHash as Hex, transactions: Object.freeze(transactions) });
-}
-
-export function pwaProvisioningApprovalHash(plan: PwaProvisioningPlan, value: unknown): Hex {
-  return keccak256(stringToHex(canonical(assertPwaProvisioningApproval(plan, value))));
-}
-
-export async function executeApprovedPwaProvisioning(plan: PwaProvisioningPlan, approvalValue: unknown, context: PwaProvisioningExecutionContext): Promise<PwaProvisioningResult> {
+export async function executePwaProvisioning(plan: PwaProvisioningPlan, context: PwaProvisioningExecutionContext): Promise<PwaProvisioningResult> {
   if (!reviewedExecutionContexts.has(context)) throw new Error("fail closed: durable reviewed provisioning execution context is required");
-  const approval = assertPwaProvisioningApproval(plan, approvalValue);
+  const prefixLength = await context.confirmedPrefixLength();
+  if (!Number.isSafeInteger(prefixLength) || prefixLength < 0 || prefixLength > plan.transactions.length) throw new Error("fail closed: confirmed provisioning prefix length is invalid");
   const currentNonce = await context.currentDeployerNonce();
-  const firstNonce = plan.transactions[0]!.nonce;
-  const afterLastNonce = plan.transactions.at(-1)!.nonce + 1n;
-  if (currentNonce < firstNonce || currentNonce > afterLastNonce) throw new Error("fail closed: deployer nonce is outside the reviewed provisioning range");
-  let setupReceipt: PwaProvisioningResult["setupReceipt"] | undefined;
-  for (const [index, transaction] of plan.transactions.entries()) {
-    const approved = approval.transactions[index]!;
-    const result = await context.submit(Object.freeze({
-      ...transaction,
-      gasLimit: BigInt(approved.gasLimit),
-      maxFeePerGas: BigInt(approved.maxFeePerGas),
-      maxPriorityFeePerGas: BigInt(approved.maxPriorityFeePerGas),
-    }));
+  const complete = prefixLength === plan.transactions.length;
+  const expectedNextNonce = complete ? plan.transactions.at(-1)!.nonce + 1n : plan.transactions[prefixLength]!.nonce;
+  if (currentNonce !== expectedNextNonce) {
+    const nextId = complete ? "completed-plan" : plan.transactions[prefixLength]!.id;
+    throw new Error(`fail closed: deployer nonce does not equal the first missing reviewed transaction ${nextId}: expected ${expectedNextNonce}, observed ${currentNonce}`);
+  }
+  if (!complete && !context.authorize) throw new Error("fail closed: per-transaction provisioning authorizer is required");
+  let setupReceipt: PwaProvisioningResult["setupReceipt"] | undefined = complete ? await context.completedSetupReceipt?.() : undefined;
+  for (const transaction of plan.transactions.slice(prefixLength)) {
+    const approved = await context.authorize(transaction);
+    if (pwaProvisioningTransactionHash(approved) !== pwaProvisioningTransactionHash(transaction)) throw new Error("fail closed: authorized provisioning transaction changed");
+    const result = await context.submit(approved);
     if (result.receipt.status !== "success" || !HASH.test(result.transactionHash)) throw new Error(`fail closed: ${transaction.id} did not confirm successfully`);
     if (transaction.id === "safe-proxy") setupReceipt = Object.freeze({ transactionHash: result.transactionHash, blockNumber: result.receipt.blockNumber });
   }

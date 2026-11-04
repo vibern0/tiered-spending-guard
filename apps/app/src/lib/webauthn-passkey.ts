@@ -39,6 +39,14 @@ export type SafeAssertionOptions = Readonly<{
   credentialId: string;
 }>;
 
+export type PasskeyRebindOptions = Readonly<{
+  role: PasskeyRole;
+  challenge: string;
+  rpId: string;
+  origin: string;
+  userVerification: "required";
+}>;
+
 function base64UrlToBytes(value: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("invalid base64url value");
   const padded =
@@ -193,5 +201,28 @@ export async function signSafeDigest(
   const authenticatorData = base64UrlToBytes(response.response.authenticatorData);
   if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x04) === 0)
     throw new Error("WebAuthn user verification is required");
+  return response;
+}
+
+export async function rebindPasskey(
+  options: PasskeyRebindOptions,
+  credentialId: string,
+): Promise<AuthenticationResponseJSON> {
+  if (options.role !== "primary" && options.role !== "secondary") throw new Error("unsupported passkey role");
+  if (!credentialId) throw new Error("stored credential ID is required for rebind");
+  if (options.userVerification !== "required") throw new Error("credential rebind requires user verification");
+  const response = await startAuthentication({
+    optionsJSON: {
+      challenge: options.challenge,
+      rpId: options.rpId,
+      userVerification: "required",
+      allowCredentials: [{ id: credentialId, type: "public-key" }],
+    },
+  });
+  if (response.id !== credentialId || response.type !== "public-key") throw new Error("WebAuthn credential rebind mismatch");
+  const clientData = parseClientData(response.response.clientDataJSON);
+  assertCommonChallenge(options.challenge, options.rpId, options.origin, clientData, "webauthn.get");
+  const authenticatorData = base64UrlToBytes(response.response.authenticatorData);
+  if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x01) === 0 || (authenticatorData[32]! & 0x04) === 0) throw new Error("WebAuthn user presence and verification are required");
   return response;
 }

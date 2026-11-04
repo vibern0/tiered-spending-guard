@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { isLoopbackAddress, type BackendConfig } from "./config";
-import { RegistrationSessionStore } from "./session";
-import { verifyPasskeyRegistration } from "./webauthn";
-import type { RegistrationResponseJSON } from "@simplewebauthn/server";
+import { RebindSessionStore, RegistrationSessionStore } from "./session";
+import { verifyPasskeyRebind, verifyPasskeyRegistration, type BackendPasskeyRole, type StoredCredential } from "./webauthn";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { BackendPreparedSubmission } from "./vault";
 import { SubmissionJournal } from "./journal";
 
@@ -15,18 +16,36 @@ export type VaultProvisioningResult = Readonly<{
   secondaryPasskey: `0x${string}`;
   usdc: `0x${string}`;
   evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}`; deploymentsHash: `0x${string}`; policyHash: `0x${string}` }>;
+  credentialRebind: Readonly<{ required: boolean; primary: "required" | "ready"; secondary: "required" | "ready" }>;
 }>;
 
 export type BackendHandlers = Readonly<{
-  planVault: (body: unknown) => Promise<unknown>;
-  provisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
+  autoProvisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
   storeCredential?: (credential: Awaited<ReturnType<typeof verifyPasskeyRegistration>>) => void;
   prepareTransfer?: (body: unknown) => Promise<BackendPreparedSubmission>;
   submit?: (id: string, body: unknown) => Promise<unknown>;
   submission?: (id: string) => Promise<unknown>;
+  rebindCoordinates?: (role: BackendPasskeyRole) => Readonly<{ x: bigint; y: bigint }>;
+  storeReboundCredential?: (credential: StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>) => unknown;
+  verifyRebind?: typeof verifyPasskeyRebind;
 }>;
 
-export type BackendServer = Readonly<{ server: Server; sessions: RegistrationSessionStore; journal: SubmissionJournal; close: () => Promise<void> }>;
+export type BackendServer = Readonly<{ server: Server; sessions: RegistrationSessionStore; rebindSessions: RebindSessionStore; journal: SubmissionJournal; close: () => Promise<void> }>;
+
+export type BackendDiagnosticEvent = Readonly<{
+  level: "error";
+  requestId: string;
+  method: string;
+  route: string;
+  status: number;
+  code: string;
+  stage: string;
+  message: string;
+}>;
+
+export type BackendServerOptions = Readonly<{
+  log?: (event: BackendDiagnosticEvent) => void;
+}>;
 
 async function body(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -50,10 +69,29 @@ function pathSegments(value: string): string[] {
   return value.split("/").filter(Boolean);
 }
 
-export function createBackendServer(config: BackendConfig, handlers: BackendHandlers): BackendServer {
+export function sanitizeBackendMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "backend request failed";
+  return error.message
+    .replace(/https?:\/\/[^\s]+/gi, "[redacted]")
+    .replace(/0x[0-9a-fA-F]{64}/g, "[redacted]");
+}
+
+function diagnosticFor(message: string): Readonly<{ code: string; stage: string }> {
+  if (/provisioning quote nonce mismatch|provisioning relay nonce mismatch/i.test(message)) return { code: "provisioning_nonce_mismatch", stage: "provisioning-quote" };
+  if (/deployer nonce does not equal|nonce drift before provisioning transaction|relay latest\/pending nonce changed/i.test(message)) return { code: "provisioning_nonce_mismatch", stage: "provisioning-execution" };
+  if (/automatic provisioning recovery/i.test(message)) return { code: "provisioning_recovery_failed", stage: "provisioning-recovery" };
+  if (/Sepolia RPC request failed/i.test(message)) return { code: "rpc_request_failed", stage: "provisioning-rpc" };
+  return { code: "request_failed", stage: "request" };
+}
+
+export function createBackendServer(config: BackendConfig, handlers: BackendHandlers, options: BackendServerOptions = {}): BackendServer {
   const sessions = new RegistrationSessionStore(config);
+  const rebindSessions = new RebindSessionStore(config);
   const journal = new SubmissionJournal(config.journalPath);
   const server = createServer(async (req, res) => {
+    const requestId = randomUUID();
+    const route = (req.url ?? "/").split("?", 1)[0] ?? "/";
+    res.setHeader("x-request-id", requestId);
     try {
       if (!isLoopbackAddress(req.socket.remoteAddress)) return json(res, 403, { error: "loopback only" });
       const origin = req.headers.origin;
@@ -84,8 +122,34 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         sessions.markRegistered(role);
         return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter });
       }
-      if (req.method === "POST" && segments.join("/") === "v1/vaults/plan") return json(res, 200, await handlers.planVault(await body(req)));
-      if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));
+      if (req.method === "POST" && segments[0] === "v1" && segments[1] === "credentials" && segments[3] === "rebind" && segments[4] === "options") {
+        if (config.id !== "local") return json(res, 404, { error: "not found" });
+        const role = segments[2] as BackendPasskeyRole;
+        const input = await body(req);
+        if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("credential rebind options body must be empty");
+        if (!handlers.rebindCoordinates) throw new Error("credential rebind unavailable");
+        handlers.rebindCoordinates(role);
+        const session = rebindSessions.create(role);
+        return json(res, 200, { sessionId: session.id, challenge: session.challenge, rpId: session.rpId, origin: session.origin, role: session.role, userVerification: "required" });
+      }
+      if (req.method === "POST" && segments[0] === "v1" && segments[1] === "credentials" && segments[3] === "rebind" && segments[4] === "verify") {
+        if (config.id !== "local") return json(res, 404, { error: "not found" });
+        const role = segments[2] as BackendPasskeyRole;
+        const input = await body(req);
+        if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("credential rebind verification body must be an object");
+        const value = input as Record<string, unknown>;
+        if (Object.keys(value).length !== 2 || !Object.hasOwn(value, "sessionId") || !Object.hasOwn(value, "assertion") || typeof value.sessionId !== "string" || !value.assertion) throw new Error("credential rebind session and assertion are required");
+        if (!handlers.rebindCoordinates || !handlers.storeReboundCredential) throw new Error("credential rebind unavailable");
+        const coordinates = handlers.rebindCoordinates(role);
+        const session = rebindSessions.consume(value.sessionId, role);
+        const credential = await (handlers.verifyRebind ?? verifyPasskeyRebind)({ role, coordinates, challenge: session.challenge, rpId: session.rpId, origin: session.origin, response: value.assertion as AuthenticationResponseJSON });
+        const status = handlers.storeReboundCredential(credential);
+        return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter, credentialRebind: status });
+      }
+      if (req.method === "POST" && segments.join("/") === "v1/vaults/auto-provision") {
+        if (config.id !== "local") return json(res, 404, { error: "not found" });
+        return json(res, 200, await handlers.autoProvisionVault(await body(req)));
+      }
       if (req.method === "POST" && segments.join("/") === "v1/submissions/prepare") {
         if (!handlers.prepareTransfer) throw new Error("submission preparation unavailable");
         const request = await handlers.prepareTransfer(await body(req));
@@ -101,9 +165,12 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       }
       return json(res, 404, { error: "not found" });
     } catch (error) {
-      const message = error instanceof Error ? error.message.replace(/https?:\/\/[^\s]+/gi, "[redacted]").replace(/0x[0-9a-fA-F]{64}/g, "[redacted]") : "backend request failed";
-      return json(res, 400, { error: message });
+      const message = sanitizeBackendMessage(error);
+      const diagnostic = diagnosticFor(message);
+      const event = Object.freeze({ level: "error", requestId, method: req.method ?? "UNKNOWN", route, status: 400, ...diagnostic, message }) satisfies BackendDiagnosticEvent;
+      (options.log ?? ((value: BackendDiagnosticEvent) => console.error(JSON.stringify(value))))(event);
+      return json(res, 400, { error: message, ...diagnostic, requestId });
     }
   });
-  return Object.freeze({ server, sessions, journal, close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) });
+  return Object.freeze({ server, sessions, rebindSessions, journal, close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) });
 }
