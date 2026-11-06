@@ -4,6 +4,7 @@ import { useVault } from "@/lib/vault-store";
 
 export function TopologyAlert() {
   const { state, loading } = useVault();
+  const readOnly = state.compatibility?.mode === "read-only";
   const nearLimit =
     state.policy.instantDaily > 0n && state.spentInstant * 100n >= state.policy.instantDaily * 80n;
   const queued = state.activity.some((item) => item.status === "queued" || item.status === "ready");
@@ -12,7 +13,13 @@ export function TopologyAlert() {
       <p className="rounded-2xl bg-danger-soft p-3 text-sm font-semibold text-danger-ink">
         Sepolia prototype · no signer recovery · no independent notification delivery
       </p>
-      {!loading && state.health.length === 0 && !nearLimit && !queued && (
+      {!loading && readOnly && (
+        <div role="status" className="rounded-2xl bg-secondary p-3 text-sm text-muted-foreground">
+          <p className="font-semibold">Earlier vault version · read-only</p>
+          <p className="mt-1">{state.compatibility?.reason}</p>
+        </div>
+      )}
+      {!loading && !readOnly && state.health.length === 0 && !nearLimit && !queued && (
         <p className="flex items-center gap-2 rounded-2xl bg-success-soft p-3 text-sm font-semibold text-success">
           <CheckCircle2 className="size-4" aria-hidden /> Guard, Delay, and USDC checks passed.
         </p>

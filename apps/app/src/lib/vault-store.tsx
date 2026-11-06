@@ -12,6 +12,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import {
   createPublicClient,
   decodeFunctionData,
+  encodeFunctionData,
   http,
   parseAbi,
   type Address,
@@ -36,7 +37,11 @@ import {
 } from "./webauthn-passkey";
 import { loadWalletEnvironmentProfile, type WalletEnvironmentProfile } from "./environment-profile";
 import { runWalletCriticalFlow } from "./pwa";
-import { BackendRequestError } from "./provisioning-errors";
+import {
+  BackendRequestError,
+  canRetryAutomaticProvisioning,
+  describeProvisioningError,
+} from "./provisioning-errors";
 
 export type Recipient = { name: string; address: string };
 export type Policy = {
@@ -55,6 +60,7 @@ export type Onboarding = {
 };
 
 export type VaultState = {
+  compatibility?: NonNullable<VaultSnapshot["compatibility"]>;
   chainId: number;
   network: string;
   safe: string;
@@ -128,6 +134,7 @@ export type PreparedSubmission = Readonly<{
     | "base-transfer"
     | "step-up-transfer"
     | "queue-transfer"
+    | "add-recipient"
     | "cancel-queued"
     | "execute-ready"
     | "skip-expired";
@@ -154,6 +161,7 @@ export type SubmissionStatus = Readonly<{
 }>;
 export type SubmissionIntent =
   | Readonly<{ kind: "transfer"; recipient: Address; amount: bigint; idempotencyKey: string }>
+  | Readonly<{ kind: "add-recipient"; recipient: Address; idempotencyKey: string }>
   | Readonly<{
       kind: "cancel-queued" | "execute-ready" | "skip-expired";
       queueNonce: bigint;
@@ -162,10 +170,14 @@ export type SubmissionIntent =
     }>;
 
 export type VaultBackend = Readonly<{
-  health?: () => Promise<void>;
+  health?: (purpose?: "provision" | "write") => Promise<void>;
   registerPasskey: (role: "primary" | "secondary") => Promise<PasskeyRegistration>;
   autoProvisionVault: () => Promise<VaultProvisioningResult>;
-  rebindPasskey?: (role: "primary" | "secondary", credentialId: string) => Promise<CredentialRebindStatus>;
+  currentVault?: () => Promise<VaultProvisioningResult | undefined>;
+  rebindPasskey?: (
+    role: "primary" | "secondary",
+    credentialId: string,
+  ) => Promise<CredentialRebindStatus>;
   prepareIntent: (input: SubmissionIntent) => Promise<PreparedSubmission>;
   submit: (
     id: string,
@@ -209,8 +221,43 @@ export type VaultProviderProps = {
 type StorageProfile = Pick<WalletEnvironmentProfile, "id" | "rpId">;
 export const walletStorageKey = (kind: "config" | "ui", profile: StorageProfile) =>
   `usdc-vault-${kind}-v2:${profile.id}:${profile.rpId}`;
+
+export type WalletAccountArchive = Readonly<{
+  formatVersion: 1;
+  safe: Address;
+  /** Exact stored public metadata, including fields unknown to this app version. */
+  config: string;
+  ui: string | null;
+}>;
+
+export function walletArchiveStorageKey(profile: StorageProfile, safe: Address): string {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(safe))
+    throw new Error("Account archive requires a valid Safe address");
+  return `usdc-vault-archive-v1:${profile.id}:${profile.rpId}:${safe.toLowerCase()}`;
+}
+
+export function readWalletAccountArchive(
+  profile: StorageProfile,
+  safe: Address,
+): WalletAccountArchive | undefined {
+  const bytes = localStorage.getItem(walletArchiveStorageKey(profile, safe));
+  if (bytes === null) return undefined;
+  const archive = JSON.parse(bytes) as WalletAccountArchive;
+  if (
+    archive.formatVersion !== 1 ||
+    archive.safe?.toLowerCase() !== safe.toLowerCase() ||
+    typeof archive.config !== "string" ||
+    !(archive.ui === null || typeof archive.ui === "string")
+  ) {
+    throw new Error("Account archive is invalid");
+  }
+  return archive;
+}
 const DEFAULT_USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
 const ERC20_TRANSFER_ABI = parseAbi(["function transfer(address,uint256) returns (bool)"]);
+const RECIPIENT_REPAIR_ABI = parseAbi([
+  "function repairPolicy(bytes32,address,uint256,uint256,uint256,uint256,address[],uint8)",
+]);
 const nextReset = () => {
   const d = new Date();
   d.setUTCHours(24, 0, 0, 0);
@@ -290,6 +337,7 @@ export type WalletSetupState = Readonly<{
   provisioning: "registering" | "provisioning" | "failed" | "provisioned";
   credentialRebind: CredentialRebindStatus;
   receiptHash?: Hex | undefined;
+  provisioningError?: string | undefined;
   submissionIds: readonly string[];
 }>;
 type UiState = {
@@ -306,13 +354,26 @@ type UiState = {
   policyHash?: Hex | undefined;
 };
 
-const readyCredentialRebind = (): CredentialRebindStatus => ({ required: false, primary: "ready", secondary: "ready" });
+const readyCredentialRebind = (): CredentialRebindStatus => ({
+  required: false,
+  primary: "ready",
+  secondary: "ready",
+});
 
 function storedCredentialRebind(value: unknown): CredentialRebindStatus {
   if (!value || typeof value !== "object" || Array.isArray(value)) return readyCredentialRebind();
   const input = value as Record<string, unknown>;
-  if (typeof input["required"] !== "boolean" || !["required", "ready"].includes(String(input["primary"])) || !["required", "ready"].includes(String(input["secondary"]))) return readyCredentialRebind();
-  return { required: input["required"], primary: input["primary"] as "required" | "ready", secondary: input["secondary"] as "required" | "ready" };
+  if (
+    typeof input["required"] !== "boolean" ||
+    !["required", "ready"].includes(String(input["primary"])) ||
+    !["required", "ready"].includes(String(input["secondary"]))
+  )
+    return readyCredentialRebind();
+  return {
+    required: input["required"],
+    primary: input["primary"] as "required" | "ready",
+    secondary: input["secondary"] as "required" | "ready",
+  };
 }
 
 function readUiState(profile: StorageProfile): UiState {
@@ -327,11 +388,14 @@ function readUiState(profile: StorageProfile): UiState {
       secondaryCredentialId: parsed?.secondaryCredentialId,
       secondaryAuthenticator: parsed?.secondaryAuthenticator,
       credentialRebind: storedCredentialRebind(parsed?.credentialRebind),
-      provisioning: parsed?.provisioning === "provisioning"
-        ? "failed"
-        : ["registering", "failed", "provisioned"].includes(String(parsed?.provisioning))
-          ? parsed!.provisioning as WalletSetupState["provisioning"]
-          : parsed?.primaryCredentialId && parsed?.secondaryCredentialId ? "failed" : "registering",
+      provisioning:
+        parsed?.provisioning === "provisioning"
+          ? "failed"
+          : ["registering", "failed", "provisioned"].includes(String(parsed?.provisioning))
+            ? (parsed!.provisioning as WalletSetupState["provisioning"])
+            : parsed?.primaryCredentialId && parsed?.secondaryCredentialId
+              ? "failed"
+              : "registering",
       receiptHash: parsed?.receiptHash,
       submissionIds: Array.isArray(parsed?.submissionIds)
         ? parsed.submissionIds.filter((id): id is string => typeof id === "string")
@@ -395,12 +459,19 @@ function saveUiState(profile: StorageProfile, state: UiState): void {
 
 function defaultClient(): PublicClient | undefined {
   const rpcUrl = (import.meta.env["VITE_SEPOLIA_RPC_URL"] as string | undefined)?.trim();
-  return rpcUrl ? createPublicClient({ chain: sepolia, batch: { multicall: { wait: 10 } }, transport: http(rpcUrl) }) : undefined;
+  return rpcUrl
+    ? createPublicClient({
+        chain: sepolia,
+        batch: { multicall: { wait: 10 } },
+        transport: http(rpcUrl),
+      })
+    : undefined;
 }
 
 export async function checkBackendHealth(
   profile: WalletEnvironmentProfile,
   requester: typeof fetch = fetch,
+  purpose: "provision" | "write" = "write",
 ): Promise<void> {
   const response = await requester(`${profile.backendOrigin}/health`, {
     headers: { accept: "application/json" },
@@ -409,6 +480,7 @@ export async function checkBackendHealth(
   let payload: {
     ok?: unknown;
     writesReady?: unknown;
+    provisioningReady?: unknown;
     error?: unknown;
     chainId?: unknown;
     profileId?: unknown;
@@ -424,8 +496,6 @@ export async function checkBackendHealth(
     throw new Error(
       `Backend health check failed: ${typeof payload.error === "string" ? payload.error : `HTTP ${response.status}`}`,
     );
-  if (payload.writesReady !== true)
-    throw new Error("Backend health check failed: submission runtime is not ready");
   if (
     payload.chainId !== profile.chainId ||
     payload.profileId !== profile.id ||
@@ -433,6 +503,15 @@ export async function checkBackendHealth(
     payload.rpId !== profile.rpId
   )
     throw new Error("Backend health profile does not match the active wallet environment");
+  const ready =
+    purpose === "provision"
+      ? payload.provisioningReady === true ||
+        (payload.provisioningReady === undefined && payload.writesReady === true)
+      : payload.writesReady === true;
+  if (!ready)
+    throw new Error(
+      `Backend health check failed: ${purpose === "provision" ? "provisioning" : "submission runtime"} is not ready`,
+    );
 }
 
 function activeEnvironmentProfile(): WalletEnvironmentProfile {
@@ -451,13 +530,14 @@ function activeStorageProfile(): StorageProfile {
 }
 
 function defaultBackend(): VaultBackend {
-  const json = async <T,>(url: string, init?: RequestInit): Promise<T> => {
+  const json = async <T,>(url: string, init?: RequestInit, allowMissing = false): Promise<T> => {
     const profile = activeEnvironmentProfile();
     const response = await fetch(`${profile.backendOrigin}${url}`, {
       ...init,
       credentials: profile.credentials,
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
+    if (allowMissing && response.status === 404) return undefined as T;
     const payload = JSON.parse(await response.text(), (key, value) =>
       [
         "amount",
@@ -484,13 +564,18 @@ function defaultBackend(): VaultBackend {
         ? payload.error
         : undefined;
     if (!response.ok) {
-      const details = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+      const details =
+        payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
       const backendError = new BackendRequestError({
         status: response.status,
         message: error ?? `Backend request failed (${response.status})`,
         ...(typeof details["code"] === "string" ? { code: details["code"] } : {}),
         ...(typeof details["stage"] === "string" ? { stage: details["stage"] } : {}),
-        ...(typeof details["requestId"] === "string" ? { requestId: details["requestId"] } : response.headers.get("x-request-id") ? { requestId: response.headers.get("x-request-id")! } : {}),
+        ...(typeof details["requestId"] === "string"
+          ? { requestId: details["requestId"] }
+          : response.headers.get("x-request-id")
+            ? { requestId: response.headers.get("x-request-id")! }
+            : {}),
       });
       console.error("Vault backend request failed", {
         status: backendError.status,
@@ -505,8 +590,8 @@ function defaultBackend(): VaultBackend {
     return payload as T;
   };
   return {
-    async health() {
-      await checkBackendHealth(activeEnvironmentProfile());
+    async health(purpose) {
+      await checkBackendHealth(activeEnvironmentProfile(), fetch, purpose);
     },
     async registerPasskey(role) {
       const profile = activeEnvironmentProfile();
@@ -552,6 +637,9 @@ function defaultBackend(): VaultBackend {
       });
       return registration;
     },
+    async currentVault() {
+      return json<VaultProvisioningResult | undefined>("/v1/vaults/current", undefined, true);
+    },
     async autoProvisionVault() {
       return json("/v1/vaults/auto-provision", {
         method: "POST",
@@ -560,14 +648,28 @@ function defaultBackend(): VaultBackend {
     },
     async rebindPasskey(role, credentialId) {
       const profile = activeEnvironmentProfile();
-      const options = await json<BackendRebindOptions>(`/v1/credentials/${role}/rebind/options`, { method: "POST", body: "{}" });
-      if (options.role !== role || options.origin !== profile.appOrigin || options.rpId !== profile.rpId || options.userVerification !== "required") throw new Error("Backend rebind profile does not match the active wallet environment");
+      const options = await json<BackendRebindOptions>(`/v1/credentials/${role}/rebind/options`, {
+        method: "POST",
+        body: "{}",
+      });
+      if (
+        options.role !== role ||
+        options.origin !== profile.appOrigin ||
+        options.rpId !== profile.rpId ||
+        options.userVerification !== "required"
+      )
+        throw new Error("Backend rebind profile does not match the active wallet environment");
       const assertion = await performPasskeyRebind(options, credentialId);
-      const verified = await json<{ role: "primary" | "secondary"; credentialId: string; credentialRebind: CredentialRebindStatus }>(`/v1/credentials/${role}/rebind/verify`, {
+      const verified = await json<{
+        role: "primary" | "secondary";
+        credentialId: string;
+        credentialRebind: CredentialRebindStatus;
+      }>(`/v1/credentials/${role}/rebind/verify`, {
         method: "POST",
         body: JSON.stringify({ sessionId: options.sessionId, assertion }),
       });
-      if (verified.role !== role || verified.credentialId !== credentialId) throw new Error("Backend rebind result does not match the stored credential");
+      if (verified.role !== role || verified.credentialId !== credentialId)
+        throw new Error("Backend rebind result does not match the stored credential");
       return verified.credentialRebind;
     },
     async prepareIntent(input) {
@@ -610,6 +712,7 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
     let amount = 0n;
     let address = item.to;
     let counterparty = "Unsupported delayed operation";
+    let kind: NonNullable<ActivityItem["kind"]> = "unsupported";
     try {
       const decoded = decodeFunctionData({ abi: ERC20_TRANSFER_ABI, data: item.data });
       if (
@@ -621,9 +724,53 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
         address = decoded.args[0];
         amount = decoded.args[1];
         counterparty = address;
+        kind = "transfer";
       }
     } catch {
       // Unsupported tuples stay visible but cannot masquerade as USDC.
+    }
+    if (
+      kind === "unsupported" &&
+      item.to.toLowerCase() === snapshot.topology?.guard.toLowerCase() &&
+      item.value === 0n &&
+      item.operation === 0
+    ) {
+      try {
+        const decoded = decodeFunctionData({ abi: RECIPIENT_REPAIR_ABI, data: item.data });
+        const [, token, basePerTx, stepUpPerTx, baseDaily, instantDaily, updatedRecipients, mode] =
+          decoded.args;
+        const candidate = updatedRecipients.at(-1);
+        if (
+          configured &&
+          candidate &&
+          !/^0x0{40}$/i.test(candidate) &&
+          token.toLowerCase() === snapshot.usdc?.address.toLowerCase() &&
+          basePerTx === configured.basePerTransaction &&
+          stepUpPerTx === configured.stepUpPerTransaction &&
+          baseDaily === configured.baseDailyLimit &&
+          instantDaily === configured.instantDailyLimit &&
+          mode === 1 &&
+          updatedRecipients.length === configured.recipients.length + 1 &&
+          configured.recipients.every(
+            (recipient, index) =>
+              recipient.toLowerCase() === updatedRecipients[index]?.toLowerCase(),
+          ) &&
+          !configured.recipients.some(
+            (recipient) => recipient.toLowerCase() === candidate.toLowerCase(),
+          ) &&
+          encodeFunctionData({
+            abi: RECIPIENT_REPAIR_ABI,
+            functionName: "repairPolicy",
+            args: decoded.args,
+          }).toLowerCase() === item.data.toLowerCase()
+        ) {
+          kind = "recipient-addition";
+          address = candidate;
+          counterparty = "Recipient addition";
+        }
+      } catch {
+        // Display only. The backend independently verifies the full queued policy change.
+      }
     }
     const canonicalNow =
       snapshot.observedTimestamp === undefined
@@ -641,6 +788,7 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
           : "queued";
     return {
       id: `${item.txHash}:${item.queueNonce.toString()}`,
+      kind,
       direction: "out",
       amount,
       counterparty,
@@ -659,6 +807,7 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
   });
   return {
     chainId: snapshot.chainId,
+    ...(snapshot.compatibility ? { compatibility: snapshot.compatibility } : {}),
     network: "Ethereum Sepolia (testnet)",
     safe: snapshot.safe,
     guard: snapshot.topology?.guard ?? "",
@@ -710,10 +859,18 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
   if (amount <= 0n) return { lane: "blocked", reason: "Enter an amount above 0 USDC." };
   if (amount > s.balance)
     return { lane: "blocked", reason: "This is more than your available balance." };
-  if (amount <= s.policy.basePerTxCap && s.spentFirstSigner + amount <= s.policy.firstSignerDaily && s.spentInstant + amount <= s.policy.instantDaily)
+  if (
+    amount <= s.policy.basePerTxCap &&
+    s.spentFirstSigner + amount <= s.policy.firstSignerDaily &&
+    s.spentInstant + amount <= s.policy.instantDaily
+  )
     return { lane: "base" };
   if (!s.recipients.some((r) => r.address.toLowerCase() === to.toLowerCase()))
-    return { lane: "blocked", reason: "This amount needs an elevated lane, so add this recipient through delayed maintenance first." };
+    return {
+      lane: "blocked",
+      reason:
+        "This amount needs an elevated lane, so add this recipient through delayed maintenance first.",
+    };
   if (s.spentInstant + amount > s.policy.instantDaily) return { lane: "delayed" };
   if (amount > s.policy.perTxCap)
     return { lane: "blocked", reason: "This is above the maximum for an instant transfer." };
@@ -735,6 +892,8 @@ type Ctx = {
   retryProvisioning: () => Promise<void>;
   rebindPrimary: () => Promise<void>;
   rebindSecondary: () => Promise<void>;
+  startNewVault: () => Promise<void>;
+  addRecipient: (recipient: Address) => Promise<SubmissionStatus>;
   prepareTransfer: (
     input: Readonly<{ recipient: Address; amount: bigint }>,
   ) => Promise<SubmissionStatus>;
@@ -757,7 +916,8 @@ const requireOnline = () => {
     throw new Error("Wallet writes are unavailable while offline");
 };
 const requireCredentialRebindReady = (status: CredentialRebindStatus) => {
-  if (status.primary !== "ready" || status.secondary !== "ready") throw new Error("Verify both recovered signers before using the vault");
+  if (status.primary !== "ready" || status.secondary !== "ready")
+    throw new Error("Verify both recovered signers before using the vault");
 };
 
 export function VaultProvider({
@@ -776,10 +936,14 @@ export function VaultProvider({
   const [ui, setUi] = useState(() => readUiState(storageProfile));
   const prepared = useRef(new Map<string, PreparedSubmission>());
   const automaticProvisioning = useRef<Promise<void> | undefined>(undefined);
+  const automaticResumeChecked = useRef(false);
+  const [provisioningError, setProvisioningError] = useState<string | undefined>(undefined);
   const initialSnapshot = useRef<{ client: PublicClient | undefined; vault: string } | undefined>(
     undefined,
   );
+  const accountGeneration = useRef(0);
   const refresh = useCallback(async () => {
+    const generation = accountGeneration.current;
     if (!config || !client) {
       const blank = emptyState();
       setState({
@@ -798,8 +962,67 @@ export function VaultProvider({
     }
     setLoading(true);
     try {
-      setState(project(await readVaultSnapshot(client, config), ui));
+      const snapshot = await readVaultSnapshot(client, config);
+      let next = project(snapshot, ui);
+      if (snapshot.writable && snapshot.compatibility?.mode !== "read-only") {
+        try {
+          if (backend.currentVault) {
+            const current = await backend.currentVault();
+            if (
+              !current ||
+              current.chainId !== config.chainId ||
+              !(["safe", "guard", "delay", "usdc"] as const).every(
+                (field) =>
+                  typeof current[field] === "string" &&
+                  current[field].toLowerCase() === config[field].toLowerCase(),
+              )
+            )
+              throw new Error("Backend current vault does not match the saved account");
+            const binding = current.credentialRebind;
+            if (
+              !binding ||
+              typeof binding.required !== "boolean" ||
+              !["required", "ready"].includes(binding.primary) ||
+              !["required", "ready"].includes(binding.secondary) ||
+              binding.required !==
+                (binding.primary === "required" || binding.secondary === "required")
+            )
+              throw new Error("Backend current vault signer verification status is invalid");
+            if (generation !== accountGeneration.current) return;
+            setUi((stored) => {
+              const provisioning = binding.required
+                ? ("provisioning" as const)
+                : ("provisioned" as const);
+              if (
+                stored.credentialRebind.required === binding.required &&
+                stored.credentialRebind.primary === binding.primary &&
+                stored.credentialRebind.secondary === binding.secondary &&
+                stored.provisioning === provisioning
+              )
+                return stored;
+              return { ...stored, credentialRebind: binding, provisioning };
+            });
+          }
+          await backend.health?.();
+        } catch (error) {
+          next = {
+            ...next,
+            writable: false,
+            health: [
+              ...next.health,
+              {
+                code: "backend-not-ready",
+                message:
+                  error instanceof Error ? error.message : "The backend is not ready for sending.",
+                blocking: true,
+              },
+            ],
+          };
+        }
+      }
+      if (generation === accountGeneration.current) setState(next);
     } catch (error) {
+      if (generation !== accountGeneration.current) return;
       const blank = emptyState();
       setState({
         ...blank,
@@ -813,10 +1036,60 @@ export function VaultProvider({
         ],
       });
     } finally {
-      setLoading(false);
-      setHydrated(true);
+      if (generation === accountGeneration.current) {
+        setLoading(false);
+        setHydrated(true);
+      }
     }
-  }, [client, config, ui]);
+  }, [backend, client, config, ui]);
+  const startNewVault = useCallback(async () => {
+    if (!config || state.compatibility?.mode !== "read-only")
+      throw new Error("Fresh setup is available from an earlier read-only vault");
+    const configKey = walletStorageKey("config", storageProfile);
+    const uiKey = walletStorageKey("ui", storageProfile);
+    const previousConfig = localStorage.getItem(configKey);
+    const previousUi = localStorage.getItem(uiKey);
+    const archive: WalletAccountArchive = {
+      formatVersion: 1,
+      safe: config.safe,
+      config: previousConfig ?? JSON.stringify(config),
+      ui: previousUi,
+    };
+    const archiveKey = walletArchiveStorageKey(storageProfile, config.safe);
+    const bytes = JSON.stringify(archive);
+    const existing = localStorage.getItem(archiveKey);
+    if (existing !== null && existing !== bytes)
+      throw new Error(
+        "A different account archive already exists; the active account was preserved",
+      );
+    localStorage.setItem(archiveKey, bytes);
+    if (localStorage.getItem(archiveKey) !== bytes)
+      throw new Error("Account archive could not be verified; the active account was preserved");
+    const nextUi: UiState = {
+      notifications: { email: true, push: false },
+      rehearsed: false,
+      provisioning: "registering",
+      credentialRebind: readyCredentialRebind(),
+      submissionIds: [],
+    };
+    try {
+      saveUiState(storageProfile, nextUi);
+      localStorage.removeItem(configKey);
+    } catch (error) {
+      if (previousConfig !== null) localStorage.setItem(configKey, previousConfig);
+      if (previousUi !== null) localStorage.setItem(uiKey, previousUi);
+      else localStorage.removeItem(uiKey);
+      throw error;
+    }
+    accountGeneration.current += 1;
+    prepared.current.clear();
+    automaticProvisioning.current = undefined;
+    initialSnapshot.current = undefined;
+    setUi(nextUi);
+    setConfig(undefined);
+    setState(emptyState());
+    setLoading(false);
+  }, [config, state.compatibility, storageProfile]);
   useEffect(() => {
     const stored = providedConfig ?? readConfig(storageProfile);
     setConfig(stored);
@@ -847,64 +1120,120 @@ export function VaultProvider({
       ),
     [],
   );
-  const completeProvisioning = useCallback(
-    () => {
-      if (automaticProvisioning.current) return automaticProvisioning.current;
-      let succeeded = false;
-      const operation = runWalletCriticalFlow(async () => {
-        setUi((current) => ({ ...current, provisioning: "provisioning" }));
-        try {
-          if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
-          requireOnline();
-          await backend.health?.();
-          const result = await backend.autoProvisionVault();
-          const credentialRebind = storedCredentialRebind(result.credentialRebind);
-          const next: VaultConfig = {
-            chainId: 11155111,
-            safe: result.safe,
-            guard: result.guard,
-            delay: result.delay,
-            usdc: result.usdc,
-            usdcCandidates: [DEFAULT_USDC],
+  const completeProvisioning = useCallback(() => {
+    if (automaticProvisioning.current) return automaticProvisioning.current;
+    let succeeded = false;
+    const operation = runWalletCriticalFlow(async () => {
+      setUi((current) => ({ ...current, provisioning: "provisioning" }));
+      try {
+        if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
+        requireOnline();
+        const result = await (async () => {
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              requireOnline();
+              await backend.health?.("provision");
+              return await backend.autoProvisionVault();
+            } catch (error) {
+              setProvisioningError(describeProvisioningError(error));
+              if (attempt >= 2 || !canRetryAutomaticProvisioning(error)) throw error;
+              // Re-enter only the backend's verified recovery path. No browser authorization
+              // or transaction bytes are regenerated while the exact hash is reconciled.
+              await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+            }
+          }
+        })();
+        const credentialRebind = storedCredentialRebind(result.credentialRebind);
+        const next: VaultConfig = {
+          chainId: 11155111,
+          safe: result.safe,
+          guard: result.guard,
+          delay: result.delay,
+          usdc: result.usdc,
+          usdcCandidates: [DEFAULT_USDC],
+        };
+        saveConfig(storageProfile, next);
+        setUi((current) => {
+          const nextUi = {
+            ...current,
+            rehearsed: false,
+            provisioning: credentialRebind.required
+              ? ("provisioning" as const)
+              : ("provisioned" as const),
+            credentialRebind,
+            receiptHash: result.evidence.setupTransactionHash,
+            deploymentHash: result.evidence.setupTransactionHash,
+            policyHash: result.evidence.verificationReportHash,
           };
-          saveConfig(storageProfile, next);
-          setUi((current) => {
-            const nextUi = {
-              ...current,
-              rehearsed: false,
-              provisioning: credentialRebind.required ? "provisioning" as const : "provisioned" as const,
-              credentialRebind,
-              receiptHash: result.evidence.setupTransactionHash,
-              deploymentHash: result.evidence.setupTransactionHash,
-              policyHash: result.evidence.verificationReportHash,
-            };
-            saveUiState(storageProfile, nextUi);
-            return nextUi;
-          });
-          setConfig(next);
-          succeeded = true;
-        } catch (error) {
-          automaticProvisioning.current = undefined;
-          setUi((current) => ({ ...current, provisioning: "failed" }));
-          throw error;
-        }
-      });
-      automaticProvisioning.current = operation;
-      void operation.finally(() => { if (!succeeded) automaticProvisioning.current = undefined; }).catch(() => undefined);
-      return operation;
-    },
-    [backend, client, storageProfile],
-  );
+          saveUiState(storageProfile, nextUi);
+          return nextUi;
+        });
+        setConfig(next);
+        setProvisioningError(undefined);
+        succeeded = true;
+      } catch (error) {
+        setProvisioningError(describeProvisioningError(error));
+        setUi((current) => ({ ...current, provisioning: "failed" }));
+        throw error;
+      }
+    });
+    automaticProvisioning.current = operation;
+    void operation
+      .finally(() => {
+        if (!succeeded) automaticProvisioning.current = undefined;
+      })
+      .catch(() => undefined);
+    return operation;
+  }, [backend, client, storageProfile]);
+  useEffect(() => {
+    if (!hydrated || automaticResumeChecked.current) return;
+    automaticResumeChecked.current = true;
+    // Existing account metadata (even unreadable metadata) must never trigger a
+    // fresh setup. Hydration selects only the active environment's stored roles.
+    if (
+      config ||
+      localStorage.getItem(walletStorageKey("config", storageProfile)) !== null ||
+      typeof ui.primaryCredentialId !== "string" ||
+      !ui.primaryCredentialId.trim() ||
+      typeof ui.secondaryCredentialId !== "string" ||
+      !ui.secondaryCredentialId.trim() ||
+      ui.primaryCredentialId === ui.secondaryCredentialId
+    )
+      return;
+    void completeProvisioning().catch(() => undefined);
+  }, [
+    completeProvisioning,
+    config,
+    hydrated,
+    storageProfile,
+    ui.primaryCredentialId,
+    ui.secondaryCredentialId,
+  ]);
   const register = useCallback(
     (role: "primary" | "secondary") =>
       runWalletCriticalFlow(async () => {
         requireOnline();
-        await backend.health?.();
+        await backend.health?.("provision");
         const registration = await backend.registerPasskey(role);
-        const otherRegistered = role === "primary" ? Boolean(ui.secondaryCredentialId) : Boolean(ui.primaryCredentialId);
-        const next = role === "primary"
-          ? { ...ui, primaryCredentialId: registration.credentialId, provisioning: otherRegistered ? "provisioning" as const : "registering" as const }
-          : { ...ui, secondaryCredentialId: registration.credentialId, secondaryAuthenticator: registration.response.authenticatorAttachment, provisioning: otherRegistered ? "provisioning" as const : "registering" as const };
+        const otherRegistered =
+          role === "primary" ? Boolean(ui.secondaryCredentialId) : Boolean(ui.primaryCredentialId);
+        const next =
+          role === "primary"
+            ? {
+                ...ui,
+                primaryCredentialId: registration.credentialId,
+                provisioning: otherRegistered
+                  ? ("provisioning" as const)
+                  : ("registering" as const),
+              }
+            : {
+                ...ui,
+                secondaryCredentialId: registration.credentialId,
+                secondaryAuthenticator: registration.response.authenticatorAttachment,
+                provisioning: otherRegistered
+                  ? ("provisioning" as const)
+                  : ("registering" as const),
+              };
         saveUiState(storageProfile, next);
         setUi(next);
         if (otherRegistered) await completeProvisioning();
@@ -915,20 +1244,31 @@ export function VaultProvider({
   const registerSecondary = useCallback(() => register("secondary"), [register]);
   const retryProvisioning = useCallback(() => completeProvisioning(), [completeProvisioning]);
   const rebind = useCallback(
-    (role: "primary" | "secondary") => runWalletCriticalFlow(async () => {
-      requireOnline();
-      await backend.health?.();
-      const credentialId = role === "primary" ? ui.primaryCredentialId : ui.secondaryCredentialId;
-      if (!credentialId) throw new Error(`Stored ${role} credential ID is required for recovery verification`);
-      if (!backend.rebindPasskey) throw new Error("Recovered credential verification is unavailable");
-      const credentialRebind = await backend.rebindPasskey(role, credentialId);
-      setUi((current) => {
-        const nextUi = { ...current, credentialRebind, provisioning: credentialRebind.required ? "provisioning" as const : "provisioned" as const };
-        saveUiState(storageProfile, nextUi);
-        return nextUi;
-      });
-    }),
-    [backend, storageProfile, ui.primaryCredentialId, ui.secondaryCredentialId],
+    (role: "primary" | "secondary") =>
+      runWalletCriticalFlow(async () => {
+        requireOnline();
+        await backend.health?.("provision");
+        const credentialId = role === "primary" ? ui.primaryCredentialId : ui.secondaryCredentialId;
+        if (!credentialId)
+          throw new Error(`Stored ${role} credential ID is required for recovery verification`);
+        if (!backend.rebindPasskey)
+          throw new Error("Recovered credential verification is unavailable");
+        const credentialRebind = await backend.rebindPasskey(role, credentialId);
+        setUi((current) => {
+          const nextUi = {
+            ...current,
+            credentialRebind,
+            provisioning: credentialRebind.required
+              ? ("provisioning" as const)
+              : ("provisioned" as const),
+          };
+          saveUiState(storageProfile, nextUi);
+          return nextUi;
+        });
+        if (credentialRebind.primary === "ready" && credentialRebind.secondary === "ready")
+          await refresh();
+      }),
+    [backend, refresh, storageProfile, ui.primaryCredentialId, ui.secondaryCredentialId],
   );
   const rebindPrimary = useCallback(() => rebind("primary"), [rebind]);
   const rebindSecondary = useCallback(() => rebind("secondary"), [rebind]);
@@ -936,7 +1276,10 @@ export function VaultProvider({
     (id: string, role: "primary" | "secondary" | "none") =>
       runWalletCriticalFlow(async () => {
         requireOnline();
+        if (state.compatibility?.mode === "read-only")
+          throw new Error("This vault is read-only; transfers and approvals are disabled.");
         requireCredentialRebindReady(ui.credentialRebind);
+        await backend.health?.();
         const request = prepared.current.get(id);
         if (!request) throw new Error("Prepared submission is unavailable; prepare it again");
         let status: SubmissionStatus;
@@ -974,6 +1317,7 @@ export function VaultProvider({
       refresh,
       rememberSubmission,
       state.safe,
+      state.compatibility,
       ui.primaryCredentialId,
       ui.secondaryCredentialId,
       ui.credentialRebind,
@@ -982,6 +1326,8 @@ export function VaultProvider({
   const prepare = useCallback(
     async (intent: SubmissionIntent) => {
       requireOnline();
+      if (state.compatibility?.mode === "read-only")
+        throw new Error("This vault is read-only; transfers and queue changes are disabled.");
       requireCredentialRebindReady(ui.credentialRebind);
       await backend.health?.();
       const request = await backend.prepareIntent(intent);
@@ -989,11 +1335,12 @@ export function VaultProvider({
       rememberSubmission(request.id);
       return request;
     },
-    [backend, rememberSubmission, ui.credentialRebind],
+    [backend, rememberSubmission, state.compatibility, ui.credentialRebind],
   );
   const prepareTransfer = useCallback(
     ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) =>
       runWalletCriticalFlow(async () => {
+        requireCredentialRebindReady(ui.credentialRebind);
         if (!state.writable || state.health.length > 0)
           throw new Error("vault health checks are blocking writes");
         const request = await prepare({
@@ -1007,7 +1354,43 @@ export function VaultProvider({
           status = await approveSubmission(request.id, "secondary");
         return status;
       }),
-    [approveSubmission, prepare, state.health.length, state.writable],
+    [approveSubmission, prepare, state.health.length, state.writable, ui.credentialRebind],
+  );
+  const addRecipient = useCallback(
+    (recipient: Address) =>
+      runWalletCriticalFlow(async () => {
+        if (!state.writable || state.health.length > 0 || state.frozen)
+          throw new Error("vault health checks are blocking recipient changes");
+        const candidate = recipient.trim() as Address;
+        if (!isAddress(candidate) || /^0x0{40}$/i.test(candidate))
+          throw new Error("Recipient must be a valid nonzero address");
+        if (
+          state.recipients.some((entry) => entry.address.toLowerCase() === candidate.toLowerCase())
+        )
+          throw new Error("Recipient is already allowed for elevated transfers");
+        const request = await prepare({
+          kind: "add-recipient",
+          recipient: candidate,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        if (
+          request.kind !== "add-recipient" ||
+          request.requiredApprovals.join(",") !== "primary,secondary"
+        )
+          throw new Error("Recipient addition requires both signer approvals");
+        const primary = await approveSubmission(request.id, "primary");
+        if (primary.state !== "awaiting-secondary")
+          throw new Error("Recipient addition did not reach second-signer approval");
+        return approveSubmission(request.id, "secondary");
+      }),
+    [
+      approveSubmission,
+      prepare,
+      state.writable,
+      state.health.length,
+      state.frozen,
+      state.recipients,
+    ],
   );
   const queueAction = useCallback(
     (item: ActivityItem, kind: "cancel-queued" | "execute-ready" | "skip-expired") =>
@@ -1059,7 +1442,7 @@ export function VaultProvider({
     () =>
       runWalletCriticalFlow(async () => {
         requireOnline();
-        await backend.health?.();
+        await backend.health?.("provision");
         const primary = await backend.registerPasskey("primary");
         const secondary = await backend.registerPasskey("secondary");
         if (primary.credentialId === secondary.credentialId)
@@ -1086,9 +1469,10 @@ export function VaultProvider({
       provisioning: ui.provisioning,
       credentialRebind: ui.credentialRebind,
       receiptHash: ui.receiptHash,
+      provisioningError,
       submissionIds: ui.submissionIds,
     }),
-    [ui],
+    [ui, provisioningError],
   );
   const sendUsdc = prepareTransfer;
   const value = useMemo(
@@ -1098,7 +1482,11 @@ export function VaultProvider({
       hydrated,
       loading,
       hasAccount: Boolean(config),
-      canWrite: state.writable && state.health.length === 0 && ui.credentialRebind.primary === "ready" && ui.credentialRebind.secondary === "ready",
+      canWrite:
+        state.writable &&
+        state.health.length === 0 &&
+        ui.credentialRebind.primary === "ready" &&
+        ui.credentialRebind.secondary === "ready",
       finishSetup,
       refresh,
       registerPrimary,
@@ -1106,6 +1494,8 @@ export function VaultProvider({
       retryProvisioning,
       rebindPrimary,
       rebindSecondary,
+      startNewVault,
+      addRecipient,
       prepareTransfer,
       approveSubmission,
       cancelQueued,
@@ -1128,6 +1518,8 @@ export function VaultProvider({
       retryProvisioning,
       rebindPrimary,
       rebindSecondary,
+      startNewVault,
+      addRecipient,
       prepareTransfer,
       approveSubmission,
       cancelQueued,

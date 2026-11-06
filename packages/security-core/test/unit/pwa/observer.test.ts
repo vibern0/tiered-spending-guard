@@ -10,6 +10,7 @@ import {
 } from "viem";
 import {
   observePwaReceipt,
+  serializePwaObserverRecord,
   type PwaObservedState,
   type PwaObserverBinding,
   type PwaObserverClient,
@@ -24,6 +25,8 @@ import {
 } from "../../../src/pwa";
 import { PWA_RECIPIENT, SEPOLIA_USDC_ADDRESS } from "../../../src/pwa/profile";
 import { queueFingerprint } from "../../../src/queue/delay";
+import { policyHash } from "../../../src/topology/build";
+import type { VaultPolicy } from "../../../src/config/policy";
 
 const a = (value: number) => getAddress(`0x${value.toString(16).padStart(40, "0")}`);
 const h = (value: number) => `0x${value.toString(16).padStart(64, "0")}` as Hex;
@@ -48,6 +51,10 @@ const secondary = a(5);
 const usdc = SEPOLIA_USDC_ADDRESS;
 const recipient = PWA_RECIPIENT;
 
+function policy(recipients: readonly Address[] = [recipient]): VaultPolicy {
+  return { chainId: 11155111, safe, primary, passkey: primary, secondaryProfile: "contract-only", ecdsaSecondary: a(0), secondaries: [{ address: secondary, role: "secondary", kind: "safe-contract", enabled: true }], delay, periodSeconds: 86400, periodAnchor: 0n, cooldownSeconds: 120, expirationSeconds: 600, assets: [{ token: usdc, basePerTransaction: 1_000_000n, stepUpPerTransaction: 3_000_000n, baseDailyLimit: 1_000_000n, instantDailyLimit: 3_000_000n, baseRecipientMode: "any-valid-address", recipients }] };
+}
+
 function queued(createdAt = 800n) {
   const data = `0xa9059cbb${recipient.slice(2).padStart(64, "0")}${(4_000_000n).toString(16).padStart(64, "0")}`.toLowerCase() as Hex;
   const item = { safe, delay, to: usdc, value: 0n, data, operation: 0 as const, queueNonce: 4n };
@@ -69,7 +76,7 @@ function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnap
     blockHash: h(90),
     timestamp: 1_000n,
     deploymentsHash: h(91),
-    policyHash: h(92),
+    policyHash: policyHash(policy()),
     safe,
     guard,
     delay,
@@ -90,9 +97,15 @@ function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnap
   }));
 }
 
-type Kind = "base" | "step-up" | "queue" | "cancel" | "execute";
+type Kind = "base" | "step-up" | "queue" | "cancel" | "execute" | "add" | "repair" | "skip";
 
 function prepared(kind: Kind): PreparedPwaIntent {
+  if (kind === "add") return preparePwaIntent(snapshot(), { kind: "add-recipient", recipient: a(99) });
+  if (kind === "repair" || kind === "skip") {
+    const addition = preparePwaIntent(snapshot(), { kind: "add-recipient", recipient: a(99) });
+    const queueHead = { ...addition.queue!, safe, delay, createdAt: 800n, readyAt: 920n, expiresAt: 1520n };
+    return preparePwaIntent(snapshot({ queueHead, queueTailNonce: 5n, timestamp: kind === "skip" ? 1600n : 1000n }), { kind: kind === "skip" ? "skip-expired" : "execute-ready", queueNonce: 4n, queueFingerprint: queueHead.queueFingerprint });
+  }
   if (kind === "base") return preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 1_000_000n });
   if (kind === "step-up") return preparePwaIntent(snapshot({ spendState: { window: 0n, baseSpent: 1_000_000n, instantSpent: 1_000_000n } }), { kind: "transfer", recipient, amount: 2_000_000n });
   if (kind === "queue") return preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 4_000_000n });
@@ -103,7 +116,7 @@ function prepared(kind: Kind): PreparedPwaIntent {
 }
 
 function state(intent: PreparedPwaIntent, phase: "before" | "after"): PwaObservedState {
-  const beforeQueue = intent.kind === "cancel-queued" || intent.kind === "execute-ready" ? queued() : null;
+  const beforeQueue = intent.kind === "cancel-queued" || intent.kind === "execute-ready" || intent.kind === "skip-expired" ? { ...intent.queue!, safe, delay } : null;
   const amount = intent.amount;
   const isSigned = "safeTx" in intent;
   const beforeSpend = "expectedSpend" in intent ? intent.expectedSpend : { window: 0n, baseSpent: 0n, instantSpent: 0n };
@@ -124,7 +137,7 @@ function state(intent: PreparedPwaIntent, phase: "before" | "after"): PwaObserve
       safeUsdcBalance -= amount;
       recipientUsdcBalance += amount;
       spendState = { ...beforeSpend, instantSpent: beforeSpend.instantSpent + amount };
-    } else if (intent.kind === "queue-transfer") {
+    } else if (intent.kind === "queue-transfer" || intent.kind === "add-recipient") {
       const queuedIntent = intent.queue!;
       queueTailNonce = 5n;
       queueHead = {
@@ -140,7 +153,7 @@ function state(intent: PreparedPwaIntent, phase: "before" | "after"): PwaObserve
         readyAt: 1120n,
         expiresAt: 1720n,
       };
-    } else if (intent.kind === "cancel-queued") {
+    } else if (intent.kind === "cancel-queued" || intent.kind === "skip-expired") {
       queueHeadNonce = 5n;
       queueHead = null;
     } else if (intent.kind === "execute-ready") {
@@ -159,7 +172,8 @@ function state(intent: PreparedPwaIntent, phase: "before" | "after"): PwaObserve
     spendState: Object.freeze(spendState),
     queueHead,
     deploymentsHash: intent.deploymentsHash,
-    policyHash: intent.policyHash,
+    policy: policy(phase === "after" && intent.kind === "execute-ready" && intent.queue.to === guard ? [recipient, a(99)] : [recipient]),
+    policyHash: policyHash(policy(phase === "after" && intent.kind === "execute-ready" && intent.queue.to === guard ? [recipient, a(99)] : [recipient])),
     topologyReportHash: h(93),
   });
 }
@@ -178,7 +192,7 @@ function logs(intent: PreparedPwaIntent, failure = false) {
     output.push(eventLog(guard, encodeEventTopics({ abi: GUARD_ABI, eventName: "TransferAuthorized" }), encodeAbiParameters([
       { type: "uint8" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
     ], [intent.kind === "base-transfer" ? 0 : 1, usdc, recipient, intent.amount, after.baseSpent, after.instantSpent, after.window]), 1));
-  } else if (intent.kind === "queue-transfer") {
+  } else if (intent.kind === "queue-transfer" || intent.kind === "add-recipient") {
     output.push(eventLog(delay, encodeEventTopics({ abi: DELAY_ABI, eventName: "TransactionAdded", args: { queueNonce: intent.queue!.queueNonce, txHash: intent.queue!.queueFingerprint } }), encodeAbiParameters([
       { type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" },
     ], [intent.queue!.to, intent.queue!.value, intent.queue!.data, intent.queue!.operation]), 1));
@@ -235,6 +249,21 @@ function binding(intent: PreparedPwaIntent, overrides: Partial<PwaObserverBindin
 }
 
 describe("independent PWA receipt observer", () => {
+  it("observes delayed recipient addition, exact policy execution and expired maintenance skip", async () => {
+    for (const kind of ["add", "repair", "skip"] as const) {
+      const intent = prepared(kind);
+      const at = kind === "skip" ? { async getBlock({ blockNumber }: { blockNumber: bigint }) { return { number: blockNumber, hash: blockNumber === 100n ? h(100) : h(99), timestamp: 1600n }; } } : {};
+      const record = await observePwaReceipt(binding(intent, { clients: [client(intent, "a", at), client(intent, "b", at)] }), h(500));
+      expect(record.kind).to.equal(intent.kind);
+      expect(JSON.parse(serializePwaObserverRecord(record)).kind).to.equal(intent.kind);
+    }
+    const intent = prepared("repair");
+    const wrongPolicy = policy([recipient, a(98)]);
+    const badState = { ...state(intent, "after"), policy: wrongPolicy, policyHash: policyHash(wrongPolicy) };
+    const wrong = { async readStateAt(block: bigint) { return block === 100n ? badState : state(intent, "before"); } };
+    await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a", wrong), client(intent, "b", wrong)] }), h(500))).to.be.rejectedWith(/policy|repair|recipient/i);
+  });
+
   it("accepts canonical X, Y, queue, cancel, and ready execution receipts", async () => {
     for (const kind of ["base", "step-up", "queue", "cancel", "execute"] as const) {
       const intent = prepared(kind);
@@ -243,6 +272,68 @@ describe("independent PWA receipt observer", () => {
       expect(record.observer.processId).to.equal("observer-fixture-1");
       expect(record.sources).to.deep.equal(["provider-a", "provider-b"]);
     }
+  });
+
+  it("observes the first send and daily rollover using effective anchored counters", async () => {
+    for (const beforeSpend of [{ window: 0n, baseSpent: 0n, instantSpent: 0n }, { window: 0n, baseSpent: 1_000_000n, instantSpent: 3_000_000n }]) {
+      const intent = preparePwaIntent(snapshot({ timestamp: 172_801n, spendState: beforeSpend }), { kind: "transfer", recipient, amount: 1_000_000n });
+      const before = { ...state(intent, "before"), spendState: beforeSpend };
+      const after = { ...state(intent, "after"), spendState: { window: 172_800n, baseSpent: 1_000_000n, instantSpent: 1_000_000n } };
+      const overrides: Partial<PwaObserverClient> = {
+        async readStateAt(block) { return block === 100n ? after : before; },
+        async getBlock({ blockNumber }) { return { number: blockNumber, hash: blockNumber === 100n ? h(100) : h(99), timestamp: 172_801n }; },
+        async getTransactionReceipt() {
+          const original = receipt(intent);
+          const transfer = eventLog(guard, encodeEventTopics({ abi: GUARD_ABI, eventName: "TransferAuthorized" }), encodeAbiParameters([{ type: "uint8" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [0, usdc, recipient, 1_000_000n, 1_000_000n, 1_000_000n, 172_800n]), 1);
+          return { ...original, logs: [original.logs[0]!, transfer] };
+        },
+      };
+      expect((await observePwaReceipt(binding(intent, { clients: [client(intent, "a", overrides), client(intent, "b", overrides)] }), h(500))).kind).to.equal("base-transfer");
+      const future = { ...overrides, async readStateAt(block: bigint) { return block === 100n ? after : { ...before, spendState: { ...beforeSpend, window: 259_200n } }; } };
+      await expect(observePwaReceipt(binding(intent, { clients: [client(intent, "a", future), client(intent, "b", future)] }), h(500))).to.be.rejectedWith(/future|window/i);
+    }
+  });
+
+  it("observes self-alias base, step-up, queued and delayed transfers with exact token effects", async () => {
+    const selfPolicy = policy([recipient, safe]);
+    const selfSnapshot = (overrides: Partial<VerifiedPwaSnapshot> = {}) => snapshot({ elevatedRecipients: [recipient, safe], policyHash: policyHash(selfPolicy), ...overrides });
+    const queuedIntent = preparePwaIntent(selfSnapshot(), { kind: "transfer", recipient: safe, amount: 4_000_000n });
+    const queueHead = { ...queuedIntent.queue!, safe, delay, createdAt: 800n, readyAt: 920n, expiresAt: 1520n };
+    const delayed = preparePwaIntent(selfSnapshot({ queueHead, queueTailNonce: 5n }), { kind: "execute-ready", queueNonce: queueHead.queueNonce, queueFingerprint: queueHead.queueFingerprint });
+    const transferAbi = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
+    const intents = [
+      preparePwaIntent(selfSnapshot(), { kind: "transfer", recipient: safe, amount: 1_000_000n }),
+      preparePwaIntent(selfSnapshot({ spendState: { window: 0n, baseSpent: 1_000_000n, instantSpent: 1_000_000n } }), { kind: "transfer", recipient: safe, amount: 2_000_000n }),
+      queuedIntent,
+      delayed,
+    ];
+    for (const intent of intents) {
+      const isTransfer = intent.kind !== "queue-transfer";
+      const observedState = (phase: "before" | "after"): PwaObservedState => ({ ...state(intent, phase), policy: selfPolicy, policyHash: policyHash(selfPolicy), safeUsdcBalance: 8_000_000n, recipientUsdcBalance: 8_000_000n });
+      const transfer = (amount = intent.amount) => eventLog(usdc, encodeEventTopics({ abi: transferAbi, eventName: "Transfer", args: { from: safe, to: safe } }), encodeAbiParameters([{ type: "uint256" }], [amount]), 3);
+      const selfReceipt = () => {
+        const original = receipt(intent);
+        const output = original.logs.filter(log => log.address !== guard);
+        if (intent.kind === "base-transfer" || intent.kind === "step-up-transfer") {
+          const spent = observedState("after").spendState;
+          output.push(eventLog(guard, encodeEventTopics({ abi: GUARD_ABI, eventName: "TransferAuthorized" }), encodeAbiParameters([{ type: "uint8" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }], [intent.kind === "base-transfer" ? 0 : 1, usdc, safe, intent.amount, spent.baseSpent, spent.instantSpent, spent.window]), 1));
+        }
+        if (isTransfer) output.push(transfer());
+        return { ...original, logs: output };
+      };
+      const ownClient = (source: string, overrides: Partial<PwaObserverClient> = {}) => client(intent, source, { async readStateAt(block) { return observedState(block === 100n ? "after" : "before"); }, async getTransactionReceipt() { return selfReceipt(); }, ...overrides });
+      const run = (overrides: Partial<PwaObserverClient> = {}) => observePwaReceipt(binding(intent, { clients: [ownClient("a", overrides), ownClient("b", overrides)] }), h(500));
+      expect((await run()).kind).to.equal(intent.kind);
+      if (isTransfer) {
+        await expect(run({ async getTransactionReceipt() { const original = selfReceipt(); return { ...original, logs: original.logs.filter(log => log.address !== usdc) }; } })).to.be.rejectedWith(/self|transfer|token/i);
+        await expect(run({ async getTransactionReceipt() { const original = selfReceipt(); return { ...original, logs: [...original.logs.filter(log => log.address !== usdc), transfer(intent.amount + 1n)] }; } })).to.be.rejectedWith(/self|transfer|token/i);
+        await expect(run({ async readStateAt(block) { const current = observedState(block === 100n ? "after" : "before"); return { ...current, recipientUsdcBalance: current.recipientUsdcBalance + 1n }; } })).to.be.rejectedWith(/self|balance|alias/i);
+        await expect(run({ async getTransactionReceipt() { const original = selfReceipt(); return { ...original, logs: [...original.logs, transfer()] }; } })).to.be.rejectedWith(/self|transfer|token/i);
+        await expect(run({ async readStateAt(block) { const current = observedState(block === 100n ? "after" : "before"); return block === 100n ? { ...current, safeUsdcBalance: current.safeUsdcBalance + 1n, recipientUsdcBalance: current.recipientUsdcBalance + 1n } : current; } })).to.be.rejectedWith(/self|balance|alias/i);
+      }
+    }
+    expect(queuedIntent.queue!.data).not.to.equal(preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 4_000_000n }).queue!.data);
+    expect(queuedIntent.queue!.queueFingerprint).not.to.equal(preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 4_000_000n }).queue!.queueFingerprint);
   });
 
   it("rejects outer success with inner failure, wrong events, stale queues, and state-effect mismatches", async () => {

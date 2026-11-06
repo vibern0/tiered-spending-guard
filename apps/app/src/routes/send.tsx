@@ -56,7 +56,8 @@ function SendPage() {
   }, [refresh]);
 
   const pickManual = () => {
-    if (!isAddress(manual) || /^0x0{40}$/i.test(manual)) return setError("That doesn't look like a valid account address.");
+    if (!isAddress(manual) || /^0x0{40}$/i.test(manual))
+      return setError("That doesn't look like a valid account address.");
     const known = state.recipients.find((r) => r.address.toLowerCase() === manual.toLowerCase());
     setError(null);
     setTo(known ?? { name: shortAddr(manual), address: manual });
@@ -196,6 +197,11 @@ function SendPage() {
               reason={result?.reason}
               delaySeconds={state.policy.delaySeconds}
             />
+          )}
+          {lane === "blocked" && result?.reason?.includes("add this recipient") && (
+            <Link to="/limits" className="block font-semibold text-primary underline">
+              Add recipient in Limits &amp; security
+            </Link>
           )}
           <PrimaryButton
             disabled={loading || amount === null || amount <= 0n || lane === "blocked"}

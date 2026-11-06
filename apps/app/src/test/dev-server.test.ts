@@ -35,12 +35,16 @@ async function stopProcess(child: ChildProcess): Promise<void> {
 
 it("serves the wallet root through the real pnpm dev command", async () => {
   const port = await reserveFreePort();
-  const child = spawn(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["dev", "--port", String(port)], {
-    cwd: appRoot,
-    detached: process.platform !== "win32",
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+    ["dev", "--port", String(port)],
+    {
+      cwd: appRoot,
+      detached: process.platform !== "win32",
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   let output = "";
   child.stdout?.on("data", (chunk) => {
     output += String(chunk);

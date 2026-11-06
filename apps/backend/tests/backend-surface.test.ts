@@ -28,13 +28,13 @@ describe("backend public surface", () => {
     expect(child.stdout).toContain("local");
   });
 
-  it("loads successor lineage only from the committed security-core artifact", () => {
-    const provisionerSource = readFileSync(join(process.cwd(), "src/provisioner.ts"), "utf8");
-    const backendSources = ["src/config.ts", "src/main.ts", "src/provisioner.ts", "src/server.ts"]
+  it("keeps committed and automatically verified successor lineage outside browser and environment inputs", () => {
+    const recoverySource = readFileSync(join(process.cwd(), "src/automatic-recovery.ts"), "utf8");
+    const backendSources = ["src/config.ts", "src/main.ts", "src/provisioner.ts", "src/server.ts", "src/automatic-recovery.ts", "src/managed-successors.ts"]
       .map((path) => readFileSync(join(process.cwd(), path), "utf8"))
       .join("\n");
-    expect(provisionerSource).toContain("loadCommittedPwaProvisioningSuccessors");
-    expect(provisionerSource).toMatch(/successors:\s*loadCommittedPwaProvisioningSuccessors\(\)/);
+    expect(recoverySource).toContain("core.loadCommittedPwaProvisioningSuccessors()");
+    expect(recoverySource).toContain("core.discoverPwaProvisioningSuccessor(facts())");
     expect(backendSources).not.toMatch(/BACKEND_[A-Z_]*SUCCESSOR/);
   });
 
@@ -71,7 +71,11 @@ describe("backend public surface", () => {
       BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(directory, "reviews"),
     });
     const backend = await createConfiguredBackend(undefined, { ...config, port: 0 });
-    await backend.close();
+    try {
+      const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+      expect(await response.json()).toMatchObject({ provisioningReady: true, writesReady: false });
+    } finally { await backend.close(); }
   });
 
   it("starts the HTTPS profile with automatic provisioning unavailable", async () => {
@@ -81,7 +85,11 @@ describe("backend public surface", () => {
       BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(directory, "reviews"),
     });
     const backend = await createConfiguredBackend(undefined, { ...config, port: 0 });
-    await backend.close();
+    try {
+      const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+      const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+      expect(await response.json()).toMatchObject({ provisioningReady: false, writesReady: false });
+    } finally { await backend.close(); }
   });
 
   it("fails startup closed on a pending provisioning prefix without contacting or exposing an RPC URL", async () => {

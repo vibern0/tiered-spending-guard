@@ -27,7 +27,7 @@ const code = (n: number) => (`0x60${n.toString(16).padStart(2, "0")}`) as Hex;
 const hash = (value: Hex) => keccak256(value);
 
 const SAFE_SETUP_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "address[]" }, { name: "threshold", type: "uint256" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }, { name: "fallbackHandler", type: "address" }, { name: "paymentToken", type: "address" }, { name: "payment", type: "uint256" }, { name: "paymentReceiver", type: "address" }], outputs: [] }] as const;
-const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }, { name: "baseRecipientMode", type: "uint8" }] }] }], outputs: [] }] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
 
 const deployer = a(100);
@@ -135,7 +135,7 @@ async function derivedPolicy(): Promise<VaultPolicy> {
       ecdsaSecondary: policyBase.ecdsaSecondary,
       periodSeconds: 86400n,
       periodAnchor: policyBase.periodAnchor,
-      assets: policyBase.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
+      assets: policyBase.assets.map((asset) => ({ ...asset, baseRecipientMode: asset.baseRecipientMode === "any-valid-address" ? 1 : 0, recipients: [...asset.recipients] })),
     }],
   });
   const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [[policyBase.passkey], 1n, components.setupHelper, helperData, a(0), a(0), 0n, a(0)] });

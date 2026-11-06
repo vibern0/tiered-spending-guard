@@ -59,7 +59,7 @@ describe("real Safe WebAuthn verification (automated credentials)", () => {
       guard: guard.address, delay: delay.address, maintenance: maintenance.address,
       passkey: primary.address, safeContractSecondary: secondary.address, ecdsaSecondary: secondaryEoa.account.address,
       periodSeconds: 86400n, periodAnchor: 0n,
-      assets: [ZERO, token.address].map(token => ({ token, basePerTransaction: 10n, stepUpPerTransaction: 30n, baseDailyLimit: 10n, instantDailyLimit: 30n, recipients: [recipient.account.address] })),
+      assets: [ZERO, token.address].map(token => ({ token, basePerTransaction: 10n, stepUpPerTransaction: 30n, baseDailyLimit: 10n, instantDailyLimit: 30n, baseRecipientMode: 0, recipients: [recipient.account.address] })),
     }] });
     await safe.write.setup([[primary.address], 1n, helper.address, setup, ZERO, ZERO, 0n, ZERO]);
     expect((await safe.read.getOwners()).map(x => x.toLowerCase())).to.deep.equal([primary.address.toLowerCase()]);

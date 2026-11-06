@@ -19,10 +19,11 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import type { AssetSpendState } from "../config/policy";
+import { assertValidVaultPolicy, type AssetSpendState, type VaultPolicy } from "../config/policy";
+import { policyHash as computePolicyHash } from "../topology/build";
 import { queueFingerprint } from "../queue/delay";
 import type { PreparedPwaIntent, PwaQueueBinding } from "../transport/types";
-import { assertSamePreparedPwaIntent } from "./intents";
+import { assertSamePreparedPwaIntent, decodePwaRecipientRepair } from "./intents";
 import { SEPOLIA_CHAIN_ID, SEPOLIA_USDC_ADDRESS } from "./profile";
 
 const HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -37,6 +38,7 @@ const SAFE_ABI = parseAbi([
 const GUARD_ABI = parseAbi([
   "event TransferAuthorized(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)",
 ]);
+const TOKEN_ABI = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 value)"]);
 const DELAY_ABI = parseAbi([
   "event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)",
   "event TxNonceSet(uint256 nonce)",
@@ -44,6 +46,7 @@ const DELAY_ABI = parseAbi([
 
 export type PwaObservedQueue = Readonly<PwaQueueBinding & { safe: Address; delay: Address }>;
 export type PwaObservedState = Readonly<{
+  policy: VaultPolicy;
   safeNonce: bigint;
   queueHeadNonce: bigint;
   queueTailNonce: bigint;
@@ -207,9 +210,13 @@ function assertReadOnlyClient(client: PwaObserverClient): void {
   }
 }
 
-function assertStateIdentity(state: PwaObservedState, binding: PwaObserverBinding): void {
+function assertStateIdentity(state: PwaObservedState, binding: PwaObserverBinding, after = false): void {
   for (const [value, label] of [[state.deploymentsHash, "deployments"], [state.policyHash, "policy"], [state.topologyReportHash, "topology report"]] as const) assertHash(value, label);
-  if (!same(state.deploymentsHash, binding.intent.deploymentsHash) || !same(state.policyHash, binding.intent.policyHash) || !same(state.topologyReportHash, binding.topologyReportHash)) throw new Error("observer topology/profile state mismatch");
+  const maintenanceExecution = after && binding.intent.kind === "execute-ready" && isAddressEqual(binding.intent.queue.to, binding.intent.guard);
+  if (!same(state.deploymentsHash, binding.intent.deploymentsHash) || (!maintenanceExecution && !same(state.policyHash, binding.intent.policyHash)) || !same(state.topologyReportHash, binding.topologyReportHash)) throw new Error("observer topology/profile state mismatch");
+  assertValidVaultPolicy(state.policy);
+  const policy = state.policy, asset = policy.assets[0];
+  if (computePolicyHash(policy) !== state.policyHash || policy.chainId !== SEPOLIA_CHAIN_ID || !isAddressEqual(policy.safe, binding.intent.safe) || !isAddressEqual(policy.delay, binding.intent.delay) || policy.secondaryProfile !== "contract-only" || policy.periodSeconds !== 86400 || policy.periodAnchor !== 0n || policy.cooldownSeconds !== 120 || policy.expirationSeconds !== 600 || policy.assets.length !== 1 || !asset || !isAddressEqual(asset.token, binding.intent.asset) || asset.baseRecipientMode !== "any-valid-address" || asset.basePerTransaction !== 1_000_000n || asset.stepUpPerTransaction !== 3_000_000n || asset.baseDailyLimit !== 1_000_000n || asset.instantDailyLimit !== 3_000_000n) throw new Error("observer verified policy projection mismatch");
   if ([state.safeNonce, state.queueHeadNonce, state.queueTailNonce, state.safeUsdcBalance, state.recipientUsdcBalance, state.spendState.window, state.spendState.baseSpent, state.spendState.instantSpent].some((value) => value < 0n)) throw new Error("observer state contains a negative value");
   if (state.queueTailNonce < state.queueHeadNonce) throw new Error("observer queue state is invalid");
   if ((state.queueHead === null) !== (state.queueHeadNonce === state.queueTailNonce)) throw new Error("observer queue head presence mismatch");
@@ -233,7 +240,7 @@ async function observeClient(client: PwaObserverClient, binding: PwaObserverBind
   const before = await client.readStateAt(receipt.blockNumber - 1n);
   const after = await client.readStateAt(receipt.blockNumber);
   assertStateIdentity(before, binding);
-  assertStateIdentity(after, binding);
+  assertStateIdentity(after, binding, true);
   const secondBlock = await client.getBlock({ blockNumber: receipt.blockNumber });
   if (secondBlock.number !== firstBlock.number || !secondBlock.hash || !same(secondBlock.hash, firstBlock.hash) || secondBlock.timestamp !== firstBlock.timestamp) throw new Error("observer receipt block reorg detected");
   for (const log of receipt.logs) {
@@ -287,25 +294,47 @@ function assertTransferEvent(intent: PreparedPwaIntent, observation: Observation
   if (Number(args[0]) !== expectedTier || !isAddressEqual(args[1] as Address, intent.asset) || !isAddressEqual(args[2] as Address, intent.recipient) || args[3] !== intent.amount || args[4] !== observation.after.spendState.baseSpent || args[5] !== observation.after.spendState.instantSpent || args[6] !== observation.after.spendState.window) throw new Error("observer transfer event/effect mismatch");
 }
 
+function assertTransferBalances(intent: PreparedPwaIntent, observation: Observation): void {
+  const { before, after } = observation;
+  if (!isAddressEqual(intent.safe, intent.recipient)) {
+    if (after.safeUsdcBalance !== before.safeUsdcBalance - intent.amount || after.recipientUsdcBalance !== before.recipientUsdcBalance + intent.amount) throw new Error("observer transfer balance effect mismatch");
+    return;
+  }
+  if (before.safeUsdcBalance !== before.recipientUsdcBalance || after.safeUsdcBalance !== after.recipientUsdcBalance || after.safeUsdcBalance !== before.safeUsdcBalance) throw new Error("observer self-transfer balance alias mismatch");
+  const events = observation.receipt.logs.filter(log => isAddressEqual(log.address, intent.asset)).map(log => decodeLog(log, TOKEN_ABI)).filter(event => event?.eventName === "Transfer");
+  if (events.length !== 1) throw new Error("observer self-transfer token event mismatch");
+  const args = events[0]!.args;
+  if (!isAddressEqual(args[0] as Address, intent.safe) || !isAddressEqual(args[1] as Address, intent.safe) || args[2] !== intent.amount) throw new Error("observer self-transfer token event mismatch");
+}
+
 function assertEffects(intent: PreparedPwaIntent, observation: Observation): void {
   const before = observation.before;
   const after = observation.after;
   const signed = "safeTx" in intent;
+  const maintenance = intent.kind === "execute-ready" && isAddressEqual(intent.queue.to, intent.guard) ? decodePwaRecipientRepair(intent.queue.data) : null;
+  if (!maintenance) assertUnchanged(before, after, ["policy", "policyHash"], "policy");
   if (signed && (before.safeNonce !== intent.safeTx.nonce || after.safeNonce !== before.safeNonce + 1n)) throw new Error("observer Safe nonce effect mismatch");
   if (!signed && after.safeNonce !== before.safeNonce) throw new Error("observer permissionless execution changed Safe nonce");
   if (intent.kind === "base-transfer" || intent.kind === "step-up-transfer") {
-    if (after.safeUsdcBalance !== before.safeUsdcBalance - intent.amount || after.recipientUsdcBalance !== before.recipientUsdcBalance + intent.amount) throw new Error("observer transfer balance effect mismatch");
-    const expectedBase = before.spendState.baseSpent + (intent.kind === "base-transfer" ? intent.amount : 0n);
-    const expectedInstant = before.spendState.instantSpent + intent.amount;
-    if (after.spendState.window !== before.spendState.window || after.spendState.baseSpent !== expectedBase || after.spendState.instantSpent !== expectedInstant) throw new Error("observer transfer counter effect mismatch");
+    assertTransferBalances(intent, observation);
+    const anchor = before.policy.periodAnchor, seconds = BigInt(before.policy.periodSeconds);
+    if (observation.block.timestamp < anchor) throw new Error("observer transfer precedes the period anchor");
+    const window = anchor + ((observation.block.timestamp - anchor) / seconds) * seconds;
+    if (before.spendState.window < anchor || (before.spendState.window - anchor) % seconds !== 0n || before.spendState.window > window) throw new Error("observer transfer counter window is invalid or future");
+    const sameWindow = before.spendState.window === window;
+    const expectedBase = (sameWindow ? before.spendState.baseSpent : 0n) + (intent.kind === "base-transfer" ? intent.amount : 0n);
+    const expectedInstant = (sameWindow ? before.spendState.instantSpent : 0n) + intent.amount;
+    if (after.spendState.window !== window || after.spendState.baseSpent !== expectedBase || after.spendState.instantSpent !== expectedInstant) throw new Error("observer transfer counter effect mismatch");
     assertUnchanged(before, after, ["queueHeadNonce", "queueTailNonce", "queueHead"], "transfer queue");
     assertTransferEvent(intent, observation, intent.kind === "base-transfer" ? 0 : 1);
     return;
   }
-  if (intent.kind === "queue-transfer") {
+  if (intent.kind === "queue-transfer" || intent.kind === "add-recipient") {
     assertUnchanged(before, after, ["safeUsdcBalance", "recipientUsdcBalance", "spendState", "queueHeadNonce"], "queue proposal");
-    if (before.queueHead !== null || before.queueHeadNonce !== intent.queue!.queueNonce || before.queueTailNonce !== intent.queue!.queueNonce || after.queueTailNonce !== before.queueTailNonce + 1n || !after.queueHead) throw new Error("observer queue proposal state effect mismatch");
-    const item = after.queueHead;
+    if (before.queueTailNonce !== intent.queue!.queueNonce || after.queueTailNonce !== before.queueTailNonce + 1n) throw new Error("observer queue proposal state effect mismatch");
+    const item = { ...intent.queue!, createdAt: observation.block.timestamp };
+    if (before.queueHead) assertUnchanged(before, after, ["queueHead"], "queue proposal existing head");
+    else if (!after.queueHead || after.queueHead.queueNonce !== item.queueNonce || !same(after.queueHead.queueFingerprint, item.queueFingerprint) || after.queueHead.createdAt !== item.createdAt || !isAddressEqual(after.queueHead.to, item.to) || after.queueHead.data.toLowerCase() !== item.data.toLowerCase() || after.queueHead.value !== item.value || after.queueHead.operation !== item.operation) throw new Error("observer queue proposal head mismatch");
     if (item.queueNonce !== intent.queue!.queueNonce || !same(item.queueFingerprint, intent.queue!.queueFingerprint) || !isAddressEqual(item.to, intent.queue!.to) || item.value !== intent.queue!.value || item.data.toLowerCase() !== intent.queue!.data.toLowerCase() || item.operation !== intent.queue!.operation || item.createdAt !== observation.block.timestamp) throw new Error("observer queue proposal tuple effect mismatch");
     const events = observation.receipt.logs.filter((log) => isAddressEqual(log.address, intent.delay)).map((log) => decodeLog(log, DELAY_ABI)).filter((event) => event?.eventName === "TransactionAdded");
     if (events.length !== 1) throw new Error("observer queue event mismatch");
@@ -314,22 +343,34 @@ function assertEffects(intent: PreparedPwaIntent, observation: Observation): voi
     return;
   }
   const queue = intent.queue;
+  if (!queue) throw new Error("observer lifecycle queue binding is missing");
   if (!before.queueHead || before.queueHead.queueNonce !== queue.queueNonce || !same(before.queueHead.queueFingerprint, queue.queueFingerprint)) throw new Error("observer stale queue prestate");
   assertUnchanged(before, after, ["spendState"], "delayed counter");
   if (intent.kind === "cancel-queued") {
     assertUnchanged(before, after, ["safeUsdcBalance", "recipientUsdcBalance", "queueTailNonce"], "cancellation");
-    if (after.queueHeadNonce !== queue.queueNonce + 1n || after.queueHead !== null) throw new Error("observer cancellation queue effect mismatch");
+    if (after.queueHeadNonce !== queue.queueNonce + 1n) throw new Error("observer cancellation queue effect mismatch");
     const events = observation.receipt.logs.filter((log) => isAddressEqual(log.address, intent.delay)).map((log) => decodeLog(log, DELAY_ABI)).filter((event) => event?.eventName === "TxNonceSet");
     if (events.length !== 1 || events[0]!.args[0] !== queue.queueNonce + 1n) throw new Error("observer cancellation event mismatch");
     return;
   }
   if (intent.kind === "execute-ready") {
     if (observation.block.timestamp < queue.readyAt || observation.block.timestamp >= queue.expiresAt) throw new Error("observer delayed execution is outside its ready interval");
-    if (after.queueHeadNonce !== queue.queueNonce + 1n || after.queueHead !== null || after.queueTailNonce !== before.queueTailNonce) throw new Error("observer execution queue effect mismatch");
-    if (after.safeUsdcBalance !== before.safeUsdcBalance - intent.amount || after.recipientUsdcBalance !== before.recipientUsdcBalance + intent.amount) throw new Error("observer execution balance effect mismatch");
+    if (after.queueHeadNonce !== queue.queueNonce + 1n || after.queueTailNonce !== before.queueTailNonce) throw new Error("observer execution queue effect mismatch");
+    if (maintenance) {
+      assertUnchanged(before, after, ["safeUsdcBalance", "recipientUsdcBalance"], "recipient repair balances");
+      const originalRecipients = before.policy.assets[0]!.recipients;
+      if (!same(maintenance.expectedPolicyHash, before.policyHash) || maintenance.recipients.length !== originalRecipients.length + 1 || originalRecipients.some((recipient, index) => !isAddressEqual(recipient, maintenance.recipients[index]!)) || !isAddressEqual(maintenance.recipient, intent.recipient) || intent.amount !== 0n) throw new Error("observer recipient repair policy prestate mismatch");
+      const expected = { ...before.policy, assets: [{ ...before.policy.assets[0]!, recipients: maintenance.recipients }] };
+      if (canonical(after.policy) !== canonical(expected) || !same(after.policyHash, computePolicyHash(expected))) throw new Error("observer recipient repair policy effect mismatch");
+    } else assertTransferBalances(intent, observation);
     return;
   }
-  throw new Error("observer does not package skip-expired as a Phase One transfer receipt");
+  if (intent.kind === "skip-expired") {
+    assertUnchanged(before, after, ["safeUsdcBalance", "recipientUsdcBalance", "queueTailNonce"], "expired skip");
+    if (observation.block.timestamp <= queue.expiresAt || before.queueTailNonce !== queue.queueNonce + 1n || after.queueHeadNonce !== queue.queueNonce + 1n || after.queueHead !== null) throw new Error("observer expired skip queue effect mismatch");
+    return;
+  }
+  throw new Error("observer intent effect is unsupported");
 }
 
 function assertBinding(binding: PwaObserverBinding): void {
@@ -387,7 +428,7 @@ export function finalizePwaObserverRecord(record: UnsignedPwaObserverRecord): Pw
 }
 
 const RECORD_KEYS = ["formatVersion", "scope", "kind", "chainId", "transactionHash", "blockNumber", "blockHash", "confirmations", "safe", "guard", "delay", "usdc", "amount", "profileHash", "deploymentsHash", "policyHash", "topologyReportHash", "outerEnvelopeHash", "beforeStateHash", "afterStateHash", "observer", "sources", "notificationDelivery", "observedAt", "recordHash"] as const;
-const KINDS = new Set<PreparedPwaIntent["kind"]>(["base-transfer", "step-up-transfer", "queue-transfer", "cancel-queued", "execute-ready", "skip-expired"]);
+const KINDS = new Set<PreparedPwaIntent["kind"]>(["base-transfer", "step-up-transfer", "queue-transfer", "add-recipient", "cancel-queued", "execute-ready", "skip-expired"]);
 
 function parseRecord(value: unknown): PwaObserverRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("observer record must be an object");

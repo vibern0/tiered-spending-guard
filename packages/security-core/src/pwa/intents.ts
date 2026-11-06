@@ -1,5 +1,6 @@
 import {
   encodeFunctionData,
+  decodeFunctionData,
   getAddress,
   hashTypedData,
   isAddress,
@@ -81,6 +82,7 @@ function assertSnapshot(snapshot: VerifiedPwaSnapshot): void {
   if (snapshot.limits.basePerTransaction !== 1_000_000n || snapshot.limits.baseDailyLimit !== 1_000_000n || snapshot.limits.stepUpPerTransaction !== 3_000_000n || snapshot.limits.instantDailyLimit !== 3_000_000n || snapshot.cooldownSeconds !== 120n || snapshot.expirationSeconds !== 600n) throw new Error("verified PWA snapshot does not match fixed X/Y/Z profile");
   if (snapshot.safeNonce < 0n || snapshot.queueHeadNonce < 0n || snapshot.queueTailNonce < snapshot.queueHeadNonce) throw new Error("verified PWA snapshot nonce is invalid");
   if (snapshot.spendState.window < 0n || snapshot.spendState.baseSpent < 0n || snapshot.spendState.instantSpent < snapshot.spendState.baseSpent || snapshot.spendState.baseSpent > snapshot.limits.baseDailyLimit || snapshot.spendState.instantSpent > snapshot.limits.instantDailyLimit) throw new Error("verified PWA snapshot spend state is invalid");
+  if (snapshot.spendState.window % 86400n !== 0n || snapshot.spendState.window > (snapshot.timestamp / 86400n) * 86400n) throw new Error("verified PWA snapshot counter window is invalid or future");
   if ((snapshot.queueHead === null) !== (snapshot.queueHeadNonce === snapshot.queueTailNonce)) throw new Error("verified PWA queue head presence mismatch");
   if (snapshot.queueHead) {
     const item = snapshot.queueHead;
@@ -91,7 +93,7 @@ function assertSnapshot(snapshot: VerifiedPwaSnapshot): void {
 function freezeSnapshot(snapshot: VerifiedPwaSnapshot): VerifiedPwaSnapshot {
   const value = Object.freeze({
     ...snapshot,
-    safe: getAddress(snapshot.safe), guard: getAddress(snapshot.guard), delay: getAddress(snapshot.delay), usdc: getAddress(snapshot.usdc), elevatedRecipients: Object.freeze(snapshot.elevatedRecipients.map(getAddress)) as readonly [Address, ...Address[]], primaryPasskey: getAddress(snapshot.primaryPasskey), secondaryPasskey: getAddress(snapshot.secondaryPasskey),
+    safe: getAddress(snapshot.safe), guard: getAddress(snapshot.guard), delay: getAddress(snapshot.delay), usdc: getAddress(snapshot.usdc), elevatedRecipients: Object.freeze(snapshot.elevatedRecipients.map((address) => getAddress(address))) as readonly [Address, ...Address[]], primaryPasskey: getAddress(snapshot.primaryPasskey), secondaryPasskey: getAddress(snapshot.secondaryPasskey),
     spendState: Object.freeze({ ...snapshot.spendState }), limits: Object.freeze({ ...snapshot.limits }),
     queueHead: snapshot.queueHead ? Object.freeze({ ...snapshot.queueHead, safe: getAddress(snapshot.queueHead.safe), delay: getAddress(snapshot.queueHead.delay), to: getAddress(snapshot.queueHead.to) }) : null,
   });
@@ -160,16 +162,27 @@ function queueBinding(item: VerifiedPwaQueueItem): PwaQueueBinding {
   return Object.freeze({ queueNonce: item.queueNonce, queueFingerprint: item.queueFingerprint, to: item.to, value: item.value, data: item.data, operation: item.operation, createdAt: item.createdAt, readyAt: item.readyAt, expiresAt: item.expiresAt });
 }
 
-function direct(snapshot: VerifiedPwaSnapshot, kind: PreparedDirectPwaIntent["kind"], item: VerifiedPwaQueueItem, data: Hex): PreparedDirectPwaIntent {
+function direct(snapshot: VerifiedPwaSnapshot, kind: PreparedDirectPwaIntent["kind"], item: VerifiedPwaQueueItem, data: Hex, recipient: Address, amount: bigint): PreparedDirectPwaIntent {
   const prepared = Object.freeze({
     version: 1 as const, kind, snapshotHash: snapshotHash(snapshot), chainId: SEPOLIA_CHAIN_ID,
     blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash, timestamp: snapshot.timestamp, deploymentsHash: snapshot.deploymentsHash, policyHash: snapshot.policyHash,
-    safe: snapshot.safe, guard: snapshot.guard, delay: snapshot.delay, asset: snapshot.usdc, recipient: decodeTransferRecipient(item.data),
-    amount: decodeTransferAmount(item.data), queue: queueBinding(item), requiredApprovals: Object.freeze([]) as readonly [], call: Object.freeze({ to: snapshot.delay, value: 0n as const, data, operation: 0 as const }),
+    safe: snapshot.safe, guard: snapshot.guard, delay: snapshot.delay, asset: snapshot.usdc, recipient,
+    amount, queue: queueBinding(item), requiredApprovals: Object.freeze([]) as readonly [], call: Object.freeze({ to: snapshot.delay, value: 0n as const, data, operation: 0 as const }),
   });
   snapshotPreparedPwaIntent(prepared);
   preparedIntents.add(prepared);
   return prepared;
+}
+
+/** Closed maintenance decoder; no other policy repair or arbitrary guard call is accepted. */
+export function decodePwaRecipientRepair(data: Hex): Readonly<{ expectedPolicyHash: Hex; recipients: readonly Address[]; recipient: Address }> {
+  let decoded: ReturnType<typeof decodeFunctionData<typeof GUARD_ABI>>;
+  try { decoded = decodeFunctionData({ abi: GUARD_ABI, data }); } catch { throw new Error("invalid recipient maintenance repair"); }
+  const args = decoded.args;
+  if (decoded.functionName !== "repairPolicy" || !args || !same(encodeFunctionData({ abi: GUARD_ABI, functionName: "repairPolicy", args }), data)) throw new Error("noncanonical recipient maintenance repair");
+  const [expectedPolicyHash, token, basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit, recipients, mode] = args;
+  if (!HASH.test(expectedPolicyHash) || !isAddressEqual(token, SEPOLIA_USDC_ADDRESS) || basePerTransaction !== 1_000_000n || stepUpPerTransaction !== 3_000_000n || baseDailyLimit !== 1_000_000n || instantDailyLimit !== 3_000_000n || mode !== 1 || recipients.length < 2 || recipients.some((address) => same(address, ZERO)) || new Set(recipients.map((address) => address.toLowerCase())).size !== recipients.length) throw new Error("recipient maintenance repair changes fixed policy");
+  return Object.freeze({ expectedPolicyHash, recipients: Object.freeze(recipients.map((address) => getAddress(address))), recipient: getAddress(recipients.at(-1)!) });
 }
 
 function decodeTransferAmount(data: Hex): bigint {
@@ -211,21 +224,25 @@ export function preparePwaIntent(snapshot: VerifiedPwaSnapshot, intent: PwaInten
     return signed(snapshot, "add-recipient", recipient, queueTransaction.to, queueTransaction.data, 0n, Object.freeze(["primary", "secondary"]), queueItem);
   }
   const item = head(snapshot, intent);
-  if (!isAddressEqual(item.to, snapshot.usdc)) throw new Error("queue head token is not the fixed USDC asset");
-  const amount = decodeTransferAmount(item.data);
-  const encodedRecipient = decodeTransferRecipient(item.data);
-  if (!snapshot.elevatedRecipients.some((allowed) => isAddressEqual(allowed, encodedRecipient)) || amount <= 0n) throw new Error("queue head transfer does not match an elevated recipient");
+  if (item.value !== 0n) throw new Error("queue head value is outside the PWA policy");
+  const maintenance = isAddressEqual(item.to, snapshot.guard) ? decodePwaRecipientRepair(item.data) : null;
+  if (!maintenance && !isAddressEqual(item.to, snapshot.usdc)) throw new Error("queue head target is outside the PWA policy");
+  const amount = maintenance ? 0n : decodeTransferAmount(item.data);
+  const encodedRecipient = maintenance ? maintenance.recipient : decodeTransferRecipient(item.data);
+  if (!maintenance && (!snapshot.elevatedRecipients.some((allowed) => isAddressEqual(allowed, encodedRecipient)) || amount <= 0n)) throw new Error("queue head transfer does not match an elevated recipient");
   if (intent.kind === "cancel-queued") {
     const cancellation = buildCancellationTransaction(snapshot.delay, item.queueNonce + 1n);
     return signed(snapshot, "cancel-queued", encodedRecipient, cancellation.to, cancellation.data, amount, Object.freeze(["primary", "secondary"]), queueBinding(item));
   }
   if (intent.kind === "execute-ready") {
+    if (maintenance && (!same(maintenance.expectedPolicyHash, snapshot.policyHash) || maintenance.recipients.length !== snapshot.elevatedRecipients.length + 1 || snapshot.elevatedRecipients.some((recipient, index) => !isAddressEqual(recipient, maintenance.recipients[index]!)))) throw new Error("recipient maintenance policy is stale");
     if (snapshot.timestamp < item.readyAt) throw new Error("Delay cooldown has not elapsed");
-    if (snapshot.timestamp > item.expiresAt) throw new Error("Delay queue item expired");
-    return direct(snapshot, "execute-ready", item, buildExecutionTransaction(item).data);
+    if (snapshot.timestamp >= item.expiresAt) throw new Error("Delay queue item expired");
+    return direct(snapshot, "execute-ready", item, buildExecutionTransaction(item).data, encodedRecipient, amount);
   }
   if (snapshot.timestamp <= item.expiresAt) throw new Error("Delay queue item is not expired");
-  return direct(snapshot, "skip-expired", item, encodeFunctionData({ abi: DELAY_ABI, functionName: "skipExpired" }));
+  if (snapshot.queueTailNonce !== item.queueNonce + 1n) throw new Error("expired skip requires a single remaining queue item; collateral skipping is not reviewed");
+  return direct(snapshot, "skip-expired", item, encodeFunctionData({ abi: DELAY_ABI, functionName: "skipExpired" }), encodedRecipient, amount);
 }
 
 export function assertSamePreparedPwaIntent(expected: PreparedPwaIntent, actual: unknown): void {

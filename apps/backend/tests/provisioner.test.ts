@@ -58,6 +58,22 @@ function approved(transaction: PwaProvisioningTransaction) {
 }
 
 describe("automatic PWA provisioner", () => {
+  it("automatically refreshes verified recovery after a transient read before trying execution again", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pwa-automatic-read-retry-"));
+    const reloadRecovery = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn();
+    let unavailable = true;
+    const provisioner = createAutomaticPwaProvisioner({ reviewDirectory: join(directory, "reviews"), reloadRecovery, createPlan: async () => plan(), executionContext: async () => ({ close, context: brandPwaProvisioningExecutionContextForTestsOnly({
+      confirmedPrefixLength: async () => 0,
+      currentDeployerNonce: async () => 1n,
+      authorize: async transaction => { if (unavailable) { unavailable = false; throw new Error("identity provider 1 Sepolia RPC request failed (estimateGas; ResourceNotFoundRpcError)"); } return approved(transaction); },
+      submit: async transaction => ({ transactionHash: hash(Number(transaction.nonce)), receipt: { status: "success" as const, blockNumber: 1n } }),
+      verifyFinalTopology: async () => hash(99),
+    }) }) });
+    expect((await provisioner.provision(credentials)).response.safe).toBe(plan().safe);
+    expect(reloadRecovery).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledTimes(2);
+  });
   it("separates append-only authorization ledgers by reviewed package", () => {
     expect(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(50))).toBe(`/tmp/provisioning.json.authorizations.${hash(50).slice(2)}.json`);
     expect(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(51))).not.toBe(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(50)));

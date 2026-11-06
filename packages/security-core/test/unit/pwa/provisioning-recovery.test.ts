@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { copyFileSync, mkdtempSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -9,6 +9,8 @@ import {
   type Hex,
 } from "viem";
 import {
+  discoverPwaProvisioningSuccessor,
+  reconcilePwaProvisioningPending,
   loadCommittedPwaProvisioningSuccessor,
   loadCommittedPwaProvisioningSuccessors,
   loadPwaProvisioningSuccessor,
@@ -173,6 +175,7 @@ function journal(prefixLength: number, value: PwaProvisioningPlan = plan): LiveJ
 type Overrides = Readonly<{
   head?: bigint;
   nonce?: bigint;
+  pendingNonce?: bigint;
   mutateTransaction?: (index: number, value: Record<string, unknown>) => Record<string, unknown>;
   mutateReceipt?: (index: number, value: Record<string, unknown>) => Record<string, unknown>;
   mutateRuntime?: (index: number, value: Hex | undefined) => Hex | undefined;
@@ -240,7 +243,7 @@ function evidenceClient(source: string, prefixLength: number, overrides: Overrid
       const runtime = index >= 0 && index < prefixLength ? bytes(100 + index) : undefined;
       return overrides.mutateRuntime?.(index, runtime) ?? runtime;
     },
-    async getTransactionCount() { return overrides.nonce ?? firstNonce + BigInt(prefixLength); },
+    async getTransactionCount({ blockTag }: { address: Address; blockNumber?: bigint; blockTag?: "latest" | "pending" }) { return (blockTag === "pending" ? overrides.pendingNonce : undefined) ?? overrides.nonce ?? firstNonce + BigInt(prefixLength); },
     async readContract() { throw new Error("test recovery rebuild must not use RPC planning"); },
     async call() { throw new Error("test recovery rebuild must not use RPC planning"); },
   };
@@ -348,6 +351,49 @@ describe("PWA provisioning confirmed-prefix recovery", () => {
     expect(await resolvePwaProvisioningRecovery({ ...input, journal: journal(0) })).to.equal(undefined);
   });
 
+  it("restores a completed ordinary deployment after unrelated confirmed and pending transactions", async () => {
+    const input = fixture(7, { nonce: 975n, pendingNonce: 977n }, { nonce: 975n, pendingNonce: 976n });
+    const result = await resolvePwaProvisioningRecovery({
+      ...input,
+      relay: evidenceClient("relay", 7, { nonce: 975n, pendingNonce: 978n }),
+      rebuildPlan: async ({ confirmedPrefixLength, expectedCurrentDeployerNonce }) => {
+        // Reconstruct the original pre-Safe layout; live nonce never rewrites reviewed transactions.
+        expect(confirmedPrefixLength).to.equal(6);
+        expect(expectedCurrentDeployerNonce).to.equal(975n);
+        return plan;
+      },
+    });
+    expect(result).to.deep.equal({ plan, confirmedPrefixLength: 7, credentials: { primary, secondary } });
+    expect(result!.plan.transactions.map(({ nonce }) => nonce)).to.deep.equal([959n, 960n, 961n, 962n, 963n, 964n, 965n]);
+  });
+
+  it("restores a completed successor after the shared deployer advances without changing its lineage", async () => {
+    const input = successorFixture({ nonce: 978n }, { nonce: 978n }, 7);
+    const result = await resolvePwaProvisioningRecovery({ ...input, relay: evidenceClient("relay", 7, { nonce: 978n }, successorPlan) });
+    expect(result?.confirmedPrefixLength).to.equal(7);
+    expect(result?.plan.transactions.map(({ nonce }) => nonce)).to.deep.equal([959n, 960n, 964n, 965n, 966n, 967n, 968n]);
+  });
+
+  it("still rejects completed recovery with regressed or inconsistent live nonces", async () => {
+    for (const [first, second, relay] of [[965n, 965n, 965n], [975n, 976n, 975n], [975n, 975n, 976n]]) {
+      const input = fixture(7, { nonce: first }, { nonce: second });
+      await expect(resolvePwaProvisioningRecovery({ ...input, relay: evidenceClient("relay", 7, { nonce: relay }) })).to.be.rejectedWith(/behind confirmed history|providers disagree/i);
+    }
+    const input = fixture(7, { nonce: 975n }, { nonce: 975n });
+    await expect(resolvePwaProvisioningRecovery({ ...input, relay: evidenceClient("relay", 7, { nonce: 975n, pendingNonce: 974n }) })).to.be.rejectedWith(/behind confirmed history/i);
+  });
+
+  it("still verifies completed receipts and runtimes after unrelated nonce advancement", async () => {
+    for (const overrides of [
+      { mutateReceipt: (index: number, value: Record<string, unknown>) => index === 6 ? { ...value, blockHash: hash(251) } : value },
+      { mutateRuntime: (index: number, value: Hex | undefined) => index === 6 ? bytes(251) : value },
+      { mutateTransaction: (index: number, value: Record<string, unknown>) => index === 6 ? { ...value, nonce: 974 } : value },
+    ]) {
+      const input = successorFixture({ nonce: 978n, ...overrides }, { nonce: 978n }, 7);
+      await expect(resolvePwaProvisioningRecovery({ ...input, relay: evidenceClient("relay", 7, { nonce: 978n }, successorPlan) })).to.be.rejectedWith(/canonical receipt changed|confirmed runtime changed|transaction changed/i);
+    }
+  });
+
   it("keeps an original one-row recovery on its ordinary next nonce", async () => {
     const input = fixture(1);
     const result = await resolvePwaProvisioningRecovery({ ...input, successor: loadPwaProvisioningSuccessor(successorValue) });
@@ -415,5 +461,193 @@ describe("PWA provisioning confirmed-prefix recovery", () => {
     for (const candidate of [wrongSender, providerDisagreement, reverted, oldCollision, successorCollision, nonceSplit]) {
       await expect(resolvePwaProvisioningRecovery(candidate as never)).to.be.rejected;
     }
+  });
+});
+
+function automaticFixture() {
+  const base = successorFixture();
+  const providers = base.providers.map(provider => ({
+    ...provider,
+    async getTransactionCount(input: { blockNumber?: bigint; blockTag?: "latest" | "pending" }) {
+      if (input.blockNumber !== undefined) return input.blockNumber < 95n ? 961n : input.blockNumber < 96n ? 962n : input.blockNumber < 97n ? 963n : 964n;
+      return 964n;
+    },
+    async getTransactionReceipt(input: { hash: Hex }) {
+      const receipt = await provider.getTransactionReceipt(input);
+      const index = consumedHashes.indexOf(input.hash as never);
+      return index < 0 || !receipt ? receipt : { ...receipt, blockNumber: 95n + BigInt(index), blockHash: blockHash(5 + index) };
+    },
+    async getBlockWithTransactions({ blockNumber }: { blockNumber: bigint }) {
+      const block = await provider.getBlock({ blockNumber });
+      const index = Number(blockNumber - 95n);
+      return { ...block, transactions: index >= 0 && index < 3 ? [await provider.getTransaction({ hash: consumedHashes[index]! })] : [] };
+    },
+  })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+  return { ...base, successor: undefined, providers };
+}
+
+describe("automatic verified signer-prefix successors", () => {
+  it("discovers only canonical consumed lineage and fully verifies the rebuilt successor", async () => {
+    const input = automaticFixture();
+    const discovered = await discoverPwaProvisioningSuccessor(input);
+    expect(discovered).to.deep.equal(loadPwaProvisioningSuccessor(successorValue));
+    expect((await resolvePwaProvisioningRecovery({ ...input, successor: discovered }))!.plan).to.equal(successorPlan);
+  });
+
+  it("preserves the exact first signer when only one signer was confirmed", async () => {
+    const nonce960 = (index: number, value: Record<string, unknown>) => index === 0 ? { ...value, nonce: 960 } : value;
+    const input = fixture(1, { nonce: 961n, mutateConsumedTransaction: nonce960 }, { nonce: 961n, mutateConsumedTransaction: nonce960 }, prefixOneSuccessorPlan);
+    const providers = input.providers.map(provider => ({ ...provider,
+      async getTransactionCount(args: { blockNumber?: bigint }) { return args.blockNumber !== undefined && args.blockNumber < 95n ? 960n : 961n; },
+      async getTransactionReceipt(args: { hash: Hex }) {
+        const receipt = await provider.getTransactionReceipt(args);
+        return args.hash === consumedHashes[0] && receipt ? { ...receipt, blockNumber: 95n, blockHash: blockHash(5) } : receipt;
+      },
+      async getBlockWithTransactions(args: { blockNumber: bigint }) {
+        return { ...await provider.getBlock(args), transactions: args.blockNumber === 95n ? [await provider.getTransaction({ hash: consumedHashes[0] })] : [] };
+      },
+    })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+    const discovered = await discoverPwaProvisioningSuccessor({ ...input, providers,
+      relay: { async getTransactionCount() { return 961n; } },
+      rebuildPlan: async ({ successorStartingNonce }) => successorStartingNonce === 961n ? prefixOneSuccessorPlan : plan,
+    });
+    expect(discovered).to.deep.equal(loadPwaProvisioningSuccessor(prefixOneSuccessorValue));
+  });
+
+  it("fails closed on pending nonce, peer envelope, future code and canonical block drift", async () => {
+    for (const mutation of ["pending", "envelope", "code", "block"] as const) {
+      const input = automaticFixture();
+      const provider = input.providers[1];
+      const changed = { ...provider,
+        ...(mutation === "pending" ? { async getTransactionCount(args: { blockTag?: string }) { return args.blockTag === "pending" ? 965n : provider.getTransactionCount(args as never); } } : {}),
+        ...(mutation === "envelope" ? { async getTransaction(args: { hash: Hex }) { const tx = await provider.getTransaction(args); return tx && consumedHashes.includes(args.hash as never) ? { ...tx, input: "0xdead" as Hex } : tx; } } : {}),
+        ...(mutation === "code" ? { async getBytecode(args: { address: Address }) { return args.address === transactions[2]!.expectedCreatedAddress ? bytes(250) : provider.getBytecode(args); } } : {}),
+        ...(mutation === "block" ? { async getBlock(args: { blockNumber: bigint }) { return { ...await provider.getBlock(args), hash: hash(255) }; } } : {}),
+      };
+      await expect(discoverPwaProvisioningSuccessor({ ...input, providers: [input.providers[0], changed] })).to.be.rejectedWith(/fail closed/i);
+    }
+  });
+
+  it("ignores an unrelated retained review only after its reconstruction fails", async () => {
+    const input = automaticFixture();
+    const data = encodeFunctionData({ abi: createSignerAbi, functionName: "createSigner", args: [99n, 98n, BigInt(verifier)] });
+    const stale = { ...plan, planHash: hash(213), transactions: [{ ...plan.transactions[0]!, data, creationCodeHash: keccak256(data) }, ...plan.transactions.slice(1)] } as PwaProvisioningPlan;
+    writePwaProvisioningReview(stale, input.reviewDirectory);
+    const rebuildPlan = async (args: Parameters<typeof input.rebuildPlan>[0] & { credentials?: { primary: typeof primary } }) => {
+      if (args.credentials?.primary.x !== primary.x) throw new Error("different retained credential profile");
+      return input.rebuildPlan(args);
+    };
+    expect(await discoverPwaProvisioningSuccessor({ ...input, rebuildPlan } as never)).to.deep.equal(loadPwaProvisioningSuccessor(successorValue));
+  });
+
+  it("rejects a receipt whose canonical block differs from the discovered nonce transition", async () => {
+    const input = automaticFixture();
+    const providers = input.providers.map(provider => ({ ...provider,
+      async getTransactionReceipt(args: { hash: Hex }) {
+        if (consumedHashes.includes(args.hash as never)) return evidenceClient(provider.source, 2).getTransactionReceipt(args);
+        return provider.getTransactionReceipt(args);
+      },
+    })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+    await expect(discoverPwaProvisioningSuccessor({ ...input, providers })).to.be.rejectedWith(/block|canonical/i);
+  });
+
+  it("rejects unsupported prefix, nonce gap, block span, missing transaction reader and unconfirmed lineage", async () => {
+    for (const mutation of ["prefix", "gap", "span", "reader", "confirmations"] as const) {
+      const input = automaticFixture();
+      if (mutation === "prefix") { input.journal = journal(3); }
+      const providers = input.providers.map(provider => ({ ...provider,
+        ...(mutation === "gap" ? { async getTransactionCount() { return firstNonce + 35n; } } : {}),
+        ...(mutation === "span" ? { async getBlockNumber() { return 5000n; } } : {}),
+        ...(mutation === "reader" ? { getBlockWithTransactions: undefined } : {}),
+        ...(mutation === "confirmations" ? { async getTransactionCount(args: { blockNumber?: bigint }) { return args.blockNumber === 105n ? 963n : provider.getTransactionCount(args as never); } } : {}),
+      })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+      const relay = mutation === "gap" ? { async getTransactionCount() { return firstNonce + 35n; } } : input.relay;
+      await expect(discoverPwaProvisioningSuccessor({ ...input, providers, relay })).to.be.rejectedWith(/fail closed/i);
+    }
+  });
+
+  it("rejects unresolved pending hashes without an original canonical review before any RPC read", async () => {
+    for (const missingDirectory of [false, true]) {
+      const input = fixture(2);
+      const entry = input.journal.entries[1]!;
+      entry.status = "pending"; entry.receipt = undefined; entry.reserved = gas(1) * maxFee(1);
+      const reviewDirectory = mkdtempSync(join(tmpdir(), "pwa-pending-no-review-"));
+      if (missingDirectory) rmSync(reviewDirectory, { recursive: true });
+      let reads = 0;
+      const providers = input.providers.map(provider => ({ ...provider,
+        async getChainId() { reads += 1; return 11155111; },
+        async getTransaction() { return null; },
+        async getTransactionReceipt() { return null; },
+      })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+      const before = structuredClone(input.journal);
+      await expect(reconcilePwaProvisioningPending({ ...input, reviewDirectory, providers })).to.be.rejectedWith(/review/i);
+      expect(reads).to.equal(0);
+      expect(input.journal).to.deep.equal(before);
+    }
+  });
+
+  it("retains unresolved pending successor suffixes only with their original review and managed lineage", async () => {
+    const input = successorFixture({}, {}, 3);
+    const entry = input.journal.entries[2]!;
+    entry.status = "pending"; entry.receipt = undefined; entry.reserved = gas(2) * maxFee(2);
+    const providers = input.providers.map(provider => ({ ...provider, async getTransaction() { return null; }, async getTransactionReceipt() { return null; } })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+    expect(await reconcilePwaProvisioningPending({ ...input, providers })).to.deep.equal(input.journal);
+    await expect(reconcilePwaProvisioningPending({ ...input, providers, successor: undefined })).to.be.rejectedWith(/review|prefix/i);
+  });
+
+  it("keeps missing pending receipts unresolved and rejects peer or reservation changes without mutation", async () => {
+    for (const mutation of ["missing", "peer", "reservation"] as const) {
+      const input = fixture(2);
+      const entry = input.journal.entries[1]!;
+      entry.status = "pending"; entry.receipt = undefined; entry.reserved = gas(1) * maxFee(1);
+      if (mutation === "reservation") entry.reserved += 1n;
+      const before = structuredClone(input.journal);
+      const providers = input.providers.map((provider, index) => ({ ...provider,
+        ...(mutation === "missing" || mutation === "peer" && index === 1 ? { async getTransactionReceipt() { return null; } } : {}),
+      })) as unknown as readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient];
+      if (mutation === "missing") expect(await reconcilePwaProvisioningPending({ ...input, providers })).to.deep.equal(before);
+      else await expect(reconcilePwaProvisioningPending({ ...input, providers })).to.be.rejectedWith(/fail closed/i);
+      expect(input.journal).to.deep.equal(before);
+    }
+  });
+
+  it("reconciles a mined pending signer plus fully verified unrelated nonce consumption", async () => {
+    const input = automaticFixture();
+    const entry = input.journal.entries[1]!;
+    entry.status = "pending";
+    entry.receipt = undefined;
+    entry.reserved = gas(1) * maxFee(1);
+    const before = structuredClone(input.journal);
+    const reconciled = await reconcilePwaProvisioningPending(input);
+    expect(input.journal).to.deep.equal(before);
+    expect(reconciled.entries[1]!.status).to.equal("success");
+    expect(reconciled.entries[1]!.transactionHash).to.equal(entry.transactionHash);
+    expect(reconciled.entries[1]!.intentHash).to.equal(entry.intentHash);
+    const candidate = await discoverPwaProvisioningSuccessor({ ...input, journal: reconciled });
+    expect((await resolvePwaProvisioningRecovery({ ...input, journal: reconciled, successor: candidate }))!.plan).to.equal(successorPlan);
+  });
+
+  it("keeps the pending source unchanged when one provider lacks the known transaction envelope", async () => {
+    const input = fixture(2);
+    const entry = input.journal.entries[1]!;
+    entry.status = "pending"; entry.receipt = undefined; entry.reserved = gas(1) * maxFee(1);
+    const before = structuredClone(input.journal);
+    const provider = input.providers[1];
+    await expect(reconcilePwaProvisioningPending({ ...input, providers: [input.providers[0], { ...provider, async getTransaction() { return null; } }] })).to.be.rejectedWith(/providers disagree/i);
+    expect(input.journal).to.deep.equal(before);
+  });
+
+  it("reconciles a pending exact hash without mutating the original journal", async () => {
+    const input = fixture(2);
+    const pending = input.journal.entries[1]!;
+    pending.status = "pending";
+    pending.receipt = undefined;
+    pending.reserved = gas(1) * maxFee(1);
+    const before = structuredClone(input.journal);
+    const reconciled = await reconcilePwaProvisioningPending(input);
+    expect(input.journal).to.deep.equal(before);
+    expect(reconciled.entries[1]!.status).to.equal("success");
+    expect(reconciled.entries[1]!.transactionHash).to.equal(pending.transactionHash);
+    expect(reconciled.entries[1]!.intentHash).to.equal(pending.intentHash);
   });
 });

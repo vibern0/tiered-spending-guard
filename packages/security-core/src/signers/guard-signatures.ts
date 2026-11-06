@@ -28,12 +28,12 @@ function assertApproval(value: VerifiedContractApproval, label: string): void {
 /** Encodes already-verified contract-passkey payloads in the guard's primary-first layout. */
 export function encodeGuardContractSignatures(primary: VerifiedContractApproval, secondary?: VerifiedContractApproval): Hex {
   assertApproval(primary, "primary");
-  if (!secondary) return `0x${slot(primary.address, 65n)}${tail(primary.payload)}` as Hex;
+  if (!secondary) return `0x${slot(primary.address, 65n)}${tail(primary.payload)}`.toLowerCase() as Hex;
   assertApproval(secondary, "secondary");
   if (secondary.address.toLowerCase() === primary.address.toLowerCase()) throw new Error("primary and secondary passkey signers must be distinct");
   const primaryOffset = 130n;
   const secondaryOffset = primaryOffset + 32n + BigInt((primary.payload.length - 2) / 2);
-  return `0x${slot(primary.address, primaryOffset)}${slot(secondary.address, secondaryOffset)}${tail(primary.payload)}${tail(secondary.payload)}` as Hex;
+  return `0x${slot(primary.address, primaryOffset)}${slot(secondary.address, secondaryOffset)}${tail(primary.payload)}${tail(secondary.payload)}`.toLowerCase() as Hex;
 }
 
 /** Encodes the TieredSpendingGuard's primary-first signature layout. */

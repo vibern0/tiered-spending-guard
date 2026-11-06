@@ -389,3 +389,44 @@ Expected: setup-helper, guard, delay, maintenance, safe-proxy confirm; final top
 - [x] **Step 7: Final evidence; no commit**
 
 Report transaction hashes, blocks, gas used, topology hash, remaining manual passkey rebind action, tests, dirty files. Do not commit or push.
+
+### Task 9: Restore Completed Deployments After Shared-Relay Activity
+
+**Files:**
+- Modify: `packages/security-core/src/pwa/provisioning-recovery.ts`
+- Modify: `packages/security-core/src/pwa/provisioning.ts`
+- Test: `packages/security-core/test/unit/pwa/provisioning-recovery.test.ts`
+- Test: `packages/security-core/test/integration/pwa-provisioning.test.ts`
+- Modify: `packages/security-core/docs/security/call-graph.md`
+- Modify: `apps/backend/README.md`
+
+**Interfaces:**
+- Consumes: `resolvePwaProvisioningRecovery(input)`, `executePwaProvisioning(plan, context)`, existing RPC nonce readers.
+- Produces: same interfaces; read-only completed restoration accepts later relay activity. Historical nonces immutable. Incomplete nonce equality unchanged.
+
+- [x] **Step 1: RED completion regression**
+
+Run: `pnpm --dir packages/security-core exec hardhat test test/unit/pwa/provisioning-recovery.test.ts test/integration/pwa-provisioning.test.ts`
+Expected: FAIL for completed ordinary/successor recovery and execution after nine unrelated transactions.
+
+- [x] **Step 2: Apply completed-deployment amendment**
+
+Fetch live latest/pending nonces. Check confirmed consensus, completion floor, and pending bounds. Reconstruct exact historical package. Completed execution/final verification use live nonce; no authorization, signing, or submission. Preserve incomplete-deployment equality, receipt/runtime/topology checks.
+
+- [x] **Step 3: GREEN focused and full gates**
+
+Run prior focused command, `pnpm --dir packages/security-core test`, `pnpm --dir apps/backend test`, `pnpm --dir apps/backend typecheck`, `git diff --check`.
+Expected: PASS. No dependency/Solidity change. No commit. Preserve external files and unrelated worktree edits.
+
+- [x] **Step 4: Read-only live proof**
+
+Verify existing seven-row journal and final topology using read-only clients; signer, broadcaster, persistence callbacks throw. Print public counts/hashes only.
+Expected: PASS despite later relay nonce. No transaction sent; external journal/review bytes unchanged.
+
+2026-11-04 Task 9 live result: nonce validation passed with seven successful rows, historical completion nonce `1038`, live nonce `1047`. Recovery then rejected the unchanged original package `0x43e73064db98c9ab1baa51a2a238a4e4b04aa5d955321f3e2f869689da1a243a`: current reconstruction yields `0x2efd910c0ec35a547e7e34291b9811d578047d422ad5872b568aed763793106d`. Public-field comparison isolates missing `baseRecipientMode`, changed guard/maintenance creation and runtime hashes, and resulting policy/plan hashes. The approved `2026-11-04-base-lane-open-destinations-design.md` rejects incompatible old profiles for writes and requires a fresh guard. Stop here; never substitute hashes, rewrite historical rows, or treat the old vault as the new profile. No signing, broadcasting, or operational-file edits occurred. Step 4 remains incomplete; backend startup still blocks on profile/artifact compatibility.
+
+**Focused follow-up proposal:** restore old-vault read-only access through an explicitly pinned historical profile/artifact record; retain current-profile write gates. Any fresh deployment or delayed upgrade needs separate reviewed inputs. Database migration may store those versioned records but cannot grant compatibility by changing a row.
+
+Task 9 verification: focused `44 passing`; full security-core `804 passing, 2 pending`; backend `68 passing`; backend typecheck PASS. Independent narrow-diff review: no actionable findings; reviewer independently reran focused `44 passing`. Changed-file whitespace checks PASS. Whole-worktree `git diff --check` retains pre-existing `.github/instructions/codacy.instructions.md:30: trailing whitespace`; untouched. No commit/push.
+
+2026-11-05 Task 9 compatibility resolution: user authorized the focused read-only follow-up. The historical startup plan `2026-11-05-historical-pwa-startup.md` completed the live proof against the exact pinned original/completed packages. Both fixed providers verified historical envelopes, receipts, runtimes, official dependencies, signer bindings, and old topology at canonical block `12068639`. Actual backend startup and health/read endpoints passed; write requests returned 409. Existing operational-file hashes were unchanged. This resolves the startup blocker by recognizing the prior profile explicitly; it does not issue a current-profile provisioning result or authorize an upgrade/transfer. The earlier failure remains recorded above as historical evidence.

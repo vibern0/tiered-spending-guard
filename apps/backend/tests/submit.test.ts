@@ -55,6 +55,67 @@ function service(
 }
 
 describe("durable PWA submissions", () => {
+  it("returns the same terminal receipt to concurrent status polls without rebroadcast", async () => {
+    const journal = new SubmissionJournal();
+    journal.prepare("request-1", HASH);
+    journal.markSubmitting("request-1", OUTER);
+    const runtime = service({ journal });
+    const results = await Promise.all([runtime.status("request-1"), runtime.status("request-1")]);
+    expect(results).toEqual([expect.objectContaining({ state: "confirmed", receipt: { transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK } }), expect.objectContaining({ state: "confirmed", receipt: { transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK } })]);
+    expect(runtime.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("returns one confirmed view when immediate submission and a status poll reconcile together", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const runtime = service({ reconcile: async () => {
+      entered();
+      await gate;
+      return { status: "confirmed", transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK };
+    } });
+    runtime.prepare(prepared());
+    const submission = runtime.submit("request-1", { role: "primary", assertion: {} });
+    await started;
+    const polled = runtime.status("request-1");
+    release();
+    const results = await Promise.all([submission, polled]);
+    expect(results.map(result => result.state)).toEqual(["confirmed", "confirmed"]);
+    expect(runtime.journal.get("request-1")?.state).toBe("confirmed");
+    expect(runtime.broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { first: "confirmed" as const, second: "reverted" as const, block: BLOCK },
+    { first: "reverted" as const, second: "confirmed" as const, block: BLOCK },
+    { first: "confirmed" as const, second: "confirmed" as const, block: HASH },
+  ])("never replaces a terminal $first receipt with conflicting $second evidence", async ({ first, second, block }) => {
+    const journal = new SubmissionJournal();
+    journal.prepare("request-1", HASH);
+    journal.markSubmitting("request-1", OUTER);
+    let calls = 0;
+    const runtime = service({ journal, reconcile: async () => ({ status: calls++ === 0 ? first : second, transactionHash: OUTER, blockNumber: 12n, blockHash: calls === 1 ? BLOCK : block }) });
+    const results = await Promise.allSettled([runtime.status("request-1"), runtime.status("request-1")]);
+    expect(results[0]).toMatchObject({ status: "fulfilled", value: { state: first } });
+    expect(results[1]).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: expect.stringMatching(/receipt.*conflict|conflict.*receipt/i) }) });
+    expect(journal.get("request-1")).toMatchObject({ state: first, receipt: { blockNumber: 12n, blockHash: BLOCK } });
+  });
+
+  it("requires exact ordered primary and secondary approvals for recipient additions", async () => {
+    for (const requiredApprovals of [[], ["primary"], ["secondary", "primary"]] as const) {
+      const runtime = service();
+      expect(() => runtime.prepare({ ...prepared(), kind: "add-recipient", requiredApprovals })).toThrow(/approval roles/i);
+    }
+    expect(() => service().prepare({ ...prepared(["primary", "secondary"]), kind: "add-recipient", safeTxHash: undefined })).toThrow(/exact Safe transaction hash/i);
+    const runtime = service();
+    runtime.prepare({ ...prepared(["primary", "secondary"]), kind: "add-recipient", publicRequest: { kind: "add-recipient", recipient: "0x1111111111111111111111111111111111111111", idempotencyKey: "request-1" } });
+    await expect(runtime.submit("request-1", { role: "none" })).rejects.toThrow(/permissionless/i);
+    await expect(runtime.submit("request-1", { role: "secondary", assertion: {} })).rejects.toThrow(/primary/i);
+    await expect(runtime.submit("request-1", { role: "primary", assertion: {} })).resolves.toMatchObject({ state: "awaiting-secondary", kind: "add-recipient" });
+    await expect(runtime.submit("request-1", { role: "secondary", assertion: {} })).resolves.toMatchObject({ state: "confirmed", kind: "add-recipient" });
+    expect(runtime.broadcast).toHaveBeenCalledTimes(1);
+  });
   it("requires primary before secondary and stores approval presence only", async () => {
     const runtime = service();
     runtime.prepare(prepared(["primary", "secondary"]));
@@ -173,6 +234,29 @@ describe("durable PWA submissions", () => {
       state: "superseded",
     });
     expect(runtime.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("discards a signed envelope and releases its runtime lease when durable hash persistence fails", async () => {
+    const journal = new SubmissionJournal();
+    const discard = vi.fn(async () => undefined);
+    const runtime = service({ journal, discard });
+    runtime.prepare(prepared());
+    vi.spyOn(journal, "markSubmitting").mockImplementation(() => { throw new Error("durable write failed"); });
+    await expect(runtime.submit("request-1", { role: "primary", assertion: {} })).rejects.toThrow(/durable write failed/);
+    expect(discard).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "request-1" }));
+    expect(runtime.broadcast).not.toHaveBeenCalled();
+    expect(journal.get("request-1")?.state).toBe("superseded");
+    await expect(runtime.submit("request-1", { role: "primary", assertion: {} })).resolves.toMatchObject({ state: "superseded" });
+  });
+
+  it("discards runtime signing state if outer hash derivation returns an invalid hash", async () => {
+    const discard = vi.fn(async () => undefined);
+    const runtime = service({ deriveOuterHash: vi.fn().mockResolvedValue("0x1234"), discard });
+    runtime.prepare(prepared());
+    await expect(runtime.submit("request-1", { role: "primary", assertion: {} })).rejects.toThrow(/derived outer transaction hash/);
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(runtime.broadcast).not.toHaveBeenCalled();
+    expect(runtime.journal.get("request-1")?.state).toBe("superseded");
   });
 
   it.each([

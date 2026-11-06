@@ -4,6 +4,7 @@ import { SubmissionJournal } from "./journal";
 import { createConfiguredAutomaticPwaProvisioner, type AutomaticPwaProvisioner } from "./provisioner";
 import { createBackendServer, sanitizeBackendMessage, type BackendServer } from "./server";
 import { PwaSubmissionService, SEPOLIA_USDC_ADDRESS, type BackendPreparedSubmission, type PwaSubmissionServiceOptions } from "./vault";
+import { createConfiguredSubmissionRuntime } from "./submission-runtime";
 
 export type ConfiguredSubmissionRuntime = Readonly<{
   prepare: BackendPreparation;
@@ -11,6 +12,7 @@ export type ConfiguredSubmissionRuntime = Readonly<{
   deriveOuterHash: PwaSubmissionServiceOptions["deriveOuterHash"];
   broadcast: PwaSubmissionServiceOptions["broadcast"];
   reconcile: PwaSubmissionServiceOptions["reconcile"];
+  discard?: PwaSubmissionServiceOptions["discard"];
 }>;
 
 export async function startBackend(config: Parameters<typeof createBackendServer>[0], handlers: Parameters<typeof createBackendServer>[1]): Promise<BackendServer> {
@@ -28,16 +30,18 @@ export async function startBackend(config: Parameters<typeof createBackendServer
 
 export async function createConfiguredBackend(provisioner?: AutomaticPwaProvisioner, configured?: ReturnType<typeof loadBackendConfig>, submissionRuntime?: ConfiguredSubmissionRuntime): Promise<BackendServer> {
   const config = configured ?? loadBackendConfig();
-  const configuredProvisioner = provisioner ?? (config.id === "local"
+  const configuredProvisioner: AutomaticPwaProvisioner = provisioner ?? (config.id === "local"
     ? await createConfiguredAutomaticPwaProvisioner(config)
     : Object.freeze({ provision: () => Promise.reject(new Error("automatic PWA provisioning is unavailable outside BACKEND_PROFILE=local")) }));
   let handlers: ReturnType<typeof createBackendHandlers>;
-  const service = submissionRuntime ? new PwaSubmissionService({
+  const runtime = configuredProvisioner.historicalVault ? undefined : submissionRuntime ?? (config.id === "local" ? createConfiguredSubmissionRuntime(config, () => handlers?.vaultRecord()) : undefined);
+  const service = runtime ? new PwaSubmissionService({
     journal: new SubmissionJournal(config.journalPath),
-    revalidate: submissionRuntime.revalidate,
-    deriveOuterHash: submissionRuntime.deriveOuterHash,
-    broadcast: submissionRuntime.broadcast,
-    reconcile: submissionRuntime.reconcile,
+    revalidate: runtime.revalidate,
+    deriveOuterHash: runtime.deriveOuterHash,
+    broadcast: runtime.broadcast,
+    reconcile: runtime.reconcile,
+    ...(runtime.discard ? { discard: runtime.discard } : {}),
     verifyApproval: async (role, prepared: BackendPreparedSubmission, assertion) => {
       if (!prepared.safeTxHash) throw new Error("signed submission is missing its Safe transaction hash");
       const verified = await handlers.verifyApproval(prepared.safeTxHash, { role, assertion });
@@ -46,12 +50,15 @@ export async function createConfiguredBackend(provisioner?: AutomaticPwaProvisio
   }) : undefined;
   handlers = createBackendHandlers({
     config, usdc: SEPOLIA_USDC_ADDRESS, provisioner: configuredProvisioner,
-    ...(service && submissionRuntime ? {
-      prepareTransfer: async (input) => service.prepare(await submissionRuntime.prepare(input)),
+    ...(service && runtime ? {
+      prepareTransfer: async (input) => service.prepare(await runtime.prepare(input)),
       submit: async ({ id, body }) => service.submit(id, body as never),
       submission: async ({ id }) => service.status(id),
     } : {}),
   });
+  // Only a fully verified seven-receipt recovery may hydrate an account at
+  // startup. Its executor has no missing transaction and cannot broadcast.
+  if (!configuredProvisioner.historicalVault && configuredProvisioner.completedRecoveryReady) await handlers.autoProvisionVault({});
   return startBackend(config, handlers);
 }
 

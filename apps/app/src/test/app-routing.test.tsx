@@ -78,7 +78,7 @@ it("keeps an existing account accessible when RPC is unavailable", async () => {
       "Sepolia prototype · no signer recovery · no independent notification delivery",
     ),
   ).toBeInTheDocument();
-  expect(screen.getByText("Verified onchain policy · read-only in Phase One")).toBeInTheDocument();
+  expect(screen.getByText("Verified onchain policy · limits stay fixed")).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: /edit protection|freeze account/i }),
   ).not.toBeInTheDocument();

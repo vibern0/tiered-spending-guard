@@ -109,8 +109,11 @@ export function ActivityRow({ item, now }: { item: ActivityItem; now: number }) 
               item.direction === "in" && "text-success",
             )}
           >
-            {item.direction === "in" ? "+" : "−"}
-            {formatUsdc(item.amount)}
+            {item.kind === "recipient-addition"
+              ? "Policy change"
+              : item.kind === "unsupported"
+                ? "Review required"
+                : `${item.direction === "in" ? "+" : "−"}${formatUsdc(item.amount)}`}
           </span>
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">

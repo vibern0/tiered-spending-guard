@@ -48,6 +48,7 @@ const HELPER_SETUP_ABI = fn("setup", [
           { name: "baseDailyLimit", type: "uint256" },
           { name: "instantDailyLimit", type: "uint256" },
           { name: "recipients", type: "address[]" },
+          { name: "baseRecipientMode", type: "uint8" },
         ],
       },
     ],
@@ -106,7 +107,7 @@ function brandTestInfrastructure(value: DeploymentInfrastructure) {
 }
 
 describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
-  async function deployAtomicTopology(secondaryProfile: "dual" | "contract-only" = "dual") {
+  async function deployAtomicTopology(secondaryProfile: "dual" | "contract-only" = "dual", baseRecipientMode = 0) {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const client = await hre.viem.getPublicClient();
     const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
@@ -128,6 +129,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
       baseDailyLimit: 50n,
       instantDailyLimit: 100n,
       recipients: [recipient.account.address],
+      baseRecipientMode,
     };
 
     const guardAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce });
@@ -202,7 +204,20 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     expect((await f.guard.read.safeContractSecondary())[0].toLowerCase()).to.equal(f.safeContractSecondary.address.toLowerCase());
     expect((await f.guard.read.safeContractSecondary())[2]).to.equal(true);
     expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(100n);
+    expect((await f.guard.read.assetPolicy([ZERO]))[4]).to.equal(0);
     expect(await f.guard.read.allowedRecipient([ZERO, f.recipient.account.address])).to.equal(true);
+  });
+
+  it("atomically initializes the explicit open-base mode and its exact policy hash", async () => {
+    const f = await deployAtomicTopology("dual", 1);
+    const policy: VaultPolicy = { chainId: 31337, safe: f.safeAddress, primary: f.passkey.address, passkey: f.passkey.address, ecdsaSecondary: f.ecdsaSecondary.account.address, secondaries: [{ address: f.safeContractSecondary.address, role: "secondary", kind: "safe-contract", enabled: true }, { address: f.ecdsaSecondary.account.address, role: "secondary", kind: "ecdsa-extension", enabled: true }], delay: f.delay.address, periodSeconds: 86400, periodAnchor: 0n, cooldownSeconds: 10, expirationSeconds: 60, assets: [{ token: ZERO, basePerTransaction: 50n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, baseRecipientMode: "any-valid-address", recipients: [f.recipient.account.address] }] };
+    expect(await f.guard.read.assetPolicy([ZERO])).to.deep.equal([50n, 100n, 50n, 100n, 1]);
+    expect(await f.guard.read.policyHash()).to.equal(policyHash(policy));
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: GUARD_SLOT }))!).toLowerCase()).to.equal(f.guard.address.toLowerCase());
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: MODULE_GUARD_SLOT }))!).toLowerCase()).to.equal(f.guard.address.toLowerCase());
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: FALLBACK_HANDLER_SLOT }))!).toLowerCase()).to.equal(ZERO);
+    expect((await f.safe.read.getModulesPaginated([SENTINEL_MODULES, 10n]))[0].map(module => module.toLowerCase())).to.deep.equal([f.delay.address.toLowerCase()]);
+    expect(await f.delay.read.isModuleEnabled([f.safeAddress])).to.equal(true);
   });
 
   it("atomically installs one primary and one contract secondary with ECDSA disabled", async () => {
@@ -230,7 +245,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const runtime = async (address: Address) => keccak256((await f.client.getBytecode({ address }))!);
     const policy: VaultPolicy = { chainId: 31337, safe: f.safeAddress, primary: f.passkey.address, passkey: f.passkey.address, ecdsaSecondary: f.ecdsaSecondary.account.address, secondaries: [{ address: f.safeContractSecondary.address, role: "secondary", kind: "safe-contract", enabled: true }, { address: f.ecdsaSecondary.account.address, role: "secondary", kind: "ecdsa-extension", enabled: true }], delay: f.delay.address, periodSeconds: 86400, periodAnchor: 0n, cooldownSeconds: 10, expirationSeconds: 60, assets: [{ token: ZERO, basePerTransaction: 50n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, baseRecipientMode: "allowlisted", recipients: [f.recipient.account.address] }] };
     const tx = async (address: Address) => ({ description: "verified local fixture", nonce: 0n, to: ZERO, value: 0n, operation: 0 as const, data: "0x60" as Hex, expectedCreatedAddress: address, creationCodeHash: keccak256("0x60"), expectedRuntimeCodeHash: await runtime(address) });
-    const plan: VaultDeploymentPlan = { unsigned: true, broadcast: false, chainId: 31337, deployer: f.deployer.account.address, startingNonce: 0n, safeProxySaltNonce: 99n, prerequisites: { setupHelper: await tx(f.helper.address), guard: await tx(f.guard.address), delay: await tx(f.delay.address), maintenance: await tx(f.maintenance.address) }, safeProxyDeployment: { ...(await tx(f.safeAddress)), to: f.factory.address }, safeInitializer: f.initializerWithoutSafeAddress, setupHelperCalldata: encodeFunctionData({ abi: HELPER_SETUP_ABI, functionName: "setup", args: [{ guard: f.guard.address, delay: f.delay.address, maintenance: f.maintenance.address, passkey: f.passkey.address, safeContractSecondary: f.safeContractSecondary.address, ecdsaSecondary: f.ecdsaSecondary.account.address, periodSeconds: 86400n, periodAnchor: 0n, assets: policy.assets.map(asset => ({ ...asset, recipients: [...asset.recipients] })) }] }), review: { owners: [f.passkey.address], threshold: 1, fallbackHandler: ZERO, paymentToken: ZERO, payment: 0n, paymentReceiver: ZERO, transactionGuard: f.guard.address, moduleGuard: f.guard.address, modules: [f.delay.address], safeContractSecondary: f.safeContractSecondary.address, ecdsaSecondary: f.ecdsaSecondary.account.address, assets: policy.assets, delay: { owner: f.safeAddress, avatar: f.safeAddress, target: f.safeAddress, upstreamModules: [f.safeAddress], cooldownSeconds: 10, expirationSeconds: 60 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: keccak256("0x60"), guard: keccak256("0x60"), delay: keccak256("0x60"), maintenance: keccak256("0x60") }, runtimeCodeHashes: { setupHelper: await runtime(f.helper.address), guard: await runtime(f.guard.address), delay: await runtime(f.delay.address), maintenance: await runtime(f.maintenance.address) } } };
+    const plan: VaultDeploymentPlan = { unsigned: true, broadcast: false, chainId: 31337, deployer: f.deployer.account.address, startingNonce: 0n, safeProxySaltNonce: 99n, prerequisites: { setupHelper: await tx(f.helper.address), guard: await tx(f.guard.address), delay: await tx(f.delay.address), maintenance: await tx(f.maintenance.address) }, safeProxyDeployment: { ...(await tx(f.safeAddress)), to: f.factory.address }, safeInitializer: f.initializerWithoutSafeAddress, setupHelperCalldata: encodeFunctionData({ abi: HELPER_SETUP_ABI, functionName: "setup", args: [{ guard: f.guard.address, delay: f.delay.address, maintenance: f.maintenance.address, passkey: f.passkey.address, safeContractSecondary: f.safeContractSecondary.address, ecdsaSecondary: f.ecdsaSecondary.account.address, periodSeconds: 86400n, periodAnchor: 0n, assets: policy.assets.map(asset => ({ ...asset, baseRecipientMode: asset.baseRecipientMode === "any-valid-address" ? 1 : 0, recipients: [...asset.recipients] })) }] }), review: { owners: [f.passkey.address], threshold: 1, fallbackHandler: ZERO, paymentToken: ZERO, payment: 0n, paymentReceiver: ZERO, transactionGuard: f.guard.address, moduleGuard: f.guard.address, modules: [f.delay.address], safeContractSecondary: f.safeContractSecondary.address, ecdsaSecondary: f.ecdsaSecondary.account.address, assets: policy.assets, delay: { owner: f.safeAddress, avatar: f.safeAddress, target: f.safeAddress, upstreamModules: [f.safeAddress], cooldownSeconds: 10, expirationSeconds: 60 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: keccak256("0x60"), guard: keccak256("0x60"), delay: keccak256("0x60"), maintenance: keccak256("0x60") }, runtimeCodeHashes: { setupHelper: await runtime(f.helper.address), guard: await runtime(f.guard.address), delay: await runtime(f.delay.address), maintenance: await runtime(f.maintenance.address) } } };
     const prerequisites = await verifyVaultPrerequisites(f.client, plan, "after-setup");
     const dep = (address: Address, version: string) => Object.freeze({ name: version, version, address, runtimeCodeHash: keccak256("0x60"), evidence: "verified" as const, source: "local fixture" });
     const singleton = { ...dep(f.singleton.address, "1.5.0"), supportsModuleGuards: true };
@@ -275,7 +290,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     await expect(f.helper.write.setup([params], { account: f.deployer.account })).to.be.rejected;
   });
 
-  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; guardEcdsaSecondary?: Address; helperSafeContractSecondary?: Address; extraOwner?: boolean }> = {}) {
+  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; baseRecipientMode?: number; legacyCalldata?: boolean; guardEcdsaSecondary?: Address; helperSafeContractSecondary?: Address; extraOwner?: boolean }> = {}) {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const client = await hre.viem.getPublicClient();
     const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
@@ -290,9 +305,10 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const delayAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 1n });
     const maintenanceAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 2n });
     const owners = overrides.extraOwner ? [passkey.address, safeContractSecondary.address] : [passkey.address];
-    const badAsset = { token: ZERO, basePerTransaction: overrides.assetBasePerTransaction ?? 0n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, recipients: [recipient.account.address] };
+    const badAsset = { token: ZERO, basePerTransaction: overrides.assetBasePerTransaction ?? 0n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, recipients: [recipient.account.address], baseRecipientMode: overrides.baseRecipientMode ?? 0 };
+    const legacyAbi = JSON.parse(JSON.stringify(HELPER_SETUP_ABI), (_key, value) => Array.isArray(value) ? value.filter(component => component?.name !== "baseRecipientMode") : value);
     const helperData = encodeFunctionData({
-      abi: HELPER_SETUP_ABI,
+      abi: overrides.legacyCalldata ? legacyAbi : HELPER_SETUP_ABI,
       functionName: "setup",
       args: [{
         guard: guardAddress,
@@ -303,24 +319,34 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
         ecdsaSecondary: ecdsaSecondary.account.address,
         periodSeconds: 86400,
         periodAnchor: 0,
-        assets: [badAsset],
+        assets: [{ ...badAsset, token: deployer.account.address, basePerTransaction: 50n, baseRecipientMode: 0 }, badAsset],
       }],
     });
     const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [owners, 1n, helper.address, helperData, ZERO, ZERO, 0n, ZERO] });
     const saltNonce = 100n;
     const salt = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [keccak256(initializer), saltNonce]));
     const predictedSafe = getContractAddress({ opcode: "CREATE2", from: factory.address, salt, bytecode: `${SAFE_PROXY_ARTIFACT.bytecode}${encodeAbiParameters([{ type: "address" }], [singleton.address]).slice(2)}` as Hex });
-    await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, overrides.guardEcdsaSecondary ?? ecdsaSecondary.account.address, delayAddress, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, overrides.guardEcdsaSecondary ?? ecdsaSecondary.account.address, delayAddress, 86400n, 0n]]);
     await hre.viem.deployContract("ZodiacDelayV1_1_1", [predictedSafe, predictedSafe, predictedSafe, 10n, 60n]);
     await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delayAddress, ZERO]);
     const createData = encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [singleton.address, initializer, saltNonce] });
 
     await expect(deployer.sendTransaction({ to: factory.address, data: createData })).to.be.rejected;
     expect(await client.getBytecode({ address: predictedSafe })).to.equal(undefined);
+    expect(await guard.read.getConfiguredTokens()).to.deep.equal([]);
+    expect(await guard.read.maintenance()).to.equal(ZERO);
   }
 
   it("reverts Safe creation when an inner policy call fails", async () => {
     await expectCreationRevertsWith();
+  });
+
+  it("atomically rolls back an invalid explicit mode after a valid preceding asset", async () => {
+    await expectCreationRevertsWith({ assetBasePerTransaction: 50n, baseRecipientMode: 2 });
+  });
+
+  it("rejects prior helper calldata instead of reinterpreting its missing mode", async () => {
+    await expectCreationRevertsWith({ assetBasePerTransaction: 50n, legacyCalldata: true });
   });
 
   it("rejects a secondary added as a Safe owner during atomic setup", async () => {

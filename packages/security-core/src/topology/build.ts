@@ -31,7 +31,7 @@ const SAFE_ABI = [
   { name: "enableModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "module", type: "address" }], outputs: [] },
 ] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
-const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }, { name: "baseRecipientMode", type: "uint8" }] }] }], outputs: [] }] as const;
 const GUARD_ABI = [
   { name: "config", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "safe", type: "address" }, { name: "passkey", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "delay", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }] },
   { name: "safeContractSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
@@ -270,7 +270,7 @@ export function deriveVaultSafeProxyAddress(input: Readonly<{ policy: VaultPolic
       ecdsaSecondary: optionB.ecdsaSecondary,
       periodSeconds: BigInt(input.policy.periodSeconds),
       periodAnchor: input.policy.periodAnchor,
-      assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
+      assets: input.policy.assets.map((asset) => ({ ...asset, baseRecipientMode: asset.baseRecipientMode === "any-valid-address" ? 1 : 0, recipients: [...asset.recipients] })),
     }],
   });
   const safeInitializer = encodeFunctionData({
@@ -332,7 +332,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       ecdsaSecondary: optionB.ecdsaSecondary,
       periodSeconds: BigInt(input.policy.periodSeconds),
       periodAnchor: input.policy.periodAnchor,
-      assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
+      assets: input.policy.assets.map((asset) => ({ ...asset, baseRecipientMode: asset.baseRecipientMode === "any-valid-address" ? 1 : 0, recipients: [...asset.recipients] })),
     }],
   });
   const safeInitializer = encodeFunctionData({

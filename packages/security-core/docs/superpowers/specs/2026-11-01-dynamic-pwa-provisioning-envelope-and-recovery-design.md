@@ -1,5 +1,17 @@
 # Dynamic PWA Provisioning Envelope and Recovery Design
 
+## 2026-11-05 automatic verified recovery amendment
+
+The user requires automatic in-app setup and explicitly requested implementation plus frontend-equivalent backend endpoint testing. No operator deployment command, file selection, hand-edited nonce or routine backend restart is part of recovery. This supersedes the earlier pending-recovery exclusion only for exact known-hash reconciliation and the bounded verified signer-prefix successor described here.
+
+The backend may reconcile one durable pending hash against two fixed providers, retaining pending state until canonical six-confirmation evidence agrees. Verify the original reviewed envelope, signed intent hash, runtime, reservation and actual cost before persisting a cloned successful journal; do not sign or broadcast again. A missing review or inconsistent/unknown evidence does not become usable state.
+
+When only one or two signer transactions are confirmed and every other component address remains empty, discover at most 32 unrelated consumed nonces within 4,096 canonical blocks. Verify both providers' nonce transitions, envelope and receipt inclusion/depth, unchanged prefix and final anchors. Run the unchanged consumed-lineage and full recovery verifiers. Write a distinct unsigned successor package and append-only backend-managed lineage before any fresh authorization. The original plan/nonces/receipts remain historical evidence. Exact lineage extensions preserve earlier records; conflicting or regressed extensions reject. Unsupported drift after other component creation still fails closed.
+
+The backend uses at most three execution attempts for recognized transient failures, reconstructing verified progress before each; RPC read recovery traverses bounded viem error causes and retries a recognized resource-not-found read once. An exact historical nonce read with code `-32000` and the specific historical-state-unavailable category may retry at most three times. Known unconfirmed nonce evidence waits for at most 24 five-second intervals during an automatic request; each pass repeats full verification. Startup exposes pending recovery rather than accepting incomplete evidence. Transaction submission is never retried as a read. Diagnostics retain only method, error category and numeric code, excluding raw endpoint/request/signature data.
+
+On restart, fully verified seven-receipt completion restores the current account without another provisioning POST or broadcast. Actual passkey assertions bind both roles again. The browser may automatically resume an unfinished setup with its existing credential references and may refresh a saved account's matching server binding status; neither operation creates credentials or authorizes a transfer.
+
 ## Intent
 
 Replace stale per-transaction Sepolia gas and fee constants with a just-in-time, dual-RPC transaction envelope. Preserve the fixed deployment plan, the `0.05 ETH` Phase One outlay ceiling, durable-before-broadcast behavior, and exact transaction authorization. Add narrow recovery for a journal containing a confirmed contiguous prefix so the current two confirmed signer deployments can resume without deletion, replay, or a new wallet.
@@ -97,6 +109,16 @@ An authorization is single-use. If signing fails before a durable transaction ha
 `submitLiveIntent` remains the signer/broadcaster and continues to persist the signed transaction hash before broadcast.
 
 ## Recovery
+
+### 2026-11-04 completed-deployment nonce amendment
+
+The relay account is shared with unrelated activity. Its current nonce always comes from RPC; journal nonces remain immutable historical transaction evidence. The next-planned-nonce equality below applies only while a reviewed deployment transaction remains unconfirmed. Missing transactions are never silently rebased or skipped.
+
+A complete seven-successful-row journal has no next deployment transaction. Both committed providers and the relay must freshly report the same confirmed (`latest`) nonce, at least one greater than the last reviewed deployment nonce. Each provider's `pending` nonce must be at least its `latest` nonce; unrelated pending transactions may differ between mempools. Missing, regressed, or inconsistent confirmed nonce observations fail closed.
+
+Reconstruct the original reviewed layout using its historical nonces and the separately observed live nonce; neither addresses nor package/plan hashes change. Ordinary completed plans reconstruct the pre-Safe six-row layout before independently verifying all seven receipts and runtimes. A successor accepts later live nonce advancement only once its entire reviewed suffix has confirmed. Incomplete successor reconstruction retains exact equality.
+
+Completed restoration re-verifies both providers' historical envelopes, canonical receipts with six confirmations, runtime hashes, consumed successor lineage, the stored Safe setup receipt, and final topology. The execution and final infrastructure boundaries fetch the current relay nonce and reject values behind the completed deployment; they do not require the account to remain at its historical completion nonce. No authorization, signing, or submission occurs. This amendment supersedes the completed-journal nonce equality in earlier recovery prose; all incomplete-deployment rules remain binding.
 
 Startup no longer rejects every non-empty provisioning journal. It classifies it:
 

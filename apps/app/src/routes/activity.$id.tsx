@@ -53,6 +53,8 @@ function DetailPage() {
     );
 
   const status = effectiveStatus(item, now);
+  const policyChange = item.kind === "recipient-addition";
+  const unsupported = item.kind === "unsupported";
   const displayNow = item.canonicalNow ?? now;
   const run = async (kind: "cancel" | "execute") => {
     setBusy(kind);
@@ -78,17 +80,24 @@ function DetailPage() {
 
       <Card className="text-center">
         <p className="text-sm text-muted-foreground">
-          {item.direction === "in" ? "From" : "To"} {item.counterparty}
+          {policyChange
+            ? "Delayed recipient addition"
+            : unsupported
+              ? "Unsupported delayed operation"
+              : `${item.direction === "in" ? "From" : "To"} ${item.counterparty}`}
         </p>
         <p className="my-2 font-display text-4xl font-extrabold tabular-nums">
-          {item.direction === "in" ? "+" : "−"}
-          {formatUsdc(item.amount)}
+          {policyChange
+            ? "Policy change"
+            : unsupported
+              ? "Review required"
+              : `${item.direction === "in" ? "+" : "−"}${formatUsdc(item.amount)}`}
         </p>
         <StatusBadge status={status} />
         {status === "queued" && item.earliestExecution && (
           <p className="mt-3 text-sm text-danger-ink">
-            Scheduled withdrawal. Runs in {formatCountdown(item.earliestExecution - displayNow)}{" "}
-            unless you cancel it.
+            {policyChange ? "Recipient addition" : "Scheduled withdrawal"} can be executed in{" "}
+            {formatCountdown(item.earliestExecution - displayNow)} unless you cancel it.
           </p>
         )}
         {(status === "awaiting_first_signer" || status === "awaiting_second_signer") && (
@@ -99,7 +108,13 @@ function DetailPage() {
         {item.failureReason && <p className="mt-3 text-sm text-danger-ink">{item.failureReason}</p>}
       </Card>
 
-      {item.direction === "out" && (
+      {policyChange && (
+        <p className="px-1 text-sm text-muted-foreground">
+          Both signers approved this addition. Execute it after the waiting period to update the
+          allowed recipients.
+        </p>
+      )}
+      {item.direction === "out" && !policyChange && !unsupported && (
         <p className="px-1 text-sm text-muted-foreground">{LANE_COPY[item.lane].title}</p>
       )}
       {error && (
@@ -116,8 +131,12 @@ function DetailPage() {
           <PrimaryButton disabled>Approve with {state.secondSignerName}</PrimaryButton>
         )}
         {status === "ready" && (
-          <PrimaryButton onClick={() => run("execute")} disabled={busy !== null}>
-            {busy === "execute" ? "Executing from verified queue…" : "Execute withdrawal"}
+          <PrimaryButton onClick={() => run("execute")} disabled={busy !== null || unsupported}>
+            {busy === "execute"
+              ? "Executing from verified queue…"
+              : policyChange
+                ? "Execute recipient addition"
+                : "Execute withdrawal"}
           </PrimaryButton>
         )}
         {status === "expired" && (
@@ -134,7 +153,11 @@ function DetailPage() {
             disabled={busy !== null || (status !== "queued" && status !== "ready")}
             className="bg-danger-soft text-danger-ink hover:bg-danger-soft/70"
           >
-            {status === "queued" || status === "ready" ? "Cancel withdrawal" : "Discard request"}
+            {status === "queued" || status === "ready"
+              ? policyChange
+                ? "Cancel recipient addition"
+                : "Cancel withdrawal"
+              : "Discard request"}
           </SecondaryButton>
         )}
       </div>
@@ -154,7 +177,13 @@ function DetailPage() {
         <DRow k="Queue nonce" v={item.queueNonce ?? "—"} />
         <DRow
           k="Call"
-          v={`USDC.transfer(${item.address.slice(0, 10)}…, ${item.amount.toString()})`}
+          v={
+            policyChange
+              ? `Delayed addition of ${item.address}`
+              : unsupported
+                ? "Unrecognized queued operation"
+                : `USDC.transfer(${item.address.slice(0, 10)}…, ${item.amount.toString()})`
+          }
         />
         <DRow k="Fingerprint" v={item.fingerprint} />
       </Details>

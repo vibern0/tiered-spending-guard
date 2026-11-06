@@ -46,7 +46,19 @@ describe("backend HTTP boundary", () => {
     const response = await fetch(`${origin}/health`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ ok: true, writesReady: false, chainId: 11155111, profileId: "local", origin: config.origin, rpId: "localhost" });
+    expect(await response.json()).toEqual({ ok: true, provisioningReady: false, writesReady: false, chainId: 11155111, profileId: "local", origin: config.origin, rpId: "localhost" });
+  });
+
+  it("refreshes provisioning and write readiness from the handler's current state", async () => {
+    let writesReady = false;
+    const backend = createBackendServer(config, { autoProvisionVault: async () => ({}) as never, getReadiness: () => ({ provisioningReady: true, writesReady }) });
+    servers.push(backend);
+    await new Promise<void>((resolve, reject) => backend.server.listen(0, config.host, resolve).once("error", reject));
+    const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+    const origin = `http://${config.host}:${address.port}`;
+    expect(await fetch(`${origin}/health`).then(r => r.json())).toMatchObject({ provisioningReady: true, writesReady: false });
+    writesReady = true;
+    expect(await fetch(`${origin}/health`).then(r => r.json())).toMatchObject({ provisioningReady: true, writesReady: true });
   });
 
   it("rejects wrong origin, malformed JSON, and unknown routes", async () => {
@@ -141,12 +153,47 @@ describe("backend HTTP boundary", () => {
     const status = await fetch(`${origin}/v1/submissions/request-1`); expect(status.status).toBe(200); expect(await status.json()).toMatchObject({ state: "uncertain", transactionHash: hash });
   });
 
+  it("decodes the browser's exact bigint queue nonce for every closed lifecycle intent", async () => {
+    const hash = `0x${"aa".repeat(32)}` as const;
+    const bodies: unknown[] = [];
+    const backend = createBackendServer(config, {
+      autoProvisionVault: async () => ({}) as never,
+      prepareTransfer: async (body) => {
+        const intent = body as { kind: "cancel-queued" | "execute-ready" | "skip-expired"; queueNonce: unknown };
+        if (typeof intent.queueNonce !== "bigint") throw new Error("canonical bigint queue nonce is required");
+        bodies.push(body);
+        return { id: "lifecycle", requestHash: hash, safeTxHash: hash, kind: intent.kind, requiredApprovals: intent.kind === "cancel-queued" ? ["primary", "secondary"] : [], publicRequest: body as Record<string, unknown> };
+      },
+    });
+    servers.push(backend);
+    await new Promise<void>((resolve, reject) => backend.server.listen(0, config.host, resolve).once("error", reject));
+    const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+    const origin = `http://${config.host}:${address.port}`;
+    for (const kind of ["cancel-queued", "execute-ready", "skip-expired"] as const) {
+      const response = await fetch(`${origin}/v1/submissions/prepare`, {
+        method: "POST", headers: { Origin: config.origin, "content-type": "application/json" },
+        body: JSON.stringify({ kind, queueNonce: 9_007_199_254_740_993n, queueFingerprint: hash, idempotencyKey: `lifecycle-${kind}` }, (_key, value) => typeof value === "bigint" ? `${value}n` : value),
+      });
+      expect(response.status).toBe(200);
+    }
+    expect(bodies).toEqual(["cancel-queued", "execute-ready", "skip-expired"].map(kind => ({ kind, queueNonce: 9_007_199_254_740_993n, queueFingerprint: hash, idempotencyKey: `lifecycle-${kind}` })));
+  });
+
   it("redacts provider endpoints and key-shaped values from HTTP errors", async () => {
     const backend = createBackendServer(config, { autoProvisionVault: async () => { throw new Error(`provider https://rpc.invalid/key failed ${"0x" + "11".repeat(32)}`); } });
     servers.push(backend); await new Promise<void>((resolve, reject) => backend.server.listen(0, config.host, resolve).once("error", reject));
     const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
     const response = await fetch(`http://${config.host}:${address.port}/v1/vaults/auto-provision`, { method: "POST", body: "{}" });
     expect(JSON.stringify(await response.json())).not.toMatch(/rpc\.invalid|1111111111/);
+  });
+
+  it("identifies pending confirmations as automatic exact-hash reconciliation", async () => {
+    const backend = createBackendServer(config, { autoProvisionVault: async () => { throw new Error("automatic provisioning is still awaiting canonical confirmations for its recorded transaction"); } }, { log: () => undefined });
+    servers.push(backend);
+    await new Promise<void>((resolve, reject) => backend.server.listen(0, config.host, resolve).once("error", reject));
+    const address = backend.server.address(); if (!address || typeof address === "string") throw new Error("missing port");
+    const response = await fetch(`http://${config.host}:${address.port}/v1/vaults/auto-provision`, { method: "POST", body: "{}" });
+    expect(await response.json()).toMatchObject({ code: "provisioning_pending_confirmation", stage: "provisioning-reconciliation" });
   });
 
   it("correlates provisioning failures with a safe code, stage, and redacted structured log", async () => {

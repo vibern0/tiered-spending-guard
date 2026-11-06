@@ -9,6 +9,7 @@ import {
 } from "viem";
 import { readVaultSnapshot, validateUsdc, type VaultConfig } from "./vault-chain";
 import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
+import { HISTORICAL_GUARD_RUNTIME, decodeHistoricalPolicy } from "./historical-guard-test-fixture";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
@@ -113,6 +114,78 @@ describe("validateUsdc", () => {
 });
 
 describe("readVaultSnapshot", () => {
+  it("decodes the pinned historical guard's four-word policy and preserves a read-only snapshot", async () => {
+    expect(keccak256(HISTORICAL_GUARD_RUNTIME)).toBe(
+      "0x596a66022b0aa360ed7faa0ba2fa550480f6b750a3ccc44da125ff14eff38428",
+    );
+    const historical = client({
+      getBytecode: vi.fn(async ({ address }: { address: Address }) =>
+        address === GUARD ? HISTORICAL_GUARD_RUNTIME : TEST_USDC_RUNTIME,
+      ),
+    });
+    const baseRead = vi.mocked(historical.readContract).getMockImplementation()!;
+    vi.mocked(historical.readContract).mockImplementation(async (input) =>
+      input.functionName === "assetPolicy"
+        ? (decodeHistoricalPolicy(input.abi) as never)
+        : baseRead(input),
+    );
+
+    const snapshot = await readVaultSnapshot(historical, config);
+
+    expect(snapshot).toMatchObject({
+      writable: false,
+      health: [],
+      usdcBalance: 12_345_678n,
+      safeNonce: 7n,
+      observedBlock: 123n,
+      compatibility: { mode: "read-only", profileVersion: "sepolia-pwa-phase-one-allowlisted-v1" },
+    });
+    expect(snapshot.policy).toMatchObject({
+      baseRecipientMode: "allowlisted",
+      baseDailyLimit: 250_000_000n,
+      recipients: ["0x7777777777777777777777777777777777777777"],
+    });
+    expect(historical.getBytecode).toHaveBeenCalledWith({ address: GUARD, blockNumber: 123n });
+  });
+
+  it("does not retry an unknown guard's truncated modern policy as a historical policy", async () => {
+    const unknown = client();
+    const baseRead = vi.mocked(unknown.readContract).getMockImplementation()!;
+    vi.mocked(unknown.readContract).mockImplementation(async (input) =>
+      input.functionName === "assetPolicy"
+        ? (decodeHistoricalPolicy(input.abi) as never)
+        : baseRead(input),
+    );
+    const snapshot = await readVaultSnapshot(unknown, config);
+    expect(snapshot.writable).toBe(false);
+    expect(snapshot.compatibility).toBeUndefined();
+    expect(snapshot.policy).toBeUndefined();
+    expect(snapshot.health).toEqual([
+      expect.objectContaining({ code: "rpc-inconsistent", blocking: true }),
+    ]);
+  });
+
+  it("retains real topology failures when displaying the recognized historical version", async () => {
+    const historical = client({
+      getBytecode: vi.fn(async ({ address }: { address: Address }) =>
+        address === GUARD ? HISTORICAL_GUARD_RUNTIME : TEST_USDC_RUNTIME,
+      ),
+      getStorageAt: vi.fn(async () => `0x${"0".repeat(64)}`),
+    });
+    const baseRead = vi.mocked(historical.readContract).getMockImplementation()!;
+    vi.mocked(historical.readContract).mockImplementation(async (input) =>
+      input.functionName === "assetPolicy"
+        ? (decodeHistoricalPolicy(input.abi) as never)
+        : baseRead(input),
+    );
+    const snapshot = await readVaultSnapshot(historical, config);
+    expect(snapshot.policy?.baseRecipientMode).toBe("allowlisted");
+    expect(snapshot.writable).toBe(false);
+    expect(snapshot.health.map((f) => f.code)).toEqual(
+      expect.arrayContaining(["guard-drift", "module-guard-drift"]),
+    );
+  });
+
   it("returns a writable chain-derived snapshot for a healthy fresh vault", async () => {
     const snapshot = await readVaultSnapshot(client(), config);
 

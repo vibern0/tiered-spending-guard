@@ -31,6 +31,10 @@
 
 ---
 
+## 2026-11-05 execution status
+
+Current source already contained Tasks 1–2 policy/guard/profile changes; their implementation and GREEN gates were reverified. Their earlier RED history is not asserted here. Tasks 3–4 now have observed RED→GREEN evidence, including the complete real-cryptography local deployment/send/recipient/lifecycle/restart rehearsal. The user accepted the focused setup-helper mode correction after the full deployment regression exposed its missing ABI field. See `2026-11-05-current-pwa-send-and-fresh-vault.md` for final counts and hardware/live gates. No commit was requested; unrelated working-tree changes are preserved.
+
 ### Task 1: Enforce tier-specific recipient policy and stale-safe repairs onchain
 
 **Files:**
@@ -59,11 +63,11 @@ Run: `pnpm --dir packages/security-core exec hardhat test test/unit/policy/class
 
 Expected: FAIL because the mode is absent and all tiers still share the recipient check.
 
-- [ ] **Step 3: Implement minimal typed policy/classifier support**
+- [x] **Step 3: Implement minimal typed policy/classifier support**
 
 Update `decodeTransfer` to return a valid transfer independently of recipient membership; decide recipient eligibility after the lane is known so base-only can use `any-valid-address`. Keep every selector, token, value, operation, cap, counter, and signer check unchanged.
 
-- [ ] **Step 4: Run green policy tests**
+- [x] **Step 4: Run green policy tests**
 
 Run: `pnpm --dir packages/security-core exec hardhat test test/unit/policy/classify.test.ts`
 
@@ -79,11 +83,11 @@ Run: `pnpm --dir packages/security-core exec hardhat test test/unit/guard/spendi
 
 Expected: FAIL because contract ABI/authorization does not implement the policy mode or stale repair binding.
 
-- [ ] **Step 7: Implement the minimal guard change**
+- [x] **Step 7: Implement the minimal guard change**
 
 Update selectors, canonical ABI decoders, immediate-tightening comparison, queue validation, delayed execution validation, policy hash, and storage reset together. Compare the supplied policy hash before `repairPolicy` mutates state. Do not add an unrestricted maintenance selector or use `tx.origin`/executor identity.
 
-- [ ] **Step 8: Run guard and invariant verification**
+- [x] **Step 8: Run guard and invariant verification**
 
 Run: `pnpm --dir packages/security-core exec hardhat test test/unit/guard/spending.test.ts test/integration/guard-spending.test.ts test/integration/delayed-tier.test.ts test/invariant/call-graph.invariant.ts`
 
@@ -123,11 +127,11 @@ Run: `pnpm --dir packages/security-core exec hardhat test test/unit/pwa/profile.
 
 Expected: FAIL because the profile fixes one recipient and intent snapshots have no recipient mode or maintenance intent.
 
-- [ ] **Step 3: Implement closed v2 profile, provisioning, and intent flow**
+- [x] **Step 3: Implement closed v2 profile, provisioning, and intent flow**
 
 Update the exact-profile parser, deterministic plan policy, snapshot reader/binder, canonical prepared-intent validation, and expected-approval mapping. Preserve test-only branding and exact canonical encoding. Reject a snapshot whose deployed mode/list disagrees with the verified profile.
 
-- [ ] **Step 4: Run green core PWA tests**
+- [x] **Step 4: Run green core PWA tests**
 
 Run: `pnpm --dir packages/security-core exec hardhat test test/unit/pwa/profile.test.ts test/unit/pwa/intents.test.ts test/integration/pwa-intents.test.ts test/integration/pwa-provisioning.test.ts`
 
@@ -160,21 +164,21 @@ Stage only Task 2 files and commit `feat: version PWA recipient tier policy`; ot
 - Extend browser `BackendIntent`, prepared kinds, strict request keys, and journal response projection with `add-recipient`; the body is exactly `{kind:"add-recipient",recipient,idempotencyKey}`.
 - Backend derives all current policy fields and delay tuple from its fresh verified snapshot, never from browser fields. It rejects unlisted elevated sends, zero/duplicate additions, stale policy hash, unavailable runtime, and any raw transaction/calldata field.
 
-- [ ] **Step 1: Write failing backend runtime/API tests**
+- [x] **Step 1: Write failing backend runtime/API tests**
 
 Assert normal configured startup reports writes ready only with full composition; health reports unavailable otherwise and send preparation is not exposed as an actionable flow. Assert arbitrary base prepare reaches a primary-only exact intent, unlisted elevated prepare rejects, and recipient addition produces a primary-plus-secondary delayed intent. Assert changed policy hash supersedes before approval/broadcast and a raw browser policy list/nonce/calldata field rejects.
 
-- [ ] **Step 2: Run RED backend tests**
+- [x] **Step 2: Run RED backend tests**
 
 Run: `pnpm --dir apps/backend exec vitest run tests/backend-surface.test.ts tests/config.test.ts tests/handlers.test.ts tests/server.test.ts tests/submit.test.ts`
 
 Expected: FAIL because normal startup accepts no submission runtime and the API lacks recipient addition.
 
-- [ ] **Step 3: Implement the concrete fail-closed composition**
+- [x] **Step 3: Implement the concrete fail-closed composition**
 
 Build fixed read clients and relay broadcast capability from backend-only config, pin the vault record/credentials, construct snapshots and simulation before prepare, encode primary-first Safe contract signatures after server-side WebAuthn verification, revalidate before every approval/broadcast, persist/reconcile the exact outer hash, and feed only confirmed receipts into the read-only observer boundary. Do not install a mock, placeholder signer, hidden sponsor, or alternate browser write path.
 
-- [ ] **Step 4: Run green backend tests and typecheck**
+- [x] **Step 4: Run green backend tests and typecheck**
 
 Run: `pnpm --dir apps/backend exec vitest run tests/backend-surface.test.ts tests/config.test.ts tests/handlers.test.ts tests/server.test.ts tests/submit.test.ts && pnpm --dir apps/backend run typecheck`
 
@@ -211,21 +215,21 @@ Stage only Task 3 files and commit `feat: enable reviewed vault submissions`; ot
 - `classify` uses the onchain-derived recipient mode: arbitrary valid base address is allowed, but actions requiring a secondary or Delay explain that the address must first be added through the delayed flow.
 - `VaultProvider.addRecipient(address)` calls the closed backend intent and reuses the existing ordered approval/status/reconciliation machinery. UI never mutates `state.recipients` optimistically.
 
-- [ ] **Step 1: Write failing app and documentation tests**
+- [x] **Step 1: Write failing app and documentation tests**
 
 Assert manual unlisted base address proceeds to review; an unlisted amount that needs step-up/delay is blocked with a delayed-addition action; a recipient addition shows primary then secondary and queued status; backend `writesReady:false` disables Send before review; legacy/unknown recipient mode blocks writes; and refreshed chain state is the only source of recipient-list updates.
 
-- [ ] **Step 2: Run RED app tests**
+- [x] **Step 2: Run RED app tests**
 
 Run: `pnpm --dir apps/app exec vitest run src/routes/-send.test.tsx src/lib/vault-chain.test.ts src/lib/vault-store.test.tsx src/lib/vault-activity.test.ts src/test/app-routing.test.tsx`
 
 Expected: FAIL because the UI requires allowlisting at entry and exposes no executable recipient-addition flow or write-readiness state.
 
-- [ ] **Step 3: Implement the minimal UI and documentation amendment**
+- [x] **Step 3: Implement the minimal UI and documentation amendment**
 
 Remove only the base-lane address-list gate. Keep the review screen’s full raw address and lane copy. Add the delayed recipient-addition route/action with an explicit policy-drift/stale status and no editable policy surface. Update the research baseline, approved plan, PWA design, call graph, and app/backend docs with the exact three-tier recipient rule and fresh-vault compatibility boundary.
 
-- [ ] **Step 4: Run green focused tests, full verification, and diff check**
+- [x] **Step 4: Run green focused tests, full verification, and diff check**
 
 Run: `pnpm --dir apps/app exec vitest run src/routes/-send.test.tsx src/lib/vault-chain.test.ts src/lib/vault-store.test.tsx src/lib/vault-activity.test.ts src/test/app-routing.test.tsx && pnpm --dir apps/app run lint && pnpm --dir apps/app run build && pnpm --dir packages/security-core test && pnpm --dir apps/backend test && pnpm --dir apps/backend run typecheck && git diff --check`
 

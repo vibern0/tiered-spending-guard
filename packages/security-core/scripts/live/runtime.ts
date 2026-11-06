@@ -1,5 +1,6 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { decodeFunctionData, isAddress, parseAbi, type Account, type Address, type Hex } from "viem";
 import type { LiveContext, LiveIntent, LiveJournal, LiveReceipt } from "./submission";
 import { OFFICIAL_DEPLOYMENT_REGISTRY } from "../../src/config/deployments";
@@ -98,18 +99,108 @@ export function readLiveJournal(path: string, funder: Address): LiveJournal {
   return existsSync(path) ? decodeJournal(readFileSync(path, "utf8"), funder) : { chainId: SEPOLIA, funder, entries: [] };
 }
 
-export function createLiveJournalStore(path: string, funder: Address): LiveJournalStore {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const lockPath = `${path}.lock`;
-  let lock: number | undefined;
+type PidLockIdentity = Readonly<{ dev: number; ino: number; links: number; contents: string; pid: number }>;
+
+function localPid(value: string): number {
+  if (!/^[1-9][0-9]*$/.test(value)) throw new Error("invalid local writer PID");
+  const pid = Number(value);
+  if (!Number.isSafeInteger(pid) || pid > 0x7fffffff) throw new Error("invalid local writer PID");
+  return pid;
+}
+
+function pidLockIdentity(path: string): PidLockIdentity {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
-    lock = openSync(lockPath, "wx", 0o600);
-    writeFileSync(lock, `${process.pid}\n`, "utf8");
-    fsyncSync(lock);
-  } catch { throw new Error("live journal writer lock unavailable"); }
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size < 2 || stat.size > 12 || (process.getuid && stat.uid !== process.getuid())) throw new Error("unknown local writer lock identity");
+    const contents = readFileSync(fd, "utf8");
+    if (!/^[1-9][0-9]*\n$/.test(contents)) throw new Error("malformed local writer lock");
+    return { dev: stat.dev, ino: stat.ino, links: stat.nlink, contents, pid: localPid(contents.slice(0, -1)) };
+  } finally { closeSync(fd); }
+}
+
+function samePidLock(left: PidLockIdentity, right: PidLockIdentity): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.contents === right.contents;
+}
+
+function provedDeadLocalPid(pid: number): boolean {
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+}
+
+function createPidLock(path: string): number {
+  const fd = openSync(path, "wx", 0o600);
+  const created = fstatSync(fd);
+  try { writeFileSync(fd, `${process.pid}\n`, "utf8"); fsyncSync(fd); return fd; }
+  catch (error) {
+    // No lease escaped. Retain the fd (and inode) until removing only our own
+    // partial file; never remove a path replaced during failed initialization.
+    try {
+      const current = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try { const stat = fstatSync(current); if (stat.dev === created.dev && stat.ino === created.ino) unlinkSync(path); }
+      finally { closeSync(current); }
+    } catch { /* Unknown cleanup failure remains closed for manual inspection. */ }
+    closeSync(fd);
+    throw error;
+  }
+}
+
+function recoverDeadPidLock(path: string): number {
+  const original = pidLockIdentity(path);
+  if (!provedDeadLocalPid(original.pid)) throw new Error("writer is active or unknown");
+  const prefix = `${basename(path)}.recovery.`;
+  // Claims have unique, never-reused names. Removing a dead claim cannot remove
+  // the canonical lock or a newer writer's file, even when cleanup races.
+  for (const name of readdirSync(dirname(path))) {
+    if (!name.startsWith(prefix)) continue;
+    const suffix = name.slice(prefix.length);
+    const match = /^([1-9][0-9]*)\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(suffix);
+    if (!match || !provedDeadLocalPid(localPid(match[1]!))) continue;
+    const claim = join(dirname(path), name);
+    try {
+      if (samePidLock(original, pidLockIdentity(claim)) && samePidLock(original, pidLockIdentity(claim))) unlinkSync(claim);
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  const claim = `${path}.recovery.${process.pid}.${randomUUID()}`;
+  linkSync(path, claim);
+  try {
+    const candidate = pidLockIdentity(claim);
+    // Canonical path + this claim must be the only links. While this claim
+    // remains, another contender sees >=3 links, or sees no canonical inode
+    // after removal. It therefore cannot unlink a replacement writer's lock.
+    if (!samePidLock(original, candidate) || candidate.links !== 2 || !samePidLock(original, pidLockIdentity(path)) || !provedDeadLocalPid(original.pid) || !samePidLock(original, pidLockIdentity(path))) throw new Error("writer lock recovery is contended or changed");
+    unlinkSync(path);
+    return createPidLock(path);
+  } finally { unlinkSync(claim); }
+}
+
+/** Synchronous local PID lease; unknown/live owners are never evicted. */
+export function acquireLocalWriterLease(lockPath: string): Readonly<{ close(): void }> {
+  mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+  let fd: number;
+  try { fd = createPidLock(lockPath); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw new Error("local writer lock unavailable");
+    try { fd = recoverDeadPidLock(lockPath); } catch { throw new Error("local writer lock unavailable"); }
+  }
+  const held = fstatSync(fd);
+  let closed = false;
+  return Object.freeze({ close() {
+    if (closed) return;
+    try {
+      const current = pidLockIdentity(lockPath);
+      if (current.dev !== held.dev || current.ino !== held.ino || current.contents !== `${process.pid}\n`) throw new Error("local writer lock ownership changed");
+      unlinkSync(lockPath);
+    } finally { closed = true; closeSync(fd); }
+  } });
+}
+
+export function createLiveJournalStore(path: string, funder: Address): LiveJournalStore {
+  const lease = acquireLocalWriterLease(`${path}.lock`);
+  let closed = false;
   const load = (): LiveJournal => readLiveJournal(path, funder);
   const save = (journal: LiveJournal): void => {
-    if (lock === undefined) throw new Error("live journal writer lock is closed");
+    if (closed) throw new Error("live journal writer lock is closed");
     if (journal.chainId !== SEPOLIA || journal.funder.toLowerCase() !== funder.toLowerCase()) throw new Error("live journal identity mismatch");
     const temporary = `${path}.${process.pid}.tmp`;
     const encoded = JSON.stringify(journal, (_, value) => typeof value === "bigint" ? value.toString() : value) + "\n";
@@ -120,10 +211,9 @@ export function createLiveJournalStore(path: string, funder: Address): LiveJourn
     try { fsyncSync(directory); } finally { closeSync(directory); }
   };
   const close = (): void => {
-    if (lock === undefined) return;
-    closeSync(lock);
-    lock = undefined;
-    unlinkSync(lockPath);
+    if (closed) return;
+    closed = true;
+    lease.close();
   };
   return Object.freeze({ load, save, close });
 }

@@ -13,6 +13,10 @@ import type { LiveJournal, LiveReceipt } from "../../scripts/live/submission";
 import { liveIntentHash } from "../../scripts/live/submission";
 import CommittedSuccessor from "../../config/sepolia.pwa-provisioning-successor.json";
 import CommittedPrefixOneSuccessor from "../../config/sepolia.pwa-provisioning-successor-1031.json";
+import CommittedHistoricalVault from "../../config/sepolia.pwa-historical-vault.json";
+import type { DeploymentInfrastructureRegistry } from "../config/deployments";
+import { verifyHistoricalPwaTopology, type HistoricalPwaReadClient, type HistoricalReview, type PwaHistoricalVault } from "./historical-topology";
+export type { HistoricalPwaReadClient, PwaHistoricalVault } from "./historical-topology";
 import type { ArtifactResolutionClient } from "../topology/reviewed-artifacts";
 import type { ReadOnlyDeploymentClient } from "../config/deployments";
 import { SEPOLIA_CHAIN_ID, type PwaPhaseOneProfile } from "./profile";
@@ -28,8 +32,9 @@ const HASH = /^0x[0-9a-fA-F]{64}$/;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const EXPECTED_IDS = ["primary-signer", "secondary-signer", "setup-helper", "guard", "delay", "maintenance", "safe-proxy"] as const;
 const CREATE_SIGNER_ABI = [{ name: "createSigner", type: "function", stateMutability: "nonpayable", inputs: [{ type: "uint256" }, { type: "uint256" }, { type: "uint176" }], outputs: [{ type: "address" }] }] as const;
+type RecoveryPlan = Pick<PwaProvisioningPlan, "chainId" | "deployer" | "transactions">;
 
-type RecoveryTransaction = Readonly<{
+export type PwaProvisioningRecoveryTransaction = Readonly<{
   hash: Hex;
   chainId: number;
   type: "eip1559";
@@ -50,9 +55,10 @@ export type PwaProvisioningRecoveryClient = ReadOnlyDeploymentClient & ArtifactR
   getChainId(): Promise<number>;
   getBlockNumber(): Promise<bigint>;
   getBlock(input: Readonly<{ blockNumber: bigint }>): Promise<RecoveryBlock>;
-  getTransaction(input: Readonly<{ hash: Hex }>): Promise<RecoveryTransaction | null>;
+  getBlockWithTransactions?(input: Readonly<{ blockNumber: bigint }>): Promise<RecoveryBlock & Readonly<{ transactions: readonly PwaProvisioningRecoveryTransaction[] }>>;
+  getTransaction(input: Readonly<{ hash: Hex }>): Promise<PwaProvisioningRecoveryTransaction | null>;
   getTransactionReceipt(input: Readonly<{ hash: Hex }>): Promise<LiveReceipt | null>;
-  getTransactionCount(input: Readonly<{ address: Address; blockTag?: "latest" | "pending" }>): Promise<number | bigint>;
+  getTransactionCount(input: Readonly<{ address: Address; blockNumber?: bigint; blockTag?: "latest" | "pending" }>): Promise<number | bigint>;
 }>;
 
 export type PwaProvisioningRecoveryRelay = Readonly<{
@@ -268,7 +274,7 @@ function expectedTransactionTo(transaction: PwaProvisioningTransaction): Address
 
 async function verifyProviderPrefix(
   client: PwaProvisioningRecoveryClient,
-  plan: PwaProvisioningPlan,
+  plan: RecoveryPlan,
   journal: LiveJournal,
   prefixLength: number,
   permittedFutureRuntimeHashes: ReadonlyMap<string, Hex> = new Map(),
@@ -328,7 +334,7 @@ async function verifyProviderPrefix(
   }
 }
 
-function sameTransaction(left: RecoveryTransaction, right: RecoveryTransaction): boolean {
+function sameTransaction(left: PwaProvisioningRecoveryTransaction, right: PwaProvisioningRecoveryTransaction): boolean {
   return left.hash.toLowerCase() === right.hash.toLowerCase()
     && left.chainId === right.chainId
     && left.type === right.type
@@ -344,7 +350,7 @@ function sameTransaction(left: RecoveryTransaction, right: RecoveryTransaction):
 
 async function verifyConsumedLineage(
   providers: readonly [PwaProvisioningRecoveryClient, PwaProvisioningRecoveryClient],
-  plan: PwaProvisioningPlan,
+  plan: RecoveryPlan,
   successor: PwaProvisioningSuccessor,
   prefixLength: number,
 ): Promise<void> {
@@ -417,6 +423,20 @@ async function rebuildPlan(
   });
 }
 
+async function completedDeployerNonce(input: Pick<ResolvePwaProvisioningRecoveryInput, "providers" | "relay" | "journal">, minimumNonce: bigint): Promise<bigint> {
+  const observations = await Promise.all([...input.providers, input.relay].map(async (client) => {
+    const [latest, pending] = await Promise.all([
+      client.getTransactionCount({ address: input.journal.funder, blockTag: "latest" }),
+      client.getTransactionCount({ address: input.journal.funder, blockTag: "pending" }),
+    ]);
+    const confirmedNonce = BigInt(latest);
+    if (confirmedNonce < minimumNonce || BigInt(pending) < confirmedNonce) fail("completed deployment latest/pending nonce is behind confirmed history");
+    return confirmedNonce;
+  }));
+  if (observations.some((nonce) => nonce !== observations[0])) fail("completed deployment providers disagree on the current confirmed deployer nonce");
+  return observations[0]!;
+}
+
 async function rebuildCandidate(
   input: ResolvePwaProvisioningRecoveryInput,
   document: ReviewDocument,
@@ -426,13 +446,17 @@ async function rebuildCandidate(
 ): Promise<PwaProvisioningRecovery> {
   const credentials = decodeCredentials(document);
   const expectedDeployerNonce = BigInt(input.journal.entries[0]!.nonce);
+  const complete = prefixLength === EXPECTED_IDS.length;
   if (successorSuffix && !successor) fail("successor journal suffix is not bound to the original review package");
-  const signerPrefixLength = successor?.confirmedPrefixLength ?? prefixLength;
-  const expectedCurrentDeployerNonce = successor
+  // The planner reconstructs the pre-Safe layout; all seven historical rows are verified below.
+  const signerPrefixLength = successor?.confirmedPrefixLength ?? Math.min(prefixLength, EXPECTED_IDS.length - 1);
+  const expectedCurrentDeployerNonce = complete
+    ? await completedDeployerNonce(input, BigInt(input.journal.entries.at(-1)!.nonce) + 1n)
+    : successor
     ? successor.expectedNextNonce + BigInt(Math.max(0, prefixLength - successor.confirmedPrefixLength))
     : expectedDeployerNonce + BigInt(prefixLength);
-  const verifiedDeploymentPrefixLength = successor ? Math.min(prefixLength, 2) : prefixLength;
-  const plan = await rebuildPlan(input, credentials, expectedDeployerNonce, signerPrefixLength, successor ? { expectedCurrentDeployerNonce, verifiedDeploymentPrefixLength } : {});
+  const verifiedDeploymentPrefixLength = successor ? Math.min(prefixLength, 2) : signerPrefixLength;
+  const plan = await rebuildPlan(input, credentials, expectedDeployerNonce, signerPrefixLength, successor || complete ? { expectedCurrentDeployerNonce, verifiedDeploymentPrefixLength } : {});
   if (provisioningPackageHash(plan).toLowerCase() !== document.packageHash || plan.planHash.toLowerCase() !== String(document.review.planHash).toLowerCase()) fail("rebuilt plan does not match the review package");
   if (plan.transactions.length !== EXPECTED_IDS.length || plan.transactions.some((transaction, index) => transaction.id !== EXPECTED_IDS[index] || transaction.nonce !== expectedDeployerNonce + BigInt(index))) fail("rebuilt plan transaction sequence changed");
   let recoveredPlan = plan;
@@ -462,7 +486,9 @@ async function rebuildCandidate(
     input.relay.getTransactionCount({ address: recoveredPlan.deployer, blockTag: "latest" }),
     input.relay.getTransactionCount({ address: recoveredPlan.deployer, blockTag: "pending" }),
   ]);
-  if (BigInt(latest) !== nextNonce || BigInt(pending) !== nextNonce) fail("relay latest/pending nonce does not equal the first missing transaction");
+  if (complete) {
+    if (BigInt(latest) < nextNonce || BigInt(pending) < BigInt(latest)) fail("completed deployment relay latest/pending nonce is behind confirmed history");
+  } else if (BigInt(latest) !== nextNonce || BigInt(pending) !== nextNonce) fail("relay latest/pending nonce does not equal the first missing transaction");
   return Object.freeze({ plan: recoveredPlan, confirmedPrefixLength: prefixLength, credentials });
 }
 
@@ -489,4 +515,223 @@ export async function resolvePwaProvisioningRecovery(input: ResolvePwaProvisioni
   const unique = new Map(recovered.map((value) => [provisioningPackageHash(value.plan).toLowerCase(), value]));
   if (unique.size !== 1) fail("review package is ambiguous");
   return [...unique.values()][0];
+}
+
+/** Read-only exact-hash reconciliation. The caller persists only a fully verified returned journal. */
+export async function reconcilePwaProvisioningPending(input: ResolvePwaProvisioningRecoveryInput): Promise<LiveJournal> {
+  const journal = structuredClone(input.journal);
+  const pending = journal.entries.filter(entry => entry.status === "pending");
+  if (pending.length === 0) return journal;
+  if (pending.length !== 1 || pending[0] !== journal.entries.at(-1) || pending[0]!.receipt) fail("pending journal is not a successful prefix plus one unresolved hash");
+  if (!input.providers[0].source || !input.providers[1].source || input.providers[0].source === input.providers[1].source) fail("pending reconciliation requires two distinct evidence providers");
+  const entry = pending[0]!;
+  const successors = input.successors ?? (input.successor ? [input.successor] : []);
+  assertJournalPrefix({ ...journal, entries: journal.entries.slice(0, -1) }, successors);
+  if (journal.entries.length > EXPECTED_IDS.length || entry.id !== `pwa-${EXPECTED_IDS[journal.entries.length - 1]}` || !Number.isSafeInteger(entry.nonce) || entry.nonce < 0 || !HASH.test(entry.intentHash) || !HASH.test(entry.transactionHash) || entry.reserved <= 0n) fail("pending journal transaction identity or bounds changed");
+  let documents: readonly ReviewDocument[];
+  try { documents = readReviewDocuments(input.reviewDirectory); }
+  catch { fail("pending original review directory is missing or invalid"); }
+  const anchors = documents.filter(document => {
+    if (!isAddressEqual(document.review.deployer as Address, journal.funder)) return false;
+    const ordinaryPrefix = candidateMatchesPrefix(document, journal);
+    const successorPrefix = successors.some(successor => successor.originalPackageHash.toLowerCase() === document.packageHash
+      && journal.entries.every((candidate, index) => candidate.id === `pwa-${EXPECTED_IDS[index]}` && BigInt(candidate.nonce) === (index < successor.confirmedPrefixLength ? decimal(document.review.transactions[index]!.nonce, "pending original review nonce") : successor.expectedNextNonce + BigInt(index - successor.confirmedPrefixLength))));
+    if (!ordinaryPrefix && !successorPrefix) return false;
+    // Parse every original transaction and creation-code commitment before treating
+    // an absent receipt as a known pending plan. This grants no execution authority.
+    historicalReview(document);
+    return true;
+  });
+  if (anchors.length === 0) fail("pending journal has no matching original canonical review package");
+  const evidence = await Promise.all(input.providers.map(async provider => {
+    if (await provider.getChainId() !== SEPOLIA_CHAIN_ID) fail("pending reconciliation chain changed");
+    const [transaction, receipt, head] = await Promise.all([provider.getTransaction({ hash: entry.transactionHash }), provider.getTransactionReceipt({ hash: entry.transactionHash }), provider.getBlockNumber()]);
+    return { transaction, receipt, head };
+  }));
+  if (!evidence[0].receipt && !evidence[1].receipt) return journal;
+  if (!evidence[0].transaction || !evidence[1].transaction || !evidence[0].receipt || !evidence[1].receipt || !sameTransaction(evidence[0].transaction, evidence[1].transaction) || !sameReceipt(evidence[0].receipt, evidence[1].receipt)) fail("pending evidence providers disagree on the exact hash");
+  const transaction = evidence[0].transaction;
+  const receipt = evidence[0].receipt;
+  if (evidence.some(item => item.head < receipt.blockNumber + 5n)) return journal;
+  if (receipt.status !== "success" || transaction.hash.toLowerCase() !== entry.transactionHash.toLowerCase() || receipt.transactionHash.toLowerCase() !== entry.transactionHash.toLowerCase() || transaction.nonce !== entry.nonce || entry.reserved !== transaction.value + transaction.gas * transaction.maxFeePerGas || receipt.gasUsed < 0n || receipt.gasUsed > transaction.gas || receipt.effectiveGasPrice < 0n || receipt.effectiveGasPrice > transaction.maxFeePerGas) fail("pending receipt or reservation changed from the signed envelope");
+  entry.status = "success";
+  entry.receipt = receipt;
+  entry.reserved = receipt.gasUsed * receipt.effectiveGasPrice + transaction.value;
+  let recovered: PwaProvisioningRecovery | undefined;
+  try {
+    recovered = await resolvePwaProvisioningRecovery({ ...input, journal });
+  } catch (error) {
+    // A recorded signer may have mined before the payer consumed another nonce.
+    // Discovery repeats every prefix and canonical-lineage gate on this clone.
+    const successor = await discoverPwaProvisioningSuccessor({ ...input, journal });
+    if (!successor) throw error;
+    recovered = await resolvePwaProvisioningRecovery({ ...input, journal, successor, successors: [successor] });
+  }
+  if (!recovered || recovered.confirmedPrefixLength !== journal.entries.length) fail("pending hash has no fully verified reviewed plan");
+  // Re-read exact canonical receipts after full reconstruction, before returning persistence data.
+  await Promise.all(input.providers.map(provider => verifyProviderPrefix(provider, recovered.plan, journal, journal.entries.length)));
+  return journal;
+}
+
+/** Discover only bounded unrelated nonce consumption after an exactly verified signer prefix. */
+export async function discoverPwaProvisioningSuccessor(input: ResolvePwaProvisioningRecoveryInput): Promise<PwaProvisioningSuccessor | undefined> {
+  const prefixLength = assertJournalPrefix(input.journal).length;
+  if (prefixLength === 0) return undefined;
+  if (prefixLength !== 1 && prefixLength !== 2) fail("automatic successor requires exactly one or two confirmed signers");
+  if (!input.providers[0].source || !input.providers[1].source || input.providers[0].source === input.providers[1].source) fail("automatic successor requires two distinct evidence providers");
+  const nonceObservations = await Promise.all([...input.providers, input.relay].map(async client => {
+    const [latest, pending] = await Promise.all([client.getTransactionCount({ address: input.journal.funder, blockTag: "latest" }), client.getTransactionCount({ address: input.journal.funder, blockTag: "pending" })]);
+    if (BigInt(latest) !== BigInt(pending)) fail("automatic successor cannot proceed with pending or unknown nonce consumption");
+    return BigInt(latest);
+  }));
+  const nextNonce = nonceObservations[0]!;
+  if (nonceObservations.some(nonce => nonce !== nextNonce)) fail("automatic successor providers disagree on current nonce");
+  const firstMissing = BigInt(input.journal.entries[0]!.nonce) + BigInt(prefixLength);
+  if (nextNonce === firstMissing) return undefined;
+  if (nextNonce < firstMissing || nextNonce - firstMissing > 32n) fail("automatic successor nonce gap exceeds the supported bound");
+  if (input.providers.some(provider => !provider.getBlockWithTransactions)) fail("automatic successor canonical block transaction reader is required");
+  const heads = await Promise.all(input.providers.map(provider => provider.getBlockNumber()));
+  const upper = (heads[0] < heads[1] ? heads[0] : heads[1]) - 5n;
+  const lower = input.journal.entries.at(-1)!.receipt!.blockNumber - 1n;
+  if (lower < 0n || upper < lower || upper - lower > 4096n) fail("automatic successor canonical block span exceeds the supported bound");
+  const anchors = new Map<bigint, Hex>();
+  const canonicalBlock = async (blockNumber: bigint): Promise<Hex> => {
+    const blocks = await Promise.all(input.providers.map(provider => provider.getBlock({ blockNumber })));
+    if (!blocks[0].hash || !blocks[1].hash || blocks.some(block => block.number !== blockNumber || block.hash!.toLowerCase() !== blocks[0].hash!.toLowerCase())) fail("automatic successor canonical block providers disagree");
+    const hash = blocks[0].hash!.toLowerCase() as Hex;
+    if (anchors.has(blockNumber) && anchors.get(blockNumber) !== hash) fail("automatic successor canonical block changed");
+    anchors.set(blockNumber, hash);
+    return hash;
+  };
+  const nonceAt = async (blockNumber: bigint): Promise<bigint> => {
+    await canonicalBlock(blockNumber);
+    const counts = await Promise.all(input.providers.map(provider => provider.getTransactionCount({ address: input.journal.funder, blockNumber })));
+    if (BigInt(counts[0]) !== BigInt(counts[1])) fail("automatic successor historical nonce providers disagree");
+    return BigInt(counts[0]);
+  };
+  if (await nonceAt(lower) > firstMissing || await nonceAt(upper) !== nextNonce) fail("automatic successor nonce history is not fully confirmed within its anchors");
+  const consumedTransactions: { nonce: bigint; transactionHash: Hex }[] = [];
+  for (let nonce = firstMissing; nonce < nextNonce; nonce += 1n) {
+    let left = lower;
+    let right = upper;
+    while (right - left > 1n) {
+      const middle = (left + right) / 2n;
+      if (await nonceAt(middle) > nonce) right = middle;
+      else left = middle;
+    }
+    if (await nonceAt(left) > nonce || await nonceAt(right) <= nonce) fail("automatic successor historical nonce transition changed");
+    const blockHash = await canonicalBlock(right);
+    const blocks = await Promise.all(input.providers.map(provider => provider.getBlockWithTransactions!({ blockNumber: right })));
+    const matched = blocks.map(block => {
+      if (block.number !== right || block.hash?.toLowerCase() !== blockHash) fail("automatic successor transaction block anchor changed");
+      const matches = block.transactions.filter(transaction => isAddressEqual(transaction.from, input.journal.funder) && transaction.nonce === Number(nonce));
+      if (matches.length !== 1) fail("automatic successor consumed transaction is missing or ambiguous");
+      return matches[0]!;
+    });
+    if (!sameTransaction(matched[0], matched[1])) fail("automatic successor providers disagree on consumed envelope");
+    const receipts = await Promise.all(input.providers.map(provider => provider.getTransactionReceipt({ hash: matched[0].hash })));
+    if (receipts.some(receipt => !receipt || receipt.blockNumber !== right || receipt.blockHash.toLowerCase() !== blockHash)) fail("automatic successor receipt differs from its discovered canonical block");
+    consumedTransactions.push(Object.freeze({ nonce, transactionHash: matched[0].hash }));
+  }
+  const candidates = readReviewDocuments(input.reviewDirectory).filter(document => candidateMatchesPrefix(document, input.journal));
+  const verified: PwaProvisioningSuccessor[] = [];
+  const failures = new Set<string>();
+  for (const document of candidates) {
+    try {
+      const credentials = decodeCredentials(document);
+      const original = await rebuildPlan(input, credentials, BigInt(input.journal.entries[0]!.nonce), prefixLength, { expectedCurrentDeployerNonce: nextNonce, verifiedDeploymentPrefixLength: prefixLength });
+      if (provisioningPackageHash(original).toLowerCase() !== document.packageHash) continue;
+      await Promise.all(input.providers.map(provider => verifyProviderPrefix(provider, original, input.journal, prefixLength)));
+      const candidate = Object.freeze({ formatVersion: 1 as const, scope: "sepolia-pwa-provisioning-successor" as const, chainId: SEPOLIA_CHAIN_ID, originalPackageHash: document.packageHash, confirmedPrefixLength: prefixLength, consumedTransactions: Object.freeze(consumedTransactions), expectedNextNonce: nextNonce });
+      await verifyConsumedLineage(input.providers, original, candidate, prefixLength);
+      const resolved = await resolvePwaProvisioningRecovery({ ...input, successor: candidate, successors: [candidate] });
+      if (!resolved) fail("automatic successor did not rebuild a verified plan");
+      verified.push(candidate);
+    } catch (error) { failures.add(safeCandidateFailure(error)); }
+  }
+  if (verified.length !== 1) fail(`automatic successor original review is missing or ambiguous (${[...failures].join("; ")})`);
+  for (const [blockNumber, hash] of anchors) if (await canonicalBlock(blockNumber) !== hash) fail("automatic successor canonical anchor changed");
+  const finalNonces = await Promise.all([...input.providers, input.relay].map(async client => [BigInt(await client.getTransactionCount({ address: input.journal.funder, blockTag: "latest" })), BigInt(await client.getTransactionCount({ address: input.journal.funder, blockTag: "pending" }))]));
+  if (finalNonces.some(counts => counts.some(nonce => nonce !== nextNonce))) fail("automatic successor nonce changed during verification");
+  const result = verified[0]!;
+  if (!await resolvePwaProvisioningRecovery({ ...input, successor: result, successors: [result] })) fail("automatic successor final reconstruction changed");
+  return result;
+}
+
+export type ResolveHistoricalPwaVaultInput = Readonly<{
+  reviewDirectory: string;
+  journal: LiveJournal;
+  providers: readonly [HistoricalPwaReadClient, HistoricalPwaReadClient];
+  relay: PwaProvisioningRecoveryRelay;
+  successors: readonly PwaProvisioningSuccessor[];
+}>;
+type HistoricalAnchor = Readonly<{ originalPackageHash: Hex; completedPackageHash: Hex; profileVersion: PwaHistoricalVault["profileVersion"] }>;
+
+function historicalReview(document: ReviewDocument): HistoricalReview {
+  const transactions = document.review.transactions.map((raw, index) => {
+    if (raw.id !== EXPECTED_IDS[index] || raw.operation !== 0 || typeof raw.to !== "string" || !isAddress(raw.to) || typeof raw.expectedCreatedAddress !== "string" || !isAddress(raw.expectedCreatedAddress) || typeof raw.data !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(raw.data) || typeof raw.creationCodeHash !== "string" || !HASH.test(raw.creationCodeHash) || typeof raw.expectedRuntimeCodeHash !== "string" || !HASH.test(raw.expectedRuntimeCodeHash)) fail("historical transaction identity is malformed");
+    if (keccak256(raw.data as Hex).toLowerCase() !== raw.creationCodeHash.toLowerCase()) fail("historical creation code hash changed");
+    return Object.freeze({ ...raw, nonce: decimal(raw.nonce, "historical nonce"), value: decimal(raw.value, "historical value") }) as unknown as PwaProvisioningTransaction;
+  });
+  const review = { ...document.review, transactions } as unknown as HistoricalReview;
+  for (const [key, index] of [["primaryPasskey", 0], ["secondaryPasskey", 1], ["guard", 3], ["delay", 4], ["safe", 6]] as const) {
+    if (!isAddressEqual(review.addresses[key], transactions[index]!.expectedCreatedAddress)) fail("historical reviewed addresses changed");
+  }
+  return review;
+}
+
+async function resolveHistoricalVault(input: ResolveHistoricalPwaVaultInput, anchor: HistoricalAnchor, registry?: DeploymentInfrastructureRegistry): Promise<PwaHistoricalVault | undefined> {
+  const prefix = assertJournalPrefix(input.journal, input.successors);
+  if (prefix.length === 0) return undefined;
+  const documents = readReviewDocuments(input.reviewDirectory);
+  const originalDocument = documents.find(document => document.packageHash === anchor.originalPackageHash);
+  const completedDocument = documents.find(document => document.packageHash === anchor.completedPackageHash);
+  if (!originalDocument && !completedDocument) return undefined;
+  if (prefix.length !== EXPECTED_IDS.length || !originalDocument || !completedDocument) fail("historical compatibility requires both pinned packages and all seven successful rows");
+  if (!input.providers[0].source || !input.providers[1].source || input.providers[0].source === input.providers[1].source) fail("historical compatibility requires two distinct evidence providers");
+  const original = historicalReview(originalDocument);
+  const completed = historicalReview(completedDocument);
+  if (!isAddressEqual(original.deployer, input.journal.funder) || !isAddressEqual(completed.deployer, input.journal.funder)) fail("historical deployer identity changed");
+  const successors = input.successors.filter(successor => successor.originalPackageHash === anchor.originalPackageHash);
+  if (successors.length !== 1) fail("historical successor lineage is missing or ambiguous");
+  const successor = successors[0]!;
+  if (canonical(original.transactions.slice(0, successor.confirmedPrefixLength)) !== canonical(completed.transactions.slice(0, successor.confirmedPrefixLength))) fail("historical successor changed its confirmed prefix");
+  if (completed.transactions.some((transaction, index) => transaction.nonce !== (index < successor.confirmedPrefixLength ? original.transactions[index]!.nonce : successor.expectedNextNonce + BigInt(index - successor.confirmedPrefixLength)))) fail("historical successor nonce sequence changed");
+  const lastNonce = completed.transactions.at(-1)!.nonce;
+  await completedDeployerNonce(input, lastNonce + 1n);
+  await verifyConsumedLineage(input.providers, original, successor, successor.confirmedPrefixLength);
+  const permittedCode = new Map(completed.transactions.slice(successor.confirmedPrefixLength).map(transaction => [transaction.expectedCreatedAddress.toLowerCase(), transaction.expectedRuntimeCodeHash]));
+  await Promise.all(input.providers.map(async provider => {
+    await verifyProviderPrefix(provider, original, input.journal, successor.confirmedPrefixLength, permittedCode);
+    await verifyProviderPrefix(provider, completed, input.journal, EXPECTED_IDS.length);
+  }));
+  const confirmedCost = input.journal.entries.reduce((sum, entry) => sum + entry.reserved, 0n);
+  if (confirmedCost > 50_000_000_000_000_000n) fail("historical provisioning exceeds the phase outlay ceiling");
+  const heads = await Promise.all(input.providers.map(provider => provider.getBlockNumber()));
+  const blockNumber = heads[0] < heads[1] ? heads[0] : heads[1];
+  const blocks = await Promise.all(input.providers.map(provider => provider.getBlock({ blockNumber })));
+  if (blocks.some(block => block.number !== blockNumber || !block.hash || block.hash.toLowerCase() !== blocks[0]!.hash?.toLowerCase())) fail("historical topology snapshot block disagrees");
+  const credentials = decodeCredentials(completedDocument);
+  const states = await Promise.all(input.providers.map(client => verifyHistoricalPwaTopology({ review: completed, client, blockNumber, credentials, registry })));
+  if (canonical(states[0]) !== canonical(states[1])) fail("historical topology providers disagree on spending state");
+  const rechecked = await Promise.all(input.providers.map(provider => provider.getBlock({ blockNumber })));
+  if (rechecked.some(block => block.number !== blockNumber || block.hash?.toLowerCase() !== blocks[0]!.hash?.toLowerCase())) fail("historical topology snapshot block changed");
+  const blockHash = blocks[0]!.hash!;
+  const policy = Object.freeze({ recipientMode: "all-lanes-allowlisted" as const, assets: Object.freeze(completed.policy.assets.map(asset => Object.freeze({ ...asset, recipients: Object.freeze([...asset.recipients]) }))) });
+  const topologyReportHash = keccak256(stringToHex(canonical({ profileVersion: anchor.profileVersion, packageHash: completedDocument.packageHash, blockNumber, blockHash, policy, states: states[0] })));
+  return Object.freeze({
+    mode: "read-only" as const, profileVersion: anchor.profileVersion, chainId: SEPOLIA_CHAIN_ID, ...completed.addresses, policy,
+    evidence: Object.freeze({ originalPackageHash: originalDocument.packageHash, packageHash: completedDocument.packageHash, planHash: completed.planHash, policyHash: completed.policy.policyHash, setupTransactionHash: input.journal.entries.at(-1)!.transactionHash, topologyReportHash, blockNumber: String(blockNumber), blockHash }),
+  });
+}
+
+/** Only the committed historical package pair may select this non-authorizing path. */
+export async function resolveCompletedHistoricalPwaVault(input: ResolveHistoricalPwaVaultInput): Promise<PwaHistoricalVault | undefined> {
+  return resolveHistoricalVault(input, CommittedHistoricalVault as HistoricalAnchor);
+}
+
+/** Explicit test fixture registry; never selected by backend/environment/browser input. */
+export async function resolveCompletedHistoricalPwaVaultForTestsOnly(input: ResolveHistoricalPwaVaultInput, options: Readonly<{ anchor: HistoricalAnchor; registry: DeploymentInfrastructureRegistry }>): Promise<PwaHistoricalVault | undefined> {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") fail("test-only historical registry is disabled");
+  return resolveHistoricalVault(input, options.anchor, options.registry);
 }

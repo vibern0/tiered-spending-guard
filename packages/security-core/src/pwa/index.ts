@@ -7,3 +7,4 @@ export * from "./provisioning-authorization-store";
 export * from "./provisioning-recovery";
 export * from "./intents";
 export * from "./observer";
+export * from "./submission-api";

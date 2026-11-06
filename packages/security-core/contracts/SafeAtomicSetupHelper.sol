@@ -21,7 +21,8 @@ interface IAtomicGuardSetup {
         uint256 stepUpPerTransaction,
         uint256 baseDailyLimit,
         uint256 instantDailyLimit,
-        address[] calldata recipients
+        address[] calldata recipients,
+        uint8 baseRecipientMode
     ) external;
     function setMaintenance(address replacementMaintenance) external;
     function maintenance() external view returns (address);
@@ -46,6 +47,7 @@ contract SafeAtomicSetupHelper {
         uint256 baseDailyLimit;
         uint256 instantDailyLimit;
         address[] recipients;
+        uint8 baseRecipientMode;
     }
 
     struct SetupParams {
@@ -110,7 +112,8 @@ contract SafeAtomicSetupHelper {
                     asset.stepUpPerTransaction,
                     asset.baseDailyLimit,
                     asset.instantDailyLimit,
-                    asset.recipients
+                    asset.recipients,
+                    asset.baseRecipientMode
                 ),
                 SET_ASSET_POLICY_SELECTOR
             );

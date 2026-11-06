@@ -4,6 +4,8 @@ import {
   encodeFunctionData,
   getAddress,
   isAddressEqual,
+  isAddress,
+  parseAbi,
   keccak256,
   stringToHex,
   type Address,
@@ -17,6 +19,7 @@ import {
   type PlannedPasskeySigner,
   type PwaPlanningInfrastructure,
   type ReadOnlyDeploymentClient,
+  type VerifiedDeploymentInfrastructure,
 } from "../config/deployments";
 import type { ConfiguredSigner, VaultPolicy } from "../config/policy";
 import {
@@ -31,17 +34,20 @@ import {
   buildVaultPlan,
   deriveVaultSafeProxyAddress,
   planHash as vaultPlanHash,
+  policyHash as computePolicyHash,
+  isReviewedVaultDeploymentPlan,
   type PlannedDeploymentTransaction,
   type VaultDeploymentPlan,
   verifyVaultPrerequisites,
 } from "../topology/build";
 import { deriveComponentAddresses } from "../topology/addressing";
 import { isReviewedVaultArtifacts, resolveReviewedVaultArtifacts, type ArtifactResolutionClient, type ReviewedVaultArtifacts } from "../topology/reviewed-artifacts";
-import { PHASE_OUTLAY_LIMIT, submitLiveIntent, type LiveContext, type LiveJournal, type LiveReceipt } from "../../scripts/live/submission";
-import { verifyTopology } from "../topology/verify";
+import { PHASE_OUTLAY_LIMIT, liveIntentHash, submitLiveIntent, type LiveContext, type LiveJournal, type LiveReceipt } from "../../scripts/live/submission";
+import { verifyTopology, type TopologyReport } from "../topology/verify";
 import { createLiveJournalStore, createSepoliaLiveContext, type SepoliaRpc } from "../../scripts/live/runtime";
+import { verifyPasskeySignerComponent } from "../topology/evidence";
 
-export { readLiveJournal } from "../../scripts/live/runtime";
+export { readLiveJournal, createLiveJournalStore } from "../../scripts/live/runtime";
 export type { LiveJournal } from "../../scripts/live/submission";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -85,13 +91,17 @@ export type PwaProvisioningExecutionContext = Readonly<{
   confirmedPrefixLength(): Promise<number>;
   currentDeployerNonce(): Promise<bigint>;
   authorize?(transaction: PwaProvisioningTransaction): Promise<ApprovedPwaProvisioningTransaction>;
+  resumePending?(transaction: PwaProvisioningTransaction): Promise<Readonly<{ transactionHash: Hex; receipt: PwaProvisioningReceipt }> | undefined>;
   submit(transaction: ApprovedPwaProvisioningTransaction): Promise<Readonly<{ transactionHash: Hex; receipt: PwaProvisioningReceipt }>>;
   completedSetupReceipt?(): Promise<Readonly<{ transactionHash: Hex; blockNumber: bigint }> | undefined>;
   verifyFinalTopology(plan: PwaProvisioningPlan): Promise<Hex>;
+  currentPolicyHash?(): Promise<Hex>;
 }>;
 const reviewedExecutionContexts = new WeakSet<object>();
 
 type PwaExecutionClient = ReadOnlyDeploymentClient & Readonly<{
+  getChainId?(): Promise<number>;
+  getBlock?(args: { blockNumber: bigint }): Promise<Readonly<{ number: bigint; hash: Hex | null; timestamp: bigint }>>;
   getStorageAt(args: { address: Address; slot: Hex }): Promise<Hex | undefined>;
   getTransactionCount(args: { address: Address; blockTag?: "latest" | "pending" }): Promise<number | bigint>;
   readContract(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown>;
@@ -99,6 +109,7 @@ type PwaExecutionClient = ReadOnlyDeploymentClient & Readonly<{
   estimateFeesPerGas(): Promise<Readonly<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>>;
   getBlockNumber(): Promise<bigint>;
   getTransactionReceipt(args: { hash: Hex }): Promise<LiveReceipt>;
+  getTransaction?(args: { hash: Hex }): Promise<import("./provisioning-recovery").PwaProvisioningRecoveryTransaction | null>;
 }>;
 
 export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
@@ -173,22 +184,18 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
     if (!runtime || runtime === "0x" || keccak256(runtime).toLowerCase() !== transaction.expectedRuntimeCodeHash.toLowerCase()) throw new Error(`fail closed: ${transaction.id} runtime does not match the reviewed artifact`);
   };
 
+  let verifiedCurrentPolicyHash: Hex | undefined;
   const verifyFinalTopology = async (): Promise<Hex> => {
     const finalNonce = input.plan.transactions.at(-1)!.nonce + 1n;
-    const primary = input.plan.infrastructure.primaryPasskeySigner;
     const secondary = input.plan.infrastructure.secondaryPasskeySigner;
     const secondaryRuntime = await input.client.getBytecode({ address: secondary.address });
     if (!secondaryRuntime || secondaryRuntime === "0x" || keccak256(secondaryRuntime).toLowerCase() !== secondary.expectedRuntimeCodeHash.toLowerCase()) throw new Error("fail closed: secondary passkey signer runtime changed before final topology verification");
-    const deployments = await resolveVerifiedDeploymentInfrastructure(input.client, {
-      chainId: SEPOLIA_CHAIN_ID,
-      deployer: input.plan.deployer,
-      expectedDeployerNonce: finalNonce,
-      passkeySigner: { address: primary.address, runtimeCodeHash: primary.expectedRuntimeCodeHash, bindingHash: primary.bindingHash, source: primary.source, binding: primary.binding },
-    });
-    const prerequisites = await verifyVaultPrerequisites(input.client, input.plan.vaultPlan, "after-setup");
-    const report = await verifyTopology({ chainId: SEPOLIA_CHAIN_ID, policy: input.plan.policy, safe: input.plan.safe, guard: input.plan.guard, delay: input.plan.delay, deployments, prerequisites, client: input.client });
-    if (!report.ok) throw new Error(`fail closed: final topology verification failed: ${report.failures.join(", ")}`);
-    return keccak256(stringToHex(canonical(report)));
+    const currentNonce = BigInt(await input.client.getTransactionCount({ address: input.plan.deployer, blockTag: "latest" }));
+    if (currentNonce < finalNonce) throw new Error("fail closed: current deployer nonce is behind the completed deployment");
+    if (!input.client.getBlock || !input.client.getChainId) throw new Error("fail closed: pinned final topology readers are required");
+    const proof = await verifyCurrentPwaTopology(input.plan, input.client as PwaSubmissionReadClient, await input.client.getBlockNumber());
+    verifiedCurrentPolicyHash = computePolicyHash(proof.policy);
+    return proof.topologyReportHash;
   };
 
   const context: PwaProvisioningExecutionContext = Object.freeze({
@@ -211,6 +218,25 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
       return pending ? BigInt(pending.nonce) : BigInt(await input.liveContext.nonce());
     },
     authorize: input.authorize,
+    async resumePending(transaction) {
+      const entry = input.journal.entries.find(candidate => candidate.id === `pwa-${transaction.id}`);
+      if (!entry) return undefined;
+      if (entry.status !== "pending" || entry.nonce !== Number(transaction.nonce) || !input.client.getTransaction) throw new Error("fail closed: exact pending provisioning transaction reader is required");
+      const signed = await input.client.getTransaction({ hash: entry.transactionHash });
+      if (!signed) throw new Error("fail closed: pending provisioning transaction is unresolved");
+      const to = isAddressEqual(transaction.to, ZERO) ? undefined : transaction.to;
+      const intent = { id: entry.id, ...(to ? { to } : {}), data: transaction.data, value: transaction.value, nonce: Number(transaction.nonce), gas: signed.gas, maxFeePerGas: signed.maxFeePerGas, maxPriorityFeePerGas: signed.maxPriorityFeePerGas };
+      if (signed.hash.toLowerCase() !== entry.transactionHash.toLowerCase() || signed.chainId !== SEPOLIA_CHAIN_ID || signed.type !== "eip1559" || !isAddressEqual(signed.from, input.plan.deployer) || signed.nonce !== entry.nonce || signed.to?.toLowerCase() !== to?.toLowerCase() || signed.input.toLowerCase() !== transaction.data.toLowerCase() || signed.value !== transaction.value || liveIntentHash(intent, input.plan.deployer) !== entry.intentHash || entry.reserved !== signed.value + signed.gas * signed.maxFeePerGas) throw new Error("fail closed: pending provisioning signed envelope changed");
+      const receipt = await input.liveContext.receipt(entry.transactionHash);
+      if (!receipt) throw new Error("fail closed: pending provisioning transaction is unresolved");
+      if (receipt.status !== "success" || receipt.transactionHash !== entry.transactionHash || receipt.gasUsed < 0n || receipt.gasUsed > signed.gas || receipt.effectiveGasPrice < 0n || receipt.effectiveGasPrice > signed.maxFeePerGas) throw new Error("fail closed: pending provisioning receipt disagrees with its signed envelope");
+      await verifyConfirmed(transaction, receipt);
+      entry.status = "success";
+      entry.receipt = receipt;
+      entry.reserved = receipt.gasUsed * receipt.effectiveGasPrice + transaction.value;
+      await input.liveContext.persist(input.journal);
+      return Object.freeze({ transactionHash: entry.transactionHash, receipt: Object.freeze({ status: "success" as const, blockNumber: receipt.blockNumber }) });
+    },
     async completedSetupReceipt() {
       const transaction = input.plan.transactions.at(-1)!;
       const entry = input.journal.entries.at(-1);
@@ -240,6 +266,7 @@ export function createDurablePwaProvisioningExecutionContext(input: Readonly<{
       return Object.freeze({ transactionHash: entry.transactionHash, receipt: Object.freeze({ status: "success" as const, blockNumber: entry.receipt.blockNumber }) });
     },
     verifyFinalTopology,
+    currentPolicyHash: async () => { if (!verifiedCurrentPolicyHash) throw new Error("fail closed: current policy is not verified"); return verifiedCurrentPolicyHash; },
   });
   reviewedExecutionContexts.add(context);
   return context;
@@ -290,6 +317,75 @@ export type PwaProvisioningResult = Readonly<{
   topologyReportHash: Hex;
 }>;
 const verifiedProvisioningResults = new WeakSet<object>();
+const reviewedPwaPlans = new WeakMap<object, string>();
+
+export type PwaSubmissionReadClient = Readonly<{
+  getChainId(): Promise<number>;
+  getBlock(args: { blockNumber: bigint }): Promise<Readonly<{ number: bigint; hash: Hex | null; timestamp: bigint }>>;
+  getBytecode(args: { address: Address; blockNumber?: bigint }): Promise<Hex | undefined>;
+  getStorageAt(args: { address: Address; slot: Hex; blockNumber?: bigint }): Promise<Hex | undefined>;
+  readContract(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[]; blockNumber?: bigint }): Promise<unknown>;
+  getTransactionCount(args: { address: Address; blockNumber?: bigint }): Promise<number | bigint>;
+}>;
+
+function assertReviewedPwaPlan(plan: PwaProvisioningPlan): void {
+  if (!isPwaPlanningInfrastructure(plan.infrastructure) || !isReviewedVaultDeploymentPlan(plan.vaultPlan) || reviewedPwaPlans.get(plan) !== canonical(plan) || plan.policyHash !== computePolicyHash(plan.policy) || plan.deploymentsHash !== infrastructureHash(plan.infrastructure)) throw new Error("fail closed: original reviewed PWA plan commitments are required");
+}
+
+async function verifyCurrentPwaTopology(plan: PwaProvisioningPlan, client: PwaSubmissionReadClient, blockNumber: bigint): Promise<Readonly<{ deployments: VerifiedDeploymentInfrastructure; policy: VaultPolicy; topologyReport: TopologyReport; topologyReportHash: Hex }>> {
+  assertReviewedPwaPlan(plan);
+  if (blockNumber < 0n || await client.getChainId() !== SEPOLIA_CHAIN_ID) throw new Error("fail closed: PWA submission chain or block mismatch");
+  const before = await client.getBlock({ blockNumber });
+  if (before.number !== blockNumber || !before.hash || !HASH.test(before.hash)) throw new Error("fail closed: PWA submission block unavailable");
+  const pinned = {
+    getBytecode: (args: { address: Address }) => client.getBytecode({ ...args, blockNumber }),
+    getStorageAt: (args: { address: Address; slot: Hex }) => client.getStorageAt({ ...args, blockNumber }),
+    readContract: (args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }) => client.readContract({ ...args, blockNumber }),
+    getTransactionCount: (args: { address: Address }) => client.getTransactionCount({ ...args, blockNumber }),
+  };
+  const currentNonce = BigInt(await pinned.getTransactionCount({ address: plan.deployer }));
+  if (currentNonce < plan.transactions.at(-1)!.nonce + 1n) throw new Error("fail closed: payer nonce is behind completed provisioning");
+  const usdcRuntime = await pinned.getBytecode({ address: SEPOLIA_USDC_ADDRESS });
+  if (!usdcRuntime || usdcRuntime === "0x" || keccak256(usdcRuntime) !== REVIEWED_USDC_RUNTIME_CODE_HASH) throw new Error("fail closed: reviewed USDC runtime changed");
+  const primary = plan.infrastructure.primaryPasskeySigner;
+  const secondary = plan.infrastructure.secondaryPasskeySigner;
+  const deployments = await resolveVerifiedDeploymentInfrastructure(pinned, { chainId: SEPOLIA_CHAIN_ID, deployer: plan.deployer, expectedDeployerNonce: currentNonce, passkeySigner: { ...primary, runtimeCodeHash: primary.expectedRuntimeCodeHash } });
+  await verifyPasskeySignerComponent(pinned, { ...secondary, runtimeCodeHash: secondary.expectedRuntimeCodeHash, factory: deployments.passkeySignerFactory.address });
+  for (const [name, dependency] of Object.entries(plan.infrastructure.dependencies)) {
+    const current = deployments.dependencies[name as keyof typeof deployments.dependencies];
+    if (!current || canonical(current) !== canonical(dependency)) throw new Error("fail closed: PWA deployment identity drift");
+  }
+  const recipients = await pinned.readContract({ address: plan.guard, abi: parseAbi(["function getPolicyRecipients(address) view returns (address[])"]), functionName: "getPolicyRecipients", args: [SEPOLIA_USDC_ADDRESS] });
+  if (!Array.isArray(recipients) || recipients.length === 0 || recipients.some((recipient) => typeof recipient !== "string" || !isAddress(recipient) || isAddressEqual(recipient as Address, ZERO)) || new Set(recipients.map((recipient: string) => recipient.toLowerCase())).size !== recipients.length) throw new Error("fail closed: PWA recipients are invalid");
+  const original = plan.policy.assets[0]!;
+  if (original.recipients.some((recipient, index) => !recipients[index] || !isAddressEqual(recipient, recipients[index] as Address))) throw new Error("fail closed: PWA recipient additions must preserve the original list");
+  const policy: VaultPolicy = Object.freeze({ ...plan.policy, assets: Object.freeze([Object.freeze({ ...original, recipients: Object.freeze(recipients.map((recipient: string) => getAddress(recipient))) })]) });
+  const counters = await pinned.readContract({ address: plan.guard, abi: parseAbi(["function spendState(address) view returns (uint256,uint256,uint256)"]), functionName: "spendState", args: [SEPOLIA_USDC_ADDRESS] });
+  const anchor = policy.periodAnchor, seconds = BigInt(policy.periodSeconds);
+  const window = before.timestamp >= anchor ? anchor + ((before.timestamp - anchor) / seconds) * seconds : -1n;
+  if (!Array.isArray(counters) || counters.length !== 3 || counters.some((value) => typeof value !== "bigint" || value < 0n) || counters[0] < anchor || counters[0] > window || (counters[0] - anchor) % seconds !== 0n || counters[1] > original.baseDailyLimit || counters[2] < counters[1] || counters[2] > original.instantDailyLimit) throw new Error("fail closed: PWA counter window or limits mismatch");
+  const prerequisites = await verifyVaultPrerequisites(pinned, plan.vaultPlan, "after-setup");
+  const report = await verifyTopology({ chainId: SEPOLIA_CHAIN_ID, policy, safe: plan.safe, guard: plan.guard, delay: plan.delay, deployments, prerequisites, client: pinned });
+  if (!report.ok) throw new Error(`fail closed: PWA submission topology failed: ${report.failures.join(", ")}`);
+  const after = await client.getBlock({ blockNumber });
+  if (await client.getChainId() !== SEPOLIA_CHAIN_ID || after.number !== blockNumber || !after.hash || after.hash.toLowerCase() !== before.hash.toLowerCase() || after.timestamp !== before.timestamp) throw new Error("fail closed: PWA submission block reorg or chain drift");
+  const topologyReport = Object.freeze({ ...report, failures: Object.freeze([...report.failures]), checked: Object.freeze([...report.checked]) });
+  return Object.freeze({ deployments, policy, topologyReport, topologyReportHash: keccak256(stringToHex(canonical(topologyReport))) });
+}
+
+/** Re-issues a capability only after original provenance and complete current topology agree. */
+export type PwaSubmissionState = Readonly<{ vault: PwaProvisioningResult; deployments: VerifiedDeploymentInfrastructure; policy: VaultPolicy; topologyReport: TopologyReport; topologyReportHash: Hex }>;
+
+export async function verifyPwaSubmissionState(input: Readonly<{ plan: PwaProvisioningPlan; vault: PwaProvisioningResult; client: PwaSubmissionReadClient; blockNumber: bigint }>): Promise<PwaSubmissionState> {
+  if (!isVerifiedPwaProvisioningResult(input.vault)) throw new Error("fail closed: verified PWA vault evidence required");
+  assertReviewedPwaPlan(input.plan);
+  for (const key of ["safe", "guard", "delay", "primaryPasskey", "secondaryPasskey", "usdc"] as const) if (!isAddressEqual(input.vault[key], input.plan[key])) throw new Error("fail closed: PWA vault and plan identity mismatch");
+  if (input.vault.chainId !== SEPOLIA_CHAIN_ID || input.vault.deploymentsHash !== input.plan.deploymentsHash || input.blockNumber < input.vault.setupReceipt.blockNumber) throw new Error("fail closed: PWA vault deployment commitment mismatch");
+  const proof = await verifyCurrentPwaTopology(input.plan, input.client, input.blockNumber);
+  const vault = Object.freeze({ ...input.vault, policyHash: computePolicyHash(proof.policy), topologyReportHash: proof.topologyReportHash });
+  verifiedProvisioningResults.add(vault);
+  return Object.freeze({ ...proof, vault });
+}
 
 export function isVerifiedPwaProvisioningResult(value: unknown): value is PwaProvisioningResult {
   return typeof value === "object" && value !== null && verifiedProvisioningResults.has(value);
@@ -355,7 +451,9 @@ function successorLayout(input: Readonly<{
   if (input.confirmedProvisioningPrefixLength < 1 || input.confirmedProvisioningPrefixLength > 2) throw new Error("fail closed: successor must preserve one or two confirmed signer transactions");
   const remainingCount = 7 - input.confirmedProvisioningPrefixLength;
   if (!Number.isSafeInteger(confirmedSuccessorTransactionCount) || confirmedSuccessorTransactionCount < 0 || confirmedSuccessorTransactionCount > remainingCount) throw new Error("fail closed: confirmed successor transaction count is invalid");
-  if (successorStartingNonce + BigInt(confirmedSuccessorTransactionCount) !== input.expectedCurrentDeployerNonce) throw new Error("fail closed: successor starting nonce does not match its verified current relay nonce");
+  const nextNonce = successorStartingNonce + BigInt(confirmedSuccessorTransactionCount);
+  const complete = confirmedSuccessorTransactionCount === remainingCount;
+  if (complete ? input.expectedCurrentDeployerNonce < nextNonce : input.expectedCurrentDeployerNonce !== nextNonce) throw new Error("fail closed: successor starting nonce does not match its verified current relay nonce");
   const prerequisiteNonce = successorStartingNonce + BigInt(2 - input.confirmedProvisioningPrefixLength);
   if (input.prerequisiteStartingNonce !== undefined && input.prerequisiteStartingNonce !== prerequisiteNonce) throw new Error("fail closed: successor prerequisite starting nonce is inconsistent");
   return Object.freeze({
@@ -499,7 +597,9 @@ export async function createPwaProvisioningPlan(input: CreatePwaProvisioningPlan
     Object.freeze({ id: "safe-proxy" as const, ...vaultPlan.safeProxyDeployment }),
   ]);
   const planHash = keccak256(stringToHex(canonical({ signerTransactions, vaultPlanHash: vaultPlanHash(vaultPlan) })));
-  return Object.freeze({ formatVersion: 1, chainId: SEPOLIA_CHAIN_ID, deployer: input.deployer, primaryPasskey, secondaryPasskey, safe, guard: components.guard, delay: components.delay, usdc: SEPOLIA_USDC_ADDRESS, deploymentsHash: infrastructureHash(input.infrastructure), policyHash: vaultPlan.review.policyHash, planHash, policy, infrastructure: input.infrastructure, transactions, vaultPlan });
+  const result = Object.freeze({ formatVersion: 1 as const, chainId: SEPOLIA_CHAIN_ID, deployer: input.deployer, primaryPasskey, secondaryPasskey, safe, guard: components.guard, delay: components.delay, usdc: SEPOLIA_USDC_ADDRESS, deploymentsHash: infrastructureHash(input.infrastructure), policyHash: vaultPlan.review.policyHash, planHash, policy, infrastructure: input.infrastructure, transactions, vaultPlan });
+  reviewedPwaPlans.set(result, canonical(result));
+  return result;
 }
 
 export async function resolvePwaProvisioningPlan(input: ResolvePwaProvisioningPlanInput): Promise<PwaProvisioningPlan> {
@@ -613,23 +713,28 @@ export async function executePwaProvisioning(plan: PwaProvisioningPlan, context:
   const currentNonce = await context.currentDeployerNonce();
   const complete = prefixLength === plan.transactions.length;
   const expectedNextNonce = complete ? plan.transactions.at(-1)!.nonce + 1n : plan.transactions[prefixLength]!.nonce;
-  if (currentNonce !== expectedNextNonce) {
+  if (complete ? currentNonce < expectedNextNonce : currentNonce !== expectedNextNonce) {
     const nextId = complete ? "completed-plan" : plan.transactions[prefixLength]!.id;
     throw new Error(`fail closed: deployer nonce does not equal the first missing reviewed transaction ${nextId}: expected ${expectedNextNonce}, observed ${currentNonce}`);
   }
-  if (!complete && !context.authorize) throw new Error("fail closed: per-transaction provisioning authorizer is required");
   let setupReceipt: PwaProvisioningResult["setupReceipt"] | undefined = complete ? await context.completedSetupReceipt?.() : undefined;
   for (const transaction of plan.transactions.slice(prefixLength)) {
-    const approved = await context.authorize(transaction);
-    if (pwaProvisioningTransactionHash(approved) !== pwaProvisioningTransactionHash(transaction)) throw new Error("fail closed: authorized provisioning transaction changed");
-    const result = await context.submit(approved);
+    let result = await context.resumePending?.(transaction);
+    if (!result) {
+      if (!context.authorize) throw new Error("fail closed: per-transaction provisioning authorizer is required");
+      const approved = await context.authorize(transaction);
+      if (pwaProvisioningTransactionHash(approved) !== pwaProvisioningTransactionHash(transaction)) throw new Error("fail closed: authorized provisioning transaction changed");
+      result = await context.submit(approved);
+    }
     if (result.receipt.status !== "success" || !HASH.test(result.transactionHash)) throw new Error(`fail closed: ${transaction.id} did not confirm successfully`);
     if (transaction.id === "safe-proxy") setupReceipt = Object.freeze({ transactionHash: result.transactionHash, blockNumber: result.receipt.blockNumber });
   }
   if (!setupReceipt) throw new Error("fail closed: Safe setup receipt is missing");
   const topologyReportHash = await context.verifyFinalTopology(plan);
   if (!HASH.test(topologyReportHash)) throw new Error("fail closed: topology report hash is invalid");
-  const result = Object.freeze({ chainId: SEPOLIA_CHAIN_ID, safe: plan.safe, guard: plan.guard, delay: plan.delay, primaryPasskey: plan.primaryPasskey, secondaryPasskey: plan.secondaryPasskey, usdc: plan.usdc, deploymentsHash: plan.deploymentsHash, policyHash: plan.policyHash, setupReceipt, topologyReportHash });
+  const currentPolicyHash = context.currentPolicyHash ? await context.currentPolicyHash() : plan.policyHash;
+  if (!HASH.test(currentPolicyHash)) throw new Error("fail closed: current policy hash is invalid");
+  const result = Object.freeze({ chainId: SEPOLIA_CHAIN_ID, safe: plan.safe, guard: plan.guard, delay: plan.delay, primaryPasskey: plan.primaryPasskey, secondaryPasskey: plan.secondaryPasskey, usdc: plan.usdc, deploymentsHash: plan.deploymentsHash, policyHash: currentPolicyHash, setupReceipt, topologyReportHash });
   verifiedProvisioningResults.add(result);
   return result;
 }

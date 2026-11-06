@@ -4,7 +4,15 @@ export class BackendRequestError extends Error {
   readonly stage: string | undefined;
   readonly requestId: string | undefined;
 
-  constructor(input: Readonly<{ status: number; message: string; code?: string; stage?: string; requestId?: string }>) {
+  constructor(
+    input: Readonly<{
+      status: number;
+      message: string;
+      code?: string;
+      stage?: string;
+      requestId?: string;
+    }>,
+  ) {
     super(input.message);
     this.name = "BackendRequestError";
     this.status = input.status;
@@ -14,18 +22,36 @@ export class BackendRequestError extends Error {
   }
 }
 
+export function canRetryAutomaticProvisioning(error: unknown): boolean {
+  return (
+    error instanceof BackendRequestError &&
+    [
+      "rpc_request_failed",
+      "provisioning_nonce_mismatch",
+      "provisioning_pending_confirmation",
+    ].includes(error.code ?? "")
+  );
+}
+
 export function describeProvisioningError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unknown provisioning error";
+  const reference =
+    error instanceof BackendRequestError && error.requestId
+      ? ` Reference: ${error.requestId}.`
+      : "";
 
   if (error instanceof BackendRequestError && error.code === "provisioning_nonce_mismatch") {
-    const transaction = message.match(/(?:for|before) ([a-z][a-z0-9-]+)/i)?.[1] ?? "the next deployment step";
-    const reference = error.requestId ? ` Reference: ${error.requestId}.` : "";
-    return `The relay nonce changed before ${transaction}. Restart the backend so it can verify the committed recovery path, then retry automatic provisioning.${reference}`;
+    const transaction =
+      message.match(/(?:for|before) ([a-z][a-z0-9-]+)/i)?.[1] ?? "the next deployment step";
+    return `Setup is waiting for verified recovery before ${transaction}. Recovery is automatic; your existing signers are preserved. If the wait continues, use Retry automatic provisioning.${reference}`;
   }
 
   if (error instanceof BackendRequestError && error.code === "rpc_request_failed") {
-    const reference = error.requestId ? ` Reference: ${error.requestId}.` : "";
-    return `A Sepolia provider failed during ${error.stage ?? "provisioning"}. Check the backend log with the matching reference, then retry.${reference}`;
+    return `A Sepolia provider is temporarily unavailable. Setup is recovering automatically. If the wait continues, use Retry automatic provisioning.${reference}`;
+  }
+
+  if (error instanceof BackendRequestError && error.code === "provisioning_pending_confirmation") {
+    return `Setup is waiting for the recorded transaction to confirm. Confirmation checks resume automatically. If the wait continues, use Retry automatic provisioning.${reference}`;
   }
 
   if (message.includes("VITE_SEPOLIA_RPC_URL")) {
@@ -37,12 +63,12 @@ export function describeProvisioningError(error: unknown): string {
   }
 
   if (/backend health check failed/i.test(message)) {
-    return `The local backend is unhealthy. Fix its readiness error, then retry: ${message.replace(/^Backend health check failed:\s*/i, "")}`;
+    return `The local backend is unhealthy. Setup has stopped safely; your existing signers are preserved. Reference: ${message.replace(/^Backend health check failed:\s*/i, "")}`;
   }
 
   if (/notallowederror|cancelled|canceled/i.test(message)) {
     return "Passkey creation was cancelled. Allow the browser passkey prompt and retry.";
   }
 
-  return `Vault setup failed: ${message}`;
+  return `Vault setup stopped safely: ${message}${reference}`;
 }

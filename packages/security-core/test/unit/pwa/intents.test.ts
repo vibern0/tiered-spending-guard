@@ -1,8 +1,9 @@
 import { expect } from "chai";
-import { decodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
 import {
   brandVerifiedPwaSnapshotForTestsOnly,
   preparePwaIntent,
+  decodePwaRecipientRepair,
   type VerifiedPwaSnapshot,
 } from "../../../src/pwa/intents";
 import { queueFingerprint } from "../../../src/queue/delay";
@@ -37,6 +38,24 @@ function snapshot(overrides: Partial<VerifiedPwaSnapshot> = {}): VerifiedPwaSnap
 }
 
 describe("closed PWA intents", () => {
+  it("executes, cancels, and skips only the exact delayed recipient addition and rejects stale execution", () => {
+    const addition = preparePwaIntent(snapshot({ queueHead: null, queueTailNonce: 4n }), { kind: "add-recipient", recipient: a(99) });
+    const queueHead = { ...addition.queue!, safe, delay, createdAt: 800n, readyAt: 920n, expiresAt: 1520n };
+    const binding = { queueNonce: queueHead.queueNonce, queueFingerprint: queueHead.queueFingerprint };
+    const current = snapshot({ queueHead });
+    const ready = preparePwaIntent(current, { kind: "execute-ready", ...binding });
+    expect(ready.amount).to.equal(0n);
+    expect(ready.recipient).to.equal(a(99));
+    expect(decodeFunctionData({ abi: DELAY_ABI, data: ready.call.data }).args?.[0]).to.equal(a(2));
+    expect(preparePwaIntent(current, { kind: "cancel-queued", ...binding }).requiredApprovals).to.deep.equal(["primary", "secondary"]);
+    expect(preparePwaIntent(snapshot({ queueHead, timestamp: 1600n }), { kind: "skip-expired", ...binding }).kind).to.equal("skip-expired");
+    const stale = snapshot({ queueHead, policyHash: h(999), elevatedRecipients: [recipient, a(98)] });
+    expect(() => preparePwaIntent(stale, { kind: "execute-ready", ...binding })).to.throw(/stale|policy/i);
+    expect(preparePwaIntent(stale, { kind: "cancel-queued", ...binding }).kind).to.equal("cancel-queued");
+    const data = encodeFunctionData({ abi: parseAbi(["function repairPolicy(bytes32,address,uint256,uint256,uint256,uint256,address[],uint8)"]), functionName: "repairPolicy", args: [h(102), usdc, 2_000_000n, 3_000_000n, 1_000_000n, 3_000_000n, [recipient, a(99)], 1] });
+    const altered = { ...queueHead, data, queueFingerprint: queueFingerprint({ ...queueHead, data }) };
+    expect(() => preparePwaIntent(snapshot({ queueHead: altered }), { kind: "execute-ready", queueNonce: altered.queueNonce, queueFingerprint: altered.queueFingerprint })).to.throw(/repair|policy|maintenance/i);
+  });
   it("builds exact X, Y, and Z transfer lanes", () => {
     const base = preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 1_000_000n });
     expect(base.kind).to.equal("base-transfer");
@@ -74,6 +93,7 @@ describe("closed PWA intents", () => {
     expect(() => preparePwaIntent(snapshot({ timestamp: 1_700n }), { kind: "execute-ready", ...binding })).to.throw(/expired/i);
     const skip = preparePwaIntent(snapshot({ timestamp: 1_700n }), { kind: "skip-expired", ...binding });
     expect(skip.kind).to.equal("skip-expired");
+    expect(() => preparePwaIntent(snapshot({ timestamp: 1_700n, queueTailNonce: 6n }), { kind: "skip-expired", ...binding })).to.throw(/only|single|collateral/i);
     expect(decodeFunctionData({ abi: DELAY_ABI, data: skip.call.data }).functionName).to.equal("skipExpired");
     expect(() => preparePwaIntent(snapshot({ timestamp: 850n }), { kind: "execute-ready", ...binding })).to.throw(/cooldown/i);
     expect(() => preparePwaIntent(snapshot(), { kind: "skip-expired", ...binding })).to.throw(/not expired/i);
@@ -101,10 +121,20 @@ describe("closed PWA intents", () => {
     expect(() => preparePwaIntent(snapshot(), { kind: "add-recipient", recipient: candidate, calldata: "0x" } as never)).to.throw(/unsupported field/i);
   });
 
+  it("keeps every recipient in canonical EIP-55 form when decoding repair and capturing a refreshed list", () => {
+    const candidate = getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+    const addition = preparePwaIntent(snapshot(), { kind: "add-recipient", recipient: candidate });
+    const repair = decodePwaRecipientRepair(addition.queue!.data);
+    expect(repair.recipients).to.deep.equal([recipient, candidate]);
+    expect(repair.recipient).to.equal(candidate);
+    expect(snapshot({ elevatedRecipients: [recipient, candidate] }).elevatedRecipients).to.deep.equal([recipient, candidate]);
+  });
+
   it("rejects invalid amount, stale queue identity, direct above-Y forcing, and caller-shaped snapshots", () => {
     expect(() => preparePwaIntent(snapshot(), { kind: "transfer", recipient, amount: 0n })).to.throw(/amount/i);
     expect(() => preparePwaIntent(snapshot(), { kind: "execute-ready", queueNonce: 5n, queueFingerprint: queue().queueFingerprint })).to.throw(/head|queue/i);
     expect(() => preparePwaIntent(snapshot(), { kind: "execute-ready", queueNonce: 4n, queueFingerprint: h(999) })).to.throw(/fingerprint/i);
     expect(() => preparePwaIntent({ ...snapshot() } as VerifiedPwaSnapshot, { kind: "transfer", recipient, amount: 1n })).to.throw(/verified snapshot/i);
+    expect(() => snapshot({ spendState: { window: 86_400n, baseSpent: 0n, instantSpent: 0n } })).to.throw(/counter|window|spend/i);
   });
 });

@@ -6,6 +6,7 @@ import {
   createDurablePwaProvisioningExecutionContext,
   brandPwaProvisioningExecutionContextForTestsOnly,
   executePwaProvisioning,
+  type PwaProvisioningTransaction,
 } from "../../src/pwa/provisioning";
 import { loadPwaPhaseOneProfile } from "../../src/pwa/profile";
 import {
@@ -125,9 +126,9 @@ async function successorPlan(confirmedSuccessorTransactionCount: 0 | 1 | 2 | 3 |
   });
 }
 
-async function prefixOneSuccessorPlan(confirmedSuccessorTransactionCount: 0 | 1 | 2 | 3 | 4 | 5 | 6 = 0) {
+async function prefixOneSuccessorPlan(confirmedSuccessorTransactionCount: 0 | 1 | 2 | 3 | 4 | 5 | 6 = 0, laterNonceAdvance = 0n) {
   const successorStartingNonce = observedNonce + 2n;
-  const expectedCurrentDeployerNonce = successorStartingNonce + BigInt(confirmedSuccessorTransactionCount);
+  const expectedCurrentDeployerNonce = successorStartingNonce + BigInt(confirmedSuccessorTransactionCount) + laterNonceAdvance;
   const verifiedDeploymentPrefixLength = confirmedSuccessorTransactionCount > 0 ? 2 : 1;
   return createPwaProvisioningPlan({
     profile: profile(),
@@ -266,6 +267,16 @@ describe("PWA provisioning", () => {
     }
   });
 
+  it("rebuilds a completed successor with its original package after later deployer activity", async () => {
+    const original = await prefixOneSuccessorPlan(6);
+    const recovered = await prefixOneSuccessorPlan(6, 9n);
+    expect(recovered.transactions).to.deep.equal(original.transactions);
+    expect(recovered.planHash).to.equal(original.planHash);
+    expect(recovered.infrastructure.observedCurrentDeployerNonce).to.equal(28n);
+    await expect(prefixOneSuccessorPlan(5, 9n)).to.be.rejectedWith(/nonce/i);
+    await expect(prefixOneSuccessorPlan(6, -1n)).to.be.rejectedWith(/nonce/i);
+  });
+
   it("never submits the Safe if any prerequisite fails", async () => {
     const value = await plan();
     const submitted: string[] = [];
@@ -334,14 +345,14 @@ describe("PWA provisioning", () => {
     expect(submitted).to.deep.equal(["setup-helper", "guard", "delay", "maintenance", "safe-proxy"]);
   });
 
-  it("restores a complete journal read-only and re-verifies topology without authorization or submission", async () => {
+  for (const laterNonceAdvance of [0n, 9n]) it(`restores a complete journal read-only after ${laterNonceAdvance} later transactions`, async () => {
     const value = await successorPlan(5);
     let authorizations = 0;
     let submissions = 0;
     const topology = hash(code(99));
     const result = await executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
       async confirmedPrefixLength() { return value.transactions.length; },
-      async currentDeployerNonce() { return value.transactions.at(-1)!.nonce + 1n; },
+      async currentDeployerNonce() { return value.transactions.at(-1)!.nonce + 1n + laterNonceAdvance; },
       async authorize(transaction) { authorizations += 1; return { ...transaction, gasLimit: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }; },
       async submit() { submissions += 1; throw new Error("must not submit"); },
       async completedSetupReceipt() { return { transactionHash: hash(code(98)), blockNumber: 100n }; },
@@ -350,6 +361,17 @@ describe("PWA provisioning", () => {
     expect(result.topologyReportHash).to.equal(topology);
     expect(authorizations).to.equal(0);
     expect(submissions).to.equal(0);
+  });
+
+  it("rejects a completed journal when the live nonce is behind its confirmed deployment", async () => {
+    const value = await plan();
+    await expect(executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return 7; },
+      async currentDeployerNonce() { return 17n; },
+      async submit() { throw new Error("must not submit"); },
+      async completedSetupReceipt() { throw new Error("must not accept regressed nonce"); },
+      async verifyFinalTopology() { throw new Error("must not verify"); },
+    }))).to.be.rejectedWith(/nonce/i);
   });
 
   it("uses durable submission and rejects fresh code drift before signing", async () => {
@@ -428,4 +450,37 @@ describe("PWA provisioning", () => {
 
     await expect(context.verifyFinalTopology(value)).to.be.rejectedWith(/secondary passkey signer runtime changed/i);
   });
+
+  it("rejects a live nonce behind the completed deployment before final infrastructure verification", async () => {
+    const value = await plan();
+    const denied = async () => { throw new Error("read-only completed restoration must not write"); };
+    const context = createDurablePwaProvisioningExecutionContext({
+      plan: value,
+      journal: { chainId: 11155111, funder: deployer, entries: [] },
+      liveContext: { funder: deployer, chainId: async () => 11155111, nonce: async () => 17, balance: async () => 0n, verify: denied, sign: denied, broadcast: denied, receipt: denied, persist: denied },
+      client: {
+        async getTransactionCount() { return 17n; },
+        async getBytecode({ address: target }) { return target.toLowerCase() === secondary.toLowerCase() ? code(37) : undefined; },
+        async readContract() { throw new Error("regressed deployment must not reach infrastructure verification"); },
+        async getStorageAt() { return undefined; },
+      },
+    });
+    await expect(context.verifyFinalTopology(value)).to.be.rejectedWith(/current deployer nonce is behind the completed deployment/i);
+  });
+  it("reconciles pending known hash before requesting any new authorization", async () => {
+    const value = await plan();
+    let authorizations = 0;
+    let submissions = 0;
+    let resumed = 0;
+    await executePwaProvisioning(value, brandPwaProvisioningExecutionContextForTestsOnly({
+      async confirmedPrefixLength() { return 6; },
+      async currentDeployerNonce() { return value.transactions[6]!.nonce; },
+      async resumePending(transaction) { resumed += 1; expect(transaction.id).to.equal("safe-proxy"); return { transactionHash: hash(code(98)), receipt: { status: "success", blockNumber: 100n } }; },
+      async authorize() { authorizations += 1; throw new Error("already signed envelope must not be requoted"); },
+      async submit() { submissions += 1; throw new Error("must not submit"); },
+      async verifyFinalTopology() { return hash(code(99)); },
+    }));
+    expect({ authorizations, submissions, resumed }).to.deep.equal({ authorizations: 0, submissions: 0, resumed: 1 });
+  });
+
 });

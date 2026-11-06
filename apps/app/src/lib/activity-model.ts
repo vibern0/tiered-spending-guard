@@ -26,6 +26,7 @@ export type ActivityStatus =
 
 export type ActivityItem = {
   id: string;
+  kind?: "transfer" | "recipient-addition" | "unsupported";
   direction: "in" | "out";
   amount: bigint;
   counterparty: string;

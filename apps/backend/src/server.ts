@@ -6,6 +6,7 @@ import { verifyPasskeyRebind, verifyPasskeyRegistration, type BackendPasskeyRole
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { BackendPreparedSubmission } from "./vault";
 import { SubmissionJournal } from "./journal";
+import type { PwaHistoricalVault } from "@recent-tx-safe-guard/security-core/pwa";
 
 export type VaultProvisioningResult = Readonly<{
   chainId: 11155111;
@@ -20,6 +21,10 @@ export type VaultProvisioningResult = Readonly<{
 }>;
 
 export type BackendHandlers = Readonly<{
+  historicalVault?: PwaHistoricalVault;
+  getReadiness?: () => Readonly<{ provisioningReady: boolean; writesReady: boolean }>;
+  writesReady?: boolean;
+  currentVault?: () => PwaHistoricalVault | VaultProvisioningResult | undefined;
   autoProvisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
   storeCredential?: (credential: Awaited<ReturnType<typeof verifyPasskeyRegistration>>) => void;
   prepareTransfer?: (body: unknown) => Promise<BackendPreparedSubmission>;
@@ -53,7 +58,7 @@ async function body(req: IncomingMessage): Promise<unknown> {
   if (Buffer.concat(chunks).length > 256 * 1024) throw new Error("request too large");
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"), (key, value) => {
-      if (["amount", "nonce", "window", "baseSpent", "instantSpent"].includes(key) && typeof value === "string" && /^\d+n$/.test(value)) return BigInt(value.slice(0, -1));
+      if (["amount", "nonce", "queueNonce", "window", "baseSpent", "instantSpent"].includes(key) && typeof value === "string" && /^\d+n$/.test(value)) return BigInt(value.slice(0, -1));
       return value;
     });
   } catch { throw new Error("request body must be JSON"); }
@@ -77,6 +82,7 @@ export function sanitizeBackendMessage(error: unknown): string {
 }
 
 function diagnosticFor(message: string): Readonly<{ code: string; stage: string }> {
+  if (message === "automatic provisioning is still awaiting canonical confirmations for its recorded transaction") return { code: "provisioning_pending_confirmation", stage: "provisioning-reconciliation" };
   if (/provisioning quote nonce mismatch|provisioning relay nonce mismatch/i.test(message)) return { code: "provisioning_nonce_mismatch", stage: "provisioning-quote" };
   if (/deployer nonce does not equal|nonce drift before provisioning transaction|relay latest\/pending nonce changed/i.test(message)) return { code: "provisioning_nonce_mismatch", stage: "provisioning-execution" };
   if (/automatic provisioning recovery/i.test(message)) return { code: "provisioning_recovery_failed", stage: "provisioning-recovery" };
@@ -105,10 +111,19 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       }
       if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
       if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") {
-        const writesReady = Boolean(handlers.prepareTransfer && handlers.submit && handlers.submission);
-        return json(res, 200, { ok: true, writesReady, chainId: config.chainId, profileId: config.id, origin: config.origin, rpId: config.rpId });
+        const readiness = handlers.getReadiness?.();
+        const provisioningReady = !handlers.historicalVault && (readiness?.provisioningReady ?? false);
+        const writesReady = !handlers.historicalVault && (readiness?.writesReady ?? handlers.writesReady ?? Boolean(handlers.prepareTransfer && handlers.submit && handlers.submission));
+        return json(res, 200, { ok: true, provisioningReady, writesReady, chainId: config.chainId, profileId: config.id, origin: config.origin, rpId: config.rpId,
+          ...(handlers.historicalVault ? { vaultCompatibility: { mode: "read-only", profileVersion: handlers.historicalVault.profileVersion, reason: "This vault uses an earlier recipient policy. Transfers are disabled." } } : {}),
+        });
       }
       const segments = pathSegments(req.url ?? "/");
+      if (req.method === "GET" && segments.join("/") === "v1/vaults/current") {
+        const current = handlers.currentVault?.();
+        return current ? json(res, 200, current) : json(res, 404, { error: "vault is not provisioned" });
+      }
+      if (req.method === "POST" && handlers.historicalVault) return json(res, 409, { code: "vault_read_only", error: "This vault uses an earlier recipient policy and is available for viewing. Transfers and credential changes are disabled." });
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";
         const session = sessions.create(role);

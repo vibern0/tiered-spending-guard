@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,8 +13,14 @@ vi.mock("@/lib/vault-store", async (importOriginal) => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: unknown) => options,
-  Link: ({ children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a {...props}>{children}</a>
+  Link: ({
+    children,
+    to,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to?: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
   ),
   useNavigate: () => navigateMock,
 }));
@@ -52,8 +58,12 @@ describe("send policy boundary", () => {
     expect(classify(state, RECIPIENT, usdc(1))).toMatchObject({ lane: "base" });
     expect(classify(state, RECIPIENT, usdc(2))).toMatchObject({ lane: "step-up" });
     expect(classify(state, RECIPIENT, usdc(4))).toMatchObject({ lane: "delayed" });
-    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(1))).toMatchObject({ lane: "base" });
-    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(2))).toMatchObject({ lane: "blocked" });
+    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(1))).toMatchObject({
+      lane: "base",
+    });
+    expect(classify(state, "0x2222222222222222222222222222222222222222", usdc(2))).toMatchObject({
+      lane: "blocked",
+    });
   });
 
   it("refreshes the verified vault snapshot once when the send flow opens", async () => {
@@ -74,5 +84,24 @@ describe("send policy boundary", () => {
     render(<SendPage />);
 
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  });
+
+  it("guides an unlisted elevated send to delayed recipient setup without enabling Review", () => {
+    useVaultMock.mockReturnValue({
+      state: { ...emptyState(), writable: true, health: [], balance: usdc(100), safe: RECIPIENT },
+      loading: false,
+      refresh: vi.fn(),
+      sendUsdc: vi.fn(),
+    });
+    render(<SendPage />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or paste an account address" }), {
+      target: { value: "0x2222222222222222222222222222222222222222" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
+    expect(
+      screen.getByRole("link", { name: "Add recipient in Limits & security" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
   });
 });

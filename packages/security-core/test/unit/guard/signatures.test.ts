@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { encodeFunctionData, keccak256, toHex, type Address, type Hex } from "viem";
+import { encodeFunctionData, getAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { fn, signSafeTransaction } from "../../helpers/safe";
 import { encodeGuardContractSignatures } from "../../../src/signers/guard-signatures";
 
@@ -56,6 +56,28 @@ describe("TieredSpendingGuard exact signatures", () => {
     expect(BigInt(`0x${bytes.subarray(164, 196).toString("hex")}`)).to.equal(3n);
     expect(`0x${bytes.subarray(196).toString("hex")}`).to.equal("0xaabbcc");
     expect(() => encodeGuardContractSignatures({ address: primary, payload: "0x1234" }, { address: primary, payload: "0xaabb" })).to.throw();
+  });
+  it("canonicalizes mixed checksum addresses and uppercase payloads without changing contract-signature bytes", () => {
+    const primary = getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+    const secondary = getAddress("0xbcdefabcdefabcdefabcdefabcdefabcdefabcde");
+    for (const useSecondary of [false, true]) {
+      const signature = encodeGuardContractSignatures({ address: primary, payload: "0xAABBCC" }, useSecondary ? { address: secondary, payload: "0xDDEEFF00" } : undefined);
+      expect(signature).to.match(/^0x[0-9a-f]+$/);
+      const bytes = Buffer.from(signature.slice(2), "hex");
+      const offset = useSecondary ? 130 : 65;
+      expect(`0x${bytes.subarray(12, 32).toString("hex")}`).to.equal(primary.toLowerCase());
+      expect(BigInt(`0x${bytes.subarray(32, 64).toString("hex")}`)).to.equal(BigInt(offset));
+      expect(bytes[64]).to.equal(0);
+      expect(BigInt(`0x${bytes.subarray(offset, offset + 32).toString("hex")}`)).to.equal(3n);
+      expect(bytes.subarray(offset + 32, offset + 35).toString("hex")).to.equal("aabbcc");
+      if (useSecondary) {
+        expect(`0x${bytes.subarray(77, 97).toString("hex")}`).to.equal(secondary.toLowerCase());
+        expect(BigInt(`0x${bytes.subarray(97, 129).toString("hex")}`)).to.equal(165n);
+        expect(bytes[129]).to.equal(0);
+        expect(BigInt(`0x${bytes.subarray(165, 197).toString("hex")}`)).to.equal(4n);
+        expect(bytes.subarray(197).toString("hex")).to.equal("ddeeff00");
+      }
+    }
   });
   it("compatibility config exposes only safe, passkey, ECDSA secondary, Delay, and period fields", async () => {
     const artifact = await hre.artifacts.readArtifact("TieredSpendingGuard");

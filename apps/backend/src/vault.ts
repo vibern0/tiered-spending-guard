@@ -454,6 +454,7 @@ export type BackendSubmissionKind =
   | "base-transfer"
   | "step-up-transfer"
   | "queue-transfer"
+  | "add-recipient"
   | "cancel-queued"
   | "execute-ready"
   | "skip-expired";
@@ -509,6 +510,7 @@ export type PwaSubmissionServiceOptions = Readonly<{
   reconcile: (
     outerTransactionHash: Hex,
   ) => Promise<BackendSubmissionReceipt | undefined>;
+  discard?: (prepared: BackendPreparedSubmission) => void | Promise<void>;
 }>;
 
 const bytes32 = /^0x[0-9a-fA-F]{64}$/;
@@ -524,6 +526,7 @@ function assertPreparedSubmission(value: BackendPreparedSubmission): void {
       "base-transfer",
       "step-up-transfer",
       "queue-transfer",
+      "add-recipient",
       "cancel-queued",
       "execute-ready",
       "skip-expired",
@@ -662,10 +665,7 @@ export class PwaSubmissionService {
           entry.outerTransactionHash.toLowerCase()
         )
           throw new Error("reconciliation returned another transaction hash");
-        return publicView(
-          this.journal.reconcile(id, receipt),
-          this.prepared.get(id),
-        );
+        return this.reconcileTerminalView(id, receipt);
       }
     }
     return publicView(entry, this.prepared.get(id));
@@ -745,10 +745,15 @@ export class PwaSubmissionService {
       if (!bytes32.test(outerTransactionHash))
         throw new Error("locally derived outer transaction hash is invalid");
     } catch (error) {
-      this.supersede(prepared.id);
+      await this.discardBeforeBroadcast(prepared);
       throw error;
     }
-    this.journal.markSubmitting(prepared.id, outerTransactionHash);
+    try {
+      this.journal.markSubmitting(prepared.id, outerTransactionHash);
+    } catch (error) {
+      await this.discardBeforeBroadcast(prepared);
+      throw error;
+    }
     try {
       const broadcastHash = await this.options.broadcast(
         prepared,
@@ -762,7 +767,7 @@ export class PwaSubmissionService {
         this.journal.markUncertain(prepared.id);
         return publicView(this.journal.get(prepared.id)!, prepared);
       }
-      return publicView(this.journal.reconcile(prepared.id, receipt), prepared);
+      return this.reconcileTerminalView(prepared.id, receipt);
     } catch {
       this.journal.markUncertain(prepared.id);
       throw new Error(
@@ -770,6 +775,34 @@ export class PwaSubmissionService {
       );
     } finally {
       this.approvals.delete(prepared.id);
+    }
+  }
+
+  private reconcileTerminalView(id: string, receipt: BackendSubmissionReceipt): BackendSubmissionView {
+    const retained = (): BackendSubmissionView | undefined => {
+      const current = this.journal.get(id);
+      if (!current || (current.state !== "confirmed" && current.state !== "reverted")) return undefined;
+      if (
+        current.state !== receipt.status ||
+        current.outerTransactionHash?.toLowerCase() !== receipt.transactionHash.toLowerCase() ||
+        current.receipt?.transactionHash.toLowerCase() !== receipt.transactionHash.toLowerCase() ||
+        current.receipt?.blockNumber !== receipt.blockNumber ||
+        current.receipt?.blockHash.toLowerCase() !== receipt.blockHash.toLowerCase()
+      ) throw new Error("terminal receipt conflicts with retained evidence");
+      return publicView(current, this.prepared.get(id));
+    };
+    const existing = retained();
+    if (existing) return existing;
+    try {
+      return publicView(this.journal.reconcile(id, receipt), this.prepared.get(id));
+    } catch (error) {
+      // Another process can finish between the fresh read and the locked mutation.
+      // Only a terminal-state race is reusable; persistence errors must still stop.
+      if (error instanceof Error && /^terminal submission cannot be reconciled from (confirmed|reverted)$/.test(error.message)) {
+        const raced = retained();
+        if (raced) return raced;
+      }
+      throw error;
     }
   }
 
@@ -782,6 +815,12 @@ export class PwaSubmissionService {
       this.supersede(prepared.id);
       throw error;
     }
+  }
+
+  private async discardBeforeBroadcast(prepared: BackendPreparedSubmission): Promise<void> {
+    this.approvals.delete(prepared.id);
+    try { await this.options.discard?.(prepared); } catch { /* Preserve the signing/persistence failure; never broadcast. */ }
+    try { this.supersede(prepared.id); } catch { /* A failed journal remains non-authorizing. */ }
   }
 
   private supersede(id: string): void {

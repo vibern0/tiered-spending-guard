@@ -44,6 +44,7 @@ export function OnboardingPage() {
     rebindPrimary,
     rebindSecondary,
     finishSetup,
+    startNewVault,
   } = useVault();
   const nav = useNavigate();
   const [err, setErr] = useState<string | null>(null);
@@ -68,6 +69,40 @@ export function OnboardingPage() {
     }
   };
 
+  if (state.compatibility?.mode === "read-only")
+    return (
+      <div className="space-y-4 pt-6">
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-2xl font-bold">Start a new test vault</h1>
+          <NetworkPill />
+        </div>
+        <Card className="space-y-3">
+          <p>
+            Your old vault and its funds stay unchanged. Its account references and history will be
+            saved in this browser before new setup starts.
+          </p>
+          <p className="break-all font-mono text-xs">{state.safe}</p>
+          <p className="text-sm text-muted-foreground">
+            You will register two new passkeys for the new Sepolia vault.
+          </p>
+          {err && (
+            <p role="alert" className="text-sm text-danger-ink">
+              {err}
+            </p>
+          )}
+          <PrimaryButton
+            disabled={loading || busy !== null}
+            onClick={() => run("new-vault", startNewVault)}
+          >
+            {busy === "new-vault" ? "Saving old account…" : "Start a new test vault"}
+          </PrimaryButton>
+          <Link to="/" className="block text-sm underline">
+            Back to old account
+          </Link>
+        </Card>
+      </div>
+    );
+
   return (
     <div className="space-y-4 pt-6">
       <div className="flex items-center justify-between">
@@ -81,6 +116,14 @@ export function OnboardingPage() {
       <p className="rounded-2xl bg-danger-soft p-3 text-sm font-semibold text-danger-ink">
         Sepolia prototype · no signer recovery · no independent notification delivery
       </p>
+      {setup.provisioningError && !err && (
+        <p
+          role={setup.provisioning === "failed" ? "alert" : "status"}
+          className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink"
+        >
+          {setup.provisioningError}
+        </p>
+      )}
       {err && (
         <p role="alert" className="rounded-xl bg-danger-soft p-3 text-sm text-danger-ink">
           {err}
@@ -163,27 +206,40 @@ export function OnboardingPage() {
                       <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
                         {setup.credentialRebind.required
                           ? "Deployment verified. Verify both existing signers to unlock vault actions."
-                          : "Provisioning and verifying… Keep this page open while seven bounded Sepolia transactions confirm."}
+                          : "Provisioning and verifying… Existing setup resumes automatically while Sepolia transactions confirm."}
                       </p>
                     )}
                     {setup.credentialRebind.primary === "required" && (
-                      <PrimaryButton disabled={busy !== null} onClick={() => run("rebind-primary", rebindPrimary)}>
+                      <PrimaryButton
+                        disabled={busy !== null}
+                        onClick={() => run("rebind-primary", rebindPrimary)}
+                      >
                         <Fingerprint className="size-5" aria-hidden />
-                        {busy === "rebind-primary" ? "Verifying first signer…" : "Verify first signer"}
+                        {busy === "rebind-primary"
+                          ? "Verifying first signer…"
+                          : "Verify first signer"}
                       </PrimaryButton>
                     )}
-                    {setup.credentialRebind.primary === "ready" && setup.credentialRebind.secondary === "required" && (
-                      <PrimaryButton disabled={busy !== null} onClick={() => run("rebind-secondary", rebindSecondary)}>
-                        <KeyRound className="size-5" aria-hidden />
-                        {busy === "rebind-secondary" ? "Verifying second signer…" : "Verify second signer"}
-                      </PrimaryButton>
-                    )}
+                    {setup.credentialRebind.primary === "ready" &&
+                      setup.credentialRebind.secondary === "required" && (
+                        <PrimaryButton
+                          disabled={busy !== null}
+                          onClick={() => run("rebind-secondary", rebindSecondary)}
+                        >
+                          <KeyRound className="size-5" aria-hidden />
+                          {busy === "rebind-secondary"
+                            ? "Verifying second signer…"
+                            : "Verify second signer"}
+                        </PrimaryButton>
+                      )}
                     {setup.provisioning === "failed" && !setup.credentialRebind.required && (
                       <PrimaryButton
                         disabled={busy !== null}
                         onClick={() => run("retry", retryProvisioning)}
                       >
-                        {busy === "retry" ? "Provisioning and verifying…" : "Retry automatic provisioning"}
+                        {busy === "retry"
+                          ? "Provisioning and verifying…"
+                          : "Retry automatic provisioning"}
                       </PrimaryButton>
                     )}
                   </>
