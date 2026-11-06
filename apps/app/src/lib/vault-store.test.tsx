@@ -27,6 +27,7 @@ vi.mock("./webauthn-passkey", async (importOriginal) => ({
   })),
 }));
 beforeEach(() => {
+  vi.stubEnv("VITE_BACKEND_ORIGIN", "http://localhost:8787");
   // Chain fixtures still require a separately ready loopback backend.
   vi.stubGlobal(
     "fetch",
@@ -61,6 +62,7 @@ afterEach(() => {
   localStorage.clear();
 });
 import {
+  createVaultBackend,
   checkBackendHealth,
   useVault,
   VaultProvider,
@@ -157,11 +159,25 @@ function makeClient(
   } as unknown as PublicClient;
 }
 
+function legacyHttpBackend(): VaultBackend {
+  const {
+    session: _session,
+    signIn: _signIn,
+    signOut: _signOut,
+    createAccount: _createAccount,
+    ...api
+  } = createVaultBackend();
+  return api;
+}
 function wrapper(
   options: { client?: PublicClient; config?: VaultConfig; backend?: VaultBackend } = {},
 ) {
   return ({ children }: { children: ReactNode }) =>
-    createElement(VaultProvider, { ...options, children }, children);
+    createElement(
+      VaultProvider,
+      { ...options, backend: options.backend ?? legacyHttpBackend(), children },
+      children,
+    );
 }
 
 describe("VaultProvider", () => {
@@ -226,8 +242,8 @@ describe("VaultProvider", () => {
             ...profile,
             chainId: 11155111,
             appOrigin: "http://localhost:5173",
-            backendOrigin: "http://127.0.0.1:8787",
-            credentials: "omit",
+            backendOrigin: "http://localhost:8787",
+            credentials: "include",
           },
           async () =>
             new Response(
@@ -463,8 +479,8 @@ describe("VaultProvider", () => {
       chainId: 11155111,
       appOrigin: "http://localhost:5173",
       rpId: "localhost",
-      backendOrigin: "http://127.0.0.1:8787",
-      credentials: "omit",
+      backendOrigin: "http://localhost:8787",
+      credentials: "include",
     };
     const identity = {
       ok: true,
@@ -551,8 +567,8 @@ describe("VaultProvider", () => {
       chainId: 11155111,
       appOrigin: "http://localhost:5173",
       rpId: "localhost",
-      backendOrigin: "http://127.0.0.1:8787",
-      credentials: "omit",
+      backendOrigin: "http://localhost:8787",
+      credentials: "include",
     };
     await expect(
       checkBackendHealth(
@@ -1139,7 +1155,7 @@ it("automatically resumes stored credentials with one empty HTTP intent and no p
           credentialRebind: { required: false, primary: "ready", secondary: "ready" },
         }),
       );
-    expect(String(input)).toBe("http://127.0.0.1:8787/v1/vaults/auto-provision");
+    expect(String(input)).toBe("http://localhost:8787/v1/vaults/auto-provision");
     expect(init).toMatchObject({ method: "POST", body: "{}" });
     return new Response(JSON.stringify(resumedProvisioningResult));
   });
@@ -1319,7 +1335,7 @@ it.each([200, 404])(
           ),
           { status },
         );
-      expect(String(input)).toBe("http://127.0.0.1:8787/health");
+      expect(String(input)).toBe("http://localhost:8787/health");
       return new Response(
         JSON.stringify({
           ok: true,
@@ -1484,8 +1500,8 @@ it("persists a recovered vault, resumes signer rebind after reload, and never wr
           rpId: "localhost",
           chainId: 11155111,
           appOrigin: "http://localhost:5173",
-          backendOrigin: "http://127.0.0.1:8787",
-          credentials: "omit",
+          backendOrigin: "http://localhost:8787",
+          credentials: "include",
         },
         async () =>
           new Response(
@@ -1741,4 +1757,195 @@ it("orders X/Y/Z approvals and handles queue, uncertainty, revert, offline, and 
   await expect(
     result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n }),
   ).rejects.toThrow(/stale/i);
+});
+
+it("unlocks base/status with only first-key login and asks for the original second key only for requested roles", async () => {
+  const backend = resumeBackend();
+  const prepareIntent = vi.fn(
+    async () =>
+      ({
+        id: "base-first-only",
+        requestHash: `0x${"11".repeat(32)}`,
+        safeTxHash: `0x${"22".repeat(32)}`,
+        kind: "base-transfer",
+        requiredApprovals: ["primary"],
+        publicRequest: {},
+      }) as never,
+  );
+  const submit = vi.fn(async () => ({ id: "base-first-only", state: "confirmed" }) as never);
+  const currentVault = vi.fn(
+    async () =>
+      ({
+        ...resumedProvisioningResult,
+        credentialRebind: { required: false, primary: "ready", secondary: "required" },
+      }) as VaultProvisioningResult,
+  );
+  const api: VaultBackend = {
+    ...backend,
+    session: vi.fn(async () => ({
+      authenticated: true,
+      account: {
+        id: "a",
+        userHandle: "dXNlcg",
+        state: "verified" as const,
+        primaryCredentialId: "a-first",
+        vault: await currentVault(),
+      },
+    })),
+    currentVault,
+    prepareIntent,
+    submit,
+  };
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), backend: api }),
+  });
+  await waitFor(() => expect(result.current.canWrite).toBe(true));
+  expect(result.current.setup.secondaryCredentialId).toBeUndefined();
+  await act(() => result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n }));
+  expect(signSafeDigest).toHaveBeenCalledTimes(1);
+  expect(signSafeDigest).toHaveBeenLastCalledWith(
+    expect.objectContaining({ role: "primary", credentialId: "a-first" }),
+  );
+  vi.mocked(backend.submission).mockResolvedValueOnce({ id: "durable", state: "uncertain" });
+  await expect(result.current.reconcileSubmission("durable")).resolves.toMatchObject({
+    state: "uncertain",
+  });
+});
+
+it("discards an exact approval when logout occurs while the browser signer is open", async () => {
+  let release!: (value: Awaited<ReturnType<typeof signSafeDigest>>) => void;
+  const backend = resumeBackend();
+  const api: VaultBackend = {
+    ...backend,
+    signOut: vi.fn(async () => ({ authenticated: false })),
+    session: vi.fn(async () => ({
+      authenticated: true,
+      account: {
+        id: "a",
+        userHandle: "dXNlcg",
+        state: "verified" as const,
+        primaryCredentialId: "a-first",
+        vault: resumedProvisioningResult,
+      },
+    })),
+    currentVault: vi.fn(async () => ({
+      ...resumedProvisioningResult,
+      credentialRebind: {
+        required: false,
+        primary: "ready" as const,
+        secondary: "required" as const,
+      },
+    })),
+    prepareIntent: vi.fn(
+      async () =>
+        ({
+          id: "old-approval",
+          requestHash: `0x${"11".repeat(32)}`,
+          safeTxHash: `0x${"22".repeat(32)}`,
+          kind: "base-transfer",
+          requiredApprovals: ["primary"],
+          publicRequest: {},
+        }) as never,
+    ),
+  };
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), backend: api }),
+  });
+  await waitFor(() => expect(result.current.canWrite).toBe(true));
+  vi.mocked(signSafeDigest).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  let approval!: Promise<unknown>;
+  await act(async () => {
+    approval = result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n });
+  });
+  await waitFor(() => expect(release).toBeDefined());
+  await act(() => result.current.signOut());
+  release({ id: "a-first" } as never);
+  await expect(approval).rejects.toThrow(/session changed/i);
+  expect(api.submit).not.toHaveBeenCalled();
+  expect(result.current.state.safe).toBe("");
+});
+
+it("creates a separate server account when starting fresh from a historical signed-in vault", async () => {
+  const createAccount = vi.fn(async () => ({
+    authenticated: false,
+    account: { id: "fresh", userHandle: "dXNlcg", state: "registering" as const },
+  }));
+  const signOut = vi.fn(async () => ({ authenticated: false }));
+  const api: VaultBackend = {
+    ...resumeBackend(),
+    createAccount,
+    signOut,
+    session: vi.fn(async () => ({
+      authenticated: true,
+      account: {
+        id: "old",
+        userHandle: "dXNlcg",
+        state: "verified" as const,
+        primaryCredentialId: "old-first",
+        vault: resumedProvisioningResult,
+      },
+    })),
+  };
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: historicalClient(), backend: api }),
+  });
+  await waitFor(() => expect(result.current.state.compatibility?.mode).toBe("read-only"));
+  await act(() => result.current.startNewVault());
+  expect(signOut).toHaveBeenCalledTimes(1);
+  expect(createAccount).toHaveBeenCalledTimes(1);
+  expect(result.current.accountId).toBe("fresh");
+  expect(readWalletAccountArchive(resumeProfile, SAFE)?.safe).toBe(SAFE);
+});
+
+it.each(["queued", "provisioning"] as const)(
+  "resumes a %s immutable legacy plan without a secondary credential reference or re-registration",
+  async (phase) => {
+    const api: VaultBackend = {
+      ...resumeBackend(),
+      session: vi.fn(async () => ({
+        authenticated: true,
+        account: {
+          id: "legacy",
+          userHandle: "dXNlcg",
+          state: phase,
+          primaryCredentialId: "legacy-first",
+        },
+      })),
+    };
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client: makeClient(), backend: api }),
+    });
+    await waitFor(() => expect(api.autoProvisionVault).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.setup.provisioning).toBe("provisioned"));
+    expect(result.current.setup.reviewedPlanBound).toBe(true);
+    expect(result.current.setup.secondaryCredentialId).toBeUndefined();
+    expect(api.registerPasskey).not.toHaveBeenCalled();
+    expect(signSafeDigest).not.toHaveBeenCalled();
+  },
+);
+
+it("does not treat a registering account with a missing second signer as a bound recovery plan", async () => {
+  const api: VaultBackend = {
+    ...resumeBackend(),
+    session: vi.fn(async () => ({
+      authenticated: true,
+      account: {
+        id: "new",
+        userHandle: "dXNlcg",
+        state: "registering" as const,
+        primaryCredentialId: "new-first",
+      },
+    })),
+  };
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), backend: api }),
+  });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  expect(result.current.setup.reviewedPlanBound).toBe(false);
+  expect(api.autoProvisionVault).not.toHaveBeenCalled();
 });

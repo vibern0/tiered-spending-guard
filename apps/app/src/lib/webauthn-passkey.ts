@@ -36,7 +36,7 @@ export type SafeAssertionOptions = Readonly<{
   challengeBinding: Readonly<{ safe: Address; chainId: number; safeTxHash: Hex }>;
   rpId: string;
   origin: string;
-  credentialId: string;
+  credentialId?: string;
 }>;
 
 export type PasskeyRebindOptions = Readonly<{
@@ -136,12 +136,15 @@ export async function createVaultPasskey(
   if (!rp || typeof rp !== "object" || Array.isArray(rp) || (rp as Json)["id"] !== options.rpId)
     throw new Error("registration RP ID mismatch");
   const selection = options.options["authenticatorSelection"];
-  const expectedAttachment = options.role === "primary" ? "platform" : "cross-platform";
+  const expectedAttachment = options.role === "secondary" ? "cross-platform" : undefined;
   if (
     !selection ||
     typeof selection !== "object" ||
     Array.isArray(selection) ||
-    (selection as Json)["authenticatorAttachment"] !== expectedAttachment ||
+    (expectedAttachment && (selection as Json)["authenticatorAttachment"] !== expectedAttachment) ||
+    (!expectedAttachment &&
+      !(selection as Json)["authenticatorAttachment"] &&
+      (selection as Json)["residentKey"] !== "required") ||
     (selection as Json)["userVerification"] !== "required"
   ) {
     throw new Error(
@@ -160,7 +163,7 @@ export async function createVaultPasskey(
   if (
     response.type !== "public-key" ||
     !response.id ||
-    response.authenticatorAttachment !== expectedAttachment
+    (expectedAttachment && response.authenticatorAttachment !== expectedAttachment)
   )
     throw new Error(`registration did not use the required ${expectedAttachment} authenticator`);
   return Object.freeze({
@@ -178,17 +181,24 @@ export async function signSafeDigest(
 ): Promise<AuthenticationResponseJSON> {
   if (options.role !== "primary" && options.role !== "secondary")
     throw new Error("unsupported passkey role");
-  if (!options.credentialId) throw new Error("credential ID is required");
+  if (!options.credentialId && options.role !== "secondary")
+    throw new Error("credential ID is required");
   assertBinding(options);
   const response = await startAuthentication({
     optionsJSON: {
       challenge: options.challenge,
       rpId: options.rpId,
       userVerification: "required",
-      allowCredentials: [{ id: options.credentialId, type: "public-key" }],
+      ...(options.credentialId
+        ? { allowCredentials: [{ id: options.credentialId, type: "public-key" as const }] }
+        : {}),
     },
   });
-  if (response.id !== options.credentialId || response.type !== "public-key")
+  if (
+    (options.credentialId && response.id !== options.credentialId) ||
+    !response.id ||
+    response.type !== "public-key"
+  )
     throw new Error("WebAuthn credential mismatch");
   const clientData = parseClientData(response.response.clientDataJSON);
   assertCommonChallenge(
@@ -199,7 +209,7 @@ export async function signSafeDigest(
     "webauthn.get",
   );
   const authenticatorData = base64UrlToBytes(response.response.authenticatorData);
-  if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x04) === 0)
+  if (authenticatorData.length < 37 || (authenticatorData[32]! & 0x05) !== 0x05)
     throw new Error("WebAuthn user verification is required");
   return response;
 }
@@ -238,5 +248,52 @@ export async function rebindPasskey(
     (authenticatorData[32]! & 0x04) === 0
   )
     throw new Error("WebAuthn user presence and verification are required");
+  return response;
+}
+
+/** Application authentication only: this fresh server challenge never enters a Safe path. */
+export async function authenticateVaultPasskey(
+  options: Readonly<{
+    challenge: string;
+    rpId: string;
+    origin: string;
+    userVerification: "required";
+    credentialIds?: readonly string[];
+    credentialTransports?: RegistrationResponseJSON["response"]["transports"];
+  }>,
+  credentialId?: string,
+): Promise<AuthenticationResponseJSON> {
+  if (options.userVerification !== "required") throw new Error("Login requires user verification");
+  const ids = credentialId ? [credentialId] : options.credentialIds;
+  const response = await startAuthentication({
+    optionsJSON: {
+      challenge: options.challenge,
+      rpId: options.rpId,
+      userVerification: "required",
+      ...(ids?.length
+        ? {
+            allowCredentials: ids.map((id) => ({
+              id,
+              type: "public-key" as const,
+              ...(credentialId === id && options.credentialTransports?.length
+                ? { transports: [...options.credentialTransports] }
+                : {}),
+            })),
+          }
+        : {}),
+    },
+  });
+  if (!response.id || response.type !== "public-key" || (ids?.length && !ids.includes(response.id)))
+    throw new Error("Login credential mismatch");
+  assertCommonChallenge(
+    options.challenge,
+    options.rpId,
+    options.origin,
+    parseClientData(response.response.clientDataJSON),
+    "webauthn.get",
+  );
+  const data = base64UrlToBytes(response.response.authenticatorData);
+  if (data.length < 37 || (data[32]! & 0x05) !== 0x05)
+    throw new Error("Login requires user presence and verification");
   return response;
 }

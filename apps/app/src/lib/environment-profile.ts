@@ -10,7 +10,7 @@ export type WalletEnvironmentProfile = Readonly<{
 export type WalletEnvironment = Readonly<Record<string, string | boolean | undefined>>;
 
 const LOCAL_APP_ORIGIN = "http://localhost:5173";
-const LOCAL_BACKEND_ORIGIN = "http://127.0.0.1:8787";
+const LOCAL_BACKEND_ORIGIN = "http://localhost:8787";
 
 function value(env: WalletEnvironment, key: string): string | undefined {
   const candidate = env[key];
@@ -96,7 +96,7 @@ export function loadWalletEnvironmentProfile(
       appOrigin: app.origin,
       rpId,
       backendOrigin: backend.origin,
-      credentials: "omit",
+      credentials: "include",
     });
   }
 

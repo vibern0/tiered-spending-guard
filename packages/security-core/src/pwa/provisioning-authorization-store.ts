@@ -1,4 +1,5 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { acquireLocalWriterLease } from "../../scripts/live/runtime";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { isAddress, type Address, type Hex } from "viem";
 import { pwaProvisioningAuthorizationHash, type PwaProvisioningTransactionAuthorization } from "./authorization";
@@ -58,15 +59,12 @@ function decodeLedger(serialized: string, identity: PwaProvisioningAuthorization
 export function createPwaProvisioningAuthorizationStore(path: string, identity: PwaProvisioningAuthorizationStoreIdentity): PwaProvisioningAuthorizationStore {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const lockPath = `${path}.lock`;
-  let lock: number | undefined;
-  try {
-    lock = openSync(lockPath, "wx", 0o600);
-    writeFileSync(lock, `${process.pid}\n`, "utf8");
-    fsyncSync(lock);
-  } catch { throw new Error("provisioning authorization sidecar lock unavailable"); }
+  let lease: ReturnType<typeof acquireLocalWriterLease> | undefined;
+  try { lease = acquireLocalWriterLease(lockPath); }
+  catch { throw new Error("provisioning authorization sidecar lock unavailable"); }
 
   const write = (ledger: PwaProvisioningAuthorizationLedger): void => {
-    if (lock === undefined) throw new Error("provisioning authorization sidecar is closed");
+    if (lease === undefined) throw new Error("provisioning authorization sidecar is closed");
     const temporary = `${path}.${process.pid}.tmp`;
     const output = `${JSON.stringify(ledger)}\n`;
     const fd = openSync(temporary, "wx", 0o600);
@@ -80,9 +78,8 @@ export function createPwaProvisioningAuthorizationStore(path: string, identity: 
     if (!existsSync(path)) write(empty);
     else decodeLedger(readFileSync(path, "utf8"), identity);
   } catch (error) {
-    closeSync(lock);
-    lock = undefined;
-    unlinkSync(lockPath);
+    lease.close();
+    lease = undefined;
     throw error;
   }
 
@@ -95,10 +92,9 @@ export function createPwaProvisioningAuthorizationStore(path: string, identity: 
     write(Object.freeze({ ...current, records: Object.freeze([...current.records, decoded]) }));
   };
   const close = (): void => {
-    if (lock === undefined) return;
-    closeSync(lock);
-    lock = undefined;
-    unlinkSync(lockPath);
+    if (lease === undefined) return;
+    lease.close();
+    lease = undefined;
   };
   return Object.freeze({ load, append, close });
 }

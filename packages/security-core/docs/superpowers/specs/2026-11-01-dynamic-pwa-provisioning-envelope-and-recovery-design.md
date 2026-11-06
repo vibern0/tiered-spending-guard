@@ -1,5 +1,8 @@
 # Dynamic PWA Provisioning Envelope and Recovery Design
 
+> **2026-11-06 approved multi-user amendment:** [Multi-user accounts and sessions](2026-11-06-multiple-vault-accounts-design.md) replaces process-global account selection, memory-only public credential references and the blanket both-role rebind requirement. A first-passkey session may view, prepare, spend within X and reconcile its own records; each action still requires its exact onchain signer policy. New signup still registers both distinct keys before automatic deployment. Exact plan/receipt/runtime/quote/outlay verification is unchanged.
+
+
 ## 2026-11-05 automatic verified recovery amendment
 
 The user requires automatic in-app setup and explicitly requested implementation plus frontend-equivalent backend endpoint testing. No operator deployment command, file selection, hand-edited nonce or routine backend restart is part of recovery. This supersedes the earlier pending-recovery exclusion only for exact known-hash reconciliation and the bounded verified signer-prefix successor described here.
@@ -150,7 +153,7 @@ The deployment plan contains the two credential public-key coordinates in the ex
 
 After recovery, the backend exposes a role-specific rebind challenge and verification flow. The browser supplies only a standard WebAuthn assertion; its credential ID comes from the signed assertion response, not from a deployment field. The backend reconstructs the expected ES256 public key from the role's reviewed coordinates, starts from counter baseline `0`, verifies user presence and user verification against the fixed RP ID/origin/challenge, then stores the verified credential ID and returned counter in memory. A credential for one role cannot rebind the other role because its signature will not verify against the other reviewed key.
 
-Both primary and secondary roles must rebind before any transfer is prepared, approved, submitted, or reconciled. Rebinding is not required to finish the fixed relay deployment. The recovered vault may be returned and persisted by the UI before rebind completes, but the UI must show both roles as requiring verification and the backend must fail closed on every spending path until both succeed.
+For the approved multi-user localhost flow, only the first passkey is required for account sign-in, viewing, base-tier use, preparation and own-status reconciliation. The second role is verified against its reviewed key only when the exact selected action requires its approval. Public role IDs/keys/counters are durable account metadata; every transaction still requires fresh exact signatures. Rebinding is not required to finish a fixed relay deployment. The older both-role blanket gate remains only in the explicit historical single-vault test harness.
 
 ## Failure behavior
 
@@ -165,7 +168,7 @@ Both primary and secondary roles must rebind before any transfer is prepared, ap
 - Unit tests for 30% ceiling arithmetic, disagreement, fee arithmetic, total reservation, and exact authorization binding.
 - Dual-provider tests for common block/hash selection and fail-closed divergence.
 - Recovery tests for valid prefixes of length one through six and rejection of gaps, reordering, changed intent hashes, mismatched reviews, pending/reverted entries, nonce drift, runtime drift, and reorgs.
-- Credential-rebind tests for role/key mismatch, wrong RP/origin/challenge, missing user verification, counter rollback, and spending before both roles rebind.
+- Credential-rebind tests for role/key mismatch, wrong RP/origin/challenge, missing user verification, counter rollback, first-key-only base/status use, and rejection of elevated spending without its exact second approval.
 - A regression fixture for the current two-entry confirmed prefix without embedding its package hash, addresses, transaction hashes, or nonces in production code.
 - Integration tests proving no signing before durable authorization and no replay of a confirmed prefix.
 - Update the call graph and automated provisioning design to replace fixed caps and document the recovery path.

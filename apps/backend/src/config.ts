@@ -14,6 +14,7 @@ export type BackendConfig = Readonly<{
   origin: string;
   rpcUrl: string;
   relayPrivateKey: `0x${string}`;
+  accountDatabasePath?: string;
   journalPath: string;
   provisioningJournalPath: string;
   provisioningReviewDirectory: string;
@@ -88,7 +89,8 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   const provisioningJournalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_JOURNAL_PATH"], "BACKEND_PROVISIONING_JOURNAL_PATH");
   if (provisioningJournalPath === journalPath) throw new Error("submission and provisioning journals must use different paths");
   const provisioningReviewDirectory = assertExternalBackendPath(env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"], "BACKEND_PROVISIONING_REVIEW_DIRECTORY");
-  return Object.freeze({ id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, provisioningReviewDirectory });
+  const accountDatabasePath = env["BACKEND_ACCOUNT_DATABASE_PATH"] === undefined ? undefined : assertExternalBackendPath(env["BACKEND_ACCOUNT_DATABASE_PATH"], "BACKEND_ACCOUNT_DATABASE_PATH");
+  return Object.freeze({ ...(accountDatabasePath ? { accountDatabasePath } : {}), id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, provisioningReviewDirectory });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

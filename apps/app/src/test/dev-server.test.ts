@@ -41,7 +41,7 @@ it("serves the wallet root through the real pnpm dev command", async () => {
     {
       cwd: appRoot,
       detached: process.platform !== "win32",
-      env: process.env,
+      env: { ...process.env, VITE_BACKEND_ORIGIN: "http://localhost:8787" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

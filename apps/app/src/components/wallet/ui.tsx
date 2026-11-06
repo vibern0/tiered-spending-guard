@@ -1,5 +1,5 @@
 import { Link, Navigate, useRouterState } from "@tanstack/react-router";
-import { Activity, ChevronRight, Home, Shield } from "lucide-react";
+import { Activity, ChevronRight, Home, Shield, UserRound } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -164,6 +164,7 @@ const TABS = [
   { to: "/", label: "Home", icon: Home },
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/limits", label: "Limits", icon: Shield },
+  { to: "/profile", label: "Account", icon: UserRound },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -194,7 +195,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           aria-label="Main"
           className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
         >
-          <ul className="mx-auto grid max-w-md grid-cols-3">
+          <ul className="mx-auto grid max-w-md grid-cols-4">
             {TABS.map(({ to, label, icon: Icon }) => {
               const active = to === "/" ? path === "/" : path.startsWith(to);
               return (

@@ -1,3 +1,8 @@
+import { existsSync } from "node:fs";
+import { logBackendStarting, logBackendReady, writeBackendLog } from "./logging";
+import { AccountStore } from "./account-store";
+import { createAccountGateway } from "./account-runtime";
+import { createAccountServer } from "./account-server";
 import { loadBackendConfig } from "./config";
 import { createBackendHandlers, type BackendPreparation } from "./handlers";
 import { SubmissionJournal } from "./journal";
@@ -28,7 +33,9 @@ export async function startBackend(config: Parameters<typeof createBackendServer
   return backend;
 }
 
-export async function createConfiguredBackend(provisioner?: AutomaticPwaProvisioner, configured?: ReturnType<typeof loadBackendConfig>, submissionRuntime?: ConfiguredSubmissionRuntime): Promise<BackendServer> {
+/** Historical single-vault injection is restricted to the local test harness. */
+async function createSingleVaultTestBackend(provisioner?: AutomaticPwaProvisioner, configured?: ReturnType<typeof loadBackendConfig>, submissionRuntime?: ConfiguredSubmissionRuntime): Promise<BackendServer> {
+  if (process.env.NODE_ENV !== "test") throw new Error("single-vault test backend is disabled");
   const config = configured ?? loadBackendConfig();
   const configuredProvisioner: AutomaticPwaProvisioner = provisioner ?? (config.id === "local"
     ? await createConfiguredAutomaticPwaProvisioner(config)
@@ -62,11 +69,37 @@ export async function createConfiguredBackend(provisioner?: AutomaticPwaProvisio
   return startBackend(config, handlers);
 }
 
+export async function createConfiguredBackend(provisioner?: AutomaticPwaProvisioner, configured?: ReturnType<typeof loadBackendConfig>, submissionRuntime?: ConfiguredSubmissionRuntime): Promise<Pick<BackendServer, "server" | "close">> {
+  if (provisioner || submissionRuntime) return createSingleVaultTestBackend(provisioner, configured, submissionRuntime);
+  const config = configured ?? loadBackendConfig();
+  if (config.id !== "local") return startBackend(config, { getReadiness: () => ({provisioningReady:false,writesReady:false}), autoProvisionVault: () => Promise.reject(new Error("automatic provisioning is localhost-only")) });
+  const store = new AccountStore(config);
+  try {
+    const gateway = createAccountGateway(config, store);
+    if (existsSync(config.provisioningJournalPath) || existsSync(config.journalPath)) {
+      const legacy = store.adoptLegacy();
+      // Retain the existing fail-closed startup verification of configured legacy
+      // evidence. New accounts are loaded lazily and never replace these paths.
+      await gateway.handlers(legacy.id);
+    }
+    const backend = createAccountServer(config, store, gateway);
+    await new Promise<void>((resolve, reject) => {
+      backend.server.once("error", reject);
+      backend.server.listen(config.port, config.host, resolve);
+    });
+    return { server: backend.server, close: async () => { await backend.close(); store.close(); } };
+  } catch (error) { store.close(); throw error; }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  void createConfiguredBackend()
-    .then(() => console.log(JSON.stringify({ level: "info", code: "backend_started", stage: "startup", route: "http", message: "backend listening" })))
+  void (async () => {
+    const config = loadBackendConfig();
+    logBackendStarting(config);
+    const backend = await createConfiguredBackend(undefined, config);
+    logBackendReady(config, backend.server);
+  })()
     .catch((error: unknown) => {
       process.exitCode = 1;
-      console.error(JSON.stringify({ level: "error", code: "backend_startup_failed", stage: "startup", message: sanitizeBackendMessage(error) }));
+      writeBackendLog({ level: "error", code: "backend_startup_failed", stage: "startup", message: sanitizeBackendMessage(error) });
     });
 }

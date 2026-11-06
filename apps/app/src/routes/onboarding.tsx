@@ -37,6 +37,13 @@ export function OnboardingPage() {
   const {
     state,
     setup,
+    sessionManaged,
+    authenticated,
+    accountId,
+    signIn,
+    openEarlierAccount,
+    signOut,
+    createAccount,
     loading,
     registerPrimary,
     registerSecondary,
@@ -52,11 +59,12 @@ export function OnboardingPage() {
   const [exercises, setExercises] = useState<string[]>([]);
   const progress: Onboarding = {
     firstSigner: Boolean(setup.primaryCredentialId),
-    secondSigner: Boolean(setup.secondaryCredentialId),
+    secondSigner: Boolean(setup.secondaryCredentialId) || setup.reviewedPlanBound === true,
     limits: setup.provisioning === "provisioned",
     rehearsed: state.onboarding.rehearsed,
   };
   const current = STEPS.find((step) => !progress[step.key])?.key;
+  const verifyingFirst = Boolean(accountId && setup.primaryCredentialId && !authenticated);
   const run = async (label: string, action: () => Promise<void>) => {
     setErr(null);
     setBusy(label);
@@ -68,6 +76,76 @@ export function OnboardingPage() {
       setBusy(null);
     }
   };
+
+  if (sessionManaged && !authenticated && (!accountId || setup.primaryCredentialId))
+    return (
+      <div className="space-y-4 pt-6">
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-2xl font-bold">
+            {verifyingFirst ? "Verify your first passkey" : "Your vault account"}
+          </h1>
+          <NetworkPill />
+        </div>
+        <Card className="space-y-3">
+          <p>
+            {verifyingFirst
+              ? "Use the same first passkey you just created to verify sign-in. The second signer is set up in the next step."
+              : "Sign in with your existing first passkey to open the same account on this browser."}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Your second signer is requested only when an action needs it. Create an account to set
+            up a separate test vault.
+          </p>
+          {err && (
+            <p role="alert" className="text-sm text-danger-ink">
+              {err}
+            </p>
+          )}
+          {setup.provisioningError && !err && (
+            <p role="alert" className="text-sm text-danger-ink">
+              {setup.provisioningError}
+            </p>
+          )}
+          <PrimaryButton
+            disabled={loading || busy !== null}
+            onClick={() =>
+              run("login", async () => {
+                await signIn();
+                nav({ to: "/" });
+              })
+            }
+          >
+            {busy === "login" || (verifyingFirst && busy === "primary")
+              ? "Waiting for first passkey…"
+              : "Sign in with passkey"}
+          </PrimaryButton>
+          <PrimaryButton
+            disabled={loading || busy !== null}
+            onClick={() =>
+              run("earlier-account", async () => {
+                await openEarlierAccount();
+                nav({ to: "/" });
+              })
+            }
+          >
+            {busy === "earlier-account"
+              ? "Waiting for original first passkey…"
+              : "Open an earlier account"}
+          </PrimaryButton>
+          <p className="text-sm text-muted-foreground">
+            For an earlier passkey that is not discoverable, its original credential reference must
+            still exist in this browser or the backend. A public key cannot reconstruct that
+            reference. This opens the existing account and does not replace its passkeys.
+          </p>
+          <PrimaryButton
+            disabled={loading || busy !== null}
+            onClick={() => run("create", createAccount)}
+          >
+            {busy === "create" ? "Creating account…" : "Create account"}
+          </PrimaryButton>
+        </Card>
+      </div>
+    );
 
   if (state.compatibility?.mode === "read-only")
     return (
@@ -110,8 +188,8 @@ export function OnboardingPage() {
         <NetworkPill />
       </div>
       <p className="text-sm text-muted-foreground">
-        Public credential references and progress are stored for this exact environment. Assertions
-        and signatures are never stored.
+        Your first passkey opens your account, including after clearing browser storage. Public
+        progress is cached for this account; assertions and signatures are never stored.
       </p>
       <p className="rounded-2xl bg-danger-soft p-3 text-sm font-semibold text-danger-ink">
         Sepolia prototype · no signer recovery · no independent notification delivery
@@ -136,6 +214,15 @@ export function OnboardingPage() {
         </p>
       )}
 
+      {sessionManaged && authenticated && (
+        <button
+          className="text-sm underline"
+          disabled={busy !== null}
+          onClick={() => run("logout", signOut)}
+        >
+          Sign out
+        </button>
+      )}
       {STEPS.map((step, index) => {
         const done = progress[step.key];
         const active = current === step.key;
@@ -156,7 +243,8 @@ export function OnboardingPage() {
                 {step.key === "firstSigner" && (
                   <>
                     <p className="text-sm text-muted-foreground">
-                      Register the platform passkey used for the base tier.
+                      Create a first passkey for sign-in and everyday transfers. Your passkey
+                      provider can make it available on your other devices.
                     </p>
                     <PrimaryButton
                       disabled={loading || busy !== null}
@@ -205,7 +293,9 @@ export function OnboardingPage() {
                     {setup.provisioning === "provisioning" && (
                       <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
                         {setup.credentialRebind.required
-                          ? "Deployment verified. Verify both existing signers to unlock vault actions."
+                          ? sessionManaged
+                            ? "Deployment verified. Sign in with your first passkey to unlock vault actions."
+                            : "Deployment verified. Verify both existing signers to unlock vault actions."
                           : "Provisioning and verifying… Existing setup resumes automatically while Sepolia transactions confirm."}
                       </p>
                     )}
@@ -220,7 +310,8 @@ export function OnboardingPage() {
                           : "Verify first signer"}
                       </PrimaryButton>
                     )}
-                    {setup.credentialRebind.primary === "ready" &&
+                    {!sessionManaged &&
+                      setup.credentialRebind.primary === "ready" &&
                       setup.credentialRebind.secondary === "required" && (
                         <PrimaryButton
                           disabled={busy !== null}

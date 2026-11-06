@@ -1,5 +1,14 @@
 # Signer Provider Evaluation
 
+## 2026-11-06 localhost multi-user signer amendment
+
+The approved multi-user frontend registers a discoverable first credential (`residentKey: required`, `userVerification: required`, ES256, stable opaque account user handle) without forcing platform attachment. Supported synced credentials may open the same account across compatible authenticator contexts. The backend stores public IDs, keys, backup/transport metadata and counters outside the repository. Cloud sync is performed by the user's provider; neither backup flags nor distinct credentials prove independent devices or compromise domains.
+
+A fresh backend-only `vault-login:` challenge authenticates the first key and rotates an opaque HttpOnly cookie session. It has no Safe/ERC-1271 message authority and cannot substitute for a Safe-digest assertion. The second signer cannot log in and is not required to view, prepare, reconcile or use X. Exact per-action first/second signatures remain unchanged for base, step-up, delayed, cancellation and maintenance paths. Unknown legacy role IDs are learned only after proof against independently recovered reviewed coordinates. Counter updates use compare-and-update transactions; legitimate zero counters remain supported and nonzero anomalies fail closed through the existing verifier. Accepted transaction assertions also consume durable normalized digest/role/credential/payload fingerprints in that transaction, preventing cross-session/idempotency replay even with zero counters. Fingerprints normalize P-256 s malleability; raw payloads remain unpersisted. Role-specific registration handles prevent secondary registration from overwriting a primary discoverable credential. Targeted first-key assertions may omit a user handle only with exact server-known key context, never accept an incorrect returned handle.
+
+Application sessions hold no approval payloads. Approval attempts are account/session-bound; logout clears retained memory approvals, and active-session checks run before private outer signing and immediately before broadcast. Pending durable hashes are reconciled without another passkey or signature. First/second registration still precedes initial deployment. The strict platform/cross-platform defaults in the direct singleton harness are historical test behavior; the live localhost account server uses the explicit synced-first registration policy.
+
+
 **Status:** Security-core design note
 **Date:** 2026-09-16
 

@@ -20,6 +20,7 @@ export type HistoricalReview = Readonly<{
 }>;
 
 export type PwaHistoricalVault = Readonly<HistoricalReview["addresses"] & {
+  credentials?: Readonly<{ primary: { x: bigint; y: bigint }; secondary: { x: bigint; y: bigint } }>;
   mode: "read-only";
   profileVersion: "sepolia-pwa-phase-one-allowlisted-v1";
   chainId: 11155111;

@@ -1,5 +1,8 @@
 # Phase One Automated PWA Provisioning Design
 
+> **2026-11-06 multi-user amendment:** The [approved local account/session design](2026-11-06-multiple-vault-accounts-design.md) wraps this unchanged reviewed deployment process per account. Persistent metadata, first-passkey authentication and a shared payer coordinator replace process-global vault selection. The second signer remains mandatory during initial setup and for policy-required transaction approvals, not for sign-in/base/status.
+
+
 **Status:** Implemented Phase One amendment
 **Date:** 2026-11-01
 

@@ -634,6 +634,8 @@ export class PwaSubmissionService {
     return this.prepared.get(prepared.id)!;
   }
 
+  forgetApprovalsFor(matches: (id: string) => boolean): void { for (const id of this.approvals.keys()) if (matches(id)) this.approvals.delete(id); }
+
   submit(
     id: string,
     body: BackendSubmissionBody,

@@ -198,3 +198,18 @@ describe("server-authoritative backend handlers", () => {
     expect(handlers.getReadiness?.().writesReady).toBe(true);
   });
 });
+
+describe("authenticated first-key account actions", () => {
+  it("permits base preparation and status before any second-key rebind but still verifies required second approvals", async () => {
+    const prepare = vi.fn(async ({request})=>({id:request.idempotencyKey,requestHash:HASH,safeTxHash:HASH,kind:"base-transfer",requiredApprovals:["primary"],publicRequest:request}));
+    const submission = vi.fn(async()=>({state:"confirmed"}));
+    const handlers = createBackendHandlers({config,usdc:USDC,actionSpecificApprovals:true,provisioner:{recoveryCredentials:{primary:{x:1n,y:2n},secondary:{x:3n,y:4n}},provision:async()=>completion},prepareTransfer:prepare as never,submit:vi.fn(),submission});
+    await handlers.autoProvisionVault({});handlers.storeReboundCredential(credential("primary","p",1));
+    expect(handlers.getReadiness?.().writesReady).toBe(true);
+    expect(handlers.credentialRebindStatus()).toEqual({required:false,primary:"ready",secondary:"required"});
+    await handlers.prepareTransfer({kind:"transfer",recipient:SAFE,amount:1n,idempotencyKey:"first-only"});
+    await handlers.submission("first-only");
+    await expect(handlers.verifyApproval(HASH,{role:"secondary",assertion:{id:"unknown",type:"public-key",response:{}}})).rejects.toThrow();
+    expect(submission).toHaveBeenCalledOnce();
+  });
+});

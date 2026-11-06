@@ -87,7 +87,7 @@ export async function installPublicRuntimes(rpc: <T>(method: string, params?: un
 }
 
 /** A software authenticator, never a substitute for browser/hardware UX proof. */
-export function softwareAuthenticator(role: "primary" | "secondary") {
+export function softwareAuthenticator(role: "primary" | "secondary", options: { synced?: boolean } = {}) {
   const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const jwk = createPublicKey(pair.privateKey).export({ format: "jwk" });
   const coordinates = { x: BigInt(toHex(Buffer.from(jwk.x!, "base64url"))), y: BigInt(toHex(Buffer.from(jwk.y!, "base64url"))) };
@@ -104,16 +104,16 @@ export function softwareAuthenticator(role: "primary" | "secondary") {
     id, coordinates,
     registration(challenge: string, origin = "http://localhost:5173"): RegistrationResponseJSON {
       const length = Buffer.alloc(2); length.writeUInt16BE(credentialId.length);
-      const authData = Buffer.concat([authenticatorData(0x45), Buffer.alloc(16), length, credentialId, encodeP256CosePublicKey(coordinates)]);
+      const authData = Buffer.concat([authenticatorData(options.synced ? 0x5d : 0x45), Buffer.alloc(16), length, credentialId, encodeP256CosePublicKey(coordinates)]);
       const cborLength = Buffer.alloc(3); cborLength[0] = 0x59; cborLength.writeUInt16BE(authData.length, 1);
       // Canonical CBOR {fmt:"none", attStmt:{}, authData:<bytes>}.
       const attestation = Buffer.concat([Buffer.from("a363666d74646e6f6e656761747453746d74a0686175746844617461", "hex"), cborLength, authData]);
       return { id, rawId: id, type: "public-key", authenticatorAttachment: attachment, clientExtensionResults: {}, response: { clientDataJSON: clientData("webauthn.create", challenge, origin).toString("base64url"), attestationObject: attestation.toString("base64url"), transports: [role === "primary" ? "internal" : "usb"] } };
     },
     assertion(challenge: string, origin = "http://localhost:5173"): AuthenticationResponseJSON {
-      ++counter;
+      if (!options.synced) ++counter;
       const data = clientData("webauthn.get", challenge, origin);
-      const authData = authenticatorData(0x05);
+      const authData = authenticatorData(options.synced ? 0x1d : 0x05);
       const signature = sign("sha256", Buffer.concat([authData, createHash("sha256").update(data).digest()]), { key: pair.privateKey, dsaEncoding: "der" });
       return { id, rawId: id, type: "public-key", authenticatorAttachment: attachment, response: { authenticatorData: authData.toString("base64url"), clientDataJSON: data.toString("base64url"), signature: signature.toString("base64url") }, clientExtensionResults: {} };
     },

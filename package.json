@@ -25,6 +25,7 @@
     "security-core:rehearse": "npm --prefix packages/security-core run rehearse",
     "security-core:package:sepolia-rehearsal": "npm --prefix packages/security-core run package:sepolia-rehearsal",
     "pwa:rehearse:local": "npm --prefix packages/security-core run pwa:rehearse:local --",
+    "backend:dev": "npm --prefix apps/backend run dev",
     "backend:test": "npm --prefix apps/backend test",
     "backend:typecheck": "npm --prefix apps/backend run typecheck",
     "app:dev": "npm --prefix apps/app run dev",

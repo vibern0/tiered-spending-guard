@@ -196,3 +196,15 @@ describe("backend recovered-credential rebind", () => {
     })).rejects.toThrow(/role key/i);
   });
 });
+
+describe("durable approval replay identity", () => {
+  it("normalizes the P-256 s ambiguity without changing the Safe payload", async () => {
+    const { passkeyApprovalFingerprint } = await import("../src/webauthn");
+    const parameters = [{type:"bytes"},{type:"string"},{type:"uint256"},{type:"uint256"}] as const;
+    const order = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551n;
+    const approval = {role:"primary" as const, credentialId:"key", counter:0, payload:encodeAbiParameters(parameters,["0x05","signed origin",3n,4n])};
+    const flipped = {...approval,payload:encodeAbiParameters(parameters,["0x05","signed origin",3n,order-4n])};
+    expect(passkeyApprovalFingerprint(approval,HASH)).toBe(passkeyApprovalFingerprint(flipped,HASH));
+    expect(passkeyApprovalFingerprint({...approval,role:"secondary"},HASH)).not.toBe(passkeyApprovalFingerprint(approval,HASH));
+  });
+});

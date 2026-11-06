@@ -720,7 +720,7 @@ async function resolveHistoricalVault(input: ResolveHistoricalPwaVaultInput, anc
   const policy = Object.freeze({ recipientMode: "all-lanes-allowlisted" as const, assets: Object.freeze(completed.policy.assets.map(asset => Object.freeze({ ...asset, recipients: Object.freeze([...asset.recipients]) }))) });
   const topologyReportHash = keccak256(stringToHex(canonical({ profileVersion: anchor.profileVersion, packageHash: completedDocument.packageHash, blockNumber, blockHash, policy, states: states[0] })));
   return Object.freeze({
-    mode: "read-only" as const, profileVersion: anchor.profileVersion, chainId: SEPOLIA_CHAIN_ID, ...completed.addresses, policy,
+    mode: "read-only" as const, profileVersion: anchor.profileVersion, chainId: SEPOLIA_CHAIN_ID, ...completed.addresses, policy, credentials: Object.freeze({ primary: Object.freeze({ ...credentials.primary }), secondary: Object.freeze({ ...credentials.secondary }) }),
     evidence: Object.freeze({ originalPackageHash: originalDocument.packageHash, packageHash: completedDocument.packageHash, planHash: completed.planHash, policyHash: completed.policy.policyHash, setupTransactionHash: input.journal.entries.at(-1)!.transactionHash, topologyReportHash, blockNumber: String(blockNumber), blockHash }),
   });
 }

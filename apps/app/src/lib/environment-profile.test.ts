@@ -5,7 +5,7 @@ const localEnv = {
   VITE_WALLET_PROFILE: "local",
   VITE_APP_ORIGIN: "http://localhost:5173",
   VITE_WEBAUTHN_RP_ID: "localhost",
-  VITE_BACKEND_ORIGIN: "http://127.0.0.1:8787",
+  VITE_BACKEND_ORIGIN: "http://localhost:8787",
 };
 
 const httpsEnv = {
@@ -22,8 +22,8 @@ describe("wallet environment profile", () => {
       chainId: 11155111,
       appOrigin: "http://localhost:5173",
       rpId: "localhost",
-      backendOrigin: "http://127.0.0.1:8787",
-      credentials: "omit",
+      backendOrigin: "http://localhost:8787",
+      credentials: "include",
     });
   });
 
@@ -39,6 +39,11 @@ describe("wallet environment profile", () => {
   });
 
   it.each([
+    [
+      "cookie hostname mismatch",
+      { ...localEnv, VITE_BACKEND_ORIGIN: "http://127.0.0.1:8787" },
+      "http://localhost:5173",
+    ],
     ["observed hostname drift", httpsEnv, "https://preview.example"],
     [
       "wildcard origin",

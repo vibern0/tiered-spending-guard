@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "@/routeTree.gen";
 
@@ -16,10 +16,19 @@ async function renderAt(path: string) {
   return render(<RouterProvider router={router} />);
 }
 
+beforeEach(() => {
+  vi.stubEnv("VITE_BACKEND_ORIGIN", "http://localhost:8787");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ authenticated: false }))),
+  );
+});
+
 afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -43,11 +52,11 @@ describe("App routing", () => {
 
 describe("Account access", () => {
   it.each(["/", "/send", "/receive", "/activity", "/limits", "/profile", "/unknown"])(
-    "requires account creation before showing %s",
+    "requires sign-in or account creation before showing %s",
     async (path) => {
       await renderAt(path);
       await waitFor(() =>
-        expect(screen.getByRole("heading", { name: "Set up your account" })).toBeInTheDocument(),
+        expect(screen.getByRole("heading", { name: "Your vault account" })).toBeInTheDocument(),
       );
       expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
       expect(screen.queryByText("Wallet writes are disabled")).not.toBeInTheDocument();
@@ -57,14 +66,33 @@ describe("Account access", () => {
 
 it("keeps an existing account accessible when RPC is unavailable", async () => {
   vi.stubEnv("VITE_SEPOLIA_RPC_URL", "");
-  localStorage.setItem(
-    "usdc-vault-config-v2:local:localhost",
-    JSON.stringify({
-      safe: "0x1111111111111111111111111111111111111111",
-      guard: "0x2222222222222222222222222222222222222222",
-      delay: "0x3333333333333333333333333333333333333333",
-      usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-    }),
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            authenticated: true,
+            account: {
+              id: "existing",
+              userHandle: "dXNlcg",
+              state: "verified",
+              primaryCredentialId: "first",
+              vault: {
+                chainId: 11155111,
+                safe: "0x1111111111111111111111111111111111111111",
+                guard: "0x2222222222222222222222222222222222222222",
+                delay: "0x3333333333333333333333333333333333333333",
+                usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+                evidence: {
+                  setupTransactionHash: `0x${"11".repeat(32)}`,
+                  verificationReportHash: `0x${"22".repeat(32)}`,
+                },
+              },
+            },
+          }),
+        ),
+    ),
   );
   await renderAt("/limits");
   await waitFor(() =>

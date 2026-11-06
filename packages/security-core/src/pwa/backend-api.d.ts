@@ -157,6 +157,7 @@ export type HistoricalPwaReadClient = PwaProvisioningRecoveryClient & Readonly<{
   readContract(input: Readonly<{ address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[]; blockNumber?: bigint }>): Promise<unknown>;
 }>;
 export type PwaHistoricalVault = Readonly<{
+  credentials?: Readonly<{ primary: { x: bigint; y: bigint }; secondary: { x: bigint; y: bigint } }>;
   mode: "read-only";
   profileVersion: "sepolia-pwa-phase-one-allowlisted-v1";
   chainId: 11155111;

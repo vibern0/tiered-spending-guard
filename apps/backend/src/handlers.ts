@@ -2,7 +2,7 @@ import type { BackendConfig } from "./config";
 import type { BackendHandlers, VaultProvisioningResult } from "./server";
 import { type BackendPreparedSubmission } from "./vault";
 import type { AutomaticPwaProvisioner } from "./provisioner";
-import { challengeForDigest, verifyPasskeyAssertion, type BackendPasskeyRole, type StoredCredential, type VerifiedPasskeyApproval } from "./webauthn";
+import { challengeForDigest, encodeP256CosePublicKey, verifyPasskeyAssertion, type BackendPasskeyRole, type StoredCredential, type VerifiedPasskeyApproval } from "./webauthn";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import type { Address, Hex } from "viem";
 import type { PwaProvisioningPlan, PwaProvisioningResult } from "@recent-tx-safe-guard/security-core/pwa";
@@ -32,6 +32,12 @@ export type BackendHandlerOptions = Readonly<{
   submit?: BackendSubmission;
   submission?: BackendSubmissionReader;
   verifyAssertion?: typeof verifyPasskeyAssertion;
+  actionSpecificApprovals?: true;
+  credentialStore?: Readonly<{
+    get(role: BackendPasskeyRole): StoredCredential | undefined;
+    updateCounter(credential: StoredCredential, next: number, approval: VerifiedPasskeyApproval, safeTxHash: Hex): void;
+    learn(credential: StoredCredential, approval: VerifiedPasskeyApproval, safeTxHash: Hex): void;
+  }>;
 }>;
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -58,6 +64,10 @@ export type BackendHandlerSet = Omit<BackendHandlers, "prepareTransfer" | "submi
 
 export function createBackendHandlers(options: BackendHandlerOptions): BackendHandlerSet {
   const credentials = new Map<BackendPasskeyRole, StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>>();
+  const currentCredential = (role: BackendPasskeyRole) => {
+    const c = options.credentialStore ? options.credentialStore.get(role) : credentials.get(role);
+    return c && { ...c, credentialId: c.id };
+  };
   let vault: BackendVaultRecord | undefined;
   let publicVaultBase: Omit<VaultProvisioningResult, "credentialRebind"> | undefined;
   let provisioning: Promise<VaultProvisioningResult> | undefined;
@@ -67,17 +77,17 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 
   const credentialRebindStatus = (): CredentialRebindStatus => {
     const matches = (role: BackendPasskeyRole) => {
-      const actual = credentials.get(role), expected = getRecoveryCredentials()?.[role];
+      const actual = currentCredential(role), expected = getRecoveryCredentials()?.[role];
       return actual !== undefined && (!expected || (actual.x === expected.x && actual.y === expected.y));
     };
     const primary = matches("primary") ? "ready" as const : "required" as const;
     const secondary = matches("secondary") ? "ready" as const : "required" as const;
-    return Object.freeze({ required: getRecoveryCredentials() !== undefined && (primary === "required" || secondary === "required"), primary, secondary });
+    return Object.freeze({ required: getRecoveryCredentials() !== undefined && (primary === "required" || (!options.actionSpecificApprovals && secondary === "required")), primary, secondary });
   };
 
   const getReadiness = () => Object.freeze({
     provisioningReady: !historicalVault && options.config.id === "local",
-    writesReady: !historicalVault && Boolean(vault && options.prepareTransfer && options.submit && options.submission && credentialRebindStatus().primary === "ready" && credentialRebindStatus().secondary === "ready"),
+    writesReady: !historicalVault && Boolean(vault && options.prepareTransfer && options.submit && options.submission && credentialRebindStatus().primary === "ready" && (options.actionSpecificApprovals || credentialRebindStatus().secondary === "ready")),
   });
 
   const publicResult = (): VaultProvisioningResult => {
@@ -108,8 +118,8 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     if (options.config.id !== "local") return Promise.reject(new Error("automatic vault provisioning is available only in the local profile"));
     if (publicVaultBase) return Promise.resolve(publicResult());
     if (provisioning) return provisioning;
-    const primary = credentials.get("primary");
-    const secondary = credentials.get("secondary");
+    const primary = currentCredential("primary");
+    const secondary = currentCredential("secondary");
     const recoveryCredentials = getRecoveryCredentials();
     if (recoveryCredentials) {
       if (primary && (primary.x !== recoveryCredentials.primary.x || primary.y !== recoveryCredentials.primary.y)) return Promise.reject(new Error("registered primary credential does not match the recovered role key"));
@@ -117,7 +127,7 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     }
     const operation = options.provisioner.provision(primary && secondary ? { primary, secondary } : undefined).then((completed) => {
       const recovered = getRecoveryCredentials();
-      const currentPrimary = credentials.get("primary"), currentSecondary = credentials.get("secondary");
+      const currentPrimary = currentCredential("primary"), currentSecondary = currentCredential("secondary");
       if (recovered && ((currentPrimary && (currentPrimary.x !== recovered.primary.x || currentPrimary.y !== recovered.primary.y)) || (currentSecondary && (currentSecondary.x !== recovered.secondary.x || currentSecondary.y !== recovered.secondary.y)))) throw new Error("registered credentials do not match the recovered role keys");
       if (completed.response.chainId !== options.config.chainId || completed.response.usdc.toLowerCase() !== options.usdc.toLowerCase()) throw new Error("verified provisioning result does not match backend identity");
       vault = Object.freeze({ ...completed.response, primaryCredentialId: currentPrimary?.id ?? "", secondaryCredentialId: currentSecondary?.id ?? "", verifiedProvisioning: completed.verified, ...(completed.plan ? { provisioningPlan: completed.plan } : {}) });
@@ -138,7 +148,7 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     requireWritable();
     const current = requireVault();
     const status = credentialRebindStatus();
-    if (status.primary !== "ready" || status.secondary !== "ready") throw new Error("both recovered passkeys must be rebound before spending or reconciliation");
+    if (status.primary !== "ready" || (!options.actionSpecificApprovals && status.secondary !== "ready")) throw new Error("both recovered passkeys must be rebound before spending or reconciliation");
     return current;
   };
 
@@ -197,7 +207,11 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
     const passkeyRole = role(body.role);
     const assertion = record(body.assertion, "passkey assertion") as unknown as AuthenticationResponseJSON;
     requireReadyVault();
-    const stored = credentials.get(passkeyRole);
+    let stored = currentCredential(passkeyRole);
+    const expected = getRecoveryCredentials()?.[passkeyRole];
+    const learned = !stored && options.actionSpecificApprovals && expected;
+    if (learned) stored = { role: passkeyRole, id: assertion.id, credentialId: assertion.id, publicKey: encodeP256CosePublicKey(expected!), counter: 0, ...expected! };
+    if (stored && expected && (stored.x !== expected.x || stored.y !== expected.y)) throw new Error("credential does not match the reviewed role key");
     if (!stored) throw new Error(`${passkeyRole} credential is not registered`);
     const currentVault = requireReadyVault();
     const approval = await (options.verifyAssertion ?? verifyPasskeyAssertion)({
@@ -214,7 +228,10 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
       credential: stored,
     });
     if (approval.role !== passkeyRole || approval.credentialId !== stored.id || approval.counter < stored.counter) throw new Error("verified passkey approval does not match stored credential metadata");
+    if (learned) options.credentialStore?.learn(stored, approval, safeTxHash);
+    else options.credentialStore?.updateCounter(stored, approval.counter, approval, safeTxHash);
     credentials.set(passkeyRole, Object.freeze({ ...stored, counter: approval.counter }));
+    if (vault && learned) vault = Object.freeze({ ...vault, ...(passkeyRole === "primary" ? {primaryCredentialId:stored.id} : {secondaryCredentialId:stored.id}) });
     return approval;
   };
 

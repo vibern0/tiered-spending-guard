@@ -1,5 +1,8 @@
 # Single-Safe Tiered Spending Security Core Implementation Plan
 
+> **2026-11-06 local multi-user amendment:** The [approved multi-user design](../specs/2026-11-06-multiple-vault-accounts-design.md) scopes automatic provisioning and exact recovery per account, adds persistent public credential/session metadata, and replaces the blanket recovered-secondary readiness gate with first-passkey login plus exact action-specific second approval. One asset-holding Safe remains required per account; X/Y/Z, deployment verification, and all live/audit gates remain unchanged.
+
+
 > **2026-11-04 similar-project status note:** Safe Research Policy Engine is a closely related project and possible future comparison or migration candidate. Upstream now records scoped Certora audits for the engine/guard and most listed policies; older statements below that it is wholly unaudited are superseded. Upstream `main` continued changing after the audit snapshots, the reports do not cover this project's X/Y/Z composition, and the Policy Engine remains prior art only. This note does not authorize compiling, deploying, or trusting it, and it does not alter the approved `TieredSpendingGuard` plus Zodiac Delay architecture.
 
 > **2026-10-09 supersession:** The [approved live-validation plan](2026-10-09-guard-live-validation.md) replaces the three-owner baseline with one primary-passkey owner and guard-only contract/ECDSA secondaries. Older owner-count and paired secondary/owner rotation requirements below are historical. Live and ERC-4337 gates remain unchecked until evidenced.

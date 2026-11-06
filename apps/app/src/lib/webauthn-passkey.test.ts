@@ -1,7 +1,12 @@
 import { type Address, type Hex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { createVaultPasskey, rebindPasskey, signSafeDigest } from "./webauthn-passkey";
+import {
+  authenticateVaultPasskey,
+  createVaultPasskey,
+  rebindPasskey,
+  signSafeDigest,
+} from "./webauthn-passkey";
 
 vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: vi.fn(),
@@ -264,5 +269,143 @@ describe("rebindPasskey", () => {
         ),
       ).rejects.toThrow();
     }
+  });
+});
+
+it("allows a discoverable first passkey without a forced authenticator attachment", async () => {
+  const options = registrationOptions("primary");
+  const { authenticatorAttachment: _attachment, ...selection } = options.authenticatorSelection;
+  startRegistrationMock.mockResolvedValue({
+    id: CREDENTIAL,
+    type: "public-key",
+    authenticatorAttachment: "cross-platform",
+    response: {
+      clientDataJSON: encoded({
+        type: "webauthn.create",
+        challenge: CHALLENGE,
+        origin: "http://localhost:5173",
+      }),
+    },
+  } as never);
+  await expect(
+    createVaultPasskey({
+      role: "primary",
+      challenge: CHALLENGE,
+      rpId: "localhost",
+      origin: "http://localhost:5173",
+      options: { ...options, authenticatorSelection: { ...selection, residentKey: "required" } },
+    }),
+  ).resolves.toMatchObject({ credentialId: CREDENTIAL });
+});
+
+it("selects a missing secondary reference only for an exact Safe transaction", async () => {
+  startAuthenticationMock.mockResolvedValue(assertion({ id: "original-second" }) as never);
+  await expect(
+    signSafeDigest({
+      role: "secondary",
+      safe: SAFE,
+      chainId: 11155111,
+      safeTxHash: HASH,
+      challenge: CHALLENGE,
+      challengeBinding: { safe: SAFE, chainId: 11155111, safeTxHash: HASH },
+      rpId: "localhost",
+      origin: "http://localhost:5173",
+    }),
+  ).resolves.toMatchObject({ id: "original-second" });
+  expect(startAuthenticationMock).toHaveBeenLastCalledWith({
+    optionsJSON: { challenge: CHALLENGE, rpId: "localhost", userVerification: "required" },
+  });
+});
+
+describe("discoverable application login", () => {
+  beforeEach(() => vi.clearAllMocks());
+  const options = {
+    challenge: CHALLENGE,
+    rpId: "localhost",
+    origin: "http://localhost:5173",
+    userVerification: "required" as const,
+  };
+  it("omits the credential list after browser storage is cleared", async () => {
+    startAuthenticationMock.mockResolvedValue(assertion() as never);
+    await authenticateVaultPasskey(options);
+    expect(startAuthenticationMock).toHaveBeenCalledWith({
+      optionsJSON: { challenge: CHALLENGE, rpId: "localhost", userVerification: "required" },
+    });
+  });
+  it("targets the first credential immediately after registration", async () => {
+    startAuthenticationMock.mockResolvedValue(assertion() as never);
+    await authenticateVaultPasskey(options, CREDENTIAL);
+    expect(startAuthenticationMock).toHaveBeenCalledWith({
+      optionsJSON: {
+        challenge: CHALLENGE,
+        rpId: "localhost",
+        userVerification: "required",
+        allowCredentials: [{ id: CREDENTIAL, type: "public-key" }],
+      },
+    });
+    startAuthenticationMock.mockResolvedValue(assertion({ id: "different" }) as never);
+    await expect(authenticateVaultPasskey(options, CREDENTIAL)).rejects.toThrow(
+      /credential mismatch/i,
+    );
+  });
+  it("preserves synced-provider transport hints when verifying the freshly created first key", async () => {
+    startAuthenticationMock.mockResolvedValue(assertion() as never);
+    await authenticateVaultPasskey(
+      { ...options, credentialTransports: ["hybrid", "internal"] },
+      CREDENTIAL,
+    );
+    expect(startAuthenticationMock).toHaveBeenCalledWith({
+      optionsJSON: {
+        challenge: CHALLENGE,
+        rpId: "localhost",
+        userVerification: "required",
+        allowCredentials: [
+          { id: CREDENTIAL, type: "public-key", transports: ["hybrid", "internal"] },
+        ],
+      },
+    });
+  });
+  it("rejects substituted login challenge, origin, ceremony and missing presence or verification", async () => {
+    const invalid = [
+      { ...assertion().response, clientDataJSON: clientData("other") },
+      { ...assertion().response, clientDataJSON: clientData(CHALLENGE, "https://other.invalid") },
+      {
+        ...assertion().response,
+        clientDataJSON: encoded({
+          type: "webauthn.create",
+          challenge: CHALLENGE,
+          origin: options.origin,
+        }),
+      },
+      ...[0x00, 0x01, 0x04].map((flags) => ({
+        ...assertion().response,
+        authenticatorData: bytesEncoded(
+          Uint8Array.from({ length: 37 }, (_, index) => (index === 32 ? flags : 0)),
+        ),
+      })),
+    ];
+    for (const response of invalid) {
+      startAuthenticationMock.mockResolvedValueOnce(assertion({ response }) as never);
+      await expect(authenticateVaultPasskey(options)).rejects.toThrow();
+    }
+  });
+});
+
+it("targets the server-supplied primary credential list for explicit legacy login", async () => {
+  startAuthenticationMock.mockResolvedValue(assertion() as never);
+  await authenticateVaultPasskey({
+    challenge: CHALLENGE,
+    rpId: "localhost",
+    origin: "http://localhost:5173",
+    userVerification: "required",
+    credentialIds: [CREDENTIAL],
+  });
+  expect(startAuthenticationMock).toHaveBeenLastCalledWith({
+    optionsJSON: {
+      challenge: CHALLENGE,
+      rpId: "localhost",
+      userVerification: "required",
+      allowCredentials: [{ id: CREDENTIAL, type: "public-key" }],
+    },
   });
 });

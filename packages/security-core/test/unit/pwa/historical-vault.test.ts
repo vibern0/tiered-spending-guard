@@ -99,6 +99,7 @@ describe("completed historical PWA vault compatibility", () => {
     const f = fixture();
     const before = f.bytes();
     const result = await pwa.resolveCompletedHistoricalPwaVaultForTestsOnly(f.input, f.options);
+    expect(result?.credentials?.primary.x).to.be.a("bigint");
     expect(result?.mode).to.equal("read-only");
     expect(result?.safe).to.equal(address(206));
     expect(result?.policy.recipientMode).to.equal("all-lanes-allowlisted");

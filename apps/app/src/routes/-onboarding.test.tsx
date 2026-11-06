@@ -144,3 +144,98 @@ describe("automatic provisioning onboarding", () => {
     expect(screen.queryByLabelText(/gas/i)).not.toBeInTheDocument();
   });
 });
+
+it("offers separate sign-in and account creation before registration", async () => {
+  const signIn = vi.fn().mockResolvedValue(undefined);
+  const createAccount = vi.fn().mockResolvedValue(undefined);
+  useVaultMock.mockReturnValue({
+    ...base,
+    sessionManaged: true,
+    authenticated: false,
+    accountId: undefined,
+    signIn,
+    createAccount,
+    setup: {
+      ...base.setup,
+      primaryCredentialId: undefined,
+      secondaryCredentialId: undefined,
+      provisioning: "registering",
+    },
+  });
+  render(<OnboardingPage />);
+  expect(screen.queryByRole("button", { name: "Register first signer" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Sign in with passkey" }));
+  await waitFor(() => expect(signIn).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+  await waitFor(() => expect(createAccount).toHaveBeenCalledTimes(1));
+});
+
+it("explains that the prompt after first registration verifies the same first key", () => {
+  useVaultMock.mockReturnValue({
+    ...base,
+    sessionManaged: true,
+    authenticated: false,
+    accountId: "unfinished",
+    setup: { ...base.setup, secondaryCredentialId: undefined },
+  });
+  render(<OnboardingPage />);
+  expect(screen.getByRole("heading", { name: "Verify your first passkey" })).toBeInTheDocument();
+  expect(screen.getByText(/same first passkey.*second signer/i)).toBeInTheDocument();
+});
+
+it("does not request generic second-key recovery after first-key account sign-in", () => {
+  useVaultMock.mockReturnValue({
+    ...base,
+    sessionManaged: true,
+    authenticated: true,
+    accountId: "a",
+    signOut: vi.fn(),
+    setup: {
+      ...base.setup,
+      provisioning: "provisioned",
+      credentialRebind: { required: false, primary: "ready", secondary: "required" },
+    },
+  });
+  render(<OnboardingPage />);
+  expect(screen.queryByRole("button", { name: /Verify second signer/i })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+});
+
+it("offers explicit earlier-account sign-in without creating replacement credentials", async () => {
+  const openEarlierAccount = vi.fn().mockResolvedValue(undefined);
+  useVaultMock.mockReturnValue({
+    ...base,
+    sessionManaged: true,
+    authenticated: false,
+    accountId: undefined,
+    signIn: vi.fn(),
+    createAccount: vi.fn(),
+    openEarlierAccount,
+    setup: { ...base.setup, primaryCredentialId: undefined, secondaryCredentialId: undefined },
+  });
+  render(<OnboardingPage />);
+  expect(screen.getByText(/public key cannot reconstruct/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Open an earlier account" }));
+  await waitFor(() => expect(openEarlierAccount).toHaveBeenCalledTimes(1));
+  expect(base.registerPrimary).not.toHaveBeenCalled();
+  expect(base.registerSecondary).not.toHaveBeenCalled();
+});
+
+it("resumes a bound recovery plan without offering a replacement second registration", () => {
+  useVaultMock.mockReturnValue({
+    ...base,
+    sessionManaged: true,
+    authenticated: true,
+    accountId: "legacy",
+    signOut: vi.fn(),
+    setup: {
+      ...base.setup,
+      secondaryCredentialId: undefined,
+      reviewedPlanBound: true,
+      provisioning: "provisioning",
+    },
+  });
+  render(<OnboardingPage />);
+  expect(screen.getByText(/Provisioning and verifying/i)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Register second signer" })).not.toBeInTheDocument();
+});

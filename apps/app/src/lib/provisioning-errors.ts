@@ -59,7 +59,7 @@ export function describeProvisioningError(error: unknown): string {
   }
 
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return "The local backend is not reachable at http://127.0.0.1:8787. Start the backend, then retry.";
+    return "The local backend is not reachable at http://localhost:8787. Start the backend, then retry.";
   }
 
   if (/backend health check failed/i.test(message)) {

@@ -131,6 +131,9 @@ export class SubmissionJournal {
     }
   }
 
+  /** Publish an empty durable submission ledger before publishing an account. */
+  ensurePersisted(): void { this.mutate(() => { if (this.path && !existsSync(this.path)) this.persist(); }); }
+
   prepare(
     id: string,
     requestHash: string,
@@ -299,6 +302,15 @@ export class SubmissionJournal {
     const matching = [...this.entries.values()].filter((entry) => entry.outerTransactionHash?.toLowerCase() === hash.toLowerCase());
     if (matching.length > 1) throw new Error("durable outer transaction hash is ambiguous");
     return matching[0];
+  }
+
+  /** Bounded recovery hints; all unresolved hashes stay visible after browser reset. */
+  recoveryIds(): readonly string[] {
+    this.refresh();
+    const entries = [...this.entries.values()];
+    const pending = entries.filter(e => e.state === "submitting" || e.state === "uncertain");
+    const recent = entries.filter(e => e.state !== "submitting" && e.state !== "uncertain").slice(-20);
+    return Object.freeze([...recent, ...pending].map(e => e.id));
   }
 
   listPending(): readonly JournalEntry[] {

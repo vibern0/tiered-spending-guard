@@ -190,7 +190,7 @@ export function createAutomaticPwaProvisioner(options: AutomaticPwaProvisionerOp
 
 function historicalProvisioner(historicalVault: PwaHistoricalVault): AutomaticPwaProvisioner {
   const unavailable = () => Promise.reject(new Error("historical vault is read-only; current-profile provisioning and transfers are disabled"));
-  return Object.freeze({ historicalVault, provision: unavailable, preflight: unavailable });
+  return Object.freeze({ historicalVault, recoveryCredentials: historicalVault.credentials, provision: unavailable, preflight: unavailable });
 }
 
 type PublicClient = ReturnType<typeof createPublicClient>;
@@ -416,7 +416,7 @@ async function composeAutomaticPwaProvisioner(config: BackendConfig, { providers
     },
     executionContext(plan) {
       const packageHash = provisioningPackageHash(plan);
-      const authorizationStore = createPwaProvisioningAuthorizationStore(pwaProvisioningAuthorizationPath(config.provisioningJournalPath, packageHash), { chainId: sepolia.id, deployer: plan.deployer, packageHash, planHash: plan.planHash });
+      let authorizationStore: ReturnType<typeof createPwaProvisioningAuthorizationStore> | undefined;
       try {
         const runtime = createPwaProvisioningRuntime({
           plan,
@@ -424,6 +424,9 @@ async function composeAutomaticPwaProvisioner(config: BackendConfig, { providers
           account,
           client: relay,
           async authorize(transaction: PwaProvisioningTransaction) {
+            // Completed restoration never opens an authorization writer. Acquire
+            // only when the exact missing deployment transaction needs approval.
+            authorizationStore ??= createPwaProvisioningAuthorizationStore(pwaProvisioningAuthorizationPath(config.provisioningJournalPath, packageHash), { chainId: sepolia.id, deployer: plan.deployer, packageHash, planHash: plan.planHash });
             const facts = await authorizeNext(plan, transaction);
             const verified = assertPwaProvisioningTransactionAuthorization(plan, facts.authorization);
             authorizationStore.append(verified);
@@ -431,9 +434,9 @@ async function composeAutomaticPwaProvisioner(config: BackendConfig, { providers
             return Object.freeze({ ...transaction, gasLimit: BigInt(verified.gasLimit), maxFeePerGas: BigInt(verified.maxFeePerGas), maxPriorityFeePerGas: BigInt(verified.maxPriorityFeePerGas) });
           },
         });
-        return Object.freeze({ context: runtime.context, close: () => { runtime.close(); authorizationStore.close(); } });
+        return Object.freeze({ context: runtime.context, close: () => { try { runtime.close(); } finally { authorizationStore?.close(); } } });
       } catch (error) {
-        authorizationStore.close();
+        authorizationStore?.close();
         throw error;
       }
     },

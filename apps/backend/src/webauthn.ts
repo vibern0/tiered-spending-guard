@@ -1,5 +1,5 @@
 import { verifyAuthenticationResponse, verifyRegistrationResponse, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/server";
-import { bytesToHex, encodeAbiParameters, hexToBytes, toHex, type Address, type Hex } from "viem";
+import { bytesToHex, decodeAbiParameters, encodeAbiParameters, keccak256, hexToBytes, toHex, type Address, type Hex } from "viem";
 import { assertBackendWebAuthnIdentity } from "./config";
 import { decodeP256Credential, decodeWebAuthnField, extractClientDataSuffix, parseP256DerSignature } from "./webauthn-signature";
 
@@ -13,7 +13,7 @@ export type RegistrationResponse = Readonly<{
   response: RegistrationResponseJSON;
 }>;
 
-export type StoredCredential = Readonly<{ role: BackendPasskeyRole; id: string; publicKey: Uint8Array; counter: number; x: bigint; y: bigint }>;
+export type StoredCredential = Readonly<{ backupEligible?: boolean; backedUp?: boolean; transports?: readonly string[]; role: BackendPasskeyRole; id: string; publicKey: Uint8Array; counter: number; x: bigint; y: bigint }>;
 export type AssertionInput = Readonly<{
   role: BackendPasskeyRole;
   safe: Address;
@@ -31,7 +31,7 @@ export type AssertionInput = Readonly<{
 export type VerifiedPasskeyApproval = Readonly<{ role: BackendPasskeyRole; credentialId: string; counter: number; payload: Hex }>;
 export type ReboundCredential = StoredCredential & Readonly<{ credentialId: string }>;
 
-type RegistrationVerification = Readonly<{ verified: boolean; credentialId: string; publicKey: Uint8Array; counter: number }>;
+type RegistrationVerification = Readonly<{ verified: boolean; credentialId: string; publicKey: Uint8Array; counter: number; backupEligible?: boolean; backedUp?: boolean }>;
 type AssertionVerification = Readonly<{ verified: boolean; authenticationInfo?: Readonly<{ newCounter?: number }> }>;
 export type RegistrationVerifier = (input: Readonly<{ response: unknown; challenge: string; rpId: string; origin: string }>) => Promise<RegistrationVerification>;
 export type AssertionVerifier = (input: Readonly<{ response: unknown; credential: StoredCredential; challenge: string; rpId: string; origin: string }>) => Promise<AssertionVerification>;
@@ -60,7 +60,7 @@ async function defaultRegistrationVerifier(input: Readonly<{ response: unknown; 
     requireUserVerification: true,
   });
   if (!result.verified || !result.registrationInfo) throw new Error("WebAuthn registration was not verified");
-  return { verified: true, credentialId: result.registrationInfo.credential.id, publicKey: result.registrationInfo.credential.publicKey, counter: result.registrationInfo.credential.counter };
+  return { verified: true, credentialId: result.registrationInfo.credential.id, publicKey: result.registrationInfo.credential.publicKey, counter: result.registrationInfo.credential.counter, backupEligible: result.registrationInfo.credentialDeviceType === "multiDevice", backedUp: result.registrationInfo.credentialBackedUp };
 }
 
 async function defaultAssertionVerifier(input: Readonly<{ response: unknown; credential: StoredCredential; challenge: string; rpId: string; origin: string }>): Promise<AssertionVerification> {
@@ -105,16 +105,16 @@ export async function verifyPasskeyRebind(input: Readonly<{
   return Object.freeze({ ...credential, credentialId: input.response.id, counter });
 }
 
-export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ credentialId: string }>> {
+export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier, policy?: Readonly<{ allowSyncedPrimary: true }>): Promise<StoredCredential & Readonly<{ credentialId: string }>> {
   role(input.role);
   assertBackendWebAuthnIdentity(input.rpId === "localhost" ? "local" : "https", input.origin, input.rpId);
   if (!input.credentialId || input.credentialId !== input.response.id || input.response.type !== "public-key") throw new Error("registration credential binding mismatch");
   const result = await verifier({ response: input.response, challenge: input.challenge, rpId: input.rpId, origin: input.origin });
   if (!result.verified || result.credentialId !== input.credentialId || !Number.isSafeInteger(result.counter) || result.counter < 0) throw new Error("WebAuthn registration was not verified");
   const expectedAttachment = input.role === "primary" ? "platform" : "cross-platform";
-  if (input.response.authenticatorAttachment !== expectedAttachment) throw new Error(`${input.role} registration must use a ${expectedAttachment} authenticator`);
+  if (!(policy?.allowSyncedPrimary && input.role === "primary") && input.response.authenticatorAttachment !== expectedAttachment) throw new Error(`${input.role} registration must use a ${expectedAttachment} authenticator`);
   const coordinates = decodeP256Credential(result.publicKey);
-  return Object.freeze({ role: input.role, id: result.credentialId, credentialId: result.credentialId, publicKey: result.publicKey, counter: result.counter, ...coordinates });
+  return Object.freeze({ role: input.role, id: result.credentialId, credentialId: result.credentialId, publicKey: result.publicKey, counter: result.counter, ...coordinates, ...(result.backupEligible === undefined ? {} : { backupEligible: result.backupEligible, backedUp: result.backedUp }), ...(input.response.response.transports ? { transports: input.response.response.transports } : {}) });
 }
 
 export async function verifyPasskeyAssertion(input: AssertionInput, verifier: AssertionVerifier = defaultAssertionVerifier): Promise<VerifiedPasskeyApproval> {
@@ -137,3 +137,33 @@ export async function verifyPasskeyAssertion(input: AssertionInput, verifier: As
 }
 
 export { challengeForDigest };
+
+/** Backend-only sign-in. Never creates a Safe signature payload. */
+export async function verifyPasskeyLogin(input: Readonly<{
+  credential: StoredCredential; response: AuthenticationResponseJSON; challenge: string;
+  rpId: string; origin: string; userHandle?: string; allowMissingUserHandle?: boolean;
+}>, verifier: AssertionVerifier = defaultAssertionVerifier): Promise<number> {
+  assertBackendWebAuthnIdentity(input.rpId === "localhost" ? "local" : "https", input.origin, input.rpId);
+  if (input.credential.role !== "primary" || input.response.id !== input.credential.id || input.response.type !== "public-key") throw new Error("first passkey authentication required");
+  if (input.userHandle !== undefined && input.response.response.userHandle !== input.userHandle && !(input.allowMissingUserHandle && input.response.response.userHandle == null)) throw new Error("passkey user handle mismatch");
+  const result = await verifier({ ...input, response: input.response });
+  if (!result.verified) throw new Error("passkey login was not verified");
+  const counter = result.authenticationInfo?.newCounter ?? input.credential.counter;
+  if (!Number.isSafeInteger(counter) || counter < input.credential.counter) throw new Error("WebAuthn counter is invalid");
+  const data = decodeWebAuthnField(input.response.response.authenticatorData, "WebAuthn authenticatorData");
+  if (data.length < 37 || (data[32]! & 5) !== 5) throw new Error("WebAuthn user presence and verification required");
+  extractClientDataSuffix(input.response.response.clientDataJSON, { challenge: input.challenge, origin: input.origin });
+  return counter;
+}
+
+/** Fingerprint only; leaves the exact Safe payload/signature format unchanged. */
+export function passkeyApprovalFingerprint(approval: VerifiedPasskeyApproval, safeTxHash: Hex): Hex {
+  const parameters = [{type:"bytes"},{type:"string"},{type:"uint256"},{type:"uint256"}] as const;
+  const [authenticatorData,clientData,r,s] = decodeAbiParameters(parameters,approval.payload);
+  // SEC2 P-256 order, also pinned OpenZeppelin P256.N. Normalize the
+  // ECDSA (r,s)/(r,N-s) ambiguity before recording one-use verification.
+  const order = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551n;
+  if (r <= 0n || s <= 0n || r >= order || s >= order) throw new Error("invalid P-256 signature scalars");
+  const canonical = encodeAbiParameters(parameters,[authenticatorData,clientData,r,s > order/2n ? order-s : s]);
+  return keccak256(encodeAbiParameters([{type:"bytes32"},{type:"string"},{type:"string"},{type:"bytes"}],[safeTxHash,approval.role,approval.credentialId,canonical]));
+}

@@ -24,7 +24,7 @@ describe("automatic Phase One through frontend-equivalent HTTP", () => {
   it.each(["fresh", "lost-provisioning-response", "confirmed-signers-with-consumed-nonce"] as const)("%s: genuine HTTP registration, automatic setup/recovery, restart rebind and X/Y/Z/recipient/cancel/expiry receipts", async mode => {
     const directory = mkdtempSync(join(tmpdir(), "automatic-http-integration-"));
     const chain = await localChain(directory);
-    let backend: BackendServer | undefined;
+    let backend: Pick<BackendServer, "server" | "close"> | undefined;
     let runtime: ReturnType<typeof createSubmissionRuntimeForTestsOnly> | undefined;
     let prepared: BackendPreparedSubmission | undefined;
     let confirmationMining: Promise<unknown> | undefined;

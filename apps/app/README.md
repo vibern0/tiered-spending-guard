@@ -32,7 +32,7 @@ The wallet requires the loopback backend for passkey registration, automatic loc
 export VITE_WALLET_PROFILE=local
 export VITE_APP_ORIGIN=http://localhost:5173
 export VITE_WEBAUTHN_RP_ID=localhost
-export VITE_BACKEND_ORIGIN=http://127.0.0.1:8787
+export VITE_BACKEND_ORIGIN=http://localhost:8787
 
 # Stable HTTPS profile; replace both hosts with reviewed exact origins
 export VITE_WALLET_PROFILE=https
@@ -41,13 +41,17 @@ export VITE_WEBAUTHN_RP_ID=vault.example
 export VITE_BACKEND_ORIGIN=https://relay.example
 ```
 
-The app rejects wildcard/preview origins, paths, URL credentials, IP relying parties, mixed local/HTTPS values, and any observed browser origin that differs from the configured profile. HTTPS backend requests include ingress credentials; the temporary ingress must independently enforce its developer access policy.
+The app rejects wildcard/preview origins, paths, URL credentials, IP relying parties, mixed local/HTTPS values, and any observed browser origin that differs from the configured profile. Both browser endpoints must use `localhost`: the app rejects `127.0.0.1` as the browser backend hostname because local account cookies require the same site. Backend requests include cookies. The backend socket still binds to `127.0.0.1`; its secrets and SQLite/account evidence stay outside this repository. HTTPS remains a separate reviewed profile; this multi-user milestone enables localhost only.
 
 Backend errors, unhealthy readiness, stale chain state, passkey cancellation, and onchain policy denial stay visible. The browser never receives relay keys or credential material.
 
 ## Phase One journeys
 
-Onboarding registers the primary and secondary passkeys separately. Immediately after the second registration, it calls the backend's empty automatic-provisioning route and displays a provisioning/verifying state until the seven serial Sepolia deployments each have six confirmations and the final topology gate passes. A failure preserves the two public credential IDs, stores no vault configuration, and exposes an explicit retry. Public credential, vault, and submission identifiers are stored in environment-scoped versioned browser storage; assertions and signatures are process-local only.
+New first and second passkeys use the label `tiered-guard-vault-YYYY-MM-DD-HH-mm-ss`, generated once per registration from the browser's local date/time. The same label is supplied as the WebAuthn user name and display name; the stable server user handle remains the credential binding.
+
+Use the **Account** tab in the main navigation to open your profile and **Sign out**. Logout returns to the sign-in screen; **Sign in with passkey** opens the existing account with its first passkey alone. It does not register replacement signers or create another vault.
+
+An empty browser offers **Create account** and **Sign in with passkey**. Creation opens an isolated server setup context. The first registration uses a stable server-generated user handle, a discoverable credential and no forced authenticator attachment; after registration, a fresh assertion from that exact first credential signs the user in. Onboarding then registers the distinct second signer. Immediately after the second registration, it calls the backend's empty automatic-provisioning route and displays a provisioning/verifying state until the seven serial Sepolia deployments each have six confirmations and the final topology gate passes. A failure preserves the two public credential IDs, stores no vault configuration, and exposes an explicit retry. Public credential, vault, and submission identifiers are cached under environment-and-account keys. The server session selects the account; cached data never authenticates a browser. Clearing browser storage does not delete the account: sign in with its original first passkey, including a synced copy when available from its provider. The browser does not enable synchronization or infer independent devices from cloud credentials. The second signer is requested only by actions that require it. Session tokens remain in HttpOnly cookies; CSRF values remain in memory; assertions/signatures are not persisted. Sign out clears prepared approvals, and another account starts with separate state. Account changes are announced across tabs; focus also rechecks the authoritative session, and requests carry the expected account so stale tabs fail closed.
 
 Run the backend and UI in separate terminals after setting their environment variables:
 

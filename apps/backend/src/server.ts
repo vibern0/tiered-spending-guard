@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { backendLogRoute, observeBackendRequest, writeBackendLog, type BackendLogger } from "./logging";
 import { isLoopbackAddress, type BackendConfig } from "./config";
 import { RebindSessionStore, RegistrationSessionStore } from "./session";
 import { verifyPasskeyRebind, verifyPasskeyRegistration, type BackendPasskeyRole, type StoredCredential } from "./webauthn";
@@ -49,7 +50,7 @@ export type BackendDiagnosticEvent = Readonly<{
 }>;
 
 export type BackendServerOptions = Readonly<{
-  log?: (event: BackendDiagnosticEvent) => void;
+  log?: BackendLogger;
 }>;
 
 async function body(req: IncomingMessage): Promise<unknown> {
@@ -96,8 +97,9 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
   const journal = new SubmissionJournal(config.journalPath);
   const server = createServer(async (req, res) => {
     const requestId = randomUUID();
-    const route = (req.url ?? "/").split("?", 1)[0] ?? "/";
+    const route = backendLogRoute(req.url);
     res.setHeader("x-request-id", requestId);
+    observeBackendRequest(req, res, requestId, options.log);
     try {
       if (!isLoopbackAddress(req.socket.remoteAddress)) return json(res, 403, { error: "loopback only" });
       const origin = req.headers.origin;
@@ -186,7 +188,7 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
       const message = sanitizeBackendMessage(error);
       const diagnostic = diagnosticFor(message);
       const event = Object.freeze({ level: "error", requestId, method: req.method ?? "UNKNOWN", route, status: 400, ...diagnostic, message }) satisfies BackendDiagnosticEvent;
-      (options.log ?? ((value: BackendDiagnosticEvent) => console.error(JSON.stringify(value))))(event);
+      (options.log ?? writeBackendLog)(event);
       return json(res, 400, { error: message, ...diagnostic, requestId });
     }
   });

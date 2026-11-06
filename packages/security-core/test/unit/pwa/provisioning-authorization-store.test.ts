@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { expect } from "chai";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,5 +64,28 @@ describe("PWA provisioning authorization sidecar", () => {
     changed.deployer = address(9);
     writeFileSync(path, JSON.stringify(changed));
     expect(() => createPwaProvisioningAuthorizationStore(path, identity)).to.throw(/identity/i);
+  });
+});
+
+
+describe("authorization sidecar restart locking", () => {
+  it("reclaims only a proved-dead writer without modifying prior authorization records", () => {
+    const directory=mkdtempSync(join(tmpdir(),"pwa-auth-restart-")),path=join(directory,"authorization.json");
+    const identity={chainId:11155111,deployer:address(1),packageHash:hash(1),planHash:hash(2)} as const;
+    const first=createPwaProvisioningAuthorizationStore(path,identity);first.append(record(1));first.close();
+    const before=readFileSync(path,"utf8");
+    const child=spawnSync(process.execPath,["-e","process.stdout.write(String(process.pid))"],{encoding:"utf8"});
+    expect(child.status).to.equal(0);writeFileSync(`${path}.lock`,`${child.stdout}\n`);
+    const restarted=createPwaProvisioningAuthorizationStore(path,identity);
+    try {expect(readFileSync(path,"utf8")).to.equal(before);expect(restarted.load().records).to.deep.equal([record(1)]);}finally{restarted.close();}
+  });
+  it("preserves live and malformed lock ownership", () => {
+    const directory=mkdtempSync(join(tmpdir(),"pwa-auth-lock-")),path=join(directory,"authorization.json");
+    const identity={chainId:11155111,deployer:address(1),packageHash:hash(1),planHash:hash(2)} as const;
+    for(const contents of [`${process.pid}\n`,"not-a-pid\n"]) {
+      writeFileSync(`${path}.lock`,contents);
+      expect(()=>createPwaProvisioningAuthorizationStore(path,identity)).to.throw(/lock unavailable/);
+      expect(readFileSync(`${path}.lock`,"utf8")).to.equal(contents);
+    }
   });
 });

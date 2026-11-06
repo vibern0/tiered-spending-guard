@@ -212,8 +212,11 @@ describe("backend HTTP boundary", () => {
     expect(payload).toMatchObject({ code: "provisioning_nonce_mismatch", stage: "provisioning-quote" });
     expect(payload.requestId).toBe(response.headers.get("x-request-id"));
     expect(JSON.stringify(payload)).not.toMatch(/rpc\.invalid|1111111111/);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ level: "error", status: 400, code: "provisioning_nonce_mismatch", stage: "provisioning-quote", route: "/v1/vaults/auto-provision", requestId: payload.requestId });
-    expect(JSON.stringify(events[0])).not.toMatch(/rpc\.invalid|1111111111/);
+    expect(events).toEqual([
+      expect.objectContaining({ code: "request_received", requestId: payload.requestId }),
+      expect.objectContaining({ level: "error", status: 400, code: "provisioning_nonce_mismatch", stage: "provisioning-quote", route: "/v1/vaults/auto-provision", requestId: payload.requestId }),
+      expect.objectContaining({ code: "request_completed", status: 400, requestId: payload.requestId }),
+    ]);
+    expect(JSON.stringify(events)).not.toMatch(/rpc\.invalid|1111111111/);
   });
 });

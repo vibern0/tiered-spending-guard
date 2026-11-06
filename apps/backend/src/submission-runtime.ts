@@ -65,6 +65,7 @@ type SignedEnvelope = {
 };
 type Dependencies = Readonly<{
   providers: readonly [ReadClient, ReadClient]; relay: ReadClient;
+  beforeSign?(submissionId: string): void;
   sendRawTransaction(raw: Hex): Promise<Hex>;
 }>;
 
@@ -297,6 +298,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
           Promise.all(providers.map(client => client.getMaxPriorityFeePerGas())), relay.getBalance({ address: payer.address }),
         ]);
         const envelope = core.derivePwaProvisioningEnvelope({ estimates: estimates as [bigint, bigint], priorityFeesPerGas: tips as [bigint, bigint], blockGasLimit: blocks[0]!.gasLimit!, baseFeePerGas: blocks[0]!.baseFeePerGas!, value: 0n, confirmedActualCost: 0n, pendingReservation: 0n, relayBalance, policy });
+        dependencies.beforeSign?.(prepared.id);
         const raw = await payer.signTransaction({ chainId: 11155111, type: "eip1559", to, value: 0n, data, nonce: Number(nonces[0]!), gas: envelope.gasLimit, maxFeePerGas: envelope.maxFeePerGas, maxPriorityFeePerGas: envelope.maxPriorityFeePerGas });
         const outerHash = keccak256(raw);
         envelopes.set(prepared.id, { entry, request, raw, hash: outerHash, nonce: nonces[0]!, close: lease.close });
@@ -318,6 +320,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
       };
       if (envelope.entry.prepared.kind === "skip-expired") {
         await checkPayer();
+        dependencies.beforeSign?.(prepared.id);
         return dependencies.sendRawTransaction(envelope.raw);
       }
       const request = envelope.request;
@@ -330,6 +333,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
         if (!isAddressEqual(target, expectedTo) || data !== expectedData) throw new Error("transport altered the signed outer call");
         await revalidate(prepared);
         await checkPayer();
+        dependencies.beforeSign?.(prepared.id);
         return dependencies.sendRawTransaction(envelope.raw);
       };
       const context: RelayerContext = {
@@ -353,11 +357,11 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
   });
 }
 
-export function createConfiguredSubmissionRuntime(config: BackendConfig, currentVault?: () => BackendVaultRecord | undefined): ConfiguredSubmissionRuntime {
+export function createConfiguredSubmissionRuntime(config: BackendConfig, currentVault?: () => BackendVaultRecord | undefined, beforeSign?: (submissionId: string) => void): ConfiguredSubmissionRuntime {
   const providers = [createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[0], "submission identity 1"), createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[1], "submission identity 2")] as const;
   const relay = createSubmissionReadClient(config.rpcUrl, "submission relay");
   const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
-  return compose(config, { providers, relay, sendRawTransaction: serializedTransaction => sanitizeRpc("submission relay", "sendRawTransaction", () => client.sendRawTransaction({ serializedTransaction })) }, currentVault);
+  return compose(config, { providers, relay, beforeSign, sendRawTransaction: serializedTransaction => sanitizeRpc("submission relay", "sendRawTransaction", () => client.sendRawTransaction({ serializedTransaction })) }, currentVault);
 }
 
 export function createSubmissionRuntimeForTestsOnly(config: BackendConfig, dependencies: Dependencies, currentVault?: () => BackendVaultRecord | undefined): ConfiguredSubmissionRuntime {
