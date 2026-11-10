@@ -553,3 +553,5 @@ The live Sepolia rehearsal and architecture gate were not completed in this work
 ## Follow-on plans
 
 After this plan passes, write separate plans for the consumer wallet UI, external review and audit remediation, carefully decoded DeFi actions, additional chains, and a deliberately capped production pilot.
+
+The [2026-11-10 receipt reconciliation and verification read plan](2026-11-10-receipt-reconciliation-verification.md) adds automatic durable-hash reconciliation and scoped read optimizations. It preserves all authorization/receipt checks and the seven serial six-confirmation provisioning steps; it does not complete or advance the open live Sepolia, independent-alert or audit gates.

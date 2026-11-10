@@ -127,12 +127,19 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
       const publicClient = createPublicClient({ chain: sepolia, transport: http(chain.url), cacheTime: 0, pollingInterval: 10 });
       const wallet = createWalletClient({ account: payer, chain: sepolia, transport: http(chain.url) });
       const mine = () => chain.rpc("hardhat_mine", ["0x5"]);
-      const provider = (source: string) => ({ ...createSubmissionReadClient(`${chain.url}/${source}`, source), getBlockNumber: async () => BigInt(await chain.rpc<string>("eth_blockNumber")),
+      let topologyCollections = 0;
+      const provider = (source: string) => {
+        const base = createSubmissionReadClient(`${chain.url}/${source}`, source);
+        return { ...base,
+        readContract: async (args: Parameters<typeof base.readContract>[0]) => {
+          if (source === "identity-a" && args.functionName === "VERSION") topologyCollections++;
+          return base.readContract(args);
+        }, getBlockNumber: async () => BigInt(await chain.rpc<string>("eth_blockNumber")),
         estimateGas: async (args: Parameters<typeof publicClient.estimateGas>[0]) => {
           try { return await publicClient.estimateGas(args); }
           catch (error) { throw new Error(`local signed estimate failed: ${(error as { details?: string }).details ?? "unknown"}`); }
         },
-      });
+      }; };
       const providers = [provider("identity-a"), provider("identity-b")] as const;
       const relay = provider("relay");
       const primary = softwareCredential("primary"), secondary = softwareCredential("secondary");
@@ -183,10 +190,12 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
       handlers = createBackendHandlers({ config, usdc: TOKEN, provisioner: { provision: async () => ({ response, verified, plan }) }, prepareTransfer: async ({ vault, request }) => service.prepare(await runtime!.prepare({ vault, request })), submit: async ({ id, body }) => service.submit(id, body as never), submission: async ({ id }) => service.status(id) });
       handlers.storeCredential(primary.stored); handlers.storeCredential(secondary.stored);
       await handlers.autoProvisionVault({});
+      topologyCollections = 0;
       prepared = await handlers.prepareTransfer({ kind: "transfer", recipient: RECIPIENT, amount: "500000", idempotencyKey: "real-base-1" });
       expect(prepared.kind).toBe("base-transfer");
       const pending = await handlers.submit(prepared.id, { role: "primary", assertion: primary.assertion(prepared.safeTxHash!) }).catch(error => { throw new Error(submissionFailure ?? (error instanceof Error ? error.message : "submit failed")); }) as { state: string; transactionHash: Hex };
       expect(pending.state).toBe("uncertain");
+      expect(topologyCollections).toBe(6); // All boundaries retained; adjacent consumers reuse their just-validated proof.
       expect(send).toHaveBeenCalledTimes(1);
       expect(await publicClient.readContract({ address: TOKEN, abi: TOKEN_ABI, functionName: "balanceOf", args: [verified.safe] })).toBe(19_500_000n);
       expect(await publicClient.readContract({ address: TOKEN, abi: TOKEN_ABI, functionName: "balanceOf", args: [RECIPIENT] })).toBe(500_000n);
@@ -215,6 +224,30 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
       const observedBytes = readFileSync(join(`${config.journalPath}.observations`, observations[0]!), "utf8");
       expect(await restartedService.status(prepared.id)).toMatchObject({ state: "confirmed", transactionHash: pending.transactionHash });
       expect(readFileSync(join(`${config.journalPath}.observations`, observations[0]!), "utf8")).toBe(observedBytes);
+
+      // A just-verified snapshot is reusable only by its adjacent consumer, not
+      // across signing and broadcast. Change real guard code after outer signing.
+      const driftConfig = { ...config, journalPath: join(directory, "drift-submissions.json") };
+      const drift = createSubmissionRuntimeForTestsOnly(driftConfig, { providers, relay, sendRawTransaction: send }, () => restartedVault);
+      const driftPrepared = await drift.prepare({ vault: restartedVault, request: { kind: "transfer", recipient: RECIPIENT, amount: "1", idempotencyKey: "code-drift-after-signing" } });
+      const approval = await handlers.verifyApproval(driftPrepared.safeTxHash!, { role: "primary", assertion: primary.assertion(driftPrepared.safeTxHash!) });
+      const approvalSet = [{ role: "primary" as const, payload: approval.payload }];
+      const driftHash = await drift.deriveOuterHash(driftPrepared, approvalSet);
+      const driftJournal = new SubmissionJournal(driftConfig.journalPath);
+      driftJournal.prepare(driftPrepared.id, driftPrepared.requestHash, driftPrepared.publicRequest);
+      driftJournal.markSubmitting(driftPrepared.id, driftHash);
+      const guardCode = await publicClient.getCode({ address: verified.guard });
+      try {
+        await chain.rpc("hardhat_setCode", [verified.guard, "0x6000"]);
+        await chain.rpc("evm_mine");
+        await expect(drift.broadcast(driftPrepared, approvalSet, driftHash)).rejects.toThrow(/guard|topology|runtime|Sepolia RPC request failed/);
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(driftJournal.get(driftPrepared.id)?.state).toBe("submitting");
+      } finally {
+        await chain.rpc("hardhat_setCode", [verified.guard, guardCode]);
+        await chain.rpc("evm_mine");
+        await drift.discard?.(driftPrepared);
+      }
 
       runtime = restarted;
       const continuousService = new PwaSubmissionService({ journal: new SubmissionJournal(config.journalPath), revalidate: runtime.revalidate, deriveOuterHash: runtime.deriveOuterHash, broadcast: async (...args) => { try { return await runtime!.broadcast(...args); } catch (error) { submissionFailure = error instanceof Error ? error.message : "broadcast failed"; throw error; } }, reconcile: runtime.reconcile, discard: runtime.discard, verifyApproval: async (role, request, assertion) => {

@@ -1,6 +1,6 @@
 import { isAddress, type Address } from "viem";
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, basename, resolve, relative, isAbsolute } from "node:path";
+import { dirname, basename, resolve, relative, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPOSITORY_ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../.."));
@@ -34,7 +34,7 @@ export function assertExternalBackendPath(value: string | undefined, label: stri
   }
   const target = resolve(realpathSync(existing), ...parts);
   const fromRepository = relative(REPOSITORY_ROOT, target);
-  if (fromRepository === "" || (!fromRepository.startsWith("..") && !isAbsolute(fromRepository))) throw new Error(`${label} must point outside the repository`);
+  if (fromRepository === "" || (fromRepository !== ".." && !fromRepository.startsWith(`..${sep}`) && !isAbsolute(fromRepository))) throw new Error(`${label} must point outside the repository`);
   return target;
 }
 

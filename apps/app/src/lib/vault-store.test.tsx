@@ -1949,3 +1949,400 @@ it("does not treat a registering account with a missing second signer as a bound
   expect(result.current.setup.reviewedPlanBound).toBe(false);
   expect(api.autoProvisionVault).not.toHaveBeenCalled();
 });
+
+describe("automatic receipt status", () => {
+  const hash = `0x${"aa".repeat(32)}` as const;
+  function saved(ids: string[]) {
+    localStorage.setItem(
+      walletStorageKey("ui", { id: "local", rpId: "localhost" }),
+      JSON.stringify({ primaryCredentialId: "p", secondaryCredentialId: "s", submissionIds: ids }),
+    );
+  }
+  function statusBackend(submission: VaultBackend["submission"]): VaultBackend {
+    return {
+      health: vi.fn().mockResolvedValue(undefined),
+      registerPasskey: vi.fn(),
+      autoProvisionVault: vi.fn(),
+      prepareIntent: vi.fn(),
+      submit: vi.fn(),
+      submission,
+    };
+  }
+  it("restores known ids, updates pending receipts and refreshes the vault only once on completion", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved(["pending", "approval", "superseded"]);
+    const client = makeClient();
+    let confirmed = false;
+    const submission = vi.fn(async (id: string) => ({
+      id,
+      state:
+        id === "approval"
+          ? ("awaiting-secondary" as const)
+          : id === "superseded"
+            ? ("superseded" as const)
+            : confirmed
+              ? ("confirmed" as const)
+              : ("uncertain" as const),
+      ...(id === "pending" ? { transactionHash: hash } : {}),
+    }));
+    const backend = statusBackend(submission);
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client, config, backend }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    await waitFor(() => expect(result.current.submissions?.["pending"]?.state).toBe("uncertain"));
+    expect(result.current.submissions["approval"]?.state).toBe("awaiting-secondary");
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(1);
+    confirmed = true;
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(result.current.submissions["pending"]?.state).toBe("confirmed");
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(submission.mock.calls.map(([id]) => id)).toEqual([
+      "pending",
+      "approval",
+      "superseded",
+      "pending",
+    ]);
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(2);
+    expect(backend.submit).not.toHaveBeenCalled();
+    expect(signSafeDigest).not.toHaveBeenCalled();
+  });
+  it("retries failed reads at a bounded cadence without overlapping manual or automatic reads", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved(["retry"]);
+    let release!: (status: {
+      id: string;
+      state: "uncertain";
+      transactionHash: typeof hash;
+    }) => void;
+    const submission = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("RPC unavailable"))
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+    const { result, unmount } = renderHook(() => useVault(), {
+      wrapper: wrapper({ backend: statusBackend(submission) }),
+    });
+    await waitFor(() => expect(submission).toHaveBeenCalledTimes(1));
+    await act(() => vi.advanceTimersByTimeAsync(4_900));
+    expect(submission).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(submission).toHaveBeenCalledTimes(2);
+    let manual!: Promise<unknown>;
+    act(() => {
+      manual = result.current.reconcileSubmission("retry");
+    });
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(submission).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      release({ id: "retry", state: "uncertain", transactionHash: hash });
+      await manual;
+    });
+    expect(result.current.submissions["retry"]?.state).toBe("uncertain");
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(submission).toHaveBeenCalledTimes(2);
+  });
+  it("discards an old receipt response on logout and fetches only the next account's ids", async () => {
+    let release!: (status: {
+      id: string;
+      state: "confirmed";
+      transactionHash: typeof hash;
+    }) => void;
+    const submission = vi.fn((id: string) =>
+      id === "old"
+        ? new Promise<{ id: string; state: "confirmed"; transactionHash: typeof hash }>(
+            (resolve) => {
+              release = resolve;
+            },
+          )
+        : Promise.resolve({ id, state: "awaiting-primary" as const }),
+    );
+    const backend: VaultBackend = {
+      ...statusBackend(submission),
+      session: vi.fn(async () => ({
+        authenticated: true,
+        account: {
+          id: "a",
+          userHandle: "a",
+          state: "registering" as const,
+          submissionIds: ["old"],
+        },
+      })),
+      signOut: vi.fn(async () => ({ authenticated: false })),
+      signIn: vi.fn(async () => ({
+        authenticated: true,
+        account: {
+          id: "b",
+          userHandle: "b",
+          state: "registering" as const,
+          submissionIds: ["new"],
+        },
+      })),
+    };
+    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ backend }) });
+    await waitFor(() => expect(submission).toHaveBeenCalledWith("old"));
+    await act(() => result.current.signOut());
+    await act(() => result.current.signIn());
+    await waitFor(() =>
+      expect(result.current.submissions?.["new"]?.state).toBe("awaiting-primary"),
+    );
+    await act(async () => {
+      release({ id: "old", state: "confirmed", transactionHash: hash });
+    });
+    expect(result.current.accountId).toBe("b");
+    expect(result.current.submissions["old"]).toBeUndefined();
+    expect(result.current.setup.submissionIds).toEqual(["new"]);
+  });
+  it("tracks a newly submitted hash without further signing or submission", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved([]);
+    const submission = vi.fn(async (id: string) => ({
+      id,
+      state: "confirmed" as const,
+      transactionHash: hash,
+    }));
+    const backend = {
+      ...statusBackend(submission),
+      prepareIntent: vi.fn(async () => ({
+        id: "new",
+        kind: "base-transfer" as const,
+        requestHash: hash,
+        safeTxHash: hash,
+        requiredApprovals: ["primary" as const],
+        publicRequest: {},
+      })),
+      submit: vi.fn(async () => ({
+        id: "new",
+        state: "uncertain" as const,
+        transactionHash: hash,
+      })),
+    };
+    const client = makeClient();
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client, config, backend }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    await act(() => result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n }));
+    expect(result.current.submissions["new"]?.state).toBe("uncertain");
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(result.current.submissions["new"]?.state).toBe("confirmed");
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(2);
+    expect(backend.submit).toHaveBeenCalledTimes(1);
+    expect(signSafeDigest).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(submission).toHaveBeenCalledTimes(1);
+    expect(backend.submit).toHaveBeenCalledTimes(1);
+  });
+  it("does not regress a completed receipt when an earlier submit response arrives late", async () => {
+    saved([]);
+    let release!: (status: {
+      id: string;
+      state: "uncertain";
+      transactionHash: typeof hash;
+    }) => void;
+    const backend = {
+      ...statusBackend(
+        vi.fn(async (id: string) => ({ id, state: "confirmed" as const, transactionHash: hash })),
+      ),
+      prepareIntent: vi.fn(async () => ({
+        id: "race",
+        kind: "base-transfer" as const,
+        requestHash: hash,
+        safeTxHash: hash,
+        requiredApprovals: ["primary" as const],
+        publicRequest: {},
+      })),
+      submit: vi.fn(
+        () =>
+          new Promise<{ id: string; state: "uncertain"; transactionHash: typeof hash }>(
+            (resolve) => {
+              release = resolve;
+            },
+          ),
+      ),
+    };
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client: makeClient(), config, backend }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    let action!: Promise<unknown>;
+    await act(async () => {
+      action = result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n });
+    });
+    await waitFor(() => expect(result.current.submissions["race"]?.state).toBe("confirmed"));
+    await act(async () => {
+      release({ id: "race", state: "uncertain", transactionHash: hash });
+      await action;
+    });
+    expect(result.current.submissions["race"]?.state).toBe("confirmed");
+  });
+  it("ignores in-flight status completion after unmount", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved(["pending"]);
+    let release!: (status: {
+      id: string;
+      state: "confirmed";
+      transactionHash: typeof hash;
+    }) => void;
+    const submission = vi.fn(
+      () =>
+        new Promise<{ id: string; state: "confirmed"; transactionHash: typeof hash }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const client = makeClient();
+    const { result, unmount } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client, config, backend: statusBackend(submission) }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    await waitFor(() => expect(submission).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => {
+      release({ id: "pending", state: "confirmed", transactionHash: hash });
+    });
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(submission).toHaveBeenCalledTimes(1);
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(1);
+  });
+  it("refreshes a restored receipt that first confirms after the hydration snapshot", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved(["confirmed-after-hydration"]);
+    const client = makeClient();
+    const submission = vi.fn().mockRejectedValueOnce(new Error("temporarily unavailable")).mockResolvedValue({
+      id: "confirmed-after-hydration", state: "confirmed", transactionHash: hash,
+      receipt: { transactionHash: hash, blockNumber: 124n, blockHash: hash },
+    });
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client, config, backend: statusBackend(submission) }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    await waitFor(() => expect(submission).toHaveBeenCalledTimes(1));
+    expect(result.current.state.balance).toBe(12_345_678n);
+    vi.mocked(client.getBlockNumber).mockResolvedValue(129n);
+    const read = vi.mocked(client.readContract).getMockImplementation()!;
+    vi.mocked(client.readContract).mockImplementation(async input =>
+      input.functionName === "balanceOf" ? 22_345_678n : read(input),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(result.current.submissions["confirmed-after-hydration"]?.state).toBe("confirmed");
+    expect(result.current.state.balance).toBe(22_345_678n);
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(2);
+  });
+  it("reads restored terminal history without collecting extra vault snapshots", async () => {
+    saved(["old-confirmed", "old-reverted"]);
+    const client = makeClient();
+    const submission = vi.fn(async (id: string) => ({
+      id,
+      state: id === "old-confirmed" ? ("confirmed" as const) : ("reverted" as const),
+      transactionHash: hash,
+      receipt: { transactionHash: hash, blockNumber: 120n, blockHash: hash },
+    }));
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client, config, backend: statusBackend(submission) }),
+    });
+    await waitFor(() => expect(result.current.submissions["old-reverted"]?.state).toBe("reverted"));
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(1);
+  });
+  it("coalesces terminal completions in one status sweep into one vault refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved(["one", "two"]);
+    let complete = false;
+    const client = makeClient();
+    const submission = vi.fn(async (id: string) => ({
+      id,
+      state: complete ? ("confirmed" as const) : ("uncertain" as const),
+      transactionHash: hash,
+    }));
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client, config, backend: statusBackend(submission) }),
+    });
+    await waitFor(() => expect(result.current.submissions["two"]?.state).toBe("uncertain"));
+    complete = true;
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(result.current.submissions["one"]?.state).toBe("confirmed");
+    expect(result.current.submissions["two"]?.state).toBe("confirmed");
+    expect(client.getBlockNumber).toHaveBeenCalledTimes(2);
+  });
+  it("ignores an older approval status GET after observing a newer submitted hash", async () => {
+    saved([]);
+    let releaseRead!: (status: { id: string; state: "awaiting-primary" }) => void;
+    let releaseSubmit!: (status: {
+      id: string;
+      state: "uncertain";
+      transactionHash: typeof hash;
+    }) => void;
+    const submission = vi.fn(
+      () =>
+        new Promise<{ id: string; state: "awaiting-primary" }>((resolve) => {
+          releaseRead = resolve;
+        }),
+    );
+    const backend = {
+      ...statusBackend(submission),
+      prepareIntent: vi.fn(async () => ({
+        id: "newer",
+        kind: "base-transfer" as const,
+        requestHash: hash,
+        safeTxHash: hash,
+        requiredApprovals: ["primary" as const],
+        publicRequest: {},
+      })),
+      submit: vi.fn(
+        () =>
+          new Promise<{ id: string; state: "uncertain"; transactionHash: typeof hash }>(
+            (resolve) => {
+              releaseSubmit = resolve;
+            },
+          ),
+      ),
+    };
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ client: makeClient(), config, backend }),
+    });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    let action!: Promise<unknown>;
+    await act(async () => {
+      action = result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n });
+    });
+    await waitFor(() => expect(submission).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      releaseSubmit({ id: "newer", state: "uncertain", transactionHash: hash });
+      await action;
+    });
+    await act(async () => {
+      releaseRead({ id: "newer", state: "awaiting-primary" });
+    });
+    expect(result.current.submissions["newer"]?.state).toBe("uncertain");
+  });
+  it("pauses offline status reads and resumes known pending hashes on reconnect", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    saved(["pending", "without-hash"]);
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    const submission = vi.fn(async (id: string) => ({
+      id,
+      state: "uncertain" as const,
+      ...(id === "pending" ? { transactionHash: hash } : {}),
+    }));
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ backend: statusBackend(submission) }),
+    });
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    expect(submission).not.toHaveBeenCalled();
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(result.current.submissions["pending"]?.state).toBe("uncertain");
+    expect(result.current.submissions["without-hash"]?.state).toBe("uncertain");
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(submission.mock.calls.map(([id]) => id)).toEqual(["pending", "without-hash", "pending"]);
+  });
+});

@@ -37,8 +37,11 @@ export const Route = createFileRoute("/activity/")({
 
 function ActivityPage() {
   const { filter = "all" } = Route.useSearch();
-  const { state, setup, reconcileSubmission } = useVault();
-  const [recovery, setRecovery] = useState<Record<string, string>>({});
+  const { state, setup, submissions, accountId, reconcileSubmission } = useVault();
+  const scope = accountId ?? state.safe;
+  const [recovery, setRecovery] = useState<
+    Record<string, { scope: string; text: string; state: string | undefined }>
+  >({});
   const now = useNow();
   const match = (f: FilterId, s: ReturnType<typeof effectiveStatus>) =>
     f === "all" ||
@@ -82,7 +85,8 @@ function ActivityPage() {
         <Card className="mt-4 space-y-2">
           <h2 className="font-semibold">Durable submission recovery</h2>
           <p className="text-sm text-muted-foreground">
-            Reconcile an uncertain or interrupted broadcast with its canonical receipt.
+            Receipt status updates automatically. You can also check an interrupted broadcast
+            manually.
           </p>
           {setup.submissionIds
             .slice(-5)
@@ -94,19 +98,31 @@ function ActivityPage() {
                   className="shrink-0 font-semibold text-primary"
                   onClick={async () => {
                     try {
-                      const status = await reconcileSubmission(id);
-                      setRecovery((current) => ({ ...current, [id]: status.state }));
+                      await reconcileSubmission(id);
+                      setRecovery((current) => {
+                        const next = { ...current };
+                        delete next[id];
+                        return next;
+                      });
                     } catch (error) {
                       setRecovery((current) => ({
                         ...current,
-                        [id]: error instanceof Error ? error.message : "Recovery failed",
+                        [id]: {
+                          scope,
+                          state: submissions?.[id]?.state,
+                          text: error instanceof Error ? error.message : "Recovery failed",
+                        },
                       }));
                     }
                   }}
                 >
                   Reconcile
                 </button>
-                <span className="shrink-0 text-muted-foreground">{recovery[id] ?? ""}</span>
+                <span className="shrink-0 text-muted-foreground" aria-live="polite">
+                  {recovery[id]?.scope === scope && recovery[id]?.state === submissions?.[id]?.state
+                    ? recovery[id]?.text
+                    : (submissions?.[id]?.state ?? "Checking…")}
+                </span>
               </div>
             ))}
         </Card>

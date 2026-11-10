@@ -59,10 +59,12 @@ describe("durable PWA submissions", () => {
     const journal = new SubmissionJournal();
     journal.prepare("request-1", HASH);
     journal.markSubmitting("request-1", OUTER);
-    const runtime = service({ journal });
+    const reconcile = vi.fn(async () => ({ status: "confirmed" as const, transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK }));
+    const runtime = service({ journal, reconcile });
     const results = await Promise.all([runtime.status("request-1"), runtime.status("request-1")]);
     expect(results).toEqual([expect.objectContaining({ state: "confirmed", receipt: { transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK } }), expect.objectContaining({ state: "confirmed", receipt: { transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK } })]);
     expect(runtime.broadcast).not.toHaveBeenCalled();
+    expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
   it("returns one confirmed view when immediate submission and a status poll reconcile together", async () => {
@@ -70,11 +72,12 @@ describe("durable PWA submissions", () => {
     let entered!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { entered = resolve; });
-    const runtime = service({ reconcile: async () => {
+    const reconcile = vi.fn(async () => {
       entered();
       await gate;
-      return { status: "confirmed", transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK };
-    } });
+      return { status: "confirmed" as const, transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK };
+    });
+    const runtime = service({ reconcile });
     runtime.prepare(prepared());
     const submission = runtime.submit("request-1", { role: "primary", assertion: {} });
     await started;
@@ -84,6 +87,23 @@ describe("durable PWA submissions", () => {
     expect(results.map(result => result.state)).toEqual(["confirmed", "confirmed"]);
     expect(runtime.journal.get("request-1")?.state).toBe("confirmed");
     expect(runtime.broadcast).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a failed shared status flight without changing its durable pending evidence", async () => {
+    const journal = new SubmissionJournal();
+    journal.prepare("request-1", HASH);
+    journal.markSubmitting("request-1", OUTER);
+    journal.markUncertain("request-1");
+    const reconcile = vi.fn().mockRejectedValueOnce(new Error("provider unavailable")).mockResolvedValue({ status: "reverted", transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK });
+    const runtime = service({ journal, reconcile });
+    const failed = await Promise.allSettled([runtime.status("request-1"), runtime.status("request-1")]);
+    expect(failed.map(result => result.status)).toEqual(["rejected", "rejected"]);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(journal.get("request-1")).toMatchObject({ state: "uncertain", outerTransactionHash: OUTER });
+    await expect(runtime.status("request-1")).resolves.toMatchObject({ state: "reverted" });
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(runtime.broadcast).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -95,8 +115,9 @@ describe("durable PWA submissions", () => {
     journal.prepare("request-1", HASH);
     journal.markSubmitting("request-1", OUTER);
     let calls = 0;
-    const runtime = service({ journal, reconcile: async () => ({ status: calls++ === 0 ? first : second, transactionHash: OUTER, blockNumber: 12n, blockHash: calls === 1 ? BLOCK : block }) });
-    const results = await Promise.allSettled([runtime.status("request-1"), runtime.status("request-1")]);
+    const options = { journal, reconcile: async () => ({ status: calls++ === 0 ? first : second, transactionHash: OUTER, blockNumber: 12n, blockHash: calls === 1 ? BLOCK : block }) };
+    // Distinct services model independent processes sharing the durable journal.
+    const results = await Promise.allSettled([service(options).status("request-1"), service(options).status("request-1")]);
     expect(results[0]).toMatchObject({ status: "fulfilled", value: { state: first } });
     expect(results[1]).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: expect.stringMatching(/receipt.*conflict|conflict.*receipt/i) }) });
     expect(journal.get("request-1")).toMatchObject({ state: first, receipt: { blockNumber: 12n, blockHash: BLOCK } });

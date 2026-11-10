@@ -108,3 +108,25 @@ For the HTTPS/mobile gate, keep this server bound to `127.0.0.1`. The temporary 
 The completed pre-recipient-mode Sepolia vault is recognized through the exact original/completed package pair pinned in `packages/security-core/config/sepolia.pwa-historical-vault.json`. Its reviewed all-lanes allowlist policy remains unchanged. Startup independently verifies all seven historical transactions, canonical six-confirmation receipts, costs, runtimes, the committed consumed-nonce lineage, official dependencies, signer-factory bindings, and old Safe/guard/Delay topology through both fixed providers. Topology reads use one common canonical block and recheck its hash afterward. Historical verification failures stop startup; no error is caught into a permissive fallback.
 
 For this vault, `/health` returns `ok: true`, `writesReady: false`, and `vaultCompatibility.mode: "read-only"`. `GET /v1/vaults/current` returns the verified public addresses, historical recipient policy, package identities, and snapshot evidence. Every POST returns HTTP 409 with code `vault_read_only`; direct provisioning, credential, approval, submission, and reconciliation handlers also reject. No current-profile provisioning capability is created, and startup does not open a provisioning writer, register/rebind credentials, sign, or broadcast. The external journals/reviews are preserved. New-profile provisioning remains separate; restoring compatibility does not upgrade or redeploy this vault.
+
+### Automatic receipt reconciliation and verification reads
+
+While the local backend is running, a read-only worker scans durable submission journals on startup and 12 seconds after each sweep completes. It reconciles only retained `submitting`/`uncertain` hashes, including accounts not open in a browser. Failures leave evidence unresolved and keep the shared payer blocked; subsequent sweeps retry. Shutdown drains the current sweep. Manual GETs and the worker share one per-submission proof. Receipt confirmation still requires both fixed providers, six canonical confirmations and the existing observation proof for successful executions. The worker never signs or rebroadcasts.
+
+Submission readers batch concurrent JSON-RPC requests. Identical explicitly pinned reads are deduplicated within one provider-local collection; independent topology reads run concurrently and retain deterministic report ordering. Chain/head/block anchors remain uncached by the scope. Every approval/signing/broadcast boundary still revalidates; an adjacent consumer reuses the snapshot just returned by that validation. There is no cross-boundary, cross-account, cross-provider or timed verification cache. Provisioning remains unchanged.
+
+### Local verification profiling
+
+Run the existing verification core in an isolated diagnostic process, with no relay key, browser session, passkey prompt or transaction submission:
+
+```sh
+npm run backend:profile:verification -- --account-directory /absolute/external/account --samples 3
+```
+
+The account directory must contain its completed seven-receipt `provisioning.json` and original `reviews/` evidence. Optional `--output-directory /new/external/directory` selects a new directory; existing directories and paths inside the repository/source evidence are refused. Default output is a new private temporary directory. The command prints its location, including on a run failure after capture begins.
+
+Outputs: `summary.json` (per-stage wall/process CPU time, HTTP/RPC counts, batch sizes, consumed decoded response-body bytes), `verification.trace.json` (Chrome Trace Event JSON for Perfetto), and `verification.cpuprofile` (V8 CPU profile for Chrome DevTools). Process CPU time is separate from wall time; it is not an exact measurement of network wait. Sum of HTTP durations may exceed wall time because independent requests overlap.
+
+Phases separate evidence recovery, completed-vault restoration and up to five verification-core samples. The measured core is the dependency/topology/policy verification reused by submissions; this is **not end-to-end send latency**. Browser rendering, passkey interaction, backend snapshot collection/simulation, broadcast, inclusion and confirmation wait are excluded. A controlled browser send is still needed to measure those stages. A failed capture has `completed: false`, a closed failure code and partial timings; do not compare it with successful verification samples.
+
+Only the two fixed public providers and explicitly listed read-only RPC methods are permitted; redirects and write/sign methods are rejected before network. Transport response-ID validation remains active. Source journals/reviews are never written or locked. Trace/summary files contain closed stage/method/provider labels and counts/timings only, never RPC parameters, endpoint URLs, addresses, assertions, credentials, headers or raw error messages. CPU profiles contain function/source locations, not heap values. No files are uploaded by this command.

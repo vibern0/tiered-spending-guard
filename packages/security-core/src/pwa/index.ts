@@ -8,3 +8,4 @@ export * from "./provisioning-recovery";
 export * from "./intents";
 export * from "./observer";
 export * from "./submission-api";
+export * from "./pinned-reads";

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AccountStore } from "../src/account-store";
 import { createAccountGatewayForTestsOnly } from "../src/account-runtime";
 import { loadBackendConfig } from "../src/config";
+import { SubmissionJournal } from "../src/journal";
 const H = `0x${"12".repeat(32)}` as const;
 const address = (n: number) =>
   `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
@@ -73,6 +74,107 @@ function journal(
   );
 }
 describe("account runtime and shared payer", () => {
+  it("reconciles only durable pending hashes after restart without sessions, signing or broadcasting", async () => {
+    const { config, store: initial } = fixture();
+    const a = ready(initial), idle = ready(initial);
+    journal(a.config.provisioningJournalPath, config);
+    const durable = new SubmissionJournal(a.config.journalPath);
+    const uncertainHash = `0x${"34".repeat(32)}` as const;
+    const terminalHash = `0x${"56".repeat(32)}` as const;
+    for (const id of ["submitting", "uncertain", "prepared", "awaiting", "confirmed", "reverted", "superseded"]) {
+      const outerHash = id === "uncertain" ? uncertainHash : id === "submitting" ? H : terminalHash;
+      durable.prepare(id, H, { kind: "base-transfer" });
+      if (["submitting", "uncertain", "confirmed", "reverted"].includes(id)) durable.markSubmitting(id, outerHash);
+      if (id === "uncertain") durable.markUncertain(id);
+      if (id === "awaiting") durable.transition(id, "awaiting-primary");
+      if (id === "confirmed" || id === "reverted") durable.reconcile(id, { status: id, transactionHash: outerHash, blockNumber: 1n, blockHash: H });
+      if (id === "superseded") durable.transition(id, "superseded");
+    }
+    initial.markProvisioning(a.id, "verified");
+    initial.close();
+    const store = new AccountStore(config);
+    const sign = vi.fn(), broadcast = vi.fn(), provision = vi.fn(async () => ({ response: {
+      chainId: 11155111, safe: address(1), guard: address(2), delay: address(3), primaryPasskey: address(4), secondaryPasskey: address(5), usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      evidence: { setupTransactionHash: H, verificationReportHash: H, deploymentsHash: H, policyHash: H },
+    }, verified: {} }));
+    const reconcile = vi.fn(async (hash: string) => ({ status: "confirmed", transactionHash: hash, blockNumber: 12n, blockHash: H }));
+    const factory = vi.fn(async () => ({ completedRecoveryReady: true, provision }));
+    const gateway = createAccountGatewayForTestsOnly(config, store, {
+      provisioner: factory as never,
+      runtime: (_config, vault) => ({ deriveOuterHash: sign, broadcast, revalidate: vi.fn(), prepare: vi.fn(), reconcile: async (hash: any) => {
+        expect(vault()).toMatchObject({ safe: address(1) });
+        return reconcile(hash);
+      } }) as never,
+    });
+    try {
+      expect(gateway.reconcilePending).toBeTypeOf("function");
+      await gateway.reconcilePending!();
+      expect(reconcile.mock.calls).toEqual([[H], [uncertainHash]]);
+      expect(new SubmissionJournal(a.config.journalPath).listPending()).toEqual([]);
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(factory.mock.calls[0]).toEqual([a.config]);
+      expect(provision).toHaveBeenCalledTimes(1);
+      expect(sign).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+      expect(store.account(idle.id)?.state).toBe("registering");
+      await gateway.reconcilePending!();
+      expect(reconcile).toHaveBeenCalledTimes(2);
+    } finally { store.close(); }
+  });
+
+  it("isolates failed accounts and records, preserves pending evidence, and retains shared payer blocking", async () => {
+    const { config, store } = fixture();
+    const broken = ready(store), a = ready(store), b = ready(store);
+    for (const account of [broken, a, b]) {
+      const durable = new SubmissionJournal(account.config.journalPath);
+      durable.prepare("first", H);
+      durable.markSubmitting("first", H);
+    }
+    const secondHash = `0x${"34".repeat(32)}` as const;
+    const second = new SubmissionJournal(a.config.journalPath);
+    second.prepare("second", secondHash);
+    second.markSubmitting("second", secondHash);
+    const reconcile = vi.fn(async (hash: string) => {
+      if (hash === H) throw new Error("https://secret.invalid/token");
+      return { status: "reverted", transactionHash: hash, blockNumber: 12n, blockHash: H };
+    });
+    const gateway = createAccountGatewayForTestsOnly(config, store, {
+      provisioner: async (c) => {
+        if (c.journalPath === broken.config.journalPath) throw new Error("invalid recovered account");
+        return { provision: vi.fn() };
+      },
+      runtime: () => ({ prepare: vi.fn(), revalidate: vi.fn(), deriveOuterHash: vi.fn(), broadcast: vi.fn(), reconcile }) as never,
+    });
+    try {
+      expect(gateway.reconcilePending).toBeTypeOf("function");
+      await expect(gateway.reconcilePending!()).rejects.toThrow(/reconciliation/i);
+      expect(reconcile).toHaveBeenCalledTimes(3);
+      expect(second.get("first")).toMatchObject({ state: "submitting", outerTransactionHash: H });
+      expect(second.get("second")).toMatchObject({ state: "reverted", outerTransactionHash: secondHash });
+      expect(new SubmissionJournal(b.config.journalPath).listPending()).toHaveLength(1);
+      await expect(gateway.provision(ready(store).id)).rejects.toThrow(/unresolved durable submission/);
+    } finally { store.close(); }
+  });
+
+  it("leaves historical pending evidence read-only and skips absent legacy journals", async () => {
+    const { config, store } = fixture();
+    const legacy = store.adoptLegacy();
+    const historical = ready(store);
+    const durable = new SubmissionJournal(historical.config.journalPath);
+    durable.prepare("historical", H);
+    durable.markSubmitting("historical", H);
+    const runtime = vi.fn();
+    const factory = vi.fn(async () => ({ historicalVault: { safe: address(1) }, provision: vi.fn() }));
+    const gateway = createAccountGatewayForTestsOnly(config, store, { provisioner: factory as never, runtime });
+    try {
+      expect(gateway.reconcilePending).toBeTypeOf("function");
+      await gateway.reconcilePending!();
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(runtime).not.toHaveBeenCalled();
+      expect(durable.listPending()).toHaveLength(1);
+      expect(store.account(legacy.id)?.state).toBe("queued");
+    } finally { store.close(); }
+  });
   it("serializes different account deployment plans and scopes active submissions to sessions", async () => {
     const { store, config } = fixture();
     try {

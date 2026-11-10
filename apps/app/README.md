@@ -76,3 +76,5 @@ The HTTPS/mobile gate must use a fresh HTTPS-profile installation, fresh credent
 - TypeScript
 - React
 - Tailwind CSS
+
+Pending submission receipts update automatically through the loopback backend's read-only status endpoint. The app restores known submission IDs, stops recurring checks for terminal and approval-only records, ignores obsolete account/session responses, and retains manual Reconcile. Status checks never sign or resubmit; full verified vault snapshots refresh on new terminal transitions rather than on each receipt check. The backend also reconciles durable pending hashes while the browser is closed, provided the backend remains running.

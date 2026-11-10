@@ -303,6 +303,28 @@ function compose(
       );
     },
     status: async (id, key) => (await load(id)).handlers.submission(key),
+    reconcilePending: async () => {
+      let failed = false;
+      for (const account of store.accounts()) {
+        try {
+          // Scan source journals even when no browser has loaded this account.
+          // Absent/empty ledgers never create a runtime or provision a vault.
+          if (!existsSync(account.config.journalPath)) continue;
+          const pending = new SubmissionJournal(account.config.journalPath).listPending();
+          if (!pending.length) continue;
+          const { service } = await load(account.id);
+          // Historical profiles have no submission capability. Their evidence
+          // remains pending and continues blocking the shared payer.
+          if (!service) continue;
+          for (const entry of pending) {
+            try { await service.status(entry.id); }
+            catch { failed = true; }
+          }
+        } catch { failed = true; }
+      }
+      // Do not expose provider errors, account identifiers or retained hashes.
+      if (failed) throw new Error("pending receipt reconciliation failed safely");
+    },
     submissionIds: async (id) =>
       (await load(id)).service?.journal.recoveryIds() ?? [],
     releaseSession: (sessionId) => {

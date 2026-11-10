@@ -101,6 +101,21 @@ async function fixture(overrides: Record<string, unknown> = {}): Promise<Topolog
 }
 
 describe("verifyTopology", () => {
+  it("collects independent topology reads concurrently without changing report ordering", async () => {
+    const reference = await verifyTopology(await fixture());
+    const input = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let started = 0;
+    const client = Object.fromEntries(Object.entries(input.client).map(([method, read]) => [method, async (args: any) => {
+      started++; await gate; return (read as (args: any) => Promise<unknown>)(args);
+    }])) as TopologyInput["client"];
+    const report = verifyTopology({ ...input, client });
+    try { await Promise.resolve(); await Promise.resolve(); expect(started).to.be.greaterThan(10); }
+    finally { release(); }
+    expect(await report).to.deep.equal(reference);
+  });
+
   it("rejects missing or changed explicit base recipient mode", async () => {
     expect((await verifyTopology(await fixture({ assetPolicy: [10n, 100n, 100n, 1000n, 1] }))).ok).to.equal(false);
     expect((await verifyTopology(await fixture({ assetPolicy: [10n, 100n, 100n, 1000n] }))).ok).to.equal(false);

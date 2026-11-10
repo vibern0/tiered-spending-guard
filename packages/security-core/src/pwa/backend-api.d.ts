@@ -490,3 +490,6 @@ export type PwaProvisioningEnvelope = Readonly<{
 
 
 export function derivePwaProvisioningEnvelope(input: PwaProvisioningEnvelopeInput): PwaProvisioningEnvelope;
+
+export { createPinnedReadScope, type PinnedReadClient } from "./pinned-reads";
+export function createDurablePwaProvisioningExecutionContext(input: Readonly<{ plan: PwaProvisioningPlan; journal: LiveJournal; liveContext: unknown; client: unknown }>): PwaProvisioningExecutionContext;

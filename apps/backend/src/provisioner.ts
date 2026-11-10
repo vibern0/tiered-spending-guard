@@ -16,6 +16,7 @@ import type {
 import type { StoredCredential } from "./webauthn";
 import type { BackendConfig } from "./config";
 import { recoverAutomaticPwaProvisioning } from "./automatic-recovery";
+import { batchedReadTransport } from "./batched-read-transport";
 
 // Hardhat keeps security-core CommonJS; Node ESM exposes it under default while Vitest exposes named exports.
 const pwaRuntime = (pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
@@ -241,8 +242,8 @@ function recoveryTransaction(transaction: Awaited<ReturnType<PublicClient["getTr
   return { hash: transaction.hash, chainId: transaction.chainId, type: "eip1559" as const, from: transaction.from, to: transaction.to, nonce: transaction.nonce, value: transaction.value, input: transaction.input, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas };
 }
 
-export function createReadClient(url: string, label: string): Omit<HistoricalPwaReadClient & PwaProvisioningQuoteClient & PwaProvisioningRecoveryClient, "getBlock"> & Readonly<{ getBlock(input: { blockNumber: bigint }): Promise<{ number: bigint; hash: Hex | null; timestamp: bigint; baseFeePerGas: bigint | null; gasLimit: bigint }> }> {
-  const client = createPublicClient({ chain: sepolia, transport: http(url) }) as PublicClient;
+export function createReadClient(url: string, label: string, options: Readonly<{ batch?: boolean; fetchFn?: typeof fetch }> = {}): Omit<HistoricalPwaReadClient & PwaProvisioningQuoteClient & PwaProvisioningRecoveryClient, "getBlock"> & Readonly<{ getBlock(input: { blockNumber: bigint }): Promise<{ number: bigint; hash: Hex | null; timestamp: bigint; baseFeePerGas: bigint | null; gasLimit: bigint }> }> {
+  const client = createPublicClient({ chain: sepolia, transport: options.batch ? batchedReadTransport(url, options.fetchFn) : http(url) }) as PublicClient;
   const read = <T>(method: string, operation: () => Promise<T>) => sanitizeRpc(label, method, operation, true);
   return Object.freeze({
     source: url,
