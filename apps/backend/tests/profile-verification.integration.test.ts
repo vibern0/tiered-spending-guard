@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPublicClient, http, toHex, type Hex } from "viem";
@@ -73,60 +73,77 @@ describe("read-only verification profiling completed local deployment", () => {
       const nonceBefore = await chain.rpc<string>("eth_getTransactionCount", [payer.address, "latest"]);
       expect(BigInt(nonceBefore)).toBe(7n);
 
-      // Replace transport routing only: the command, batching, strict profiler,
-      // recovery, receipt checks and onchain topology verifier all stay real.
-      const requests: { provider: number; methods: string[] }[] = [];
-      const routePublicProviders: typeof fetch = async (input, init) => {
-        const endpoint = input instanceof Request ? input.url : String(input);
-        const index = core.PWA_IDENTITY_PROVIDERS.findIndex(provider => new URL(provider).href === new URL(endpoint).href);
-        if (index < 0) throw new Error("profile test forbids all non-public-provider endpoints");
-        if (typeof init?.body !== "string") throw new Error("profile test requires explicit JSON-RPC");
-        const payload = JSON.parse(init.body);
-        const calls = Array.isArray(payload) ? payload : [payload];
-        requests.push({ provider: index, methods: calls.map((call: { method: string }) => call.method) });
-        return originalFetch(chain.url, init);
-      };
-      globalThis.fetch = routePublicProviders;
-      const result = await profileVerification({ accountDirectory, outputDirectory, samples: 2 });
-      expect(globalThis.fetch).toBe(routePublicProviders);
-      globalThis.fetch = originalFetch;
+      const archiveKey = "f02af653abc17e994d8206e10cf431b9";
+      const archiveUrl = `https://sepolia.infura.io/v3/${archiveKey}`;
+      const evidenceConfigPath = join(directory, "private-evidence-readers.json");
+      const configBytes = JSON.stringify({ version: 1, profile: "infura-archive", rpcUrl: archiveUrl });
+      writeFileSync(evidenceConfigPath, configBytes, { mode: 0o600 });
+      const committedProfile = core.canonicalSubmissionJson(core.loadCommittedPwaPhaseOneProfile());
+      const evidenceCases = [
+        { evidenceProfile: "publicnode-tenderly", operators: ["publicnode", "tenderly"], urls: core.PWA_IDENTITY_PROVIDERS, outputDirectory, evidenceConfigPath: undefined },
+        { evidenceProfile: "infura-archive", operators: ["infura", "tenderly"], urls: [archiveUrl, core.PWA_IDENTITY_PROVIDERS[1]], outputDirectory: join(directory, "archive-profile"), evidenceConfigPath },
+      ];
+      for (const evidenceCase of evidenceCases) {
+        // Replace transport routing only: the command, batching, strict profiler,
+        // recovery, receipt checks and onchain topology verifier all stay real.
+        const requests: { provider: number; methods: string[] }[] = [];
+        const routeApprovedProviders: typeof fetch = async (input, init) => {
+          const endpoint = input instanceof Request ? input.url : String(input);
+          const index = evidenceCase.urls.findIndex(provider => new URL(provider).href === new URL(endpoint).href);
+          if (index < 0) throw new Error("profile test forbids all unselected provider endpoints");
+          if (typeof init?.body !== "string") throw new Error("profile test requires explicit JSON-RPC");
+          const payload = JSON.parse(init.body);
+          const calls = Array.isArray(payload) ? payload : [payload];
+          requests.push({ provider: index, methods: calls.map((call: { method: string }) => call.method) });
+          return originalFetch(chain.url, init);
+        };
+        globalThis.fetch = routeApprovedProviders;
+        const result = await profileVerification({ accountDirectory, outputDirectory: evidenceCase.outputDirectory, evidenceConfigPath: evidenceCase.evidenceConfigPath, samples: 2 });
+        expect(globalThis.fetch).toBe(routeApprovedProviders);
+        globalThis.fetch = originalFetch;
 
-      const summary = JSON.parse(readFileSync(join(result.outputDirectory, "summary.json"), "utf8"));
-      expect(summary.completed).toBe(true);
-      expect(summary.phases).toMatchObject([
-        { name: "recovery", status: "ok" }, { name: "restore", status: "ok" },
-        { name: "verification", sample: 1, status: "ok" }, { name: "verification", sample: 2, status: "ok" },
-      ]);
-      expect(summary.phases).toHaveLength(4);
-      for (const phase of summary.phases) {
-        expect(phase.wallMs).toBeGreaterThan(0);
-        expect(phase.cpuUserMs + phase.cpuSystemMs).toBeGreaterThan(0);
+        const summary = JSON.parse(readFileSync(join(result.outputDirectory, "summary.json"), "utf8"));
+        expect(summary.completed).toBe(true);
+        expect(summary).toMatchObject({ evidenceProfile: evidenceCase.evidenceProfile, operators: evidenceCase.operators });
+        expect(result).toMatchObject({ evidenceProfile: evidenceCase.evidenceProfile, operators: evidenceCase.operators });
+        expect(summary.phases).toMatchObject([
+          { name: "recovery", status: "ok" }, { name: "restore", status: "ok" },
+          { name: "verification", sample: 1, status: "ok" }, { name: "verification", sample: 2, status: "ok" },
+        ]);
+        expect(summary.phases).toHaveLength(4);
+        for (const phase of summary.phases) {
+          expect(phase.wallMs).toBeGreaterThan(0);
+          expect(phase.cpuUserMs + phase.cpuSystemMs).toBeGreaterThan(0);
+        }
+        const allowed = new Set(["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getCode", "eth_getStorageAt", "eth_call", "eth_getTransactionCount", "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getBalance", "eth_estimateGas", "eth_maxPriorityFeePerGas", "eth_gasPrice", "eth_feeHistory"]);
+        expect(requests.length).toBeGreaterThan(0);
+        expect(requests.flatMap(request => request.methods).every(method => allowed.has(method))).toBe(true);
+        for (const [index, total] of summary.http.entries()) {
+          const observed = requests.filter(request => request.provider === index);
+          expect(total).toMatchObject({ provider: `provider-${index + 1}`, requests: observed.length, rpcCalls: observed.flatMap(request => request.methods).length, failures: 0, cancelled: 0 });
+          expect(total.bytes).toBeGreaterThan(0);
+          expect(total.wallMs).toBeGreaterThan(0);
+        }
+        expect(summary.rpcMethods.eth_call).toBeGreaterThan(0);
+        expect(summary.rpcMethods.eth_getTransactionReceipt).toBeGreaterThanOrEqual(14);
+        expect(summary.rpcMethods.eth_getTransactionByHash).toBeGreaterThanOrEqual(14);
+        expect(Object.values(summary.rpcMethods).reduce((sum: number, count) => sum + Number(count), 0)).toBe(requests.flatMap(request => request.methods).length);
+        const trace = JSON.parse(readFileSync(join(result.outputDirectory, "verification.trace.json"), "utf8"));
+        expect(trace.traceEvents.filter((event: { ph: string }) => event.ph === "X")).toHaveLength(4);
+        expect(trace.traceEvents.filter((event: { ph: string }) => event.ph === "b")).toHaveLength(requests.length);
+        expect(trace.traceEvents.filter((event: { ph: string }) => event.ph === "e")).toHaveLength(requests.length);
+        const cpu = JSON.parse(readFileSync(join(result.outputDirectory, "verification.cpuprofile"), "utf8"));
+        expect(cpu.nodes.length).toBeGreaterThan(0);
+        expect(cpu.samples.length).toBeGreaterThan(0);
+        expect(cpu.endTime).toBeGreaterThan(cpu.startTime);
+        const diagnostics = JSON.stringify({ summary, trace, cpu, result });
+        expect(diagnostics).not.toMatch(/0x[a-f0-9]{40}/i);
+        for (const privateValue of [payer.address.toLowerCase(), completed.response.safe.toLowerCase(), chain.url, PAYER_KEY, archiveKey, archiveUrl, evidenceConfigPath, ...core.PWA_IDENTITY_PROVIDERS]) expect(diagnostics.toLowerCase()).not.toContain(privateValue.toLowerCase());
+        expect(evidenceBytes(accountDirectory)).toEqual(source);
+        expect(await chain.rpc<string>("eth_getTransactionCount", [payer.address, "latest"])).toBe(nonceBefore);
+        expect(readFileSync(evidenceConfigPath, "utf8")).toBe(configBytes);
+        expect(core.canonicalSubmissionJson(core.loadCommittedPwaPhaseOneProfile())).toBe(committedProfile);
       }
-      const allowed = new Set(["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getCode", "eth_getStorageAt", "eth_call", "eth_getTransactionCount", "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getBalance", "eth_estimateGas", "eth_maxPriorityFeePerGas", "eth_gasPrice", "eth_feeHistory"]);
-      expect(requests.length).toBeGreaterThan(0);
-      expect(requests.flatMap(request => request.methods).every(method => allowed.has(method))).toBe(true);
-      for (const [index, total] of summary.http.entries()) {
-        const observed = requests.filter(request => request.provider === index);
-        expect(total).toMatchObject({ provider: `provider-${index + 1}`, requests: observed.length, rpcCalls: observed.flatMap(request => request.methods).length, failures: 0, cancelled: 0 });
-        expect(total.bytes).toBeGreaterThan(0);
-        expect(total.wallMs).toBeGreaterThan(0);
-      }
-      expect(summary.rpcMethods.eth_call).toBeGreaterThan(0);
-      expect(summary.rpcMethods.eth_getTransactionReceipt).toBeGreaterThanOrEqual(14);
-      expect(summary.rpcMethods.eth_getTransactionByHash).toBeGreaterThanOrEqual(14);
-      expect(Object.values(summary.rpcMethods).reduce((sum: number, count) => sum + Number(count), 0)).toBe(requests.flatMap(request => request.methods).length);
-      const trace = JSON.parse(readFileSync(join(result.outputDirectory, "verification.trace.json"), "utf8"));
-      expect(trace.traceEvents.filter((event: { ph: string }) => event.ph === "X")).toHaveLength(4);
-      expect(trace.traceEvents.filter((event: { ph: string }) => event.ph === "b")).toHaveLength(requests.length);
-      expect(trace.traceEvents.filter((event: { ph: string }) => event.ph === "e")).toHaveLength(requests.length);
-      const cpu = JSON.parse(readFileSync(join(result.outputDirectory, "verification.cpuprofile"), "utf8"));
-      expect(cpu.nodes.length).toBeGreaterThan(0);
-      expect(cpu.samples.length).toBeGreaterThan(0);
-      expect(cpu.endTime).toBeGreaterThan(cpu.startTime);
-      const diagnostics = JSON.stringify({ summary, trace });
-      for (const privateValue of [payer.address.toLowerCase(), completed.response.safe.toLowerCase(), chain.url, PAYER_KEY]) expect(diagnostics.toLowerCase()).not.toContain(privateValue.toLowerCase());
-      expect(evidenceBytes(accountDirectory)).toEqual(source);
-      expect(await chain.rpc<string>("eth_getTransactionCount", [payer.address, "latest"])).toBe(nonceBefore);
     } finally {
       globalThis.fetch = originalFetch;
       await chain.close();

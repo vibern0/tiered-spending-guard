@@ -10,9 +10,10 @@ import { assertExternalBackendPath } from "../src/config";
 import { createSubmissionReadClient } from "../src/submission-runtime";
 import { loadManagedPwaSuccessors, mergePwaSuccessors } from "../src/managed-successors";
 import { VerificationProfiler } from "./verification-profiler";
+import { loadEvidenceAccess } from "../src/evidence-access";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
-export type ProfileOptions = Readonly<{ accountDirectory: string; outputDirectory?: string; samples: number }>;
+export type ProfileOptions = Readonly<{ accountDirectory: string; outputDirectory?: string; evidenceConfigPath?: string; samples: number }>;
 const forbidden = async (): Promise<never> => { throw new Error("read-only profiling forbids this operation"); };
 
 function checkedOptions(options: ProfileOptions): ProfileOptions {
@@ -24,24 +25,26 @@ function checkedOptions(options: ProfileOptions): ProfileOptions {
     if (fromAccount === "" || (fromAccount !== ".." && !fromAccount.startsWith(`..${sep}`) && !isAbsolute(fromAccount))) throw new Error("profiling output directory must be outside source evidence");
     if (existsSync(outputDirectory)) throw new Error("profiling output directory already exists");
   }
-  return { accountDirectory, ...(outputDirectory ? { outputDirectory } : {}), samples: options.samples };
+  const evidenceConfigPath = options.evidenceConfigPath === undefined ? undefined : assertExternalBackendPath(options.evidenceConfigPath, "profiling evidence configuration");
+  return { accountDirectory, ...(outputDirectory ? { outputDirectory } : {}), ...(evidenceConfigPath ? { evidenceConfigPath } : {}), samples: options.samples };
 }
 
 export function parseProfileArguments(args: readonly string[]): ProfileOptions {
   const values = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
     const key = args[i], value = args[i + 1];
-    if (!["--account-directory", "--output-directory", "--samples"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("unsupported or ambiguous profiling arguments");
+    if (!["--account-directory", "--output-directory", "--evidence-config", "--samples"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("unsupported or ambiguous profiling arguments");
     values.set(key, value);
   }
   const samples = values.get("--samples") ?? "3";
   if (!/^[1-5]$/.test(samples)) throw new Error("profiling samples must be an integer from 1 to 5");
-  return checkedOptions({ accountDirectory: values.get("--account-directory") ?? "", outputDirectory: values.get("--output-directory"), samples: Number(samples) });
+  return checkedOptions({ accountDirectory: values.get("--account-directory") ?? "", outputDirectory: values.get("--output-directory"), evidenceConfigPath: values.get("--evidence-config"), samples: Number(samples) });
 }
 
 /** Isolated diagnostic: no environment secrets, signer, deployment authorizer or source journal writer. */
 export async function profileVerification(input: ProfileOptions) {
   const options = checkedOptions(input);
+  const access = loadEvidenceAccess(options.evidenceConfigPath);
   const journalPath = join(options.accountDirectory, "provisioning.json");
   const raw = JSON.parse(readFileSync(journalPath, "utf8")) as { funder?: unknown };
   if (typeof raw.funder !== "string" || !isAddress(raw.funder)) throw new Error("profiling requires public provisioning identity");
@@ -53,7 +56,7 @@ export async function profileVerification(input: ProfileOptions) {
   mkdirSync(outputDirectory, { mode: 0o700 });
   const profiler = new VerificationProfiler();
   const abort = new AbortController();
-  const measuredFetch = profiler.wrapFetch(fetch, core.PWA_IDENTITY_PROVIDERS);
+  const measuredFetch = profiler.wrapFetch(fetch, access.urls);
   const profileFetch: typeof fetch = (url, init) => measuredFetch(url, { ...init,
     signal: AbortSignal.any([abort.signal, ...(init?.signal ? [init.signal] : [])]),
   });
@@ -64,8 +67,8 @@ export async function profileVerification(input: ProfileOptions) {
     cpu.connect(); connected = true;
     await cpu.post("Profiler.enable");
     await cpu.post("Profiler.start"); started = true;
-    const providers = [createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[0], "profile provider 1", { fetchFn: profileFetch }), createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[1], "profile provider 2", { fetchFn: profileFetch })] as const;
-    // The first fixed public provider supplies nonce observations too. No private
+    const providers = [createSubmissionReadClient(access.urls[0], access.operators[0], { fetchFn: profileFetch }), createSubmissionReadClient(access.urls[1], access.operators[1], { fetchFn: profileFetch })] as const;
+    // The first approved reader supplies nonce observations too. No private
     // relay URL/key or live backend account/session is loaded by this command.
     const relay = providers[0];
     const recovery = await profiler.phase("recovery", () => core.resolvePwaProvisioningRecovery({
@@ -111,14 +114,14 @@ export async function profileVerification(input: ProfileOptions) {
       if (connected) cpu.disconnect();
       const report = profiler.report();
       writeFileSync(join(outputDirectory, "verification.trace.json"), JSON.stringify({ traceEvents: report.traceEvents, displayTimeUnit: "ms" }), { flag: "wx", mode: 0o600 });
-      writeFileSync(join(outputDirectory, "summary.json"), JSON.stringify({ scope: "read-only-verification-core", completed, ...(failureCode ? { failureCode } : {}), excludes: ["browser rendering", "passkey interaction", "backend snapshot collection", "submission simulation", "broadcast", "block inclusion", "confirmation wait"], ...report.summary }, null, 2), { flag: "wx", mode: 0o600 });
+      writeFileSync(join(outputDirectory, "summary.json"), JSON.stringify({ scope: "read-only-verification-core", evidenceProfile: access.profile, operators: access.operators, completed, ...(failureCode ? { failureCode } : {}), excludes: ["browser rendering", "passkey interaction", "backend snapshot collection", "submission simulation", "broadcast", "block inclusion", "confirmation wait"], ...report.summary }, null, 2), { flag: "wx", mode: 0o600 });
     }
   }
   if (!completed) throw Object.assign(new Error("read-only verification profiling failed closed"), { outputDirectory });
-  return { outputDirectory, ...profiler.report().summary };
+  return { outputDirectory, evidenceProfile: access.profile, operators: access.operators, ...profiler.report().summary };
 }
 
-const HELP = "Usage: npm run backend:profile:verification -- --account-directory /absolute/external/account [--output-directory /new/external/directory] [--samples 1..5]\nRead-only verification-core profile. No credentials, signing or broadcast. Outputs summary.json, verification.trace.json and verification.cpuprofile outside the repository.";
+const HELP = "Usage: npm run backend:profile:verification -- --account-directory /absolute/external/account [--output-directory /new/external/directory] [--evidence-config /private/external/readers.json] [--samples 1..5]\nRead-only verification-core profile. No signer credentials, signing or broadcast. Outputs summary.json, verification.trace.json and verification.cpuprofile outside the repository.";
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv.slice(2).includes("--help")) console.log(HELP);
   else void (async () => {

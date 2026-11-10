@@ -1,12 +1,12 @@
 import { createServer } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseAbi, type Address } from "viem";
 import { createSubmissionReadClient } from "../src/submission-runtime";
 
 const address = `0x${"11".repeat(20)}` as Address;
 const zeroWord = `0x${"00".repeat(32)}`;
 const servers: ReturnType<typeof createServer>[] = [];
-afterEach(async () => { await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())))); });
+afterEach(async () => { vi.useRealTimers(); await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())))); });
 async function rpc(failStorage = false, mutate?: (responses: any[]) => unknown) {
   const batches: unknown[] = [];
   const server = createServer(async (req, res) => {
@@ -24,6 +24,171 @@ async function rpc(failStorage = false, mutate?: (responses: any[]) => unknown) 
   return { batches, url, client: createSubmissionReadClient(url, "batch-test") };
 }
 describe("submission JSON-RPC batching", () => {
+  it("shares Tenderly pacing across clients and retains the slot through response-body validation", async () => {
+    vi.resetModules();
+    const { createSubmissionReadClient: freshReadClient } = await import("../src/submission-runtime");
+    vi.useFakeTimers();
+    const starts: number[] = [], batches: number[] = [];
+    const initial = Date.now();
+    let release!: () => void;
+    const firstBody = new Promise<void>(resolve => { release = resolve; });
+    const fetchFn: typeof fetch = async (_input, init) => {
+      starts.push(Date.now() - initial);
+      expect(init?.redirect).toBe("error");
+      const rows = JSON.parse(init!.body as string) as { id: number }[];
+      batches.push(rows.length);
+      const blocked = starts.length === 1;
+      return new Response(new ReadableStream({ async start(controller) {
+        if (blocked) await firstBody;
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(rows.map(row => ({ jsonrpc: "2.0", id: row.id, result: "0x6000" })))));
+        controller.close();
+      } }), { headers: { "content-type": "application/json" } });
+    };
+    const clients = [freshReadClient("https://sepolia.gateway.tenderly.co", "paced-one", { fetchFn }), freshReadClient("https://sepolia.gateway.tenderly.co", "paced-two", { fetchFn })];
+    const reads = Promise.all(clients.flatMap(client => Array.from({ length: 6 }, (_, index) => client.getBytecode({ address, blockNumber: BigInt(index + 1) }))));
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(starts).toEqual([0]);
+      await vi.advanceTimersByTimeAsync(750);
+      expect(starts).toEqual([0]);
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(starts).toEqual([0, 750]);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(starts).toEqual([0, 750]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(starts).toEqual([0, 750, 1_250]);
+      expect(await reads).toEqual(Array(12).fill("0x6000"));
+      expect(batches).toEqual([4, 4, 4]);
+    } finally { release(); await vi.advanceTimersByTimeAsync(1_000); await reads; }
+  });
+
+  it("paces Tenderly singleton batches by member count across independent schedulers", async () => {
+    vi.resetModules();
+    const { batchedReadTransport } = await import("../src/batched-read-transport");
+    vi.useFakeTimers();
+    const initial = Date.now(), starts: number[] = [];
+    const fetchFn: typeof fetch = async (_input, init) => {
+      starts.push(Date.now() - initial);
+      const rows = JSON.parse(init!.body as string) as { id: number }[];
+      return new Response(JSON.stringify(rows.map(row => ({ jsonrpc: "2.0", id: row.id, result: "0x6000" }))), { headers: { "content-type": "application/json" } });
+    };
+    const clients = Array.from({ length: 3 }, () => batchedReadTransport("https://sepolia.gateway.tenderly.co", fetchFn)({ retryCount: 0 }));
+    const reads = Promise.all(clients.map(client => client.request({ method: "eth_getCode", params: [address, "0xa"] }, { signal: new AbortController().signal })));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(starts).toEqual([0]);
+    await vi.advanceTimersByTimeAsync(124);
+    expect(starts).toEqual([0]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(starts).toEqual([0, 125]);
+    await vi.advanceTimersByTimeAsync(125);
+    expect(starts).toEqual([0, 125, 250]);
+    expect(await reads).toEqual(["0x6000", "0x6000", "0x6000"]);
+  });
+
+  it("never starts Tenderly requests aborted while queued or waiting for the pacing interval", async () => {
+    vi.resetModules();
+    const { batchedReadTransport } = await import("../src/batched-read-transport");
+    vi.useFakeTimers();
+    let release!: () => void;
+    const firstBody = new Promise<void>(resolve => { release = resolve; });
+    const starts: number[] = [], initial = Date.now();
+    const fetchFn: typeof fetch = async (_input, init) => {
+      starts.push(Date.now() - initial);
+      const rows = JSON.parse(init!.body as string) as { id: number }[];
+      const blocked = starts.length === 1;
+      return new Response(new ReadableStream({ async start(controller) {
+        if (blocked) await firstBody;
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(rows.map(row => ({ jsonrpc: "2.0", id: row.id, result: "0x6000" })))));
+        controller.close();
+      } }), { headers: { "content-type": "application/json" } });
+    };
+    const client = batchedReadTransport("https://sepolia.gateway.tenderly.co", fetchFn)({ retryCount: 0 });
+    const call = (signal = new AbortController().signal) => client.request({ method: "eth_getCode", params: [address, "0xa"] }, { signal });
+    const first = call();
+    await vi.advanceTimersByTimeAsync(0);
+    const queuedAbort = new AbortController();
+    const queued = call(queuedAbort.signal).then(() => "fulfilled", () => "rejected");
+    await vi.advanceTimersByTimeAsync(0);
+    queuedAbort.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    release();
+    await first;
+    expect(await queued).toBe("rejected");
+    const intervalAbort = new AbortController();
+    const waiting = call(intervalAbort.signal).then(() => "fulfilled", () => "rejected");
+    await vi.advanceTimersByTimeAsync(50);
+    intervalAbort.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await waiting).toBe("rejected");
+    const next = call();
+    await vi.advanceTimersByTimeAsync(75);
+    expect(await next).toBe("0x6000");
+    expect(starts).toEqual([0, 125]);
+  });
+
+  it("keeps existing transport timeouts bounded while a Tenderly read awaits its slot", async () => {
+    vi.resetModules();
+    const { batchedReadTransport } = await import("../src/batched-read-transport");
+    vi.useFakeTimers();
+    let starts = 0;
+    const fetchFn: typeof fetch = async (_input, init) => {
+      starts++;
+      const rows = JSON.parse(init!.body as string) as { id: number }[];
+      return new Response(JSON.stringify(rows.map(row => ({ jsonrpc: "2.0", id: row.id, result: "0x6000" }))), { headers: { "content-type": "application/json" } });
+    };
+    const client = batchedReadTransport("https://sepolia.gateway.tenderly.co", fetchFn)({ retryCount: 0, timeout: 50 });
+    const call = () => client.request({ method: "eth_getCode", params: [address, "0xa"] });
+    const first = call();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await first).toBe("0x6000");
+    const waiting = call().then(() => "fulfilled", () => "rejected");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await waiting).toBe("rejected");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(starts).toBe(1);
+    const recovered = call();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await recovered).toBe("0x6000");
+    expect(starts).toBe(2);
+  });
+
+  it("does not pace other provider URLs, including different paths on Tenderly", async () => {
+    vi.resetModules();
+    const { batchedReadTransport } = await import("../src/batched-read-transport");
+    vi.useFakeTimers();
+    const starts: number[] = [], initial = Date.now();
+    const fetchFn: typeof fetch = async (_input, init) => {
+      starts.push(Date.now() - initial);
+      const rows = JSON.parse(init!.body as string) as { id: number }[];
+      return new Response(JSON.stringify(rows.map(row => ({ jsonrpc: "2.0", id: row.id, result: "0x6000" }))), { headers: { "content-type": "application/json" } });
+    };
+    const reads = ["https://other.invalid", "https://sepolia.gateway.tenderly.co/other", "https://sepolia.gateway.tenderly.co?profile=other"].map(url => batchedReadTransport(url, fetchFn)({ retryCount: 0 }).request({ method: "eth_getCode", params: [address, "0xa"] }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await Promise.all(reads)).toEqual(Array(3).fill("0x6000"));
+    expect(starts).toEqual([0, 0, 0]);
+  });
+  it("splits concurrent reads into batches of at most four without omitting checks", async () => {
+    const { client, batches } = await rpc();
+    const results = await Promise.all(Array.from({ length: 24 }, (_, index) =>
+      client.getBytecode({ address, blockNumber: BigInt(index + 1) })));
+    expect(results).toEqual(Array(24).fill("0x6000"));
+    expect(batches.map(batch => (batch as unknown[]).length).sort((a, b) => a - b)).toEqual([4, 4, 4, 4, 4, 4]);
+    expect((batches as { params: unknown[] }[][]).flat().map(call => call.params.at(-1)).sort()).toEqual(
+      Array.from({ length: 24 }, (_, index) => `0x${(index + 1).toString(16)}`).sort());
+  });
+  it("rejects redirects instead of accepting evidence from another operator", async () => {
+    const target = await rpc();
+    const redirect = createServer((_request, response) => {
+      response.writeHead(307, { location: target.url });
+      response.end();
+    });
+    servers.push(redirect);
+    await new Promise<void>(resolve => redirect.listen(0, "127.0.0.1", resolve));
+    const client = createSubmissionReadClient(`http://127.0.0.1:${(redirect.address() as { port: number }).port}`, "redirect-test");
+    await expect(client.getBytecode({ address, blockNumber: 10n })).rejects.toThrow("Sepolia RPC request failed");
+    expect(target.batches).toHaveLength(0);
+  });
   it("groups concurrent pinned reads while matching reversed responses by id", async () => {
     const { batches, client } = await rpc();
     const result = await Promise.all([

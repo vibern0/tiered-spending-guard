@@ -17,12 +17,12 @@ import type { StoredCredential } from "./webauthn";
 import type { BackendConfig } from "./config";
 import { recoverAutomaticPwaProvisioning } from "./automatic-recovery";
 import { batchedReadTransport } from "./batched-read-transport";
+import { loadEvidenceAccess } from "./evidence-access";
 
 // Hardhat keeps security-core CommonJS; Node ESM exposes it under default while Vitest exposes named exports.
 const pwaRuntime = (pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
 
 const {
-  PWA_IDENTITY_PROVIDERS,
   assertPwaProvisioningTransactionAuthorization,
   collectPwaProvisioningQuote,
   createLocalPhaseOneProvisioningAuthorizer,
@@ -242,11 +242,11 @@ function recoveryTransaction(transaction: Awaited<ReturnType<PublicClient["getTr
   return { hash: transaction.hash, chainId: transaction.chainId, type: "eip1559" as const, from: transaction.from, to: transaction.to, nonce: transaction.nonce, value: transaction.value, input: transaction.input, gas: transaction.gas, maxFeePerGas: transaction.maxFeePerGas, maxPriorityFeePerGas: transaction.maxPriorityFeePerGas };
 }
 
-export function createReadClient(url: string, label: string, options: Readonly<{ batch?: boolean; fetchFn?: typeof fetch }> = {}): Omit<HistoricalPwaReadClient & PwaProvisioningQuoteClient & PwaProvisioningRecoveryClient, "getBlock"> & Readonly<{ getBlock(input: { blockNumber: bigint }): Promise<{ number: bigint; hash: Hex | null; timestamp: bigint; baseFeePerGas: bigint | null; gasLimit: bigint }> }> {
+export function createReadClient(url: string, label: string, options: Readonly<{ batch?: boolean; fetchFn?: typeof fetch; source?: string }> = {}): Omit<HistoricalPwaReadClient & PwaProvisioningQuoteClient & PwaProvisioningRecoveryClient, "getBlock"> & Readonly<{ getBlock(input: { blockNumber: bigint }): Promise<{ number: bigint; hash: Hex | null; timestamp: bigint; baseFeePerGas: bigint | null; gasLimit: bigint }> }> {
   const client = createPublicClient({ chain: sepolia, transport: options.batch ? batchedReadTransport(url, options.fetchFn) : http(url) }) as PublicClient;
   const read = <T>(method: string, operation: () => Promise<T>) => sanitizeRpc(label, method, operation, true);
   return Object.freeze({
-    source: url,
+    source: options.source ?? url,
     getChainId: () => read("getChainId", () => client.getChainId()),
     getBlockNumber: () => read("getBlockNumber", () => client.getBlockNumber()),
     getBlock: ({ blockNumber }: { blockNumber: bigint }) => read("getBlock", async () => {
@@ -315,7 +315,11 @@ type AutomaticDependencies = Readonly<{ providers: readonly [ReturnType<typeof c
 
 /** Concrete local Sepolia composition. Phase One authorization is not independent. */
 export function createConfiguredAutomaticPwaProvisioner(config: BackendConfig): Promise<AutomaticPwaProvisioner> {
-  return composeAutomaticPwaProvisioner(config, { providers: [createReadClient(PWA_IDENTITY_PROVIDERS[0], "identity provider 1"), createReadClient(PWA_IDENTITY_PROVIDERS[1], "identity provider 2")], relay: createRelayClient(config.rpcUrl) });
+  const access = loadEvidenceAccess(config.evidenceConfigPath);
+  return composeAutomaticPwaProvisioner(config, { providers: [
+    createReadClient(access.urls[0], access.operators[0], { batch: true, source: access.operators[0] }),
+    createReadClient(access.urls[1], access.operators[1], { batch: true, source: access.operators[1] }),
+  ], relay: createRelayClient(config.rpcUrl) });
 }
 
 export function createConfiguredAutomaticPwaProvisionerForTestsOnly(config: BackendConfig, dependencies: AutomaticDependencies): Promise<AutomaticPwaProvisioner> {

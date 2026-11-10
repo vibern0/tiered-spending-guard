@@ -134,8 +134,9 @@ describe("account runtime and shared payer", () => {
     const second = new SubmissionJournal(a.config.journalPath);
     second.prepare("second", secondHash);
     second.markSubmitting("second", secondHash);
+    const unavailableReceiptHashes = new Set<string>([H]);
     const reconcile = vi.fn(async (hash: string) => {
-      if (hash === H) throw new Error("https://secret.invalid/token");
+      if (unavailableReceiptHashes.has(hash)) throw new Error("https://secret.invalid/token");
       return { status: "reverted", transactionHash: hash, blockNumber: 12n, blockHash: H };
     });
     const gateway = createAccountGatewayForTestsOnly(config, store, {

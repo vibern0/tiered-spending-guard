@@ -13,6 +13,7 @@ export type BackendConfig = Readonly<{
   rpId: string;
   origin: string;
   rpcUrl: string;
+  evidenceConfigPath?: string;
   relayPrivateKey: `0x${string}`;
   accountDatabasePath?: string;
   journalPath: string;
@@ -85,12 +86,13 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   if (!origin) throw new Error("BACKEND_ORIGIN is required for the HTTPS profile");
   if (!rpId) throw new Error("BACKEND_RP_ID is required for the HTTPS profile");
   assertBackendWebAuthnIdentity(id, origin, rpId);
+  const evidenceConfigPath = env["BACKEND_EVIDENCE_CONFIG_PATH"] === undefined ? undefined : assertExternalBackendPath(env["BACKEND_EVIDENCE_CONFIG_PATH"], "BACKEND_EVIDENCE_CONFIG_PATH");
   const journalPath = assertExternalBackendPath(env["BACKEND_JOURNAL_PATH"], "BACKEND_JOURNAL_PATH");
   const provisioningJournalPath = assertExternalBackendPath(env["BACKEND_PROVISIONING_JOURNAL_PATH"], "BACKEND_PROVISIONING_JOURNAL_PATH");
   if (provisioningJournalPath === journalPath) throw new Error("submission and provisioning journals must use different paths");
   const provisioningReviewDirectory = assertExternalBackendPath(env["BACKEND_PROVISIONING_REVIEW_DIRECTORY"], "BACKEND_PROVISIONING_REVIEW_DIRECTORY");
   const accountDatabasePath = env["BACKEND_ACCOUNT_DATABASE_PATH"] === undefined ? undefined : assertExternalBackendPath(env["BACKEND_ACCOUNT_DATABASE_PATH"], "BACKEND_ACCOUNT_DATABASE_PATH");
-  return Object.freeze({ ...(accountDatabasePath ? { accountDatabasePath } : {}), id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, provisioningReviewDirectory });
+  return Object.freeze({ ...(evidenceConfigPath ? { evidenceConfigPath } : {}), ...(accountDatabasePath ? { accountDatabasePath } : {}), id, host: "127.0.0.1", port, chainId: 11155111, rpId, origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, provisioningJournalPath, provisioningReviewDirectory });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

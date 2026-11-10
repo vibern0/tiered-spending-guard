@@ -17,6 +17,9 @@ const terminal = (status: SubmissionStatus) =>
 const pendingHash = (status: SubmissionStatus) =>
   (status.state === "submitting" || status.state === "uncertain") &&
   /^0x[0-9a-fA-F]{64}$/.test(status.transactionHash ?? "");
+const EMPTY_STATUSES: Readonly<Record<string, SubmissionStatus>> = Object.freeze(
+  Object.create(null),
+);
 
 type Options = {
   scope: string;
@@ -33,14 +36,14 @@ export function useSubmissionStatuses(options: Options) {
   const [projection, setProjection] = useState<{
     scope: string;
     values: Readonly<Record<string, SubmissionStatus>>;
-  }>({ scope: options.scope, values: {} });
+  }>({ scope: options.scope, values: EMPTY_STATUSES });
   const onTerminal = useRef(options.onTerminal);
   onTerminal.current = options.onTerminal;
   const isCovered = useRef(options.isCovered);
   isCovered.current = options.isCovered;
   const { scope, enabled, read, isCurrent } = options;
   const tracker = useMemo(() => {
-    const values: Record<string, SubmissionStatus> = {};
+    const values: Record<string, SubmissionStatus> = Object.create(null);
     const ids = new Set<string>();
     const notified = new Set<string>();
     const fresh = new Set<string>();
@@ -69,7 +72,7 @@ export function useSubmissionStatuses(options: Options) {
       const previous = values[status.id];
       if (!active() || (previous && terminal(previous))) return;
       values[status.id] = status;
-      setProjection({ scope, values: { ...values } });
+      setProjection({ scope, values: Object.assign(Object.create(null), values) });
       if (terminal(status) && !notified.has(status.id)) {
         notified.add(status.id);
         if (refresh && status.state !== "superseded") await refreshTerminal();
@@ -172,7 +175,7 @@ export function useSubmissionStatuses(options: Options) {
   }, [tracker]);
   useEffect(() => tracker.watch(options.ids), [tracker, options.ids]);
   return {
-    submissions: projection.scope === scope && enabled ? projection.values : {},
+    submissions: projection.scope === scope && enabled ? projection.values : EMPTY_STATUSES,
     observeSubmission: tracker.observe,
     readSubmission: tracker.read,
   };

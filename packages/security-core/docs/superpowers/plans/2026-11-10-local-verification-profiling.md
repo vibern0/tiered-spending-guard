@@ -4,7 +4,7 @@
 
 **Goal:** Add runnable local profiling; separate CPU work, RPC requests and wall time.
 
-**Architecture:** Diagnostic process only. Read completed external public deployment evidence; use both fixed providers; restore a read-only verified context; profile repeated real security-core verification. Export summary, Perfetto-compatible trace and V8 CPU profile outside repository. No production runtime instrumentation or dependency change.
+**Architecture:** Diagnostic process only. Read completed external public deployment evidence; use both approved independent readers; restore a read-only verified context; profile repeated real security-core verification. Export summary, Perfetto-compatible trace and V8 CPU profile outside repository. No production runtime instrumentation or dependency change.
 
 **Tech Stack:** Existing TypeScript/tsx, Node inspector/performance/fetch, existing verification clients.
 
@@ -14,7 +14,7 @@
 
 - Never sign, authorize, broadcast, provision, reconcile/persist source journals or request passkey interaction.
 - Require all seven deployment receipts successful. Refuse incomplete evidence before network.
-- Fixed public Sepolia read providers only. Reject every non-read RPC method before fetch.
+- Default fixed public Sepolia pair; explicit named archive access added by [archive evidence plan](2026-11-10-archive-evidence-access.md). Reject arbitrary readers and every non-read RPC method before fetch.
 - Trace closed labels, counts, timings and HTTP statuses only; no addresses, calldata, assertions, credentials, endpoints, headers or error messages.
 - Output new external directory only. Preserve input files. CPU profile contains function/source locations, never heap values.
 - Explain that verification-only latency excludes passkey interaction, broadcast and confirmation.
@@ -51,7 +51,9 @@
 - `npm test`: 853 security-core passed / 2 existing deferred; 191 backend passed; 213 app passed; existing landing no-tests gate passed.
 - Backend TypeScript and `git diff --check`: PASS.
 - Successful profiling integration: genuine local Safe seven-transaction deployment, recovery/restoration/two verification samples, real read RPCs, complete trace/CPU artifacts, unchanged recursive source bytes and payer nonce 7 → 7.
-- 2026-11-10 live read-only capture: recovery stopped after 2.439 seconds (0.466 seconds process CPU) with `missing-confirmed-deployment-evidence`. Publicnode returned no first/last deployment receipt in three direct repeated probes; Tenderly returned the first receipt. This is unavailable historical evidence, not a successful verification timing or an inferred pruning cause. Do not bypass or switch the committed trust boundary to obtain a profile.
+- 2026-11-10 live read-only capture: recovery stopped after 2.439 seconds (0.466 seconds process CPU) with `missing-confirmed-deployment-evidence`. Publicnode returned no first/last deployment receipt in three direct repeated probes; Tenderly returned the first receipt. This is unavailable historical evidence, not a successful verification timing or an inferred pruning cause. Never bypass evidence checks or rewrite historical profile commitments to obtain a profile. The later explicit archive-access follow-up is documented separately; it retains both independent readers and every verifier predicate.
 - Live artifacts: private generated directory `vault-verification-profile-d403c353-b6c7-4643-aed9-39541ca76241`; summary/trace contain closed labels only. Source journal hash unchanged.
 - Review findings fixed RED→GREEN: dot-prefixed child containment (shared external-path helper and source evidence), default temporary output containment; abort metrics distinguish cancellation from provider failure. Existing valid external paths retain behavior.
 - Review bounds: completed baseline changes were already reviewed; live provider reliability was observed directly rather than changed; successful full profiling was subsequently proved against real local contracts. No additional findings deferred. No live signing, broadcast or source-evidence writes.
+
+- Archive-access follow-up: live recovery/restoration and three full verification samples now pass with unchanged source evidence and payer nonce. See [profiling guide](../../security/verification-profiling.md) and [redacted measured report](../../evidence/2026-11-10-verification-profile.json); original failed capture remains a partial availability diagnostic.

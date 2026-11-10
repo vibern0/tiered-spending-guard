@@ -19,6 +19,7 @@ import { SubmissionJournal } from "./journal";
 import { createReadClient, sanitizeRpc } from "./provisioner";
 import { persistPwaObservation } from "./observations";
 import { batchedReadTransport } from "./batched-read-transport";
+import { loadEvidenceAccess } from "./evidence-access";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 const ABI = parseAbi([
@@ -360,7 +361,8 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
 }
 
 export function createConfiguredSubmissionRuntime(config: BackendConfig, currentVault?: () => BackendVaultRecord | undefined, beforeSign?: (submissionId: string) => void): ConfiguredSubmissionRuntime {
-  const providers = [createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[0], "submission identity 1"), createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[1], "submission identity 2")] as const;
+  const access = loadEvidenceAccess(config.evidenceConfigPath);
+  const providers = [createSubmissionReadClient(access.urls[0], access.operators[0]), createSubmissionReadClient(access.urls[1], access.operators[1])] as const;
   const relay = createSubmissionReadClient(config.rpcUrl, "submission relay");
   const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
   return compose(config, { providers, relay, beforeSign, sendRawTransaction: serializedTransaction => sanitizeRpc("submission relay", "sendRawTransaction", () => client.sendRawTransaction({ serializedTransaction })) }, currentVault);
