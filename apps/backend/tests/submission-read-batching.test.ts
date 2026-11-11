@@ -180,6 +180,10 @@ describe("submission JSON-RPC batching", () => {
   it("rejects redirects instead of accepting evidence from another operator", async () => {
     const target = await rpc();
     const redirect = createServer((_request, response) => {
+      // False positive: this intentional redirect targets a test-owned loopback
+      // server, never request data. The client must reject it without following.
+      // Rule names cover the legacy and current GitLab rule identifiers.
+      // nosemgrep: rules_lgpl_javascript_redirect_rule-express-open-redirect2, javascript-redirect-rule-express_open_redirect2
       response.writeHead(307, { location: target.url });
       response.end();
     });
