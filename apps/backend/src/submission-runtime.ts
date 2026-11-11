@@ -18,6 +18,8 @@ import type { BackendApproval, BackendPreparedSubmission, BackendSubmissionRecei
 import { SubmissionJournal } from "./journal";
 import { createReadClient, sanitizeRpc } from "./provisioner";
 import { persistPwaObservation } from "./observations";
+import { batchedReadTransport } from "./batched-read-transport";
+import { loadEvidenceAccess } from "./evidence-access";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 const ABI = parseAbi([
@@ -33,9 +35,9 @@ const bytes32 = /^0x[0-9a-fA-F]{64}$/;
 const hash = (value: unknown) => keccak256(stringToHex(core.canonicalSubmissionJson(value)));
 
 /** These capabilities are private to the backend; observer adapters below expose reads only. */
-export function createSubmissionReadClient(url: string, label: string) {
-  const base = createReadClient(url, label);
-  const client = createPublicClient({ chain: sepolia, transport: http(url) });
+export function createSubmissionReadClient(url: string, label: string, options: Readonly<{ fetchFn?: typeof fetch }> = {}) {
+  const base = createReadClient(url, label, { batch: true, fetchFn: options.fetchFn });
+  const client = createPublicClient({ chain: sepolia, transport: batchedReadTransport(url, options.fetchFn) });
   const read = <T>(method: string, operation: () => Promise<T>) => sanitizeRpc(label, method, operation, true);
   return Object.freeze({
     ...base,
@@ -103,20 +105,21 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
     if (!vault.provisioningPlan) throw new Error("original reviewed provisioning plan is required for submissions");
     const anchor = await client.getBlock({ blockNumber });
     if (anchor.number !== blockNumber || !anchor.hash || !bytes32.test(anchor.hash)) throw new Error("submission state block is unavailable");
-    const proof = await core.verifyPwaSubmissionState({ plan: vault.provisioningPlan, vault: vault.verifiedProvisioning, client, blockNumber });
+    const scoped = core.createPinnedReadScope(client, blockNumber);
+    const proof = await core.verifyPwaSubmissionState({ plan: vault.provisioningPlan, vault: vault.verifiedProvisioning, client: scoped, blockNumber });
     const [safeNonce, spendState, queueHeadNonce, queueTailNonce, frozen] = await Promise.all([
-      read<bigint>(client, vault.safe, "nonce", blockNumber),
-      read<readonly [bigint, bigint, bigint]>(client, vault.guard, "spendState", blockNumber, [vault.usdc]),
-      read<bigint>(client, vault.delay, "txNonce", blockNumber),
-      read<bigint>(client, vault.delay, "queueNonce", blockNumber),
-      read<boolean>(client, vault.guard, "frozen", blockNumber),
+      read<bigint>(scoped, vault.safe, "nonce", blockNumber),
+      read<readonly [bigint, bigint, bigint]>(scoped, vault.guard, "spendState", blockNumber, [vault.usdc]),
+      read<bigint>(scoped, vault.delay, "txNonce", blockNumber),
+      read<bigint>(scoped, vault.delay, "queueNonce", blockNumber),
+      read<boolean>(scoped, vault.guard, "frozen", blockNumber),
     ]);
     if (queueTailNonce < queueHeadNonce || queueTailNonce - queueHeadNonce > 128n) throw new Error("Delay queue is inconsistent or exceeds the supported bound");
     let queueHead: VerifiedPwaSnapshot["queueHead"] = null;
     if (queueHeadNonce < queueTailNonce) {
       const [fingerprint, createdAt, logs] = await Promise.all([
-        read<Hex>(client, vault.delay, "getTxHash", blockNumber, [queueHeadNonce]),
-        read<bigint>(client, vault.delay, "getTxCreatedAt", blockNumber, [queueHeadNonce]),
+        read<Hex>(scoped, vault.delay, "getTxHash", blockNumber, [queueHeadNonce]),
+        read<bigint>(scoped, vault.delay, "getTxCreatedAt", blockNumber, [queueHeadNonce]),
         client.getLogs({ address: vault.delay, fromBlock: vault.verifiedProvisioning.setupReceipt.blockNumber, toBlock: blockNumber, args: { queueNonce: queueHeadNonce } }),
       ]);
       if (logs.length !== 1) throw new Error("Delay head requires one canonical queue event");
@@ -138,7 +141,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
     };
     let balances: { safeUsdcBalance: bigint; recipientUsdcBalance: bigint } | undefined;
     if (recipient) {
-      const [safeUsdcBalance, recipientUsdcBalance] = await Promise.all([read<bigint>(client, vault.usdc, "balanceOf", blockNumber, [vault.safe]), read<bigint>(client, vault.usdc, "balanceOf", blockNumber, [recipient])]);
+      const [safeUsdcBalance, recipientUsdcBalance] = await Promise.all([read<bigint>(scoped, vault.usdc, "balanceOf", blockNumber, [vault.safe]), read<bigint>(scoped, vault.usdc, "balanceOf", blockNumber, [recipient])]);
       balances = { safeUsdcBalance, recipientUsdcBalance };
     }
     const block = await client.getBlock({ blockNumber });
@@ -165,7 +168,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
     if (!entry || core.canonicalSubmissionJson(entry.publicPrepared) !== core.canonicalSubmissionJson(prepared)) throw new Error("server-held prepared intent is required");
     return entry;
   };
-  const revalidate = async (prepared: BackendPreparedSubmission) => {
+  const revalidatedSnapshot = async (prepared: BackendPreparedSubmission) => {
     const entry = entryFor(prepared);
     const originalBlocks = await Promise.all(providers.map(client => client.getBlock({ blockNumber: entry.prepared.blockNumber })));
     if (originalBlocks.some(block => block.hash?.toLowerCase() !== entry.prepared.blockHash.toLowerCase())) throw new Error("prepared snapshot block changed");
@@ -173,7 +176,9 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
     if (fresh.frozen && ["base-transfer", "step-up-transfer"].includes(entry.prepared.kind)) throw new Error("instant spending is frozen");
     const actual = core.preparePwaIntent(fresh.snapshot, entry.intent);
     if (core.canonicalSubmissionJson(semantic(actual)) !== core.canonicalSubmissionJson(semantic(entry.prepared))) throw new Error("prepared intent is stale after policy, nonce, counters, or queue drift");
+    return fresh;
   };
+  const revalidate = async (prepared: BackendPreparedSubmission): Promise<void> => { await revalidatedSnapshot(prepared); };
   const discard = (prepared: BackendPreparedSubmission) => {
     const envelope = envelopes.get(prepared.id);
     if (envelope) { envelope.close(); envelopes.delete(prepared.id); }
@@ -261,8 +266,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
       activeEnvelope = prepared.id;
       try {
         if (new SubmissionJournal(config.journalPath).listPending().length) throw new Error("a durable submission is unresolved; reconcile its exact hash before signing");
-        await revalidate(prepared);
-        const fresh = await snapshotAt(entry.vault);
+        const fresh = await revalidatedSnapshot(prepared);
         const idempotencyKey = keccak256(stringToHex(prepared.id));
         let request: SubmissionRequest | null;
         let to: Address, data: Hex;
@@ -310,7 +314,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
       if (!envelope || envelope.hash !== expectedHash || keccak256(envelope.raw) !== expectedHash) throw new Error("exact signed envelope is unavailable");
       const durable = new SubmissionJournal(config.journalPath).get(prepared.id);
       if (durable?.outerTransactionHash?.toLowerCase() !== expectedHash.toLowerCase() || durable.state !== "submitting") throw new Error("signed hash must be durable before broadcast");
-      await revalidate(prepared);
+      const fresh = await revalidatedSnapshot(prepared);
       const checkPayer = async () => {
         const states = await Promise.all([...providers, relay].map(async client => {
           const [chainId, latest, pending] = await Promise.all([client.getChainId(), client.getTransactionCount({ address: payer.address, blockTag: "latest" }), client.getTransactionCount({ address: payer.address, blockTag: "pending" })]);
@@ -325,7 +329,6 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
       }
       const request = envelope.request;
       if (!request) throw new Error("reviewed transport request is missing");
-      const fresh = await snapshotAt(envelope.entry.vault);
       const snapshot = fresh.snapshot;
       const send = async (target: Address, data: Hex) => {
         const expectedTo = request.kind === "safe-execution" ? request.safe : request.delay;
@@ -358,7 +361,8 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
 }
 
 export function createConfiguredSubmissionRuntime(config: BackendConfig, currentVault?: () => BackendVaultRecord | undefined, beforeSign?: (submissionId: string) => void): ConfiguredSubmissionRuntime {
-  const providers = [createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[0], "submission identity 1"), createSubmissionReadClient(core.PWA_IDENTITY_PROVIDERS[1], "submission identity 2")] as const;
+  const access = loadEvidenceAccess(config.evidenceConfigPath);
+  const providers = [createSubmissionReadClient(access.urls[0], access.operators[0]), createSubmissionReadClient(access.urls[1], access.operators[1])] as const;
   const relay = createSubmissionReadClient(config.rpcUrl, "submission relay");
   const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
   return compose(config, { providers, relay, beforeSign, sendRawTransaction: serializedTransaction => sanitizeRpc("submission relay", "sendRawTransaction", () => client.sendRawTransaction({ serializedTransaction })) }, currentVault);

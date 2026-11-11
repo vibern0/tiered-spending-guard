@@ -1,0 +1,109 @@
+{
+  "capturedAt": "2026-11-10T23:03:30.510Z",
+  "runtime": "v24.21.0",
+  "scope": "read-only-verification-core",
+  "evidenceProfile": "infura-archive",
+  "operators": [
+    "infura",
+    "tenderly"
+  ],
+  "completed": true,
+  "sampleCount": 3,
+  "phases": [
+    {
+      "name": "recovery",
+      "wallMs": 7594.669916999999,
+      "cpuUserMs": 633.45,
+      "cpuSystemMs": 161.154,
+      "status": "ok"
+    },
+    {
+      "name": "restore",
+      "wallMs": 5689.622332999999,
+      "cpuUserMs": 401.032,
+      "cpuSystemMs": 117.62,
+      "status": "ok"
+    },
+    {
+      "name": "verification",
+      "sample": 1,
+      "wallMs": 7715.560833000001,
+      "cpuUserMs": 487.138,
+      "cpuSystemMs": 155.916,
+      "status": "ok"
+    },
+    {
+      "name": "verification",
+      "sample": 2,
+      "wallMs": 8268.948624999997,
+      "cpuUserMs": 499.364,
+      "cpuSystemMs": 170.744,
+      "status": "ok"
+    },
+    {
+      "name": "verification",
+      "sample": 3,
+      "wallMs": 7268.884749999997,
+      "cpuUserMs": 380.779,
+      "cpuSystemMs": 138.347,
+      "status": "ok"
+    }
+  ],
+  "http": [
+    {
+      "provider": "provider-1",
+      "requests": 204,
+      "rpcCalls": 299,
+      "bytes": 1270036,
+      "wallMs": 33464.03041699996,
+      "failures": 0,
+      "cancelled": 0,
+      "maxBatch": 4
+    },
+    {
+      "provider": "provider-2",
+      "requests": 140,
+      "rpcCalls": 218,
+      "bytes": 921222,
+      "wallMs": 8894.07963400003,
+      "failures": 3,
+      "cancelled": 0,
+      "maxBatch": 4
+    }
+  ],
+  "rpcMethods": {
+    "eth_getTransactionCount": 18,
+    "eth_getCode": 117,
+    "eth_call": 279,
+    "eth_chainId": 16,
+    "eth_blockNumber": 9,
+    "eth_getTransactionByHash": 14,
+    "eth_getTransactionReceipt": 15,
+    "eth_getBlockByNumber": 28,
+    "eth_getStorageAt": 21
+  },
+  "sourceEvidence": {
+    "fileCount": 7,
+    "bytesUnchanged": true,
+    "payerNonceUnchanged": true
+  },
+  "privacy": {
+    "artifactScanPassed": true,
+    "privateArtifactPermissions": true
+  },
+  "excludes": [
+    "browser rendering",
+    "passkey interaction",
+    "backend snapshot collection",
+    "submission simulation",
+    "broadcast",
+    "block inclusion",
+    "confirmation wait"
+  ],
+  "limitations": [
+    "Single successful capture, three verification samples; no latency-distribution or speedup claim.",
+    "Three Tenderly HTTP 429 responses recovered through existing bounded retries.",
+    "Pacing is per process; independent processes share the external service quota.",
+    "Full trace and CPU profile remain private outside the repository."
+  ]
+}

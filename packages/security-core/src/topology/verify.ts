@@ -31,6 +31,43 @@ const expectedOwners = (policy: VaultPolicy): readonly Address[] => {
   return safeContractSecondary && (policy.secondaryProfile === "contract-only" || ecdsaSecondary) ? [policy.passkey] : [];
 };
 
+/** Fetch independently, then evaluate in the original order so report hashes stay stable. */
+async function collectTopologyReads(input: TopologyInput): Promise<TopologyReadClient> {
+  const contract = (address: Address, functionName: string, args: readonly unknown[] = []) => ({ address, abi: ABI, functionName, args });
+  const contracts = [
+    contract(input.guard, "maintenance"), contract(input.prerequisites.maintenance.address, "safe"), contract(input.prerequisites.maintenance.address, "delay"),
+    ...["masterCopy", "VERSION", "getOwners", "getThreshold"].map(name => contract(input.safe, name)),
+    contract(input.safe, "getModulesPaginated", [SENTINEL_MODULES, 10n]),
+    ...["config", "safeContractSecondary", "ecdsaSecondary", "policyHash", "getConfiguredTokens"].map(name => contract(input.guard, name)),
+    ...input.policy.assets.flatMap(asset => ["assetPolicy", "getPolicyRecipients", "spendState"].map(name => contract(input.guard, name, [asset.token]))),
+    ...["owner", "avatar", "target", "txCooldown", "txExpiration"].map(name => contract(input.delay, name)),
+    contract(input.delay, "getModulesPaginated", [SENTINEL_MODULES, 10n]),
+  ];
+  const key = (kind: string, args: unknown) => `${kind}:${JSON.stringify(args, (_k, v) => typeof v === "bigint" ? v.toString() : v)}`;
+  const requests = [
+    ...[input.safe, input.guard, input.delay, input.prerequisites.maintenance.address].map(address => {
+      const args = { address }; return { key: key("code", args), read: () => input.client.getBytecode(args) };
+    }),
+    ...[FALLBACK_HANDLER_SLOT, GUARD_SLOT, MODULE_GUARD_SLOT].map(slot => {
+      const args = { address: input.safe, slot }; return { key: key("storage", args), read: () => input.client.getStorageAt(args) };
+    }),
+    ...contracts.map(args => ({ key: key("contract", args), read: () => input.client.readContract(args) })),
+  ];
+  const values = await Promise.allSettled(requests.map(request => Promise.resolve().then(request.read)));
+  const results = new Map(requests.map((request, index) => [request.key, values[index]!]));
+  const result = async (kind: string, args: unknown): Promise<unknown> => {
+    const value = results.get(key(kind, args));
+    if (!value) throw new Error("topology read was not collected");
+    if (value.status === "rejected") throw value.reason;
+    return value.value;
+  };
+  return {
+    getBytecode: args => result("code", args) as Promise<Hex | undefined>,
+    getStorageAt: args => result("storage", args) as Promise<Hex | undefined>,
+    readContract: args => result("contract", { ...args, args: args.args ?? [] }),
+  };
+}
+
 export async function verifyTopology(input: TopologyInput): Promise<TopologyReport> {
   const failures: string[] = []; const checked: string[] = [];
   if (!isOfficialVerifiedDeployments(input.deployments)) {
@@ -42,16 +79,17 @@ export async function verifyTopology(input: TopologyInput): Promise<TopologyRepo
   if (input.prerequisites.stage !== "after-setup") return { ok: false, failures: ["prerequisites: post-setup evidence required"], checked };
   const check = (name: string, condition: boolean) => { checked.push(name); if (!condition) failures.push(name); };
   try { assertValidVaultPolicy(input.policy); } catch (error) { failures.push("policy: " + (error instanceof Error ? error.message : "invalid")); return { ok: false, failures, checked }; }
+  const client = await collectTopologyReads(input);
   check("chain id", input.chainId === input.policy.chainId && input.deployments.chainId === input.chainId); check("safe address", same(input.safe, input.policy.safe)); check("Delay address", same(input.delay, input.policy.delay) && same(input.delay, input.prerequisites.delay.address)); check("guard address", same(input.guard, input.prerequisites.guard.address));
-  const code = async (label: string, address: Address, expected: Hex) => { try { const actual = await input.client.getBytecode({ address }); check(label + " bytecode", !!actual && actual !== "0x"); check(label + " code hash", !!actual && keccak256(actual).toLowerCase() === expected.toLowerCase()); } catch { check(label + " bytecode", false); check(label + " code hash", false); } };
+  const code = async (label: string, address: Address, expected: Hex) => { try { const actual = await client.getBytecode({ address }); check(label + " bytecode", !!actual && actual !== "0x"); check(label + " code hash", !!actual && keccak256(actual).toLowerCase() === expected.toLowerCase()); } catch { check(label + " bytecode", false); check(label + " code hash", false); } };
   await code("Safe proxy", input.safe, input.prerequisites.safeProxyRuntimeCodeHash); await code("guard", input.guard, input.prerequisites.guard.runtimeCodeHash); await code("Delay", input.delay, input.prerequisites.delay.runtimeCodeHash);
-  const read = async (label: string, address: Address, functionName: string, args: readonly unknown[] = []): Promise<unknown> => { try { return await input.client.readContract({ address, abi: ABI, functionName, args }); } catch { failures.push(label + " read"); return undefined; } };
+  const read = async (label: string, address: Address, functionName: string, args: readonly unknown[] = []): Promise<unknown> => { try { return await client.readContract({ address, abi: ABI, functionName, args }); } catch { failures.push(label + " read"); return undefined; } };
   const maintenance = input.prerequisites.maintenance;
   await code("maintenance", maintenance.address, maintenance.runtimeCodeHash);
   check("guard maintenance", same(await read("guard maintenance", input.guard, "maintenance"), maintenance.address));
   check("maintenance Safe", same(await read("maintenance Safe", maintenance.address, "safe"), input.safe));
   check("maintenance Delay", same(await read("maintenance Delay", maintenance.address, "delay"), input.delay));
-  const storage = async (label: string, slot: Hex): Promise<Address | undefined> => { try { return storageAddress(await input.client.getStorageAt({ address: input.safe, slot })); } catch { failures.push(label + " read"); return undefined; } };
+  const storage = async (label: string, slot: Hex): Promise<Address | undefined> => { try { return storageAddress(await client.getStorageAt({ address: input.safe, slot })); } catch { failures.push(label + " read"); return undefined; } };
   const masterCopy = await read("Safe singleton", input.safe, "masterCopy"); check("Safe proxy singleton", same(masterCopy, input.deployments.dependencies.safeSingleton.address)); check("Safe version", (await read("Safe version", input.safe, "VERSION")) === input.deployments.dependencies.safeSingleton.version);
   const owners = tuple(await read("owners", input.safe, "getOwners")); const expectedSafeOwners = expectedOwners(input.policy); check("owners", !!owners && owners.length === 1 && expectedSafeOwners.length === 1 && owners.every((x, i) => same(x, expectedSafeOwners[i])));
   check("threshold", (await read("threshold", input.safe, "getThreshold")) === 1n); check("fallback handler", same(await storage("fallback handler", FALLBACK_HANDLER_SLOT), ZERO)); check("transaction guard", same(await storage("transaction guard", GUARD_SLOT), input.guard)); check("module guard", same(await storage("module guard", MODULE_GUARD_SLOT), input.guard));

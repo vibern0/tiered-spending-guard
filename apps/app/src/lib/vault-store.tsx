@@ -21,6 +21,7 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { usdc } from "./usdc";
+import { useSubmissionStatuses } from "./use-submission-statuses";
 import { effectiveStatus, fingerprintOf, type ActivityItem, type Lane } from "./activity-model";
 import {
   readVaultSnapshot,
@@ -1067,13 +1068,12 @@ type Ctx = {
   cancelQueued: (item: ActivityItem) => Promise<SubmissionStatus>;
   executeReady: (item: ActivityItem) => Promise<SubmissionStatus>;
   reconcileSubmission: (id: string) => Promise<SubmissionStatus>;
+  submissions: Readonly<Record<string, SubmissionStatus>>;
   provision: () => Promise<void>;
   sendUsdc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus>;
 };
 const VaultCtx = createContext<Ctx | null>(null);
 
-const terminal = (status: SubmissionStatus) =>
-  status.state === "confirmed" || status.state === "reverted";
 const requireOnline = () => {
   if (typeof navigator !== "undefined" && navigator.onLine === false)
     throw new Error("Wallet writes are unavailable while offline");
@@ -1129,6 +1129,7 @@ export function VaultProvider({
     undefined,
   );
   const accountGeneration = useRef(0);
+  const projectedBlock = useRef<{ generation: number; blockNumber: bigint } | undefined>(undefined);
   const sessionChannel = useRef<BroadcastChannel | undefined>(undefined);
   const requireGeneration = useCallback((generation: number) => {
     if (generation !== accountGeneration.current)
@@ -1136,6 +1137,7 @@ export function VaultProvider({
   }, []);
   const clearAccount = useCallback(() => {
     accountGeneration.current += 1;
+    projectedBlock.current = undefined;
     prepared.current.clear();
     automaticProvisioning.current = undefined;
     automaticResumeChecked.current = false;
@@ -1347,9 +1349,14 @@ export function VaultProvider({
           };
         }
       }
-      if (generation === accountGeneration.current) setState(next);
+      if (generation === accountGeneration.current) {
+        projectedBlock.current = snapshot.observedBlock === undefined
+          ? undefined : { generation, blockNumber: snapshot.observedBlock };
+        setState(next);
+      }
     } catch (error) {
       if (generation !== accountGeneration.current) return;
+      projectedBlock.current = undefined;
       const blank = emptyState();
       setState({
         ...blank,
@@ -1369,6 +1376,29 @@ export function VaultProvider({
       }
     }
   }, [backend, client, config, ui, sessionManaged, reviewedPlanBound]);
+  const receiptGeneration = accountGeneration.current;
+  const receiptSessionCurrent = useCallback(
+    () => receiptGeneration === accountGeneration.current,
+    [receiptGeneration],
+  );
+  const { submissions, observeSubmission, readSubmission } = useSubmissionStatuses({
+    scope: `${walletStorageKey("ui", storageProfile)}:${receiptGeneration}`,
+    enabled: hydrated && (!sessionManaged || session.authenticated),
+    ids: ui.submissionIds,
+    read: backend.submission,
+    isCurrent: receiptSessionCurrent,
+    onTerminal: refresh,
+    isCovered: (status) => {
+      const covered = projectedBlock.current;
+      const receipt = status.receipt;
+      return Boolean(
+        covered?.generation === accountGeneration.current && receipt &&
+        receipt.transactionHash === status.transactionHash &&
+        typeof receipt.blockNumber === "bigint" && receipt.blockNumber >= 0n &&
+        covered.blockNumber >= receipt.blockNumber,
+      );
+    },
+  });
   const startNewVault = useCallback(async () => {
     if (!config || state.compatibility?.mode !== "read-only")
       throw new Error("Fresh setup is available from an earlier read-only vault");
@@ -1413,6 +1443,7 @@ export function VaultProvider({
       throw error;
     }
     accountGeneration.current += 1;
+    projectedBlock.current = undefined;
     prepared.current.clear();
     automaticProvisioning.current = undefined;
     initialSnapshot.current = undefined;
@@ -1757,13 +1788,13 @@ export function VaultProvider({
         }
         requireGeneration(generation);
         rememberSubmission(id);
-        if (terminal(status)) await refresh();
+        await observeSubmission(status);
         return status;
       }),
     [
       backend,
-      refresh,
       rememberSubmission,
+      observeSubmission,
       state.safe,
       state.compatibility,
       ui.primaryCredentialId,
@@ -1900,12 +1931,11 @@ export function VaultProvider({
       requireOnline();
       requireCredentialRebindReady(ui.credentialRebind, sessionManaged);
       const generation = accountGeneration.current;
-      const status = await backend.submission(id);
+      const status = await readSubmission(id);
       requireGeneration(generation);
-      if (terminal(status)) await refresh();
       return status;
     },
-    [backend, refresh, ui.credentialRebind, sessionManaged, requireGeneration],
+    [readSubmission, ui.credentialRebind, sessionManaged, requireGeneration],
   );
   const provision = useCallback(
     () =>
@@ -1981,6 +2011,7 @@ export function VaultProvider({
       cancelQueued,
       executeReady,
       reconcileSubmission,
+      submissions,
       provision,
       sendUsdc,
     }),
@@ -2011,6 +2042,7 @@ export function VaultProvider({
       cancelQueued,
       executeReady,
       reconcileSubmission,
+      submissions,
       provision,
       sendUsdc,
     ],

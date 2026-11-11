@@ -15,6 +15,7 @@ import {
 } from "./webauthn";
 import type { BackendHandlerSet } from "./handlers";
 import type { VaultProvisioningResult } from "./server";
+import { startReceiptReconciler } from "./receipt-reconciler";
 import type {
   AuthenticationResponseJSON,
   RegistrationResponseJSON,
@@ -35,6 +36,7 @@ export type AccountGateway = Readonly<{
     body: unknown,
   ): Promise<unknown>;
   status(accountId: string, id: string): Promise<unknown>;
+  reconcilePending?(): Promise<void>;
   legacyCoordinates?(
     accountId: string,
   ): Promise<Readonly<{ x: bigint; y: bigint }> | undefined>;
@@ -523,11 +525,18 @@ export function createAccountServer(
       json(res, status, { error: message, code, stage, requestId });
     }
   });
+  let receiptWorker: ReturnType<typeof startReceiptReconciler> | undefined;
+  server.once("listening", () => {
+    if (gateway.reconcilePending)
+      receiptWorker = startReceiptReconciler(() => gateway.reconcilePending!(), options);
+  });
   return {
     server,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
+    close: async () => {
+      await receiptWorker?.stop();
+      await new Promise<void>((resolve, reject) =>
         server.close((e) => (e ? reject(e) : resolve())),
-      ),
+      );
+    },
   };
 }

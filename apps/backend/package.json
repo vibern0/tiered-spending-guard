@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx --env-file=.env src/main.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "profile:verification": "tsx scripts/profile-verification.ts"
   },
   "dependencies": {
     "@recent-tx-safe-guard/security-core": "workspace:*",

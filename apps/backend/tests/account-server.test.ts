@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountStore } from "../src/account-store";
 import {
   createAccountServer,
@@ -13,7 +13,7 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
-async function fixture(logs?: unknown[]) {
+async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGateway> = {}) {
   const root = mkdtempSync(join(tmpdir(), "vault-account-http-"));
   const config = {
     ...loadBackendConfig({
@@ -49,6 +49,7 @@ async function fixture(logs?: unknown[]) {
         );
       return { state: "confirmed" };
     },
+    ...gatewayOverrides,
   };
   const backend = createAccountServer(config, store, gateway, {
     log: (event: unknown) => logs?.push(event),
@@ -97,9 +98,30 @@ async function fixture(logs?: unknown[]) {
       },
     };
   }
-  return { store, client };
+  return { store, client, backend };
 }
 describe("multi-user passkey HTTP", () => {
+  it("automatically starts reconciliation when listening and drains it before closing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reconcilePending = vi.fn(() => gate);
+    const { backend, store } = await fixture([], { reconcilePending });
+    try {
+      await Promise.resolve();
+      expect(reconcilePending).toHaveBeenCalledTimes(1);
+      let closed = false;
+      const close = backend.close().then(() => { closed = true; });
+      await Promise.resolve();
+      expect(closed).toBe(false);
+      release();
+      await close;
+      expect(closed).toBe(true);
+      expect(backend.server.listening).toBe(false);
+      // This fixture has already been closed; avoid closing the server twice.
+      cleanups.pop();
+      store.close();
+    } finally { release(); }
+  });
   it("logs request arrival and completion with a correlated ID, safe route, status and duration", async () => {
     const events: unknown[] = [];
     const { client } = await fixture(events);

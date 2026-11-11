@@ -600,6 +600,7 @@ export class PwaSubmissionService {
     Map<"primary" | "secondary", BackendApproval>
   >();
   private readonly flights = new Map<string, Promise<BackendSubmissionView>>();
+  private readonly statusFlights = new Map<string, Promise<BackendSubmissionView>>();
 
   constructor(options: PwaSubmissionServiceOptions) {
     this.options = options;
@@ -649,7 +650,15 @@ export class PwaSubmissionService {
     return flight;
   }
 
-  async status(id: string): Promise<BackendSubmissionView> {
+  status(id: string): Promise<BackendSubmissionView> {
+    const active = this.statusFlights.get(id);
+    if (active) return active;
+    const flight = this.statusOnce(id).finally(() => this.statusFlights.delete(id));
+    this.statusFlights.set(id, flight);
+    return flight;
+  }
+
+  private async statusOnce(id: string): Promise<BackendSubmissionView> {
     const entry = this.journal.get(id);
     if (!entry) throw new Error("unknown submission");
     if (entry.state === "submitting" || entry.state === "uncertain") {
@@ -764,14 +773,14 @@ export class PwaSubmissionService {
       );
       if (broadcastHash.toLowerCase() !== outerTransactionHash.toLowerCase())
         throw new Error("provider returned another transaction hash");
-      const receipt = await this.options.reconcile(outerTransactionHash);
-      if (!receipt) {
-        this.journal.markUncertain(prepared.id);
-        return publicView(this.journal.get(prepared.id)!, prepared);
-      }
-      return this.reconcileTerminalView(prepared.id, receipt);
+      const view = await this.status(prepared.id);
+      if (view.state === "submitting") this.journal.markUncertain(prepared.id);
+      return publicView(this.journal.get(prepared.id)!, prepared);
     } catch {
-      this.journal.markUncertain(prepared.id);
+      // A read-only poll may have completed the receipt while broadcast was in
+      // flight. Never downgrade that durable evidence after a provider failure.
+      if (this.journal.get(prepared.id)?.state === "submitting")
+        this.journal.markUncertain(prepared.id);
       throw new Error(
         "submission became uncertain; reconcile the durable outer hash",
       );

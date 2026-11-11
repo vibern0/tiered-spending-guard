@@ -46,6 +46,7 @@ import { PHASE_OUTLAY_LIMIT, liveIntentHash, submitLiveIntent, type LiveContext,
 import { verifyTopology, type TopologyReport } from "../topology/verify";
 import { createLiveJournalStore, createSepoliaLiveContext, type SepoliaRpc } from "../../scripts/live/runtime";
 import { verifyPasskeySignerComponent } from "../topology/evidence";
+import { createPinnedReadScope } from "./pinned-reads";
 
 export { readLiveJournal, createLiveJournalStore } from "../../scripts/live/runtime";
 export type { LiveJournal } from "../../scripts/live/submission";
@@ -337,11 +338,12 @@ async function verifyCurrentPwaTopology(plan: PwaProvisioningPlan, client: PwaSu
   if (blockNumber < 0n || await client.getChainId() !== SEPOLIA_CHAIN_ID) throw new Error("fail closed: PWA submission chain or block mismatch");
   const before = await client.getBlock({ blockNumber });
   if (before.number !== blockNumber || !before.hash || !HASH.test(before.hash)) throw new Error("fail closed: PWA submission block unavailable");
+  const scoped = createPinnedReadScope(client, blockNumber);
   const pinned = {
-    getBytecode: (args: { address: Address }) => client.getBytecode({ ...args, blockNumber }),
-    getStorageAt: (args: { address: Address; slot: Hex }) => client.getStorageAt({ ...args, blockNumber }),
-    readContract: (args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }) => client.readContract({ ...args, blockNumber }),
-    getTransactionCount: (args: { address: Address }) => client.getTransactionCount({ ...args, blockNumber }),
+    getBytecode: (args: { address: Address }) => scoped.getBytecode({ ...args, blockNumber }),
+    getStorageAt: (args: { address: Address; slot: Hex }) => scoped.getStorageAt({ ...args, blockNumber }),
+    readContract: (args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }) => scoped.readContract({ ...args, blockNumber }),
+    getTransactionCount: (args: { address: Address }) => scoped.getTransactionCount({ ...args, blockNumber }),
   };
   const currentNonce = BigInt(await pinned.getTransactionCount({ address: plan.deployer }));
   if (currentNonce < plan.transactions.at(-1)!.nonce + 1n) throw new Error("fail closed: payer nonce is behind completed provisioning");

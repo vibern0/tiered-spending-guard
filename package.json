@@ -41,6 +41,7 @@
     "landing:lint": "npm --prefix apps/landing run lint",
     "landing:format": "npm --prefix apps/landing run format",
     "landing:test": "npm --prefix apps/landing test",
-    "landing:test:watch": "npm --prefix apps/landing run test:watch"
+    "landing:test:watch": "npm --prefix apps/landing run test:watch",
+    "backend:profile:verification": "npm --prefix apps/backend run profile:verification --"
   }
 }

@@ -14,6 +14,10 @@ const valid = {
 };
 
 describe("backend configuration", () => {
+  it("rejects repository descendants whose name begins with two dots", () => {
+    expect(() => loadBackendConfig({ ...valid, BACKEND_JOURNAL_PATH: resolve(process.cwd(), "../..", "..profile-output", "journal.json") })).toThrow(/outside the repository/i);
+  });
+
   it("requires every write-boundary input", () => {
     expect(loadBackendConfig(valid)).toMatchObject({
       id: "local",
