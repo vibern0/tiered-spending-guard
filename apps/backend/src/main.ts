@@ -33,14 +33,7 @@ export async function startBackend(
   handlers: Parameters<typeof createBackendServer>[1],
 ): Promise<BackendServer> {
   const backend = createBackendServer(config, handlers);
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => reject(error);
-    backend.server.once("error", onError);
-    backend.server.listen(config.port, config.host, () => {
-      backend.server.off("error", onError);
-      resolve();
-    });
-  });
+  await backend.fastify.listen({ port: config.port, host: config.host });
   return backend;
 }
 
@@ -128,10 +121,7 @@ export async function createConfiguredBackend(
       await gateway.handlers(legacy.id);
     }
     const backend = createAccountServer(config, store, gateway);
-    await new Promise<void>((resolve, reject) => {
-      backend.server.once("error", reject);
-      backend.server.listen(config.port, config.host, resolve);
-    });
+    await backend.fastify.listen({ port: config.port, host: config.host });
     return {
       server: backend.server,
       close: async () => {

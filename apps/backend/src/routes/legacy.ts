@@ -115,35 +115,32 @@ export function registerLegacyRoutes(
     },
   );
 
-  fastify.post<{ Params: RoleParams }>(
-    "/v1/registrations/:role/verify",
-    async (request, reply) => {
-      const passkeyRole = role(request.params.role);
-      const input = request.body as {
-        sessionId?: string;
-        registration?: RegistrationResponseJSON;
-      };
-      if (!input?.sessionId || !input.registration)
-        throw new Error("registration session and response are required");
-      const session = sessions.consume(input.sessionId, passkeyRole);
-      const credential = await verifyPasskeyRegistration({
-        role: passkeyRole,
-        credentialId: input.registration.id,
-        challenge: session.challenge,
-        rpId: session.rpId,
-        origin: session.origin,
-        response: input.registration,
-      });
-      if (!handlers.storeCredential) throw new Error("credential storage unavailable");
-      handlers.storeCredential(credential);
-      sessions.markRegistered(passkeyRole);
-      return reply.send({
-        role: passkeyRole,
-        credentialId: credential.credentialId,
-        counter: credential.counter,
-      });
-    },
-  );
+  fastify.post<{ Params: RoleParams }>("/v1/registrations/:role/verify", async (request, reply) => {
+    const passkeyRole = role(request.params.role);
+    const input = request.body as {
+      sessionId?: string;
+      registration?: RegistrationResponseJSON;
+    };
+    if (!input?.sessionId || !input.registration)
+      throw new Error("registration session and response are required");
+    const session = sessions.consume(input.sessionId, passkeyRole);
+    const credential = await verifyPasskeyRegistration({
+      role: passkeyRole,
+      credentialId: input.registration.id,
+      challenge: session.challenge,
+      rpId: session.rpId,
+      origin: session.origin,
+      response: input.registration,
+    });
+    if (!handlers.storeCredential) throw new Error("credential storage unavailable");
+    handlers.storeCredential(credential);
+    sessions.markRegistered(passkeyRole);
+    return reply.send({
+      role: passkeyRole,
+      credentialId: credential.credentialId,
+      counter: credential.counter,
+    });
+  });
 
   fastify.post<{ Params: RoleParams }>(
     "/v1/credentials/:role/rebind/options",
@@ -237,4 +234,3 @@ export function registerLegacyRoutes(
 
   fastify.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: "not found" }));
 }
-

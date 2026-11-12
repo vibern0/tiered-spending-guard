@@ -90,6 +90,13 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
   return { store, client, backend };
 }
 describe("multi-user passkey HTTP", () => {
+  it("uses Fastify for the multi-user route surface", async () => {
+    const { backend } = await fixture();
+    expect(backend.fastify.server).toBe(backend.server);
+    expect(backend.fastify.hasRoute({ method: "POST", url: "/v1/auth/setup" })).toBe(true);
+    expect(backend.fastify.hasRoute({ method: "GET", url: "/v1/submissions/:id" })).toBe(true);
+  });
+
   it("automatically starts reconciliation when listening and drains it before closing", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

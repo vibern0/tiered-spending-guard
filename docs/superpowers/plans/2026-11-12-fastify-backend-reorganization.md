@@ -106,20 +106,20 @@ Expected: PASS.
 - Consumes: Fastify kernel plus Task 2 services.
 - Produces: existing `server` and `close()` API plus `fastify` instance.
 
-- [ ] **Step 1: Add failing route-boundary tests**
+- [x] **Step 1: Add failing route-boundary tests**
 
 Use Fastify injection for health, account setup, unknown route, malformed JSON, transaction lookup, and close lifecycle.
 
-- [ ] **Step 2: Run focused HTTP tests**
+- [x] **Step 2: Run focused HTTP tests**
 
 Run: `npm --prefix apps/backend test -- --run tests/account-server.test.ts tests/server.test.ts`
 Expected: FAIL until routes use Fastify and services.
 
-- [ ] **Step 3: Move routes and compose servers**
+- [x] **Step 3: Move routes and compose servers**
 
 Keep route modules under `src/routes/`. Keep server files limited to dependency composition, error mapping, and lifecycle.
 
-- [ ] **Step 4: Run focused HTTP tests**
+- [x] **Step 4: Run focused HTTP tests**
 
 Run: `npm --prefix apps/backend test -- --run tests/account-server.test.ts tests/server.test.ts`
 Expected: PASS.

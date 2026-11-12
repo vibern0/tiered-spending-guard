@@ -9,12 +9,7 @@ export class TransactionService {
     return this.gateway.prepare(accountId, sessionId, body);
   }
 
-  submit(
-    accountId: string,
-    sessionId: string,
-    id: string,
-    body: unknown,
-  ): Promise<unknown> {
+  submit(accountId: string, sessionId: string, id: string, body: unknown): Promise<unknown> {
     return this.gateway.submit(accountId, sessionId, id, body);
   }
 

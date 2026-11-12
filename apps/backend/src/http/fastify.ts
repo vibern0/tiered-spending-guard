@@ -26,21 +26,14 @@ function parseJson(value: Buffer, options: BackendJsonOptions): unknown {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value.toString("utf8"), (key, item) => {
-      if (
-        options.bigintKeys.includes(key) &&
-        typeof item === "string" &&
-        /^\d+n$/.test(item)
-      )
+      if (options.bigintKeys.includes(key) && typeof item === "string" && /^\d+n$/.test(item))
         return BigInt(item.slice(0, -1));
       return item;
     });
   } catch {
     throw statusError(400, options.invalidMessage);
   }
-  if (
-    options.requireObject &&
-    (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-  )
+  if (options.requireObject && (!parsed || typeof parsed !== "object" || Array.isArray(parsed)))
     throw statusError(400, "request must be an object");
   return parsed;
 }
@@ -62,7 +55,10 @@ export function createBackendFastify(options: BackendFastifyOptions): FastifyIns
     done: (error: Error | null, body?: unknown) => void,
   ) => {
     try {
-      done(null, parseJson(Buffer.isBuffer(payload) ? payload : Buffer.from(payload), options.json));
+      done(
+        null,
+        parseJson(Buffer.isBuffer(payload) ? payload : Buffer.from(payload), options.json),
+      );
     } catch (error) {
       done(error as Error);
     }
@@ -73,8 +69,7 @@ export function createBackendFastify(options: BackendFastifyOptions): FastifyIns
       { parseAs: "buffer", bodyLimit: BODY_LIMIT },
       parser,
     );
-  else
-    fastify.addContentTypeParser("*", { parseAs: "buffer", bodyLimit: BODY_LIMIT }, parser);
+  else fastify.addContentTypeParser("*", { parseAs: "buffer", bodyLimit: BODY_LIMIT }, parser);
 
   fastify.setReplySerializer((payload) =>
     JSON.stringify(payload, (_key, item) => (typeof item === "bigint" ? `${item}n` : item)),
@@ -89,4 +84,3 @@ export function createBackendFastify(options: BackendFastifyOptions): FastifyIns
   });
   return fastify;
 }
-
