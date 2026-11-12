@@ -41,4 +41,25 @@ describe("home vault refresh", () => {
 
     expect(refresh).toHaveBeenCalledTimes(1);
   });
+
+  it("shows the first-signer allowance as fully used after instant spending crosses it", () => {
+    useVaultMock.mockReturnValue({
+      state: {
+        ...emptyState(),
+        safe: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        spentFirstSigner: 900_000n,
+        spentInstant: 1_100_000n,
+        onboarding: { firstSigner: true, secondSigner: true, limits: true, rehearsed: true },
+      },
+      canWrite: true,
+      loading: false,
+      refresh: vi.fn(),
+    });
+
+    render(<HomePage />);
+
+    expect(screen.getByText("1.00 USDC / 1.00 USDC")).toBeInTheDocument();
+    expect(screen.getByText("1.10 USDC / 3.00 USDC")).toBeInTheDocument();
+    expect(screen.queryByText("0.90 USDC / 1.00 USDC")).not.toBeInTheDocument();
+  });
 });

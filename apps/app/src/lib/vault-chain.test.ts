@@ -260,7 +260,7 @@ describe("readVaultSnapshot", () => {
       { args: { queueNonce: 0n, txHash, to: USDC, value: 0n, data, operation: 0 } },
     ] as never);
 
-    const snapshot = await readVaultSnapshot(queued, config);
+    const snapshot = await readVaultSnapshot(queued, { ...config, fromBlock: 100n });
 
     expect(snapshot.queueItems).toEqual([
       {
@@ -274,6 +274,34 @@ describe("readVaultSnapshot", () => {
         status: "pending",
       },
     ]);
+  });
+
+  it("fails closed when the verified Delay scan boundary is in the future", async () => {
+    const snapshot = await readVaultSnapshot(client(), { ...config, fromBlock: 124n });
+
+    expect(snapshot).toMatchObject({
+      writable: false,
+      health: [expect.objectContaining({ code: "rpc-inconsistent" })],
+    });
+  });
+
+  it("redacts RPC endpoint credentials from chain-read health failures", async () => {
+    const snapshot = await readVaultSnapshot(
+      client({
+        getBlockNumber: vi
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              "HTTP request failed. Status: 429 URL: https://sepolia.infura.io/v3/private-project-id",
+            ),
+          ),
+      }),
+      config,
+    );
+
+    expect(snapshot.health[0]?.message).toContain("Status: 429");
+    expect(snapshot.health[0]?.message).toContain("[redacted]");
+    expect(snapshot.health[0]?.message).not.toContain("private-project-id");
   });
 
   it("blocks writes on the wrong chain", async () => {

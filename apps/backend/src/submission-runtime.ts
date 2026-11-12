@@ -30,6 +30,7 @@ const ABI = parseAbi([
   "function getTxHash(uint256) view returns (bytes32)", "function getTxCreatedAt(uint256) view returns (uint256)",
 ]);
 const ADDED = parseAbiItem("event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)");
+const MAX_LOG_BLOCK_RANGE = 10_000n;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const bytes32 = /^0x[0-9a-fA-F]{64}$/;
 const hash = (value: unknown) => keccak256(stringToHex(core.canonicalSubmissionJson(value)));
@@ -57,6 +58,23 @@ export function createSubmissionReadClient(url: string, label: string, options: 
   });
 }
 type ReadClient = ReturnType<typeof createSubmissionReadClient>;
+async function readDelayLogs(
+  client: ReadClient,
+  input: Readonly<{ address: Address; fromBlock: bigint; toBlock: bigint; queueNonce: bigint }>,
+): Promise<Awaited<ReturnType<ReadClient["getLogs"]>>> {
+  if (input.fromBlock > input.toBlock) throw new Error("Delay event scan boundary is in the future");
+  const logs: Awaited<ReturnType<ReadClient["getLogs"]>> = [];
+  for (let start = input.fromBlock; start <= input.toBlock; start += MAX_LOG_BLOCK_RANGE) {
+    const end = start + MAX_LOG_BLOCK_RANGE - 1n;
+    logs.push(...await client.getLogs({
+      address: input.address,
+      fromBlock: start,
+      toBlock: end < input.toBlock ? end : input.toBlock,
+      args: { queueNonce: input.queueNonce },
+    }));
+  }
+  return logs;
+}
 type Entry = {
   vault: BackendVaultRecord; intent: PwaIntent; snapshot: VerifiedPwaSnapshot;
   prepared: PreparedPwaIntent; publicPrepared: BackendPreparedSubmission;
@@ -120,7 +138,7 @@ function compose(config: BackendConfig, dependencies: Dependencies, currentVault
       const [fingerprint, createdAt, logs] = await Promise.all([
         read<Hex>(scoped, vault.delay, "getTxHash", blockNumber, [queueHeadNonce]),
         read<bigint>(scoped, vault.delay, "getTxCreatedAt", blockNumber, [queueHeadNonce]),
-        client.getLogs({ address: vault.delay, fromBlock: vault.verifiedProvisioning.setupReceipt.blockNumber, toBlock: blockNumber, args: { queueNonce: queueHeadNonce } }),
+        readDelayLogs(client, { address: vault.delay, fromBlock: vault.verifiedProvisioning.setupReceipt.blockNumber, toBlock: blockNumber, queueNonce: queueHeadNonce }),
       ]);
       if (logs.length !== 1) throw new Error("Delay head requires one canonical queue event");
       const log = logs[0]!;

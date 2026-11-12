@@ -95,7 +95,7 @@ describe("account runtime and shared payer", () => {
     const store = new AccountStore(config);
     const sign = vi.fn(), broadcast = vi.fn(), provision = vi.fn(async () => ({ response: {
       chainId: 11155111, safe: address(1), guard: address(2), delay: address(3), primaryPasskey: address(4), secondaryPasskey: address(5), usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-      evidence: { setupTransactionHash: H, verificationReportHash: H, deploymentsHash: H, policyHash: H },
+      evidence: { setupTransactionHash: H, verificationReportHash: H, deploymentsHash: H, policyHash: H, blockNumber: "1" },
     }, verified: {} }));
     const reconcile = vi.fn(async (hash: string) => ({ status: "confirmed", transactionHash: hash, blockNumber: 12n, blockHash: H }));
     const factory = vi.fn(async () => ({ completedRecoveryReady: true, provision }));
@@ -201,6 +201,7 @@ describe("account runtime and shared payer", () => {
             verificationReportHash: H,
             deploymentsHash: H,
             policyHash: H,
+            blockNumber: "1",
           },
         };
         return { response, verified: {} as never };

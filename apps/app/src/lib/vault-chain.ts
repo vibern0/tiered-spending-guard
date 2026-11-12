@@ -64,6 +64,7 @@ const DELAY_ABI = parseAbi([
 const TRANSACTION_ADDED_EVENT = parseAbiItem(
   "event TransactionAdded(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)",
 );
+const MAX_LOG_BLOCK_RANGE = 5_000n;
 
 const sameAddress = (left: string | undefined, right: string): boolean =>
   Boolean(left && left.toLowerCase() === right.toLowerCase());
@@ -208,7 +209,10 @@ const health = (error: unknown): HealthFailure => {
     return { code: error.code, message: error.message, blocking: true };
   return {
     code: "rpc-inconsistent",
-    message: error instanceof Error ? error.message : "Chain read failed",
+    message:
+      error instanceof Error
+        ? error.message.replace(/https?:\/\/[^\s]+/gi, "[redacted]")
+        : "Chain read failed",
     blocking: true,
   };
 };
@@ -289,6 +293,8 @@ export async function readVaultSnapshot(
       );
     }
     const observedBlock = await reader.getBlockNumber();
+    if (config.fromBlock !== undefined && config.fromBlock > observedBlock)
+      throw new VaultHealthError("rpc-inconsistent", "Delay event scan boundary is in the future");
     const initialBlock = await reader.getBlock({ blockNumber: observedBlock });
     const readAt = <T>(
       address: Address,
@@ -484,19 +490,40 @@ export async function readVaultSnapshot(
         "rpc-inconsistent",
         "Delay queue exceeds the supported canonical snapshot bound",
       );
+    if (txNonce < queueNonce && config.fromBlock === undefined)
+      throw new VaultHealthError("rpc-inconsistent", "Delay event scan boundary is missing");
     for (let nonce = txNonce; nonce < queueNonce; nonce += 1n) {
       const [txHash, createdAt] = await Promise.all([
         readAt<Hex>(config.delay, DELAY_ABI, "getTxHash", [nonce]),
         readAt<bigint>(config.delay, DELAY_ABI, "getTxCreatedAt", [nonce]),
       ]);
+      const fromBlock = config.fromBlock!;
+      const firstEnd = fromBlock + MAX_LOG_BLOCK_RANGE - 1n;
       const logs = await reader.getLogs({
         address: config.delay,
         event: TRANSACTION_ADDED_EVENT,
         args: { queueNonce: nonce },
-        fromBlock: config.fromBlock ?? 0n,
-        toBlock: observedBlock,
+        fromBlock,
+        toBlock: firstEnd < observedBlock ? firstEnd : observedBlock,
         strict: true,
       });
+      for (
+        let start = fromBlock + MAX_LOG_BLOCK_RANGE;
+        start <= observedBlock;
+        start += MAX_LOG_BLOCK_RANGE
+      ) {
+        const end = start + MAX_LOG_BLOCK_RANGE - 1n;
+        logs.push(
+          ...(await reader.getLogs({
+            address: config.delay,
+            event: TRANSACTION_ADDED_EVENT,
+            args: { queueNonce: nonce },
+            fromBlock: start,
+            toBlock: end < observedBlock ? end : observedBlock,
+            strict: true,
+          })),
+        );
+      }
       if (logs.length !== 1)
         throw new VaultHealthError("rpc-inconsistent", "Delay queue event is missing or ambiguous");
       const args = logs[0]!.args;

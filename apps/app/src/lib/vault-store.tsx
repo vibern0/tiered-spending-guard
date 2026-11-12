@@ -99,6 +99,7 @@ export type VaultProvisioningResult = Readonly<{
   evidence: Readonly<{
     setupTransactionHash: `0x${string}`;
     verificationReportHash: `0x${string}`;
+    blockNumber: string;
   }>;
   credentialRebind?: CredentialRebindStatus;
 }>;
@@ -453,6 +454,9 @@ function readConfig(profile: StorageProfile): VaultConfig | undefined {
       )
     )
       return undefined;
+    const fromBlock = parsed.fromBlock;
+    if (fromBlock !== undefined && (typeof fromBlock !== "string" || !/^\d+$/.test(fromBlock)))
+      return undefined;
     return {
       chainId: 11155111,
       safe: parsed.safe as Address,
@@ -460,6 +464,7 @@ function readConfig(profile: StorageProfile): VaultConfig | undefined {
       delay: parsed.delay as Address,
       usdc: parsed.usdc as Address,
       usdcCandidates: [DEFAULT_USDC],
+      ...(fromBlock === undefined ? {} : { fromBlock: BigInt(fromBlock) }),
     };
   } catch {
     return undefined;
@@ -476,12 +481,37 @@ function saveConfig(profile: StorageProfile, config: VaultConfig): void {
       delay: config.delay,
       usdc: config.usdc,
       usdcCandidates: config.usdcCandidates,
+      ...(config.fromBlock === undefined ? {} : { fromBlock: String(config.fromBlock) }),
     }),
   );
 }
 
+function verifiedSetupBlock(vault: VaultProvisioningResult): bigint {
+  if (!/^\d+$/.test(vault.evidence.blockNumber))
+    throw new Error("Backend vault evidence is missing a valid setup block");
+  return BigInt(vault.evidence.blockNumber);
+}
+
 function saveUiState(profile: StorageProfile, state: UiState): void {
   localStorage.setItem(walletStorageKey("ui", profile), JSON.stringify(state));
+}
+
+function pacedRpcFetch(intervalMs = 250): typeof fetch {
+  let queue = Promise.resolve();
+  let nextStart = 0;
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const request = queue.then(async () => {
+      const wait = Math.max(0, nextStart - Date.now());
+      if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
+      nextStart = Date.now() + intervalMs;
+      return fetch(input, init);
+    });
+    queue = request.then(
+      () => undefined,
+      () => undefined,
+    );
+    return request;
+  }) as typeof fetch;
 }
 
 function defaultClient(): PublicClient | undefined {
@@ -490,7 +520,11 @@ function defaultClient(): PublicClient | undefined {
     ? createPublicClient({
         chain: sepolia,
         batch: { multicall: { wait: 10 } },
-        transport: http(rpcUrl),
+        transport: http(rpcUrl, {
+          fetchFn: pacedRpcFetch(),
+          retryCount: 4,
+          retryDelay: 1_000,
+        }),
       })
     : undefined;
 }
@@ -851,6 +885,18 @@ export function createVaultBackend(
 
 function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
   const configured = snapshot.policy;
+  const periodSeconds = 86_400n;
+  const currentWindow =
+    snapshot.observedTimestamp === undefined
+      ? undefined
+      : (snapshot.observedTimestamp / periodSeconds) * periodSeconds;
+  const storedSpend = snapshot.spendState;
+  const hasRolledOver = Boolean(
+    storedSpend &&
+    currentWindow !== undefined &&
+    storedSpend.window < currentWindow &&
+    storedSpend.window % periodSeconds === 0n,
+  );
   const delaySeconds = snapshot.topology?.delay.cooldownSeconds ?? 86_400n;
   const delayHours = Math.max(1, Math.ceil(Number(delaySeconds) / 3_600));
   const recipients = configured?.recipients.map((address) => ({ name: address, address })) ?? [];
@@ -864,7 +910,6 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
     ),
     rehearsed: ui.rehearsed,
   };
-  const periodAnchor = snapshot.spendState?.window;
   const activity: ActivityItem[] = snapshot.queueItems.map((item) => {
     let amount = 0n;
     let address = item.to;
@@ -981,10 +1026,10 @@ function project(snapshot: VaultSnapshot, ui: UiState): VaultState {
       delayHours,
       delaySeconds,
     },
-    spentFirstSigner: snapshot.spendState?.baseSpent ?? 0n,
-    spentInstant: snapshot.spendState?.instantSpent ?? 0n,
+    spentFirstSigner: hasRolledOver ? 0n : (storedSpend?.baseSpent ?? 0n),
+    spentInstant: hasRolledOver ? 0n : (storedSpend?.instantSpent ?? 0n),
     resetsAt:
-      periodAnchor && periodAnchor > 0n ? Number(periodAnchor + 86_400n) * 1000 : nextReset(),
+      currentWindow === undefined ? nextReset() : Number(currentWindow + periodSeconds) * 1000,
     secondSignerName:
       ui.secondaryAuthenticator === "cross-platform"
         ? "Cross-platform second signer"
@@ -1197,6 +1242,7 @@ export function VaultProvider({
           delay: vault.delay,
           usdc: vault.usdc,
           usdcCandidates: [DEFAULT_USDC],
+          fromBlock: verifiedSetupBlock(vault),
         };
         saveConfig(accountProfile, nextConfig);
         setConfig(nextConfig);
@@ -1350,9 +1396,20 @@ export function VaultProvider({
         }
       }
       if (generation === accountGeneration.current) {
-        projectedBlock.current = snapshot.observedBlock === undefined
-          ? undefined : { generation, blockNumber: snapshot.observedBlock };
-        setState(next);
+        projectedBlock.current =
+          snapshot.observedBlock === undefined
+            ? undefined
+            : { generation, blockNumber: snapshot.observedBlock };
+        setState((current) =>
+          snapshot.observedBlock === undefined && snapshot.health.length > 0
+            ? {
+                ...current,
+                writable: false,
+                health: next.health,
+                notifications: ui.notifications,
+              }
+            : next,
+        );
       }
     } catch (error) {
       if (generation !== accountGeneration.current) return;
@@ -1392,9 +1449,11 @@ export function VaultProvider({
       const covered = projectedBlock.current;
       const receipt = status.receipt;
       return Boolean(
-        covered?.generation === accountGeneration.current && receipt &&
+        covered?.generation === accountGeneration.current &&
+        receipt &&
         receipt.transactionHash === status.transactionHash &&
-        typeof receipt.blockNumber === "bigint" && receipt.blockNumber >= 0n &&
+        typeof receipt.blockNumber === "bigint" &&
+        receipt.blockNumber >= 0n &&
         covered.blockNumber >= receipt.blockNumber,
       );
     },
@@ -1563,6 +1622,7 @@ export function VaultProvider({
           delay: result.delay,
           usdc: result.usdc,
           usdcCandidates: [DEFAULT_USDC],
+          fromBlock: verifiedSetupBlock(result),
         };
         saveConfig(storageProfile, next);
         setUi((current) => {

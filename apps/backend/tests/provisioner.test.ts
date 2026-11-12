@@ -115,6 +115,7 @@ describe("automatic PWA provisioner", () => {
 
     expect(firstResult).toBe(secondResult);
     expect(firstResult.response.safe).toBe(value.safe);
+    expect(firstResult.response.evidence.blockNumber).toBe("100");
     expect(events.slice(0, 3)).toEqual(["plan", "authorize:primary-signer", "sign:primary-signer"]);
     expect(events.at(-1)).toBe("verify-topology");
     expect(createPlan).toHaveBeenCalledTimes(1);

@@ -186,7 +186,7 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
         expect(await publicClient.readContract({ address: signer, abi: parseAbi(["function isValidSignature(bytes32,bytes) view returns (bytes4)"]), functionName: "isValidSignature", args: [request.safeTxHash!, approval.payload] })).toBe("0x1626ba7e");
         return { role, payload: approval.payload };
       } });
-      const response = { ...verified, evidence: { setupTransactionHash: verified.setupReceipt.transactionHash, verificationReportHash: verified.topologyReportHash, deploymentsHash: verified.deploymentsHash, policyHash: verified.policyHash } };
+      const response = { ...verified, evidence: { setupTransactionHash: verified.setupReceipt.transactionHash, verificationReportHash: verified.topologyReportHash, deploymentsHash: verified.deploymentsHash, policyHash: verified.policyHash, blockNumber: String(verified.setupReceipt.blockNumber) } };
       handlers = createBackendHandlers({ config, usdc: TOKEN, provisioner: { provision: async () => ({ response, verified, plan }) }, prepareTransfer: async ({ vault, request }) => service.prepare(await runtime!.prepare({ vault, request })), submit: async ({ id, body }) => service.submit(id, body as never), submission: async ({ id }) => service.status(id) });
       handlers.storeCredential(primary.stored); handlers.storeCredential(secondary.stored);
       await handlers.autoProvisionVault({});

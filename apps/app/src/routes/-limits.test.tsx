@@ -48,6 +48,24 @@ describe("delayed recipient addition", () => {
     expect(screen.queryByText(/transfers wait 1 hours/i)).not.toBeInTheDocument();
   });
 
+  it("shows the first-signer allowance as fully used after instant spending crosses it", () => {
+    useVaultMock.mockReturnValue({
+      state: { ...state, spentFirstSigner: 900_000n, spentInstant: 1_100_000n },
+      canWrite: true,
+      loading: false,
+      addRecipient: vi.fn(),
+    });
+
+    render(<LimitsPage />);
+
+    expect(screen.getByText("1.00 USDC of 1.00 USDC")).toBeInTheDocument();
+    expect(screen.getByText("1.10 USDC of 3.00 USDC")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "First signer today" })).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    );
+  });
+
   it("reviews one address and both approvals before queuing, without showing it as already allowed", async () => {
     const addRecipient = vi.fn().mockResolvedValue({ id: "addition", state: "confirmed" });
     useVaultMock.mockReturnValue({ state, canWrite: true, loading: false, addRecipient });

@@ -10,6 +10,7 @@ import {
   type Address,
   type PublicClient,
 } from "viem";
+import { sepolia } from "viem/chains";
 
 vi.mock("viem", async (importOriginal) => ({
   ...(await importOriginal<typeof import("viem")>()),
@@ -111,12 +112,23 @@ const config: VaultConfig = {
 };
 
 function makeClient(
-  values: { balance?: bigint; baseSpent?: bigint; safeNonce?: number; chainId?: number } = {},
+  values: {
+    balance?: bigint;
+    spendWindow?: bigint;
+    baseSpent?: bigint;
+    instantSpent?: bigint;
+    timestamp?: bigint;
+    blockNumber?: bigint;
+    safeNonce?: number;
+    chainId?: number;
+  } = {},
 ): PublicClient {
   return {
     getChainId: vi.fn().mockResolvedValue(values.chainId ?? 11155111),
-    getBlockNumber: vi.fn().mockResolvedValue(123n),
-    getBlock: vi.fn().mockResolvedValue({ hash: `0x${"ab".repeat(32)}`, timestamp: 456n }),
+    getBlockNumber: vi.fn().mockResolvedValue(values.blockNumber ?? 123n),
+    getBlock: vi
+      .fn()
+      .mockResolvedValue({ hash: `0x${"ab".repeat(32)}`, timestamp: values.timestamp ?? 456n }),
     getBytecode: vi.fn().mockResolvedValue(TEST_USDC_RUNTIME),
     getBalance: vi.fn().mockResolvedValue(values.balance ?? 2_000_000_000_000_000n),
     getTransactionCount: vi.fn().mockResolvedValue(values.safeNonce ?? 7),
@@ -145,7 +157,7 @@ function makeClient(
         getConfiguredTokens: [USDC],
         assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n, 1],
         getPolicyRecipients: [RECIPIENT],
-        spendState: [0n, values.baseSpent ?? 0n, 0n],
+        spendState: [values.spendWindow ?? 0n, values.baseSpent ?? 0n, values.instantSpent ?? 0n],
         owner: SAFE,
         avatar: SAFE,
         target: SAFE,
@@ -181,6 +193,84 @@ function wrapper(
 }
 
 describe("VaultProvider", () => {
+  it("recovers the default Sepolia reader when a transient 429 lasts beyond viem's default retries", async () => {
+    vi.stubEnv("VITE_SEPOLIA_RPC_URL", "https://rpc.example.invalid");
+    vi.mocked(createPublicClient).mockReturnValue(makeClient());
+    const backend: VaultBackend = {
+      registerPasskey: vi.fn(),
+      autoProvisionVault: vi.fn(),
+      prepareIntent: vi.fn(),
+      submit: vi.fn(),
+      submission: vi.fn(),
+    };
+    const view = render(createElement(VaultProvider, { config, backend, children: null }));
+    view.unmount();
+
+    const options = vi.mocked(createPublicClient).mock.calls.at(-1)?.[0];
+    if (!options) throw new Error("default Sepolia client was not created");
+    const transport = options.transport({ chain: sepolia, retryCount: 3, timeout: 10_000 });
+    let attempts = 0;
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        attempts += 1;
+        if (attempts <= 4) return new Response("rate limited", { status: 429 });
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x10" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    const blockNumber = transport.request({ method: "eth_blockNumber" });
+    await vi.runAllTimersAsync();
+
+    await expect(blockNumber).resolves.toBe("0x10");
+    expect(attempts).toBe(5);
+  });
+
+  it("paces concurrent default Sepolia HTTP requests instead of sending a rate-limit burst", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const startedAt: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        startedAt.push(Date.now());
+        const { id } = JSON.parse(String(init?.body)) as { id: number };
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id, result: "0x1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    vi.stubEnv("VITE_SEPOLIA_RPC_URL", "https://rpc.example.invalid");
+    vi.mocked(createPublicClient).mockReturnValue(makeClient());
+    const backend: VaultBackend = {
+      registerPasskey: vi.fn(),
+      autoProvisionVault: vi.fn(),
+      prepareIntent: vi.fn(),
+      submit: vi.fn(),
+      submission: vi.fn(),
+    };
+    const view = render(createElement(VaultProvider, { config, backend, children: null }));
+    view.unmount();
+
+    const options = vi.mocked(createPublicClient).mock.calls.at(-1)?.[0];
+    if (!options) throw new Error("default Sepolia client was not created");
+    const transport = options.transport({ chain: sepolia, retryCount: 3, timeout: 10_000 });
+    const reads = Promise.all([
+      transport.request({ method: "eth_blockNumber" }),
+      transport.request({ method: "eth_chainId" }),
+      transport.request({ method: "eth_gasPrice" }),
+    ]);
+    await vi.runAllTimersAsync();
+
+    await expect(reads).resolves.toEqual(["0x1", "0x1", "0x1"]);
+    expect(startedAt).toEqual([0, 250, 500]);
+  });
+
   it("keeps a healthy account readable but disables sends until backend write readiness passes a refresh", async () => {
     let writesReady = false;
     vi.stubGlobal(
@@ -222,6 +312,26 @@ describe("VaultProvider", () => {
     await act(() => result.current.refresh());
     expect(result.current.canWrite).toBe(true);
     expect(result.current.state.health).toEqual([]);
+  });
+
+  it("projects previous-window counters as zero for the current anchored period", async () => {
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({
+        config,
+        client: makeClient({
+          spendWindow: 0n,
+          baseSpent: 990_000n,
+          instantSpent: 1_090_000n,
+          timestamp: 86_401n,
+        }),
+      }),
+    });
+
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+
+    expect(result.current.state.spentFirstSigner).toBe(0n);
+    expect(result.current.state.spentInstant).toBe(0n);
+    expect(result.current.state.resetsAt).toBe(172_800_000);
   });
 
   it("queues a recipient addition with ordered approvals and keeps recipients from chain state", async () => {
@@ -405,7 +515,9 @@ describe("VaultProvider", () => {
           { args: { queueNonce: 0n, txHash, to: GUARD, value: 0n, data, operation: 0 } },
         ]),
     });
-    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ config, client }) });
+    const { result } = renderHook(() => useVault(), {
+      wrapper: wrapper({ config: { ...config, fromBlock: 100n }, client }),
+    });
     await waitFor(() => expect(result.current.state.activity).toHaveLength(1));
     expect(result.current.state.activity[0]).toMatchObject({
       kind: "recipient-addition",
@@ -636,7 +748,7 @@ describe("VaultProvider", () => {
     const txHash = keccak256(
       encodePacked(["address", "uint256", "bytes", "uint8"], [USDC, 0n, data, 0]),
     );
-    const queued = makeClient();
+    const queued = makeClient({ blockNumber: 20_100n });
     const baseRead = vi.mocked(queued.readContract).getMockImplementation();
     if (!baseRead) throw new Error("test reader is missing its base implementation");
     vi.mocked(queued.readContract).mockImplementation(async (input) => {
@@ -648,16 +760,38 @@ describe("VaultProvider", () => {
     Object.assign(queued, {
       getLogs: vi
         .fn()
-        .mockResolvedValue([
-          { args: { queueNonce: 0n, txHash, to: USDC, value: 0n, data, operation: 0 } },
-        ]),
+        .mockImplementation(async ({ fromBlock }) =>
+          fromBlock === 100n
+            ? [{ args: { queueNonce: 0n, txHash, to: USDC, value: 0n, data, operation: 0 } }]
+            : [],
+        ),
     });
 
     const { result } = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: queued, config }),
+      wrapper: wrapper({ client: queued, config: { ...config, fromBlock: 100n } }),
     });
     await waitFor(() => expect(result.current.state.writable).toBe(true));
 
+    expect(queued.getLogs).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ fromBlock: 100n, toBlock: 5_099n }),
+    );
+    expect(queued.getLogs).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ fromBlock: 5_100n, toBlock: 10_099n }),
+    );
+    expect(queued.getLogs).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ fromBlock: 10_100n, toBlock: 15_099n }),
+    );
+    expect(queued.getLogs).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ fromBlock: 15_100n, toBlock: 20_099n }),
+    );
+    expect(queued.getLogs).toHaveBeenNthCalledWith(
+      5,
+      expect.objectContaining({ fromBlock: 20_100n, toBlock: 20_100n }),
+    );
     expect(result.current.state.activity).toEqual([
       expect.objectContaining({ amount: 4_000_000n, address: RECIPIENT, counterparty: RECIPIENT }),
     ]);
@@ -716,6 +850,31 @@ describe("VaultProvider", () => {
     expect(getBalance).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the last verified account values visible when a later RPC refresh fails closed", async () => {
+    const client = makeClient({ balance: 12_000_000n, baseSpent: 1_000_000n, safeNonce: 7 });
+    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client, config }) });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+
+    vi.mocked(client.getBlockNumber).mockRejectedValueOnce(
+      new Error(
+        "HTTP request failed. Status: 429 URL: https://sepolia.infura.io/v3/private-project-id",
+      ),
+    );
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.state.writable).toBe(false);
+    expect(result.current.canWrite).toBe(false);
+    expect(result.current.state.balance).toBe(12_345_678n);
+    expect(result.current.state.safeNonce).toBe(7n);
+    expect(result.current.state.policy?.firstSignerDaily).toBe(250_000_000n);
+    expect(result.current.state.health).toEqual([
+      expect.objectContaining({ code: "rpc-inconsistent", blocking: true }),
+    ]);
+    expect(result.current.state.health[0]?.message).not.toContain("private-project-id");
+  });
+
   it("does not poll the chain after the initial vault snapshot", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const client = makeClient();
@@ -772,7 +931,11 @@ it("keeps newly provisioned signer references when finishing setup", async () =>
       usdc: USDC,
       primaryPasskey: SAFE,
       secondaryPasskey: GUARD,
-      evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
+      evidence: {
+        setupTransactionHash: "0x11",
+        verificationReportHash: "0x22",
+        blockNumber: "100",
+      },
     }),
     prepareIntent: vi.fn(),
     submit: vi.fn(),
@@ -842,7 +1005,11 @@ it("defers a waiting service-worker update throughout WebAuthn provisioning", as
       usdc: USDC,
       primaryPasskey: SAFE,
       secondaryPasskey: GUARD,
-      evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
+      evidence: {
+        setupTransactionHash: "0x11",
+        verificationReportHash: "0x22",
+        blockNumber: "100",
+      },
     }),
     prepareIntent: vi.fn(),
     submit: vi.fn(),
@@ -943,6 +1110,7 @@ it("auto-provisions immediately after secondary registration and persists only v
     evidence: {
       setupTransactionHash: `0x${"11".repeat(32)}`,
       verificationReportHash: `0x${"22".repeat(32)}`,
+      blockNumber: "100",
     },
   });
   await act(async () => {
@@ -1086,6 +1254,7 @@ it("keeps credentials but no config after failure and single-flights explicit re
     evidence: {
       setupTransactionHash: `0x${"11".repeat(32)}`,
       verificationReportHash: `0x${"22".repeat(32)}`,
+      blockNumber: "100",
     },
   });
   await act(async () => {
@@ -1105,6 +1274,7 @@ const resumedProvisioningResult: VaultProvisioningResult = {
   evidence: {
     setupTransactionHash: `0x${"11".repeat(32)}`,
     verificationReportHash: `0x${"22".repeat(32)}`,
+    blockNumber: "100",
   },
 };
 const resumeProfile = { id: "local" as const, rpId: "localhost" };
@@ -1173,7 +1343,7 @@ it("automatically resumes stored credentials with one empty HTTP intent and no p
   expect(signSafeDigest).not.toHaveBeenCalled();
   expect(
     JSON.parse(localStorage.getItem(walletStorageKey("config", resumeProfile))!),
-  ).toMatchObject({ safe: SAFE });
+  ).toMatchObject({ safe: SAFE, fromBlock: "100" });
 });
 
 it("joins duplicate recovery callbacks to the automatic in-flight request", async () => {
@@ -1529,6 +1699,7 @@ it("persists a recovered vault, resumes signer rebind after reload, and never wr
       evidence: {
         setupTransactionHash: `0x${"11".repeat(32)}`,
         verificationReportHash: `0x${"22".repeat(32)}`,
+        blockNumber: "100",
       },
       credentialRebind: { required: true, primary: "required", secondary: "required" },
     }),
@@ -2214,10 +2385,15 @@ describe("automatic receipt status", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     saved(["confirmed-after-hydration"]);
     const client = makeClient();
-    const submission = vi.fn().mockRejectedValueOnce(new Error("temporarily unavailable")).mockResolvedValue({
-      id: "confirmed-after-hydration", state: "confirmed", transactionHash: hash,
-      receipt: { transactionHash: hash, blockNumber: 124n, blockHash: hash },
-    });
+    const submission = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValue({
+        id: "confirmed-after-hydration",
+        state: "confirmed",
+        transactionHash: hash,
+        receipt: { transactionHash: hash, blockNumber: 124n, blockHash: hash },
+      });
     const { result } = renderHook(() => useVault(), {
       wrapper: wrapper({ client, config, backend: statusBackend(submission) }),
     });
@@ -2226,7 +2402,7 @@ describe("automatic receipt status", () => {
     expect(result.current.state.balance).toBe(12_345_678n);
     vi.mocked(client.getBlockNumber).mockResolvedValue(129n);
     const read = vi.mocked(client.readContract).getMockImplementation()!;
-    vi.mocked(client.readContract).mockImplementation(async input =>
+    vi.mocked(client.readContract).mockImplementation(async (input) =>
       input.functionName === "balanceOf" ? 22_345_678n : read(input),
     );
     await act(() => vi.advanceTimersByTimeAsync(5_000));

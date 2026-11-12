@@ -20,7 +20,7 @@ const config = {
   rpcUrl: "https://sepolia.example.invalid", relayPrivateKey: `0x${"11".repeat(32)}`, journalPath: "/tmp/backend-journal.json", provisioningJournalPath: "/tmp/backend-provisioning-journal.json",
   provisioningReviewDirectory: "/tmp/provisioning-reviews",
 } satisfies BackendConfig;
-const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH, deploymentsHash: HASH, policyHash: HASH } } as const;
+const result = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, evidence: { setupTransactionHash: HASH, verificationReportHash: HASH, deploymentsHash: HASH, policyHash: HASH, blockNumber: "1" } } as const;
 const verified = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, primaryPasskey: PRIMARY, secondaryPasskey: SECONDARY, usdc: USDC, deploymentsHash: HASH, policyHash: HASH, setupReceipt: { transactionHash: HASH, blockNumber: 1n }, topologyReportHash: HASH } as const satisfies PwaProvisioningResult;
 const completion = { response: result, verified } as const;
 const publicKey = (fill: number) => Uint8Array.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20, ...new Uint8Array(32).fill(fill), 0x22, 0x58, 0x20, ...new Uint8Array(32).fill(fill + 1)]);

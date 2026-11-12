@@ -11,6 +11,7 @@ import { ActivityRow, Card, NetworkPill } from "@/components/wallet/ui";
 import { TopologyAlert } from "@/components/wallet/topology-alert";
 import { effectiveStatus, needsAttention } from "@/lib/activity-model";
 import { formatUsdc } from "@/lib/usdc";
+import { displayedFirstSignerSpend } from "@/lib/usage";
 import { useNow, useVault } from "@/lib/vault-store";
 
 export const Route = createFileRoute("/")({
@@ -129,7 +130,8 @@ function HomePage() {
           <div>
             <p className="text-muted-foreground">First signer today</p>
             <p className="font-semibold tabular-nums">
-              {formatUsdc(state.spentFirstSigner)} / {formatUsdc(state.policy.firstSignerDaily)}
+              {formatUsdc(displayedFirstSignerSpend(state))} /{" "}
+              {formatUsdc(state.policy.firstSignerDaily)}
             </p>
           </div>
           <div>

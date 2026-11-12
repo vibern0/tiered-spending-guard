@@ -9,6 +9,7 @@ import {
   SecondaryButton,
 } from "@/components/wallet/ui";
 import { formatUsdc } from "@/lib/usdc";
+import { displayedFirstSignerSpend } from "@/lib/usage";
 import { isAddress, shortAddr, useNow, useVault } from "@/lib/vault-store";
 import { formatCountdown } from "@/lib/activity-model";
 
@@ -128,7 +129,7 @@ function LimitsPage() {
       <Card className="space-y-5">
         <Usage
           label="First signer today"
-          used={state.spentFirstSigner}
+          used={displayedFirstSignerSpend(state)}
           limit={p.firstSignerDaily}
           hint="Above this, your second signer is also needed."
         />

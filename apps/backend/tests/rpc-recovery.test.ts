@@ -1,4 +1,4 @@
-import { EstimateGasExecutionError, ResourceNotFoundRpcError } from "viem";
+import { EstimateGasExecutionError, HttpRequestError, ResourceNotFoundRpcError } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sanitizeRpc } from "../src/provisioner";
 
@@ -16,9 +16,57 @@ describe("bounded provisioning RPC read recovery", () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  it("waits through a temporary HTTP throttle while keeping the recovery read bounded", async () => {
+    vi.useFakeTimers();
+    const throttled = new HttpRequestError({
+      status: 429,
+      url: "https://secret.invalid/token",
+    });
+    const initial = Date.now();
+    const attempts: number[] = [];
+    const read = vi.fn(async () => {
+      attempts.push(Date.now() - initial);
+      if (attempts.length <= 4) throw throttled;
+      return 123n;
+    });
+    const result = sanitizeRpc("relay", "getTransactionCount", read, true).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+
+    await vi.runAllTimersAsync();
+
+    expect(await result).toEqual({ value: 123n });
+    expect(attempts).toEqual([0, 1_000, 3_000, 7_000, 15_000]);
+  });
+
+  it("stops a persistent HTTP throttle after the bounded backoff", async () => {
+    vi.useFakeTimers();
+    const attempts: number[] = [];
+    const initial = Date.now();
+    const read = vi.fn(async () => {
+      attempts.push(Date.now() - initial);
+      throw new HttpRequestError({ status: 429, url: "https://secret.invalid/token" });
+    });
+    const result = sanitizeRpc("relay", "getTransactionCount", read, true).catch(
+      (error: unknown) => error,
+    );
+
+    await vi.runAllTimersAsync();
+    const failure = await result;
+
+    expect(attempts).toEqual([0, 1_000, 3_000, 7_000, 15_000]);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure instanceof Error ? failure.message : "").toBe(
+      "relay Sepolia RPC request failed (getTransactionCount; HttpRequestError)",
+    );
+  });
+
   it("does not retry writes even when a caller accidentally enables read recovery", async () => {
     vi.useFakeTimers();
-    const send = vi.fn().mockRejectedValue(new ResourceNotFoundRpcError(new Error("unknown outcome")));
+    const send = vi.fn().mockRejectedValue(
+      new HttpRequestError({ status: 429, url: "https://secret.invalid/token" }),
+    );
     const result = sanitizeRpc("relay", "sendRawTransaction", send, true);
     const assertion = expect(result).rejects.toThrow(/Sepolia RPC request failed/);
     await vi.runAllTimersAsync(); await assertion;

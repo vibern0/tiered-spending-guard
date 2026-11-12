@@ -30,4 +30,10 @@ describe("classify", () => {
     expect(classify(s, "0x" + "9".repeat(40), usdc(1)).lane).toBe("base");
     expect(classify({ ...s, frozen: true }, to, usdc(1)).lane).toBe("blocked");
   });
+
+  it("preserves remaining base capacity after displayed usage saturates", () => {
+    expect(
+      classify({ ...s, spentFirstSigner: 900_000n, spentInstant: 1_100_000n }, to, 100_000n).lane,
+    ).toBe("base");
+  });
 });

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Address, Hex } from "viem";
+import { encodePacked, keccak256, type Address, type Hex } from "viem";
 import type { BackendVaultRecord } from "../src/handlers";
 import { loadBackendConfig } from "../src/config";
 
@@ -26,7 +26,7 @@ function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "pwa-runtime-unit-"));
   const config = loadBackendConfig({ BACKEND_PROFILE: "local", BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`, BACKEND_RPC_URL: "https://unused.invalid", BACKEND_JOURNAL_PATH: join(dir, "submissions.json"), BACKEND_PROVISIONING_JOURNAL_PATH: join(dir, "provisioning.json"), BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(dir, "reviews") });
   const vault = { safe: address(1), guard: address(2), delay: address(3), usdc: address(4), provisioningPlan: {}, verifiedProvisioning: { setupReceipt: { blockNumber: 1n } } } as unknown as BackendVaultRecord;
-  const client = (source: string) => ({ source, getTransactionReceipt: vi.fn(async (_input: unknown): Promise<any> => null), getBlockNumber: async () => 10n, getBlock: async () => ({ number: 10n, hash: blockHash, timestamp: 100n }), readContract: async ({ functionName }: any) => functionName === "spendState" ? [0n, 0n, 0n] : functionName === "frozen" ? false : 0n });
+  const client = (source: string) => ({ source, getTransactionReceipt: vi.fn(async (_input: unknown): Promise<any> => null), getBlockNumber: async () => 10n, getBlock: async () => ({ number: 10n, hash: blockHash, timestamp: 100n }), readContract: async ({ functionName }: any): Promise<any> => functionName === "spendState" ? [0n, 0n, 0n] : functionName === "frozen" ? false : 0n });
   const a = client("unit-a"), b = client("unit-b");
   const runtime = createSubmissionRuntimeForTestsOnly(config, { providers: [a, b], relay: a, sendRawTransaction: vi.fn() } as any);
   return { vault, runtime, clients: [a, b] };
@@ -41,6 +41,42 @@ describe("concrete submission runtime boundary", () => {
     const { runtime, vault } = fixture();
     await runtime.prepare({ vault, request: { kind: "transfer", amount: "10000", recipient: address(6), idempotencyKey: "http-decimal" } });
     expect(f.prepare).toHaveBeenCalledWith({ kind: "transfer", amount: 10000n, recipient: address(6) });
+  });
+  it("reads Delay events in provider-safe block windows", async () => {
+    const { runtime, vault, clients } = fixture();
+    const to = address(6), data = "0x1234" as Hex;
+    const fingerprint = keccak256(
+      encodePacked(["address", "uint256", "bytes", "uint8"], [to, 0n, data, 0]),
+    );
+    for (const client of clients) {
+      client.getBlockNumber = async () => 20_001n;
+      client.getBlock = async () => ({ number: 20_001n, hash: blockHash, timestamp: 100n });
+      client.readContract = async ({ functionName }: any) =>
+        functionName === "spendState" ? [0n, 0n, 0n]
+        : functionName === "frozen" ? false
+        : functionName === "queueNonce" ? 1n
+        : functionName === "getTxHash" ? fingerprint
+        : functionName === "getTxCreatedAt" ? 10n
+        : 0n;
+      Object.assign(client, {
+        getLogs: vi.fn(async ({ fromBlock }: { fromBlock: bigint }) =>
+          fromBlock === 1n
+            ? [{ removed: false, args: { queueNonce: 0n, txHash: fingerprint, to, value: 0n, data, operation: 0 } }]
+            : [],
+        ),
+      });
+    }
+    f.snapshot = { ...f.snapshot, blockNumber: 20_001n };
+
+    await runtime.prepare({ vault, request: { kind: "transfer", amount: "10000", recipient: address(7), idempotencyKey: "bounded-delay-logs" } });
+
+    for (const client of clients) {
+      expect((client as any).getLogs.mock.calls.map(([input]: any[]) => [input.fromBlock, input.toBlock])).toEqual([
+        [1n, 10_000n],
+        [10_001n, 20_000n],
+        [20_001n, 20_001n],
+      ]);
+    }
   });
   it.each(["01", "1e3", "-1", " 1", 1, null])("rejects noncanonical HTTP amount %s", async amount => {
     const { runtime, vault } = fixture();

@@ -29,7 +29,7 @@ const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as Addres
 const hash = `0x${"ab".repeat(32)}` as Hex;
 const plan = { planHash: hash } as PwaProvisioningPlan;
 const completion = {
-  response: { chainId: 11155111, safe: address(1), guard: address(2), delay: address(3), primaryPasskey: address(4), secondaryPasskey: address(5), usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", evidence: { setupTransactionHash: hash, verificationReportHash: hash, deploymentsHash: hash, policyHash: hash } },
+  response: { chainId: 11155111, safe: address(1), guard: address(2), delay: address(3), primaryPasskey: address(4), secondaryPasskey: address(5), usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", evidence: { setupTransactionHash: hash, verificationReportHash: hash, deploymentsHash: hash, policyHash: hash, blockNumber: "1" } },
   verified: {}, plan,
 } as unknown as BackendPwaProvisioningCompletion;
 

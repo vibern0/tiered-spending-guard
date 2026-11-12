@@ -87,6 +87,7 @@ it("keeps an existing account accessible when RPC is unavailable", async () => {
                 evidence: {
                   setupTransactionHash: `0x${"11".repeat(32)}`,
                   verificationReportHash: `0x${"22".repeat(32)}`,
+                  blockNumber: "100",
                 },
               },
             },

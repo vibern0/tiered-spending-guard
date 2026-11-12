@@ -48,7 +48,7 @@ export type BackendPwaProvisioningResult = Readonly<{
   primaryPasskey: Address;
   secondaryPasskey: Address;
   usdc: Address;
-  evidence: Readonly<{ setupTransactionHash: Hex; verificationReportHash: Hex; deploymentsHash: Hex; policyHash: Hex }>;
+  evidence: Readonly<{ setupTransactionHash: Hex; verificationReportHash: Hex; deploymentsHash: Hex; policyHash: Hex; blockNumber: string }>;
 }>;
 
 export type BackendPwaProvisioningCompletion = Readonly<{
@@ -109,7 +109,7 @@ function result(value: PwaProvisioningResult): BackendPwaProvisioningResult {
     primaryPasskey: value.primaryPasskey,
     secondaryPasskey: value.secondaryPasskey,
     usdc: value.usdc,
-    evidence: Object.freeze({ setupTransactionHash: value.setupReceipt.transactionHash, verificationReportHash: value.topologyReportHash, deploymentsHash: value.deploymentsHash, policyHash: value.policyHash }),
+    evidence: Object.freeze({ setupTransactionHash: value.setupReceipt.transactionHash, verificationReportHash: value.topologyReportHash, deploymentsHash: value.deploymentsHash, policyHash: value.policyHash, blockNumber: String(value.setupReceipt.blockNumber) }),
   });
 }
 
@@ -223,9 +223,12 @@ export async function sanitizeRpc<T>(label: string, method: string, operation: (
       /^(InvalidInputRpcError|RpcRequestError)$/.test(cause.name)
       && (cause as Error & { code?: unknown }).code === -32000
       && /historical state [0-9a-f]{64} is not available/i.test(cause.message));
-    const limit = missingHistoricalState ? 3 : causes.some(cause => cause.name === "ResourceNotFoundRpcError") ? 1 : 0;
+    const transientHttpFailure = causes.some(cause =>
+      cause.name === "HttpRequestError"
+      && [408, 425, 429, 500, 502, 503, 504].includes((cause as Error & { status?: number }).status ?? 0));
+    const limit = missingHistoricalState ? 3 : transientHttpFailure ? 4 : causes.some(cause => cause.name === "ResourceNotFoundRpcError") ? 1 : 0;
     if (reverted || retry >= limit) break;
-    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    await new Promise<void>((resolve) => setTimeout(resolve, transientHttpFailure ? 1_000 * (2 ** retry) : 500));
     try { return await operation(); }
     catch (error) { failure = error; }
   }

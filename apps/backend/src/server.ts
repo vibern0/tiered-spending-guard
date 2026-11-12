@@ -17,7 +17,7 @@ export type VaultProvisioningResult = Readonly<{
   primaryPasskey: `0x${string}`;
   secondaryPasskey: `0x${string}`;
   usdc: `0x${string}`;
-  evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}`; deploymentsHash: `0x${string}`; policyHash: `0x${string}` }>;
+  evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}`; deploymentsHash: `0x${string}`; policyHash: `0x${string}`; blockNumber: string }>;
   credentialRebind: Readonly<{ required: boolean; primary: "required" | "ready"; secondary: "required" | "ready" }>;
 }>;
 
