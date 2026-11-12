@@ -25,11 +25,7 @@ function config() {
     BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(root, "legacy-reviews"),
   });
 }
-const credential = (
-  id: string,
-  role: "primary" | "secondary" = "primary",
-  n = 1,
-) => ({
+const credential = (id: string, role: "primary" | "secondary" = "primary", n = 1) => ({
   id,
   role,
   publicKey: Uint8Array.of(n),
@@ -65,9 +61,7 @@ describe("persistent multi-user account store", () => {
     s.storeCredential(a.id, credential("p"), a.userHandle);
     expect(() => s.storeCredential(a.id, credential("p2"))).toThrow();
     expect(() => s.storeCredential(b.id, credential("p"))).toThrow();
-    expect(() =>
-      s.storeCredential(a.id, credential("s", "secondary")),
-    ).toThrow();
+    expect(() => s.storeCredential(a.id, credential("s", "secondary"))).toThrow();
     s.storeCredential(a.id, credential("s", "secondary", 3));
     expect(s.credentials(a.id).length).toBe(2);
   });
@@ -78,16 +72,12 @@ describe("persistent multi-user account store", () => {
     const session = s.createSession(a.id, true);
     expect(s.session(session.token)?.accountId).toBe(a.id);
     const ch = s.createChallenge(session.id, "login");
-    expect(s.consumeChallenge(session.id, ch.id, "login").challenge).toBe(
-      ch.challenge,
-    );
+    expect(s.consumeChallenge(session.id, ch.id, "login").challenge).toBe(ch.challenge);
     expect(() => s.consumeChallenge(session.id, ch.id, "login")).toThrow();
     const other = s.createSession(a.id, true);
     const cross = s.createChallenge(session.id, "login");
     expect(() => s.consumeChallenge(other.id, cross.id, "login")).toThrow();
-    expect(
-      readFileSync(s.databasePath).includes(Buffer.from(session.token)),
-    ).toBe(false);
+    expect(readFileSync(s.databasePath).includes(Buffer.from(session.token))).toBe(false);
     s.revokeSession(session.token);
     expect(s.session(session.token)).toBeUndefined();
     now += 31 * 60_000;
@@ -123,9 +113,9 @@ it("rejects unknown schemas and managed-directory escapes without replacing exec
   db.close();
   expect(() => open(c)).toThrow(/schema/);
   const collision = config();
-  expect(() =>
-    open({ ...collision, accountDatabasePath: collision.journalPath }),
-  ).toThrow(/journal/);
+  expect(() => open({ ...collision, accountDatabasePath: collision.journalPath })).toThrow(
+    /journal/,
+  );
 });
 
 it("cannot hide retained account evidence by losing its registry or account row", () => {
@@ -149,8 +139,6 @@ it("consumes an accepted assertion fingerprint atomically with its counter", () 
     a = s.createAccount();
   s.storeCredential(a.id, credential("p"));
   s.consumeApproval(a.id, "p", 0, 0, "first");
-  expect(() => s.consumeApproval(a.id, "p", 0, 0, "first")).toThrow(
-    /used|UNIQUE/,
-  );
+  expect(() => s.consumeApproval(a.id, "p", 0, 0, "first")).toThrow(/used|UNIQUE/);
   expect(s.credential("p")?.counter).toBe(0);
 });

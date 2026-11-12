@@ -1,8 +1,4 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { observeBackendRequest, writeBackendLog, type BackendLogger } from "./logging";
 import { isLoopbackAddress, type BackendConfig } from "./config";
@@ -16,30 +12,16 @@ import {
 import type { BackendHandlerSet } from "./handlers";
 import type { VaultProvisioningResult } from "./server";
 import { startReceiptReconciler } from "./receipt-reconciler";
-import type {
-  AuthenticationResponseJSON,
-  RegistrationResponseJSON,
-} from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 
 export type AccountGateway = Readonly<{
   handlers(accountId: string): Promise<BackendHandlerSet>;
   provision(accountId: string): Promise<VaultProvisioningResult>;
-  prepare(
-    accountId: string,
-    sessionId: string,
-    body: unknown,
-  ): Promise<unknown>;
-  submit(
-    accountId: string,
-    sessionId: string,
-    id: string,
-    body: unknown,
-  ): Promise<unknown>;
+  prepare(accountId: string, sessionId: string, body: unknown): Promise<unknown>;
+  submit(accountId: string, sessionId: string, id: string, body: unknown): Promise<unknown>;
   status(accountId: string, id: string): Promise<unknown>;
   reconcilePending?(): Promise<void>;
-  legacyCoordinates?(
-    accountId: string,
-  ): Promise<Readonly<{ x: bigint; y: bigint }> | undefined>;
+  legacyCoordinates?(accountId: string): Promise<Readonly<{ x: bigint; y: bigint }> | undefined>;
   submissionIds?(accountId: string): Promise<readonly string[]>;
   releaseSession?(sessionId: string): void;
 }>;
@@ -57,9 +39,7 @@ function json(res: ServerResponse, status: number, value: unknown) {
     "content-type": "application/json",
     "cache-control": "no-store",
   });
-  res.end(
-    JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? `${v}n` : v)),
-  );
+  res.end(JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? `${v}n` : v)));
 }
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (req.headers["content-type"]?.split(";", 1)[0] !== "application/json")
@@ -75,9 +55,7 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let value: unknown;
   try {
     value = JSON.parse(Buffer.concat(chunks).toString("utf8"), (k, v) =>
-      ["amount", "queueNonce", "nonce"].includes(k) &&
-      typeof v === "string" &&
-      /^\d+n$/.test(v)
+      ["amount", "queueNonce", "nonce"].includes(k) && typeof v === "string" && /^\d+n$/.test(v)
         ? BigInt(v.slice(0, -1))
         : v,
     );
@@ -93,8 +71,7 @@ function exact(value: Record<string, unknown>, keys: string[]) {
     throw new HttpError(400, "unsupported request fields");
 }
 function role(value: string): BackendPasskeyRole {
-  if (value !== "primary" && value !== "secondary")
-    throw new HttpError(404, "not found");
+  if (value !== "primary" && value !== "secondary") throw new HttpError(404, "not found");
   return value;
 }
 function cookie(req: IncomingMessage): string {
@@ -105,10 +82,7 @@ function cookie(req: IncomingMessage): string {
   return values.length === 1 ? values[0]!.slice(COOKIE.length + 1) : "";
 }
 function setCookie(res: ServerResponse, token: string) {
-  res.setHeader(
-    "set-cookie",
-    `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,
-  );
+  res.setHeader("set-cookie", `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`);
 }
 
 /** Only localhost multi-user HTTP. Public identifiers never authenticate a request. */
@@ -118,13 +92,10 @@ export function createAccountServer(
   gateway: AccountGateway,
   options: Readonly<{ log?: BackendLogger }> = {},
 ) {
-  if (config.id !== "local")
-    throw new Error("multi-user provisioning is localhost-only");
+  if (config.id !== "local") throw new Error("multi-user provisioning is localhost-only");
   const projection = async (session: AccountSession | undefined) => {
     if (!session) return { authenticated: false };
-    const account = session.accountId
-      ? store.account(session.accountId)
-      : undefined;
+    const account = session.accountId ? store.account(session.accountId) : undefined;
     const credentials = account ? store.credentials(account.id) : [];
     // An authenticated account's current projection is verified by its runtime,
     // never taken from a saved database readiness flag.
@@ -141,15 +112,11 @@ export function createAccountServer(
               id: account.id,
               userHandle: account.userHandle,
               state: account.state,
-              primaryCredentialId: credentials.find((c) => c.role === "primary")
-                ?.id,
-              secondaryCredentialId: credentials.find(
-                (c) => c.role === "secondary",
-              )?.id,
+              primaryCredentialId: credentials.find((c) => c.role === "primary")?.id,
+              secondaryCredentialId: credentials.find((c) => c.role === "secondary")?.id,
               ...(session.authenticated && account.state === "verified"
                 ? {
-                    submissionIds:
-                      (await gateway.submissionIds?.(account.id)) ?? [],
+                    submissionIds: (await gateway.submissionIds?.(account.id)) ?? [],
                   }
                 : {}),
               ...(vault ? { vault } : {}),
@@ -163,15 +130,9 @@ export function createAccountServer(
     res.setHeader("x-request-id", requestId);
     observeBackendRequest(req, res, requestId, options.log);
     try {
-      if (!isLoopbackAddress(req.socket.remoteAddress))
-        throw new HttpError(403, "loopback only");
-      const bound =
-        (server.address() as { port: number } | null)?.port ?? config.port;
-      if (
-        ![`localhost:${bound}`, `127.0.0.1:${bound}`].includes(
-          req.headers.host ?? "",
-        )
-      )
+      if (!isLoopbackAddress(req.socket.remoteAddress)) throw new HttpError(403, "loopback only");
+      const bound = (server.address() as { port: number } | null)?.port ?? config.port;
+      if (![`localhost:${bound}`, `127.0.0.1:${bound}`].includes(req.headers.host ?? ""))
         throw new HttpError(403, "host not allowed");
       const origin = req.headers.origin;
       if (origin !== undefined && origin !== config.origin)
@@ -180,10 +141,7 @@ export function createAccountServer(
         res.setHeader("access-control-allow-origin", config.origin);
         res.setHeader("access-control-allow-credentials", "true");
         res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-        res.setHeader(
-          "access-control-allow-headers",
-          "content-type,x-csrf-token,x-vault-account",
-        );
+        res.setHeader("access-control-allow-headers", "content-type,x-csrf-token,x-vault-account");
         res.setHeader("vary", "Origin");
       }
       if (req.method === "OPTIONS") {
@@ -224,8 +182,7 @@ export function createAccountServer(
       if (req.method === "GET" && path === "/v1/auth/session")
         return json(res, 200, await projection(session));
       if (req.method === "POST") {
-        if (origin !== config.origin)
-          throw new HttpError(403, "exact browser origin required");
+        if (origin !== config.origin) throw new HttpError(403, "exact browser origin required");
         // Bootstrap can create only an unprivileged context, never act as a user.
         if (!["/v1/auth/setup", "/v1/auth/login/options"].includes(path)) {
           requireSession();
@@ -239,12 +196,8 @@ export function createAccountServer(
         if (path === "/v1/auth/setup") {
           exact(input, []);
           if (session?.authenticated)
-            throw new HttpError(
-              409,
-              "sign out before creating another account",
-            );
-          if (session?.accountId)
-            return json(res, 200, await projection(session));
+            throw new HttpError(409, "sign out before creating another account");
+          if (session?.accountId) return json(res, 200, await projection(session));
           const a = store.createAccount();
           const created = store.createSession(a.id);
           setCookie(res, created.token);
@@ -253,8 +206,7 @@ export function createAccountServer(
         if (path === "/v1/auth/login/options") {
           if (
             Object.keys(input).some((k) => k !== "accountId") ||
-            (input.accountId !== undefined &&
-              typeof input.accountId !== "string")
+            (input.accountId !== undefined && typeof input.accountId !== "string")
           )
             throw new HttpError(400, "unsupported login fields");
           if (!session) {
@@ -267,9 +219,7 @@ export function createAccountServer(
             session.id,
             input.accountId ? `login:${input.accountId}` : "login",
           );
-          const target = input.accountId
-            ? store.account(input.accountId as string)
-            : undefined;
+          const target = input.accountId ? store.account(input.accountId as string) : undefined;
           return json(res, 200, {
             sessionId: ch.id,
             challenge: ch.challenge,
@@ -290,9 +240,7 @@ export function createAccountServer(
         }
         if (path === "/v1/auth/login/verify") {
           if (
-            Object.keys(input).some(
-              (k) => !["sessionId", "assertion", "accountId"].includes(k),
-            ) ||
+            Object.keys(input).some((k) => !["sessionId", "assertion", "accountId"].includes(k)) ||
             typeof input.sessionId !== "string" ||
             !input.assertion
           )
@@ -308,11 +256,9 @@ export function createAccountServer(
             const target = store.account(
               typeof input.accountId === "string" ? input.accountId : "legacy",
             );
-            if (!target?.legacy)
-              throw new HttpError(400, "first passkey authentication failed");
+            if (!target?.legacy) throw new HttpError(400, "first passkey authentication failed");
             const coordinates = await gateway.legacyCoordinates(target.id);
-            if (!coordinates)
-              throw new HttpError(400, "existing account proof unavailable");
+            if (!coordinates) throw new HttpError(400, "existing account proof unavailable");
             const verified = await verifyPasskeyRebind({
               role: "primary",
               coordinates,
@@ -327,8 +273,7 @@ export function createAccountServer(
             if (
               !credential ||
               credential.role !== "primary" ||
-              (input.accountId !== undefined &&
-                credential.accountId !== input.accountId)
+              (input.accountId !== undefined && credential.accountId !== input.accountId)
             )
               throw new HttpError(400, "first passkey authentication failed");
             const next = await verifyPasskeyLogin({
@@ -356,10 +301,7 @@ export function createAccountServer(
           exact(input, []);
           store.revokeSession(token);
           gateway.releaseSession?.(session!.id);
-          res.setHeader(
-            "set-cookie",
-            `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
-          );
+          res.setHeader("set-cookie", `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
           return json(res, 200, { authenticated: false });
         }
         const registration = path.match(
@@ -368,14 +310,8 @@ export function createAccountServer(
         if (registration) {
           const a = account(),
             r = role(registration[1]!);
-          if (
-            a.state !== "registering" ||
-            store.credentials(a.id).some((c) => c.role === r)
-          )
-            throw new HttpError(
-              409,
-              "existing signer cannot be replaced through registration",
-            );
+          if (a.state !== "registering" || store.credentials(a.id).some((c) => c.role === r))
+            throw new HttpError(409, "existing signer cannot be replaced through registration");
           if (r === "secondary") requireSession(true);
           if (registration[2] === "options") {
             exact(input, []);
@@ -393,20 +329,13 @@ export function createAccountServer(
                   : createHash("sha256")
                       .update(`vault-secondary:${a.userHandle}`)
                       .digest("base64url"),
-              ...(r === "secondary"
-                ? { authenticatorAttachment: "cross-platform" }
-                : {}),
+              ...(r === "secondary" ? { authenticatorAttachment: "cross-platform" } : {}),
             });
           }
           exact(input, ["sessionId", "registration"]);
           if (typeof input.sessionId !== "string" || !input.registration)
             throw new HttpError(400, "registration response required");
-          const ch = store.consumeChallenge(
-              session!.id,
-              input.sessionId,
-              "registration",
-              r,
-            ),
+          const ch = store.consumeChallenge(session!.id, input.sessionId, "registration", r),
             response = input.registration as RegistrationResponseJSON;
           const verified = await verifyPasskeyRegistration(
             {
@@ -420,11 +349,7 @@ export function createAccountServer(
             undefined,
             { allowSyncedPrimary: true },
           );
-          store.storeCredential(
-            a.id,
-            verified,
-            r === "primary" ? a.userHandle : undefined,
-          );
+          store.storeCredential(a.id, verified, r === "primary" ? a.userHandle : undefined);
           return json(res, 200, {
             role: r,
             credentialId: verified.id,
@@ -438,20 +363,10 @@ export function createAccountServer(
           return json(res, 200, await gateway.provision(a.id));
         }
         if (path === "/v1/submissions/prepare")
-          return json(
-            res,
-            200,
-            await gateway.prepare(a.id, session!.id, input),
-          );
-        const submission = path.match(
-          /^\/v1\/submissions\/([A-Za-z0-9._:-]{1,160})\/submit$/,
-        );
+          return json(res, 200, await gateway.prepare(a.id, session!.id, input));
+        const submission = path.match(/^\/v1\/submissions\/([A-Za-z0-9._:-]{1,160})\/submit$/);
         if (submission)
-          return json(
-            res,
-            200,
-            await gateway.submit(a.id, session!.id, submission[1]!, input),
-          );
+          return json(res, 200, await gateway.submit(a.id, session!.id, submission[1]!, input));
       }
       if (req.method === "GET") {
         requireSession(true);
@@ -462,19 +377,14 @@ export function createAccountServer(
             ? json(res, 200, current)
             : json(res, 404, { error: "vault is not provisioned" });
         }
-        const match = path.match(
-          /^\/v1\/submissions\/([A-Za-z0-9._:-]{1,160})$/,
-        );
+        const match = path.match(/^\/v1\/submissions\/([A-Za-z0-9._:-]{1,160})$/);
         if (match) return json(res, 200, await gateway.status(a.id, match[1]!));
       }
       throw new HttpError(404, "not found");
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 400;
       // Errors can contain provider/user-controlled values: expose stable classes only.
-      let message =
-        error instanceof HttpError
-          ? error.message
-          : "account request failed safely";
+      let message = error instanceof HttpError ? error.message : "account request failed safely";
       let code =
         status === 401
           ? "authentication_required"
@@ -501,26 +411,22 @@ export function createAccountServer(
         ) {
           code = "provisioning_nonce_mismatch";
           stage = "provisioning-recovery";
-          message =
-            "Verified deployment recovery is required before continuing";
-        } else if (
-          /unresolved|incomplete immutable deployment/.test(error.message)
-        ) {
+          message = "Verified deployment recovery is required before continuing";
+        } else if (/unresolved|incomplete immutable deployment/.test(error.message)) {
           code = "payer_reconciliation_required";
           stage = "payer";
-          message =
-            "Recorded transaction work must be reconciled before another submission";
+          message = "Recorded transaction work must be reconciled before another submission";
         }
       }
       (options.log ?? writeBackendLog)({
-          level: "error",
-          requestId,
-          method: req.method === "POST" ? "POST" : "GET",
-          route: "account",
-          status,
-          code,
-          stage,
-          message,
+        level: "error",
+        requestId,
+        method: req.method === "POST" ? "POST" : "GET",
+        route: "account",
+        status,
+        code,
+        stage,
+        message,
       });
       json(res, status, { error: message, code, stage, requestId });
     }

@@ -1,14 +1,7 @@
 import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  createPublicClient,
-  createWalletClient,
-  http,
-  parseAbi,
-  toHex,
-  type Hex,
-} from "viem";
+import { createPublicClient, createWalletClient, http, parseAbi, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { describe, expect, it, vi } from "vitest";
@@ -31,11 +24,9 @@ import {
   TOKEN,
   TOKEN_ABI,
 } from "./automatic-http-fixtures";
-const core =
-  (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
+const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 const ORIGIN = "http://localhost:5173";
-const challenge = (hash: Hex) =>
-  Buffer.from(hash.slice(2), "hex").toString("base64url");
+const challenge = (hash: Hex) => Buffer.from(hash.slice(2), "hex").toString("base64url");
 
 describe("real Safe multi-user HTTP", () => {
   it("creates A/B/C, restores a synced first key after reset/restart, and retains exact base/step-up isolation", async () => {
@@ -46,10 +37,7 @@ describe("real Safe multi-user HTTP", () => {
     try {
       await installPublicRuntimes(chain.rpc);
       const payer = privateKeyToAccount(PAYER_KEY);
-      await chain.rpc("hardhat_setBalance", [
-        payer.address,
-        toHex(100n * 10n ** 18n),
-      ]);
+      await chain.rpc("hardhat_setBalance", [payer.address, toHex(100n * 10n ** 18n)]);
       const publicClient = createPublicClient({
         chain: sepolia,
         transport: http(chain.url),
@@ -64,8 +52,7 @@ describe("real Safe multi-user HTTP", () => {
       const mine = () => chain.rpc("hardhat_mine", ["0x5"]);
       const provider = (label: string) => ({
         ...createSubmissionReadClient(`${chain.url}/${label}`, label),
-        getBlockNumber: async () =>
-          BigInt(await chain.rpc<string>("eth_blockNumber")),
+        getBlockNumber: async () => BigInt(await chain.rpc<string>("eth_blockNumber")),
       });
       const providers = [provider("a"), provider("b")] as const,
         relay = provider("relay");
@@ -94,10 +81,8 @@ describe("real Safe multi-user HTTP", () => {
             maxPriorityFeePerGas: fee.maxPriorityFeePerGas!,
           };
         },
-        waitForTransactionReceipt: async (args: {
-          hash: Hex;
-          confirmations: number;
-        }) => publicClient.waitForTransactionReceipt(args),
+        waitForTransactionReceipt: async (args: { hash: Hex; confirmations: number }) =>
+          publicClient.waitForTransactionReceipt(args),
       };
       const send = vi.fn(async (raw: Hex) =>
         publicClient.sendRawTransaction({ serializedTransaction: raw }),
@@ -131,9 +116,7 @@ describe("real Safe multi-user HTTP", () => {
             ),
         });
         backend = createAccountServer(config, store, gateway);
-        await new Promise<void>((resolve) =>
-          backend!.server.listen(0, "127.0.0.1", resolve),
-        );
+        await new Promise<void>((resolve) => backend!.server.listen(0, "127.0.0.1", resolve));
       };
       function browser() {
         let cookie = "",
@@ -145,11 +128,7 @@ describe("real Safe multi-user HTTP", () => {
             csrf = "";
             account = "";
           },
-          async request(
-            path: string,
-            value?: unknown,
-            headers: Record<string, string> = {},
-          ) {
+          async request(path: string, value?: unknown, headers: Record<string, string> = {}) {
             const port = (backend!.server.address() as { port: number }).port;
             const response = await fetch(`http://127.0.0.1:${port}${path}`, {
               method: value === undefined ? "GET" : "POST",
@@ -164,9 +143,7 @@ describe("real Safe multi-user HTTP", () => {
               ...(value === undefined
                 ? {}
                 : {
-                    body: JSON.stringify(value, (_key, v) =>
-                      typeof v === "bigint" ? `${v}n` : v,
-                    ),
+                    body: JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? `${v}n` : v)),
                   }),
             });
             const set = response.headers.get("set-cookie");
@@ -178,10 +155,7 @@ describe("real Safe multi-user HTTP", () => {
           },
           async post(path: string, value: unknown) {
             const result = await this.request(path, value);
-            expect(
-              result.status,
-              `${path}: ${JSON.stringify(result.body)}`,
-            ).toBe(200);
+            expect(result.status, `${path}: ${JSON.stringify(result.body)}`).toBe(200);
             return result.body;
           },
         };
@@ -193,10 +167,7 @@ describe("real Safe multi-user HTTP", () => {
             setup = await client.post("/v1/auth/setup", {}),
             primary = softwareAuthenticator("primary", { synced: true }),
             secondary = softwareAuthenticator("secondary");
-          const registration = await client.post(
-            "/v1/registrations/primary/options",
-            {},
-          );
+          const registration = await client.post("/v1/registrations/primary/options", {});
           expect(registration.authenticatorAttachment).toBeUndefined();
           await client.post("/v1/registrations/primary/verify", {
             sessionId: registration.sessionId,
@@ -209,10 +180,7 @@ describe("real Safe multi-user HTTP", () => {
             sessionId: login.sessionId,
             assertion,
           });
-          const second = await client.post(
-            "/v1/registrations/secondary/options",
-            {},
-          );
+          const second = await client.post("/v1/registrations/secondary/options", {});
           await client.post("/v1/registrations/secondary/verify", {
             sessionId: second.sessionId,
             registration: secondary.registration(second.challenge),
@@ -244,9 +212,16 @@ describe("real Safe multi-user HTTP", () => {
         "utf8",
       );
       const aConfig = store!.account(a!.account.id)!.config;
-      const authorization = readdirSync(dirname(aConfig.provisioningJournalPath)).find(name=>name.startsWith(basename(aConfig.provisioningJournalPath)+".authorizations.")&&name.endsWith(".json"))!;
-      const authorizationLock=join(dirname(aConfig.provisioningJournalPath),`${authorization}.lock`);
-      writeFileSync(authorizationLock,`${process.pid}\n`);
+      const authorization = readdirSync(dirname(aConfig.provisioningJournalPath)).find(
+        (name) =>
+          name.startsWith(basename(aConfig.provisioningJournalPath) + ".authorizations.") &&
+          name.endsWith(".json"),
+      )!;
+      const authorizationLock = join(
+        dirname(aConfig.provisioningJournalPath),
+        `${authorization}.lock`,
+      );
+      writeFileSync(authorizationLock, `${process.pid}\n`);
       await backend!.close();
       store!.close();
       await start();
@@ -263,7 +238,7 @@ describe("real Safe multi-user HTTP", () => {
         account: { id: a!.account.id, vault: { safe: vault.safe } },
       });
       expect(provisionSend).toHaveBeenCalledTimes(21);
-      expect(readFileSync(authorizationLock,"utf8")).toBe(`${process.pid}\n`);
+      expect(readFileSync(authorizationLock, "utf8")).toBe(`${process.pid}\n`);
       expect(
         (
           await a!.client.request("/v1/vaults/current", undefined, {
@@ -294,12 +269,9 @@ describe("real Safe multi-user HTTP", () => {
       expect(restored.account.submissionIds).toContain("base");
 
       await mine();
-      expect((await a!.client.request("/v1/submissions/base")).body.state).toBe(
-        "confirmed",
-      );
+      expect((await a!.client.request("/v1/submissions/base")).body.state).toBe("confirmed");
       const recipient = (
-        core.loadCommittedPwaPhaseOneProfile()
-          .elevatedRecipients as readonly string[]
+        core.loadCommittedPwaPhaseOneProfile().elevatedRecipients as readonly string[]
       )[0]!;
       const step = await a!.client.post("/v1/submissions/prepare", {
         kind: "transfer",
@@ -367,9 +339,7 @@ describe("real Safe multi-user HTTP", () => {
         ).state,
       ).toBe("uncertain");
       await mine();
-      expect(
-        (await a!.client.request("/v1/submissions/step-new")).body.state,
-      ).toBe("confirmed");
+      expect((await a!.client.request("/v1/submissions/step-new")).body.state).toBe("confirmed");
       expect(
         await publicClient.readContract({
           address: TOKEN,
@@ -389,18 +359,13 @@ describe("real Safe multi-user HTTP", () => {
       expect(
         await publicClient.readContract({
           address: vault.guard,
-          abi: parseAbi([
-            "function spendState(address) view returns (uint256,uint256,uint256)",
-          ]),
+          abi: parseAbi(["function spendState(address) view returns (uint256,uint256,uint256)"]),
           functionName: "spendState",
           args: [TOKEN],
         }),
       ).toMatchObject([expect.any(BigInt), 500_000n, 1_500_000n]);
       expect(
-        readFileSync(
-          store!.account(a!.account.id)!.config.provisioningJournalPath,
-          "utf8",
-        ),
+        readFileSync(store!.account(a!.account.id)!.config.provisioningJournalPath, "utf8"),
       ).toBe(beforeRestart);
     } finally {
       await backend?.close();

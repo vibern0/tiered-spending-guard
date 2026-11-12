@@ -13,8 +13,7 @@ const servers: ReturnType<typeof createServer>[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
-    if (server.listening)
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
 const config = {
@@ -53,9 +52,7 @@ it("distinguishes startup from actual listening and reports the real bound port 
     allowedOrigin: config.origin,
     message: `Backend ready at http://localhost:${port}`,
   });
-  expect(JSON.stringify(events)).not.toMatch(
-    /rpc\.invalid|private-token|1111111111/,
-  );
+  expect(JSON.stringify(events)).not.toMatch(/rpc\.invalid|private-token|1111111111/);
 });
 
 it("logs long-running arrivals immediately and reports a disconnected client once", async () => {
@@ -100,11 +97,9 @@ it("logs long-running arrivals immediately and reports a disconnected client onc
 });
 
 it("redacts submission identifiers and never logs arbitrary paths", () => {
-  expect(
-    backendLogRoute("/v1/submissions/private-reference/submit?secret=never"),
-  ).toBe("/v1/submissions/:id/submit");
-  expect(backendLogRoute("/v1/submissions/private-reference")).toBe(
-    "/v1/submissions/:id",
+  expect(backendLogRoute("/v1/submissions/private-reference/submit?secret=never")).toBe(
+    "/v1/submissions/:id/submit",
   );
+  expect(backendLogRoute("/v1/submissions/private-reference")).toBe("/v1/submissions/:id");
   expect(backendLogRoute("/private-token")).toBe("unmatched");
 });

@@ -8,17 +8,42 @@ import {
   type PwaProvisioningPlan,
   type PwaProvisioningTransaction,
 } from "@recent-tx-safe-guard/security-core/pwa";
-import { createAutomaticPwaProvisioner, pwaProvisioningAuthorizationPath } from "../src/provisioner";
+import {
+  createAutomaticPwaProvisioner,
+  pwaProvisioningAuthorizationPath,
+} from "../src/provisioner";
 import type { StoredCredential } from "../src/webauthn";
 
 const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as Address;
 const hex = (n: number) => `0x${n.toString(16).padStart(2, "0")}` as Hex;
 const hash = (n: number) => keccak256(hex(n));
-const ids = ["primary-signer", "secondary-signer", "setup-helper", "guard", "delay", "maintenance", "safe-proxy"] as const;
+const ids = [
+  "primary-signer",
+  "secondary-signer",
+  "setup-helper",
+  "guard",
+  "delay",
+  "maintenance",
+  "safe-proxy",
+] as const;
 const publicKey = new Uint8Array([1, 2, 3]);
 const credentials = Object.freeze({
-  primary: Object.freeze({ role: "primary", id: "primary-id", publicKey, counter: 0, x: 1n, y: 2n }) as StoredCredential,
-  secondary: Object.freeze({ role: "secondary", id: "secondary-id", publicKey, counter: 0, x: 3n, y: 4n }) as StoredCredential,
+  primary: Object.freeze({
+    role: "primary",
+    id: "primary-id",
+    publicKey,
+    counter: 0,
+    x: 1n,
+    y: 2n,
+  }) as StoredCredential,
+  secondary: Object.freeze({
+    role: "secondary",
+    id: "secondary-id",
+    publicKey,
+    counter: 0,
+    x: 3n,
+    y: 4n,
+  }) as StoredCredential,
 });
 
 function plan(chainId = 11155111): PwaProvisioningPlan {
@@ -54,7 +79,12 @@ function plan(chainId = 11155111): PwaProvisioningPlan {
 }
 
 function approved(transaction: PwaProvisioningTransaction) {
-  return Object.freeze({ ...transaction, gasLimit: 1_000_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n });
+  return Object.freeze({
+    ...transaction,
+    gasLimit: 1_000_000n,
+    maxFeePerGas: 2_000_000_000n,
+    maxPriorityFeePerGas: 1_000_000_000n,
+  });
 }
 
 describe("automatic PWA provisioner", () => {
@@ -63,20 +93,43 @@ describe("automatic PWA provisioner", () => {
     const reloadRecovery = vi.fn().mockResolvedValue(undefined);
     const close = vi.fn();
     let unavailable = true;
-    const provisioner = createAutomaticPwaProvisioner({ reviewDirectory: join(directory, "reviews"), reloadRecovery, createPlan: async () => plan(), executionContext: async () => ({ close, context: brandPwaProvisioningExecutionContextForTestsOnly({
-      confirmedPrefixLength: async () => 0,
-      currentDeployerNonce: async () => 1n,
-      authorize: async transaction => { if (unavailable) { unavailable = false; throw new Error("identity provider 1 Sepolia RPC request failed (estimateGas; ResourceNotFoundRpcError)"); } return approved(transaction); },
-      submit: async transaction => ({ transactionHash: hash(Number(transaction.nonce)), receipt: { status: "success" as const, blockNumber: 1n } }),
-      verifyFinalTopology: async () => hash(99),
-    }) }) });
+    const provisioner = createAutomaticPwaProvisioner({
+      reviewDirectory: join(directory, "reviews"),
+      reloadRecovery,
+      createPlan: async () => plan(),
+      executionContext: async () => ({
+        close,
+        context: brandPwaProvisioningExecutionContextForTestsOnly({
+          confirmedPrefixLength: async () => 0,
+          currentDeployerNonce: async () => 1n,
+          authorize: async (transaction) => {
+            if (unavailable) {
+              unavailable = false;
+              throw new Error(
+                "identity provider 1 Sepolia RPC request failed (estimateGas; ResourceNotFoundRpcError)",
+              );
+            }
+            return approved(transaction);
+          },
+          submit: async (transaction) => ({
+            transactionHash: hash(Number(transaction.nonce)),
+            receipt: { status: "success" as const, blockNumber: 1n },
+          }),
+          verifyFinalTopology: async () => hash(99),
+        }),
+      }),
+    });
     expect((await provisioner.provision(credentials)).response.safe).toBe(plan().safe);
     expect(reloadRecovery).toHaveBeenCalledTimes(2);
     expect(close).toHaveBeenCalledTimes(2);
   });
   it("separates append-only authorization ledgers by reviewed package", () => {
-    expect(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(50))).toBe(`/tmp/provisioning.json.authorizations.${hash(50).slice(2)}.json`);
-    expect(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(51))).not.toBe(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(50)));
+    expect(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(50))).toBe(
+      `/tmp/provisioning.json.authorizations.${hash(50).slice(2)}.json`,
+    );
+    expect(pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(51))).not.toBe(
+      pwaProvisioningAuthorizationPath("/tmp/provisioning.json", hash(50)),
+    );
   });
 
   it("writes review before per-transaction authorization and single-flights duplicate fresh calls", async () => {
@@ -85,13 +138,23 @@ describe("automatic PWA provisioner", () => {
     const value = plan();
     const events: string[] = [];
     let releasePlan: (() => void) | undefined;
-    const waitForRelease = new Promise<void>((resolve) => { releasePlan = resolve; });
-    const createPlan = vi.fn(async () => { events.push("plan"); await waitForRelease; return value; });
+    const waitForRelease = new Promise<void>((resolve) => {
+      releasePlan = resolve;
+    });
+    const createPlan = vi.fn(async () => {
+      events.push("plan");
+      await waitForRelease;
+      return value;
+    });
     const close = vi.fn();
     const executionContext = vi.fn(async () => ({
       context: brandPwaProvisioningExecutionContextForTestsOnly({
-        async confirmedPrefixLength() { return 0; },
-        async currentDeployerNonce() { return 1n; },
+        async confirmedPrefixLength() {
+          return 0;
+        },
+        async currentDeployerNonce() {
+          return 1n;
+        },
         async authorize(transaction) {
           expect(readdirSync(reviews)).toHaveLength(1);
           events.push(`authorize:${transaction.id}`);
@@ -99,13 +162,23 @@ describe("automatic PWA provisioner", () => {
         },
         async submit(transaction) {
           events.push(`sign:${transaction.id}`);
-          return { transactionHash: hash(events.length), receipt: { status: "success" as const, blockNumber: 100n } };
+          return {
+            transactionHash: hash(events.length),
+            receipt: { status: "success" as const, blockNumber: 100n },
+          };
         },
-        async verifyFinalTopology() { events.push("verify-topology"); return hash(99); },
+        async verifyFinalTopology() {
+          events.push("verify-topology");
+          return hash(99);
+        },
       }),
       close,
     }));
-    const provisioner = createAutomaticPwaProvisioner({ reviewDirectory: reviews, createPlan, executionContext });
+    const provisioner = createAutomaticPwaProvisioner({
+      reviewDirectory: reviews,
+      createPlan,
+      executionContext,
+    });
 
     const first = provisioner.provision(credentials);
     const second = provisioner.provision(credentials);
@@ -121,7 +194,12 @@ describe("automatic PWA provisioner", () => {
     expect(createPlan).toHaveBeenCalledTimes(1);
     expect(executionContext).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledOnce();
-    await expect(provisioner.provision({ ...credentials, secondary: { ...credentials.secondary, id: "changed" } })).rejects.toThrow(/credential/i);
+    await expect(
+      provisioner.provision({
+        ...credentials,
+        secondary: { ...credentials.secondary, id: "changed" },
+      }),
+    ).rejects.toThrow(/credential/i);
   });
 
   it("requires credentials only for a fresh plan and rejects non-Sepolia before authorization", async () => {
@@ -153,15 +231,30 @@ describe("automatic PWA provisioner", () => {
     const createPlan = vi.fn();
     const provisioner = createAutomaticPwaProvisioner({
       reviewDirectory: join(directory, "reviews"),
-      recovery: { plan: value, confirmedPrefixLength: 2, credentials: { primary: { x: 1n, y: 2n }, secondary: { x: 3n, y: 4n } } },
+      recovery: {
+        plan: value,
+        confirmedPrefixLength: 2,
+        credentials: { primary: { x: 1n, y: 2n }, secondary: { x: 3n, y: 4n } },
+      },
       createPlan,
       executionContext: async () => ({
         context: brandPwaProvisioningExecutionContextForTestsOnly({
           confirmedPrefixLength: async () => 2,
           currentDeployerNonce: async () => 3n,
-          async authorize(transaction) { events.push(`authorize:${transaction.id}`); return approved(transaction); },
-          async submit(transaction) { events.push(`submit:${transaction.id}`); return { transactionHash: hash(Number(transaction.nonce)), receipt: { status: "success" as const, blockNumber: 100n } }; },
-          async verifyFinalTopology() { return hash(99); },
+          async authorize(transaction) {
+            events.push(`authorize:${transaction.id}`);
+            return approved(transaction);
+          },
+          async submit(transaction) {
+            events.push(`submit:${transaction.id}`);
+            return {
+              transactionHash: hash(Number(transaction.nonce)),
+              receipt: { status: "success" as const, blockNumber: 100n },
+            };
+          },
+          async verifyFinalTopology() {
+            return hash(99);
+          },
         }),
         close: vi.fn(),
       }),
@@ -202,7 +295,11 @@ describe("automatic PWA provisioner", () => {
     const preflight = vi.fn(async () => preflightResult);
     const provisioner = createAutomaticPwaProvisioner({
       reviewDirectory: join(directory, "reviews"),
-      recovery: { plan: value, confirmedPrefixLength: 2, credentials: { primary: { x: 1n, y: 2n }, secondary: { x: 3n, y: 4n } } },
+      recovery: {
+        plan: value,
+        confirmedPrefixLength: 2,
+        credentials: { primary: { x: 1n, y: 2n }, secondary: { x: 3n, y: 4n } },
+      },
       createPlan,
       executionContext,
       preflight,

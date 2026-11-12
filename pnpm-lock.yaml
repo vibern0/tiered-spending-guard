@@ -266,6 +266,9 @@ importers:
       '@types/node':
         specifier: 22.16.5
         version: 22.16.5
+      prettier:
+        specifier: 3.9.9
+        version: 3.9.9
       tsx:
         specifier: 4.19.4
         version: 4.19.4

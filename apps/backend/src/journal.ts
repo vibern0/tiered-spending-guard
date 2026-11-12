@@ -12,7 +12,8 @@ import {
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import * as pwaNamespace from "@recent-tx-safe-guard/security-core/pwa";
 
-const pwaRuntime = (pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
+const pwaRuntime =
+  (pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
 
 export type SubmissionState =
   | "prepared"
@@ -55,12 +56,10 @@ const rank: Record<SubmissionState, number> = {
   reverted: 5,
   superseded: 5,
 };
-const sensitive =
-  /assertion|signature|credential|private|secret|mnemonic|seed|pin|rpc|provider/i;
+const sensitive = /assertion|signature|credential|private|secret|mnemonic|seed|pin|rpc|provider/i;
 
 function assertIdentifier(value: string, label: string): void {
-  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(value))
-    throw new Error(`${label} is invalid`);
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(value)) throw new Error(`${label} is invalid`);
 }
 
 function assertExactKeys(
@@ -93,9 +92,7 @@ function canonical(value: unknown): string {
       const output: Record<string, unknown> = {};
       for (const key of Object.keys(item as Record<string, unknown>).sort()) {
         if (sensitive.test(key))
-          throw new Error(
-            `public journal request contains sensitive field: ${key}`,
-          );
+          throw new Error(`public journal request contains sensitive field: ${key}`);
         output[key] = visit((item as Record<string, unknown>)[key]);
       }
       return output;
@@ -108,9 +105,7 @@ function canonical(value: unknown): string {
 function publicRequest(value: unknown): Readonly<Record<string, unknown>> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("public request must be an object");
-  return deepFreeze(JSON.parse(canonical(value))) as Readonly<
-    Record<string, unknown>
-  >;
+  return deepFreeze(JSON.parse(canonical(value))) as Readonly<Record<string, unknown>>;
 }
 
 export class SubmissionJournal {
@@ -120,8 +115,7 @@ export class SubmissionJournal {
 
   constructor(storagePath?: string) {
     if (storagePath !== undefined) {
-      if (!isAbsolute(storagePath))
-        throw new Error("journal path must be absolute");
+      if (!isAbsolute(storagePath)) throw new Error("journal path must be absolute");
       const root = resolve(process.cwd());
       if (!relative(root, storagePath).startsWith(".."))
         throw new Error("journal must be outside the repository");
@@ -132,7 +126,11 @@ export class SubmissionJournal {
   }
 
   /** Publish an empty durable submission ledger before publishing an account. */
-  ensurePersisted(): void { this.mutate(() => { if (this.path && !existsSync(this.path)) this.persist(); }); }
+  ensurePersisted(): void {
+    this.mutate(() => {
+      if (this.path && !existsSync(this.path)) this.persist();
+    });
+  }
 
   prepare(
     id: string,
@@ -142,7 +140,11 @@ export class SubmissionJournal {
     return this.mutate(() => this.prepareEntry(id, requestHash, request));
   }
 
-  private prepareEntry(id: string, requestHash: string, request: Readonly<Record<string, unknown>>): JournalEntry {
+  private prepareEntry(
+    id: string,
+    requestHash: string,
+    request: Readonly<Record<string, unknown>>,
+  ): JournalEntry {
     assertIdentifier(id, "submission ID");
     this.assertHash(requestHash);
     const frozenRequest = publicRequest(request);
@@ -173,30 +175,21 @@ export class SubmissionJournal {
   private transitionEntry(id: string, state: SubmissionState): JournalEntry {
     const entry = this.require(id);
     if (rank[entry.state] === 5)
-      throw new Error(
-        `terminal submission cannot transition from ${entry.state}`,
-      );
-    if (
-      rank[state] < rank[entry.state] ||
-      (state === "uncertain" && entry.state !== "submitting")
-    )
-      throw new Error(
-        `invalid submission transition from ${entry.state} to ${state}`,
-      );
-    return state === entry.state
-      ? entry
-      : this.set(Object.freeze({ ...entry, state }));
+      throw new Error(`terminal submission cannot transition from ${entry.state}`);
+    if (rank[state] < rank[entry.state] || (state === "uncertain" && entry.state !== "submitting"))
+      throw new Error(`invalid submission transition from ${entry.state} to ${state}`);
+    return state === entry.state ? entry : this.set(Object.freeze({ ...entry, state }));
   }
 
-  recordApproval(
+  recordApproval(id: string, role: "primary" | "secondary", approvalHash: string): JournalEntry {
+    return this.mutate(() => this.recordApprovalEntry(id, role, approvalHash));
+  }
+
+  private recordApprovalEntry(
     id: string,
     role: "primary" | "secondary",
     approvalHash: string,
   ): JournalEntry {
-    return this.mutate(() => this.recordApprovalEntry(id, role, approvalHash));
-  }
-
-  private recordApprovalEntry(id: string, role: "primary" | "secondary", approvalHash: string): JournalEntry {
     this.assertHash(approvalHash);
     const entry = this.require(id);
     if (rank[entry.state] >= rank.submitting)
@@ -208,8 +201,7 @@ export class SubmissionJournal {
       Object.freeze({
         ...entry,
         approvals,
-        state:
-          role === "primary" ? ("awaiting-secondary" as const) : entry.state,
+        state: role === "primary" ? ("awaiting-secondary" as const) : entry.state,
       }),
     );
   }
@@ -222,10 +214,7 @@ export class SubmissionJournal {
     this.assertHash(outerTransactionHash);
     const entry = this.require(id);
     if (rank[entry.state] >= rank.submitting) {
-      if (
-        entry.outerTransactionHash?.toLowerCase() !==
-        outerTransactionHash.toLowerCase()
-      )
+      if (entry.outerTransactionHash?.toLowerCase() !== outerTransactionHash.toLowerCase())
         throw new Error("submission outer hash changed");
       return entry;
     }
@@ -257,17 +246,12 @@ export class SubmissionJournal {
     const entry = this.require(id);
     this.assertHash(result.transactionHash);
     if (rank[entry.state] === 5)
-      throw new Error(
-        `terminal submission cannot be reconciled from ${entry.state}`,
-      );
+      throw new Error(`terminal submission cannot be reconciled from ${entry.state}`);
     if (
       !entry.outerTransactionHash ||
-      entry.outerTransactionHash.toLowerCase() !==
-        result.transactionHash.toLowerCase()
+      entry.outerTransactionHash.toLowerCase() !== result.transactionHash.toLowerCase()
     )
-      throw new Error(
-        "reconciliation hash does not match the durable outer hash",
-      );
+      throw new Error("reconciliation hash does not match the durable outer hash");
     if ((result.blockNumber === undefined) !== (result.blockHash === undefined))
       throw new Error("receipt block identity is incomplete");
     if (result.blockNumber !== undefined && result.blockNumber < 0n)
@@ -299,7 +283,9 @@ export class SubmissionJournal {
   findByOuterHash(hash: string): JournalEntry | undefined {
     this.refresh();
     this.assertHash(hash);
-    const matching = [...this.entries.values()].filter((entry) => entry.outerTransactionHash?.toLowerCase() === hash.toLowerCase());
+    const matching = [...this.entries.values()].filter(
+      (entry) => entry.outerTransactionHash?.toLowerCase() === hash.toLowerCase(),
+    );
     if (matching.length > 1) throw new Error("durable outer transaction hash is ambiguous");
     return matching[0];
   }
@@ -308,20 +294,27 @@ export class SubmissionJournal {
   recoveryIds(): readonly string[] {
     this.refresh();
     const entries = [...this.entries.values()];
-    const pending = entries.filter(e => e.state === "submitting" || e.state === "uncertain");
-    const recent = entries.filter(e => e.state !== "submitting" && e.state !== "uncertain").slice(-20);
-    return Object.freeze([...recent, ...pending].map(e => e.id));
+    const pending = entries.filter((e) => e.state === "submitting" || e.state === "uncertain");
+    const recent = entries
+      .filter((e) => e.state !== "submitting" && e.state !== "uncertain")
+      .slice(-20);
+    return Object.freeze([...recent, ...pending].map((e) => e.id));
   }
 
   listPending(): readonly JournalEntry[] {
     this.refresh();
-    return Object.freeze([...this.entries.values()].filter(entry => entry.state === "submitting" || entry.state === "uncertain"));
+    return Object.freeze(
+      [...this.entries.values()].filter(
+        (entry) => entry.state === "submitting" || entry.state === "uncertain",
+      ),
+    );
   }
 
   private refresh(): void {
     if (!this.path || this.mutating) return;
     if (existsSync(this.path)) this.load();
-    else if (this.entries.size > 0) throw new Error("submission journal disappeared; refusing to reset its evidence");
+    else if (this.entries.size > 0)
+      throw new Error("submission journal disappeared; refusing to reset its evidence");
   }
 
   private mutate<T>(operation: () => T): T {
@@ -331,10 +324,17 @@ export class SubmissionJournal {
       this.refresh();
       const previous = new Map(this.entries);
       this.mutating = true;
-      try { return operation(); }
-      catch (error) { this.entries = previous; throw error; }
-      finally { this.mutating = false; }
-    } finally { lease.close(); }
+      try {
+        return operation();
+      } catch (error) {
+        this.entries = previous;
+        throw error;
+      } finally {
+        this.mutating = false;
+      }
+    } finally {
+      lease.close();
+    }
   }
 
   private require(id: string): JournalEntry {
@@ -357,8 +357,7 @@ export class SubmissionJournal {
       const parsed = JSON.parse(readFileSync(this.path!, "utf8")) as unknown;
       if (!Array.isArray(parsed)) throw new Error("journal is malformed");
       for (const item of parsed) {
-        if (!item || typeof item !== "object")
-          throw new Error("journal entry is malformed");
+        if (!item || typeof item !== "object") throw new Error("journal entry is malformed");
         const raw = item as Record<string, unknown>;
         assertExactKeys(
           raw,
@@ -375,8 +374,7 @@ export class SubmissionJournal {
         );
         assertIdentifier(String(raw.id), "journal entry ID");
         this.assertHash(String(raw.requestHash));
-        if (!Object.hasOwn(rank, String(raw.state)))
-          throw new Error("journal state is invalid");
+        if (!Object.hasOwn(rank, String(raw.state))) throw new Error("journal state is invalid");
         const approvals = raw.approvals as Record<string, unknown>;
         if (
           !approvals ||
@@ -384,11 +382,7 @@ export class SubmissionJournal {
           typeof approvals.secondary !== "boolean"
         )
           throw new Error("journal approvals are invalid");
-        assertExactKeys(
-          approvals,
-          ["primary", "secondary"],
-          "journal approvals",
-        );
+        assertExactKeys(approvals, ["primary", "secondary"], "journal approvals");
         if (approvals.secondary && !approvals.primary)
           throw new Error("journal approval order is invalid");
         const receiptRaw = raw.receipt as Record<string, unknown> | undefined;
@@ -419,12 +413,9 @@ export class SubmissionJournal {
             : {}),
           ...(receipt ? { receipt } : {}),
         });
-        if (entry.outerTransactionHash)
-          this.assertHash(entry.outerTransactionHash);
+        if (entry.outerTransactionHash) this.assertHash(entry.outerTransactionHash);
         if (
-          ["submitting", "uncertain", "confirmed", "reverted"].includes(
-            entry.state,
-          ) &&
+          ["submitting", "uncertain", "confirmed", "reverted"].includes(entry.state) &&
           !entry.outerTransactionHash
         )
           throw new Error("journal outer transaction hash is missing");
@@ -444,12 +435,9 @@ export class SubmissionJournal {
             entry.receipt.transactionHash.toLowerCase() !==
             entry.outerTransactionHash?.toLowerCase()
           )
-            throw new Error(
-              "journal receipt hash does not match the outer transaction hash",
-            );
+            throw new Error("journal receipt hash does not match the outer transaction hash");
         }
-        if (loaded.has(entry.id))
-          throw new Error("journal contains a duplicate submission ID");
+        if (loaded.has(entry.id)) throw new Error("journal contains a duplicate submission ID");
         loaded.set(entry.id, entry);
       }
       this.entries = loaded;
@@ -461,20 +449,26 @@ export class SubmissionJournal {
   private persist(): void {
     if (!this.path) return;
     const temporary = `${this.path}.${process.pid}.tmp`;
-    const serialized = JSON.stringify(
-      [...this.entries.values()],
-      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+    const serialized = JSON.stringify([...this.entries.values()], (_key, value) =>
+      typeof value === "bigint" ? value.toString() : value,
     );
     const fd = openSync(temporary, "wx", 0o600);
     let renamed = false;
     try {
-      try { writeFileSync(fd, serialized, "utf8"); fsyncSync(fd); }
-      finally { closeSync(fd); }
+      try {
+        writeFileSync(fd, serialized, "utf8");
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
       renameSync(temporary, this.path);
       renamed = true;
       const directory = openSync(dirname(this.path), "r");
-      try { fsyncSync(directory); }
-      finally { closeSync(directory); }
+      try {
+        fsyncSync(directory);
+      } finally {
+        closeSync(directory);
+      }
     } finally {
       if (!renamed) unlinkSync(temporary);
     }

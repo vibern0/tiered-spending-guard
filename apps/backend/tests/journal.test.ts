@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SubmissionJournal } from "../src/journal";
 
 const syncEvidence = vi.hoisted(() => ({ events: [] as string[], failFileSync: false }));
-vi.mock("node:fs", async original => {
+vi.mock("node:fs", async (original) => {
   const actual = await original<typeof import("node:fs")>();
   return {
     ...actual,
@@ -33,11 +33,7 @@ const BLOCK = `0x${"cc".repeat(32)}`;
 afterEach(() => {
   syncEvidence.failFileSync = false;
   syncEvidence.events.length = 0;
-  directories
-    .splice(0)
-    .forEach((directory) =>
-      rmSync(directory, { recursive: true, force: true }),
-    );
+  directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true }));
 });
 
 describe("submission journal", () => {
@@ -80,7 +76,12 @@ describe("submission journal", () => {
     expect(new SubmissionJournal(path).get("request-1")).toMatchObject({ requestHash: HASH });
     expect(first.get("request-2")).toMatchObject({ requestHash: BLOCK });
     first.markSubmitting("request-1", OUTER);
-    second.reconcile("request-1", { status: "confirmed", transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK });
+    second.reconcile("request-1", {
+      status: "confirmed",
+      transactionHash: OUTER,
+      blockNumber: 12n,
+      blockHash: BLOCK,
+    });
     expect(() => first.markUncertain("request-1")).toThrow(/submitting|terminal/);
     expect(first.get("request-1")?.state).toBe("confirmed");
   });
@@ -95,12 +96,17 @@ describe("submission journal", () => {
     journal.markSubmitting("pending", OUTER);
     const restarted = new SubmissionJournal(path);
     const rows = restarted.listPending();
-    expect(rows.map(entry => entry.id)).toEqual(["pending"]);
+    expect(rows.map((entry) => entry.id)).toEqual(["pending"]);
     expect(Object.isFrozen(rows)).toBe(true);
     expect(Object.isFrozen(rows[0])).toBe(true);
     journal.markUncertain("pending");
     expect(restarted.listPending()[0]?.state).toBe("uncertain");
-    journal.reconcile("pending", { status: "reverted", transactionHash: OUTER, blockNumber: 12n, blockHash: BLOCK });
+    journal.reconcile("pending", {
+      status: "reverted",
+      transactionHash: OUTER,
+      blockNumber: 12n,
+      blockHash: BLOCK,
+    });
     expect(restarted.listPending()).toEqual([]);
   });
 
@@ -122,10 +128,18 @@ describe("submission journal", () => {
     directories.push(directory);
     const path = join(directory, "journal.json");
     const journal = new SubmissionJournal(path);
-    journal.prepare("request-1", HASH, { kind: "transfer", preparedBlockNumber: "12", intent: { kind: "transfer", amount: "1" } });
+    journal.prepare("request-1", HASH, {
+      kind: "transfer",
+      preparedBlockNumber: "12",
+      intent: { kind: "transfer", amount: "1" },
+    });
     journal.markSubmitting("request-1", OUTER);
     const restarted = new SubmissionJournal(path);
-    expect(restarted.findByOuterHash(`0x${OUTER.slice(2).toUpperCase()}`)).toMatchObject({ id: "request-1", state: "submitting", publicRequest: { preparedBlockNumber: "12" } });
+    expect(restarted.findByOuterHash(`0x${OUTER.slice(2).toUpperCase()}`)).toMatchObject({
+      id: "request-1",
+      state: "submitting",
+      publicRequest: { preparedBlockNumber: "12" },
+    });
     expect(restarted.findByOuterHash(HASH)).toBeUndefined();
     expect(() => restarted.findByOuterHash("not-a-hash")).toThrow(/invalid/i);
     restarted.prepare("request-2", BLOCK, { kind: "transfer" });
@@ -144,15 +158,12 @@ describe("submission journal", () => {
     };
 
     expect(journal.prepare("request-1", HASH, request).state).toBe("prepared");
-    expect(journal.transition("request-1", "awaiting-primary").state).toBe(
-      "awaiting-primary",
-    );
-    expect(journal.recordApproval("request-1", "primary", HASH).state).toBe(
-      "awaiting-secondary",
-    );
-    expect(
-      journal.recordApproval("request-1", "secondary", OUTER).approvals,
-    ).toEqual({ primary: true, secondary: true });
+    expect(journal.transition("request-1", "awaiting-primary").state).toBe("awaiting-primary");
+    expect(journal.recordApproval("request-1", "primary", HASH).state).toBe("awaiting-secondary");
+    expect(journal.recordApproval("request-1", "secondary", OUTER).approvals).toEqual({
+      primary: true,
+      secondary: true,
+    });
     expect(journal.markSubmitting("request-1", OUTER).state).toBe("submitting");
     expect(journal.markUncertain("request-1").state).toBe("uncertain");
     expect(
@@ -172,9 +183,7 @@ describe("submission journal", () => {
       receipt: { blockNumber: 12n, blockHash: BLOCK },
     });
     const persisted = readFileSync(path, "utf8");
-    expect(persisted).not.toMatch(
-      /assertion|signature|credential|private|secret/i,
-    );
+    expect(persisted).not.toMatch(/assertion|signature|credential|private|secret/i);
   });
 
   it("deduplicates exact public requests and rejects byte or state rollback", () => {
@@ -190,21 +199,15 @@ describe("submission journal", () => {
     expect(() => {
       (prepared.publicRequest.queue as { to: string }).to = "changed";
     }).toThrow();
-    expect(() => journal.prepare("request-1", OUTER, request)).toThrow(
+    expect(() => journal.prepare("request-1", OUTER, request)).toThrow(/another request/i);
+    expect(() => journal.prepare("request-1", HASH, { ...request, queueNonce: "4" })).toThrow(
       /another request/i,
     );
-    expect(() =>
-      journal.prepare("request-1", HASH, { ...request, queueNonce: "4" }),
-    ).toThrow(/another request/i);
     journal.transition("request-1", "awaiting-primary");
-    expect(() => journal.transition("request-1", "prepared")).toThrow(
-      /transition/i,
-    );
+    expect(() => journal.transition("request-1", "prepared")).toThrow(/transition/i);
     expect(() => journal.markUncertain("request-1")).toThrow(/submitting/i);
     journal.transition("request-1", "superseded");
-    expect(() => journal.transition("request-1", "confirmed")).toThrow(
-      /terminal/i,
-    );
+    expect(() => journal.transition("request-1", "confirmed")).toThrow(/terminal/i);
 
     journal.prepare("request-2", OUTER, { kind: "transfer" });
     journal.markSubmitting("request-2", OUTER);
@@ -241,9 +244,7 @@ describe("submission journal", () => {
       }),
     ).toThrow(/block number/i);
 
-    const directory = mkdtempSync(
-      join(tmpdir(), "pwa-submission-journal-malformed-"),
-    );
+    const directory = mkdtempSync(join(tmpdir(), "pwa-submission-journal-malformed-"));
     directories.push(directory);
     const path = join(directory, "journal.json");
     const malformed = [

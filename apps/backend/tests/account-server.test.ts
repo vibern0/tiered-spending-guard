@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountStore } from "../src/account-store";
-import {
-  createAccountServer,
-  type AccountGateway,
-} from "../src/account-server";
+import { createAccountServer, type AccountGateway } from "../src/account-server";
 import { loadBackendConfig } from "../src/config";
 import { softwareAuthenticator } from "./automatic-http-fixtures";
 const cleanups: (() => Promise<void>)[] = [];
@@ -44,9 +41,7 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
     },
     status: async (_account, id) => {
       if (id === "pending")
-        throw new Error(
-          "identity Sepolia RPC request failed https://private.invalid/secret",
-        );
+        throw new Error("identity Sepolia RPC request failed https://private.invalid/secret");
       return { state: "confirmed" };
     },
     ...gatewayOverrides,
@@ -54,9 +49,7 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
   const backend = createAccountServer(config, store, gateway, {
     log: (event: unknown) => logs?.push(event),
   });
-  await new Promise<void>((resolve) =>
-    backend.server.listen(0, "127.0.0.1", resolve),
-  );
+  await new Promise<void>((resolve) => backend.server.listen(0, "127.0.0.1", resolve));
   cleanups.push(async () => {
     await backend.close();
     store.close();
@@ -67,11 +60,7 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
       csrf = "",
       account = "";
     return {
-      async request(
-        path: string,
-        body?: unknown,
-        extra: Record<string, string> = {},
-      ) {
+      async request(path: string, body?: unknown, extra: Record<string, string> = {}) {
         const response = await fetch(url + path, {
           method: body === undefined ? "GET" : "POST",
           headers: {
@@ -103,14 +92,18 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
 describe("multi-user passkey HTTP", () => {
   it("automatically starts reconciliation when listening and drains it before closing", async () => {
     let release!: () => void;
-    const gate = new Promise<void>(resolve => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const reconcilePending = vi.fn(() => gate);
     const { backend, store } = await fixture([], { reconcilePending });
     try {
       await Promise.resolve();
       expect(reconcilePending).toHaveBeenCalledTimes(1);
       let closed = false;
-      const close = backend.close().then(() => { closed = true; });
+      const close = backend.close().then(() => {
+        closed = true;
+      });
       await Promise.resolve();
       expect(closed).toBe(false);
       release();
@@ -120,7 +113,9 @@ describe("multi-user passkey HTTP", () => {
       // This fixture has already been closed; avoid closing the server twice.
       cleanups.pop();
       store.close();
-    } finally { release(); }
+    } finally {
+      release();
+    }
   });
   it("logs request arrival and completion with a correlated ID, safe route, status and duration", async () => {
     const events: unknown[] = [];
@@ -205,9 +200,7 @@ describe("multi-user passkey HTTP", () => {
     });
     expect(store.credentials(setup.data.account.id).length).toBe(1);
     expect((await a.request("/v1/submissions/same")).status).toBe(200);
-    expect((await a.request("/v1/submissions/pending")).data.code).toBe(
-      "rpc_request_failed",
-    );
+    expect((await a.request("/v1/submissions/pending")).data.code).toBe("rpc_request_failed");
     expect(
       (
         await a.request("/v1/vaults/current", undefined, {
@@ -228,9 +221,7 @@ describe("multi-user passkey HTTP", () => {
         id: key.id,
         role: "primary",
         ...key.coordinates,
-        publicKey: (await import("../src/webauthn")).encodeP256CosePublicKey(
-          key.coordinates,
-        ),
+        publicKey: (await import("../src/webauthn")).encodeP256CosePublicKey(key.coordinates),
         counter: 0,
       },
       account.userHandle,
@@ -257,13 +248,7 @@ describe("multi-user passkey HTTP", () => {
       ).status,
     ).toBe(400);
     expect(
-      (
-        await browser.request(
-          "/v1/auth/setup",
-          {},
-          { origin: "https://evil.example" },
-        )
-      ).status,
+      (await browser.request("/v1/auth/setup", {}, { origin: "https://evil.example" })).status,
     ).toBe(403);
     const fresh = await browser.request("/v1/auth/login/options", {});
     const valid = key.assertion(fresh.data.challenge);
@@ -298,10 +283,7 @@ it("targeted setup authentication accepts an omitted handle but never overwrites
     assertion: key.assertion(login.data.challenge),
   });
   expect(signed.status).toBe(200);
-  const second = await browser.request(
-    "/v1/registrations/secondary/options",
-    {},
-  );
+  const second = await browser.request("/v1/registrations/secondary/options", {});
   expect(second.data.userHandle).not.toBe(first.data.userHandle);
   expect(first.data.userHandle).toBe(setup.data.account.userHandle);
 });

@@ -14,8 +14,7 @@ import type { ConfiguredSubmissionRuntime } from "./main";
 import { passkeyApprovalFingerprint } from "./webauthn";
 import { SubmissionJournal } from "./journal";
 import { PwaSubmissionService, SEPOLIA_USDC_ADDRESS } from "./vault";
-const core =
-  (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
+const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 type Factories = Readonly<{
   provisioner(config: BackendConfig): Promise<AutomaticPwaProvisioner>;
   runtime(
@@ -30,11 +29,7 @@ type AccountRuntime = {
   service?: PwaSubmissionService;
 };
 
-function compose(
-  config: BackendConfig,
-  store: AccountStore,
-  factories: Factories,
-): AccountGateway {
+function compose(config: BackendConfig, store: AccountStore, factories: Factories): AccountGateway {
   const payer = privateKeyToAccount(config.relayPrivateKey).address;
   const runtimes = new Map<string, Promise<AccountRuntime>>();
   let queue: Promise<unknown> = Promise.resolve();
@@ -87,12 +82,11 @@ function compose(
             ...(runtime.discard ? { discard: runtime.discard } : {}),
             verifyApproval: async (role, prepared, assertion) => {
               assertSession(id, prepared.id);
-              if (!prepared.safeTxHash)
-                throw new Error("exact Safe transaction hash required");
-              const approved = await handlers.verifyApproval(
-                prepared.safeTxHash,
-                { role, assertion },
-              );
+              if (!prepared.safeTxHash) throw new Error("exact Safe transaction hash required");
+              const approved = await handlers.verifyApproval(prepared.safeTxHash, {
+                role,
+                assertion,
+              });
               assertSession(id, prepared.id);
               return { role, payload: approved.payload };
             },
@@ -123,8 +117,7 @@ function compose(
         },
         ...(service && runtime
           ? {
-              prepareTransfer: async (input) =>
-                service.prepare(await runtime.prepare(input)),
+              prepareTransfer: async (input) => service.prepare(await runtime.prepare(input)),
               submit: async ({ id, body }) => service.submit(id, body as never),
               submission: async ({ id }) => service.status(id),
             }
@@ -155,22 +148,15 @@ function compose(
     // Source journals are re-read: a stale database/index cannot hide a hash.
     store.validateEvidenceInventory();
     for (const a of store.accounts()) {
-      const journal = core.readLiveJournal(
-        a.config.provisioningJournalPath,
-        payer,
-      );
+      const journal = core.readLiveJournal(a.config.provisioningJournalPath, payer);
       const hasReviews =
         existsSync(a.config.provisioningReviewDirectory) &&
-        readdirSync(a.config.provisioningReviewDirectory).some((name) =>
-          name.endsWith(".json"),
-        );
+        readdirSync(a.config.provisioningReviewDirectory).some((name) => name.endsWith(".json"));
       if (
         journal.entries.some((row) => row.status !== "success") &&
         !(a.id === requesting && kind === "provision")
       )
-        throw new Error(
-          "another account has an unresolved provisioning transaction",
-        );
+        throw new Error("another account has an unresolved provisioning transaction");
       if (a.state === "verified" && journal.entries.length !== 7)
         throw new Error("completed account provisioning evidence is missing");
       if (
@@ -179,30 +165,16 @@ function compose(
           (journal.entries.length > 0 && journal.entries.length < 7) ||
           (hasReviews && journal.entries.length < 7))
       )
-        throw new Error(
-          "another account has an incomplete immutable deployment",
-        );
+        throw new Error("another account has an incomplete immutable deployment");
       if (a.id === requesting && kind === "submit" && a.state !== "verified")
         throw new Error("account deployment is not verified");
-      if (
-        a.state === "verified" &&
-        !a.legacy &&
-        !existsSync(a.config.journalPath)
-      )
+      if (a.state === "verified" && !a.legacy && !existsSync(a.config.journalPath))
         throw new Error("completed account submission evidence is missing");
       if (existsSync(a.config.journalPath)) {
-        const pending = new SubmissionJournal(
-          a.config.journalPath,
-        ).listPending();
+        const pending = new SubmissionJournal(a.config.journalPath).listPending();
         for (const entry of pending)
-          if (!(
-            a.id === requesting &&
-            kind === "submit" &&
-            entry.id === submissionId
-          ))
-            throw new Error(
-              "an account has an unresolved durable submission hash",
-            );
+          if (!(a.id === requesting && kind === "submit" && entry.id === submissionId))
+            throw new Error("an account has an unresolved durable submission hash");
       }
     }
   };
@@ -213,9 +185,7 @@ function compose(
     submissionId?: string,
   ): Promise<T> => {
     const pending = queue.then(async () => {
-      const lease = core.acquireLocalWriterLease(
-        `${store.databasePath}.payer.lock`,
-      );
+      const lease = core.acquireLocalWriterLease(`${store.databasePath}.payer.lock`);
       try {
         assertPayerAvailable(id, kind, submissionId);
         return await operation();
@@ -231,14 +201,12 @@ function compose(
   };
   return {
     handlers: async (id) => (await load(id)).handlers,
-    legacyCoordinates: async (id) =>
-      (await load(id)).provisioner.recoveryCredentials?.primary,
+    legacyCoordinates: async (id) => (await load(id)).provisioner.recoveryCredentials?.primary,
     provision: (id) =>
       withPayer(id, "provision", async () => {
         const a = store.account(id)!;
         const { handlers, provisioner, service } = await load(id);
-        if (provisioner.historicalVault)
-          throw new Error("historical vault is read-only");
+        if (provisioner.historicalVault) throw new Error("historical vault is read-only");
         if (a.state === "verified") return handlers.autoProvisionVault({});
         const credentials = store.credentials(id);
         if (
@@ -247,9 +215,7 @@ function compose(
             !credentials.some((c) => c.role === "primary") ||
             !credentials.some((c) => c.role === "secondary"))
         )
-          throw new Error(
-            "two distinct verified registrations required before provisioning",
-          );
+          throw new Error("two distinct verified registrations required before provisioning");
         store.markProvisioning(id, "provisioning");
         try {
           const result = await handlers.autoProvisionVault({});
@@ -260,8 +226,7 @@ function compose(
           // Only a provably empty attempt can relinquish nonce ownership. Any
           // retained review, authorization or hash leaves the deployment blocked.
           if (
-            !core.readLiveJournal(a.config.provisioningJournalPath, payer)
-              .entries.length &&
+            !core.readLiveJournal(a.config.provisioningJournalPath, payer).entries.length &&
             (!existsSync(a.config.provisioningReviewDirectory) ||
               !readdirSync(a.config.provisioningReviewDirectory).length)
           )
@@ -277,13 +242,11 @@ function compose(
       if (
         !body ||
         typeof body !== "object" ||
-        typeof (body as { idempotencyKey?: unknown }).idempotencyKey !==
-          "string"
+        typeof (body as { idempotencyKey?: unknown }).idempotencyKey !== "string"
       )
         throw new Error("idempotency key required");
       const key = (body as { idempotencyKey: string }).idempotencyKey;
-      if (!/^[A-Za-z0-9._:-]{1,160}$/.test(key))
-        throw new Error("invalid idempotency key");
+      if (!/^[A-Za-z0-9._:-]{1,160}$/.test(key)) throw new Error("invalid idempotency key");
       store.claimSubmission(id, key, sessionId);
       const runtime = await load(id);
       store.assertActiveSession(sessionId, id);
@@ -317,16 +280,20 @@ function compose(
           // remains pending and continues blocking the shared payer.
           if (!service) continue;
           for (const entry of pending) {
-            try { await service.status(entry.id); }
-            catch { failed = true; }
+            try {
+              await service.status(entry.id);
+            } catch {
+              failed = true;
+            }
           }
-        } catch { failed = true; }
+        } catch {
+          failed = true;
+        }
       }
       // Do not expose provider errors, account identifiers or retained hashes.
       if (failed) throw new Error("pending receipt reconciliation failed safely");
     },
-    submissionIds: async (id) =>
-      (await load(id)).service?.journal.recoveryIds() ?? [],
+    submissionIds: async (id) => (await load(id)).service?.journal.recoveryIds() ?? [],
     releaseSession: (sessionId) => {
       for (const [id, promise] of runtimes)
         void promise
@@ -339,10 +306,7 @@ function compose(
     },
   };
 }
-export function createAccountGateway(
-  config: BackendConfig,
-  store: AccountStore,
-): AccountGateway {
+export function createAccountGateway(config: BackendConfig, store: AccountStore): AccountGateway {
   return compose(config, store, {
     provisioner: createConfiguredAutomaticPwaProvisioner,
     runtime: createConfiguredSubmissionRuntime,

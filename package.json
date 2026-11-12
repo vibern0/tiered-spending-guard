@@ -8,7 +8,7 @@
   "scripts": {
     "build": "npm run security-core:build && npm run app:build && npm run landing:build",
     "test": "npm run security-core:test && npm run backend:test && npm run app:test && npm run landing:test",
-    "check": "npm run security-core:check && npm run backend:test && npm run backend:typecheck && npm run app:test && npm run landing:test",
+    "check": "npm run security-core:check && npm run backend:format:check && npm run backend:test && npm run backend:typecheck && npm run app:test && npm run landing:test",
     "security-core:build": "npm --prefix packages/security-core run build",
     "security-core:test": "npm --prefix packages/security-core test",
     "security-core:test:unit": "npm --prefix packages/security-core run test:unit",
@@ -26,6 +26,8 @@
     "security-core:package:sepolia-rehearsal": "npm --prefix packages/security-core run package:sepolia-rehearsal",
     "pwa:rehearse:local": "npm --prefix packages/security-core run pwa:rehearse:local --",
     "backend:dev": "npm --prefix apps/backend run dev",
+    "backend:format": "npm --prefix apps/backend run format",
+    "backend:format:check": "npm --prefix apps/backend run format:check",
     "backend:test": "npm --prefix apps/backend test",
     "backend:typecheck": "npm --prefix apps/backend run typecheck",
     "app:dev": "npm --prefix apps/app run dev",

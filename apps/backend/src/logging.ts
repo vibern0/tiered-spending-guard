@@ -41,19 +41,13 @@ export function backendLogRoute(url: string | undefined): string {
     ].includes(path)
   )
     return path;
-  const registration =
-    /^\/v1\/registrations\/(primary|secondary)\/(options|verify)$/.exec(path);
-  if (registration)
-    return `/v1/registrations/${registration[1]}/${registration[2]}`;
-  const rebind =
-    /^\/v1\/credentials\/(primary|secondary)\/rebind\/(options|verify)$/.exec(
-      path,
-    );
+  const registration = /^\/v1\/registrations\/(primary|secondary)\/(options|verify)$/.exec(path);
+  if (registration) return `/v1/registrations/${registration[1]}/${registration[2]}`;
+  const rebind = /^\/v1\/credentials\/(primary|secondary)\/rebind\/(options|verify)$/.exec(path);
   if (rebind) return `/v1/credentials/${rebind[1]}/rebind/${rebind[2]}`;
   if (/^\/v1\/submissions\/[A-Za-z0-9._:-]{1,160}\/submit$/.test(path))
     return "/v1/submissions/:id/submit";
-  if (/^\/v1\/submissions\/[A-Za-z0-9._:-]{1,160}$/.test(path))
-    return "/v1/submissions/:id";
+  if (/^\/v1\/submissions\/[A-Za-z0-9._:-]{1,160}$/.test(path)) return "/v1/submissions/:id";
   return "unmatched";
 }
 
@@ -64,9 +58,7 @@ export function observeBackendRequest(
   log: BackendLogger = writeBackendLog,
 ): void {
   const started = performance.now();
-  const method = ["GET", "POST", "OPTIONS"].includes(req.method ?? "")
-    ? req.method!
-    : "OTHER";
+  const method = ["GET", "POST", "OPTIONS"].includes(req.method ?? "") ? req.method! : "OTHER";
   const context = { requestId, method, route: backendLogRoute(req.url) };
   log({
     level: "info",
@@ -84,9 +76,7 @@ export function observeBackendRequest(
       ...context,
       ...(!aborted || res.headersSent ? { status: res.statusCode } : {}),
       durationMs: Math.max(0, Math.round(performance.now() - started)),
-      message: aborted
-        ? "Request connection closed before completion"
-        : "Request completed",
+      message: aborted ? "Request connection closed before completion" : "Request completed",
     });
   };
   res.once("finish", () => complete(false));
@@ -104,8 +94,7 @@ export function logBackendStarting(
     host: config.host,
     port: config.port,
     allowedOrigin: config.origin,
-    message:
-      "Starting backend; verifying saved accounts before accepting requests",
+    message: "Starting backend; verifying saved accounts before accepting requests",
   });
 }
 

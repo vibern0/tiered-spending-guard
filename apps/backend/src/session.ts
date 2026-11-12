@@ -33,14 +33,25 @@ export class RegistrationSessionStore {
   private readonly sessions = new Map<string, RegistrationSession>();
   private readonly registeredRoles = new Set<BackendPasskeyRole>();
 
-  constructor(private readonly profile: Readonly<{ id: "local" | "https"; origin: string; rpId: string }>) {
+  constructor(
+    private readonly profile: Readonly<{ id: "local" | "https"; origin: string; rpId: string }>,
+  ) {
     assertBackendWebAuthnIdentity(profile.id, profile.origin, profile.rpId);
   }
 
   create(role: BackendPasskeyRole): RegistrationSession {
     if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
     if (this.registeredRoles.has(role)) throw new Error(`${role} passkey is already registered`);
-    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, authenticatorAttachment: role === "primary" ? "platform" as const : "cross-platform" as const, used: false });
+    const session = Object.freeze({
+      id: sessionId(),
+      role,
+      challenge: challenge(),
+      rpId: this.profile.rpId,
+      origin: this.profile.origin,
+      authenticatorAttachment:
+        role === "primary" ? ("platform" as const) : ("cross-platform" as const),
+      used: false,
+    });
     this.sessions.set(session.id, session);
     return session;
   }
@@ -52,7 +63,8 @@ export class RegistrationSessionStore {
 
   consume(id: string, role: BackendPasskeyRole): RegistrationSession {
     const session = this.sessions.get(id);
-    if (!session || session.used || session.role !== role) throw new Error("unknown or already used registration session");
+    if (!session || session.used || session.role !== role)
+      throw new Error("unknown or already used registration session");
     const consumed = Object.freeze({ ...session, used: true });
     this.sessions.set(id, consumed);
     return consumed;
@@ -75,9 +87,17 @@ export class RebindSessionStore {
   }
 
   create(role: BackendPasskeyRole): RebindSession {
-    if (this.profile.id !== "local") throw new Error("credential rebind is available only in the local recovery profile");
+    if (this.profile.id !== "local")
+      throw new Error("credential rebind is available only in the local recovery profile");
     if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
-    const session = Object.freeze({ id: sessionId(), role, challenge: challenge(), rpId: this.profile.rpId, origin: this.profile.origin, expiresAt: this.now() + 5 * 60_000 });
+    const session = Object.freeze({
+      id: sessionId(),
+      role,
+      challenge: challenge(),
+      rpId: this.profile.rpId,
+      origin: this.profile.origin,
+      expiresAt: this.now() + 5 * 60_000,
+    });
     this.sessions.set(session.id, session);
     return session;
   }
@@ -85,7 +105,8 @@ export class RebindSessionStore {
   consume(id: string, role: BackendPasskeyRole): RebindSession {
     const session = this.sessions.get(id);
     this.sessions.delete(id);
-    if (!session || session.role !== role) throw new Error("unknown or already used credential rebind session");
+    if (!session || session.role !== role)
+      throw new Error("unknown or already used credential rebind session");
     if (session.expiresAt < this.now()) throw new Error("credential rebind session expired");
     return session;
   }

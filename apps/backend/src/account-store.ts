@@ -1,18 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  closeSync,
-  opendirSync,
-} from "node:fs";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, openSync, closeSync, opendirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { assertExternalBackendPath, type BackendConfig } from "./config";
 import type { BackendPasskeyRole, StoredCredential } from "./webauthn";
@@ -42,8 +30,7 @@ type Row = Record<string, string | number | Uint8Array | null>;
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
 const csrf = (v: string) => hash(`vault-csrf:${v}`);
 const identifier = (v: string) => {
-  if (!/^[A-Za-z0-9-]{1,64}$/.test(v))
-    throw new Error("invalid account identifier");
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(v)) throw new Error("invalid account identifier");
 };
 
 /** Metadata is not chain verification or signer authority. Execution journals remain authoritative. */
@@ -57,41 +44,31 @@ export class AccountStore {
     private readonly now: () => number = Date.now,
   ) {
     this.databasePath = assertExternalBackendPath(
-      base.accountDatabasePath ??
-        `${base.provisioningJournalPath}.accounts.sqlite`,
+      base.accountDatabasePath ?? `${base.provisioningJournalPath}.accounts.sqlite`,
       "account database",
     );
-    if (
-      [base.journalPath, base.provisioningJournalPath].includes(
-        this.databasePath,
-      )
-    )
+    if ([base.journalPath, base.provisioningJournalPath].includes(this.databasePath))
       throw new Error("account database cannot replace an execution journal");
     this.dataDirectory = assertExternalBackendPath(
       `${this.databasePath}.data`,
       "account data directory",
     );
     if (!existsSync(this.databasePath)) {
-      const retained = existsSync(this.dataDirectory)
-        ? opendirSync(this.dataDirectory)
-        : undefined;
+      const retained = existsSync(this.dataDirectory) ? opendirSync(this.dataDirectory) : undefined;
       try {
         if (
           retained?.readSync() ||
           existsSync(`${this.databasePath}-wal`) ||
           existsSync(`${this.databasePath}-shm`)
         )
-          throw new Error(
-            "account registry missing with retained execution evidence",
-          );
+          throw new Error("account registry missing with retained execution evidence");
       } finally {
         retained?.closeSync();
       }
     }
     mkdirSync(dirname(this.databasePath), { recursive: true, mode: 0o700 });
     mkdirSync(this.dataDirectory, { recursive: true, mode: 0o700 });
-    if (!existsSync(this.databasePath))
-      closeSync(openSync(this.databasePath, "wx", 0o600));
+    if (!existsSync(this.databasePath)) closeSync(openSync(this.databasePath, "wx", 0o600));
     chmodSync(this.databasePath, 0o600);
     this.db = new DatabaseSync(this.databasePath);
     try {
@@ -112,9 +89,8 @@ export class AccountStore {
       CREATE TABLE IF NOT EXISTS consumed_approvals (account_id TEXT NOT NULL REFERENCES accounts(id), credential_id TEXT NOT NULL REFERENCES credentials(id), fingerprint TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(account_id,fingerprint));
       CREATE INDEX IF NOT EXISTS account_credentials ON credentials(account_id);
       PRAGMA user_version=1; COMMIT;`);
-      const identity = this.db
-        .prepare("SELECT * FROM identity WHERE id=1")
-        .get() as Row | undefined;
+      const identity = this.db.prepare("SELECT * FROM identity WHERE id=1").get() as
+        Row | undefined;
       if (
         identity &&
         (identity.chain !== base.chainId ||
@@ -151,12 +127,8 @@ export class AccountStore {
     const id = String(row.id);
     identifier(id);
     const legacy = row.legacy === 1;
-    if (legacy && id !== "legacy")
-      throw new Error("invalid legacy account binding");
-    const directory = assertExternalBackendPath(
-      join(this.dataDirectory, id),
-      "account directory",
-    );
+    if (legacy && id !== "legacy") throw new Error("invalid legacy account binding");
+    const directory = assertExternalBackendPath(join(this.dataDirectory, id), "account directory");
     if (
       directory !== join(this.dataDirectory, id) ||
       relative(this.dataDirectory, directory).startsWith("..")
@@ -178,15 +150,10 @@ export class AccountStore {
     });
   }
   validateEvidenceInventory(): void {
-    if (!existsSync(this.databasePath))
-      throw new Error("account registry disappeared");
+    if (!existsSync(this.databasePath)) throw new Error("account registry disappeared");
     const directory = opendirSync(this.dataDirectory);
     try {
-      for (
-        let entry = directory.readSync();
-        entry;
-        entry = directory.readSync()
-      ) {
+      for (let entry = directory.readSync(); entry; entry = directory.readSync()) {
         if (
           !entry.isDirectory() ||
           entry.isSymbolicLink() ||
@@ -196,8 +163,7 @@ export class AccountStore {
         const row = this.db
           .prepare("SELECT id FROM accounts WHERE id=? AND legacy=0")
           .get(entry.name);
-        if (!row)
-          throw new Error("account registry omits retained execution evidence");
+        if (!row) throw new Error("account registry omits retained execution evidence");
         this.account(entry.name);
       }
     } finally {
@@ -213,21 +179,16 @@ export class AccountStore {
   }
   account(id: string): AccountRecord | undefined {
     identifier(id);
-    const row = this.db.prepare("SELECT * FROM accounts WHERE id=?").get(id) as
-      Row | undefined;
+    const row = this.db.prepare("SELECT * FROM accounts WHERE id=?").get(id) as Row | undefined;
     return row && this.decodeAccount(row);
   }
   *accounts(): IterableIterator<AccountRecord> {
-    for (const row of this.db
-      .prepare("SELECT * FROM accounts ORDER BY created,id")
-      .iterate())
+    for (const row of this.db.prepare("SELECT * FROM accounts ORDER BY created,id").iterate())
       yield this.decodeAccount(row as Row);
   }
   adoptLegacy(): AccountRecord {
     this.db
-      .prepare(
-        "INSERT OR IGNORE INTO accounts VALUES ('legacy',?,'queued',1,?)",
-      )
+      .prepare("INSERT OR IGNORE INTO accounts VALUES ('legacy',?,'queued',1,?)")
       .run(randomBytes(32).toString("base64url"), this.now());
     return this.account("legacy")!;
   }
@@ -236,10 +197,7 @@ export class AccountStore {
     this.db.prepare("UPDATE accounts SET state=? WHERE id=?").run(state, id);
   }
   private decodeCredential(row: Row): AccountCredential {
-    const metadata = JSON.parse(String(row.metadata)) as Record<
-      string,
-      unknown
-    >;
+    const metadata = JSON.parse(String(row.metadata)) as Record<string, unknown>;
     if (
       !metadata ||
       typeof metadata !== "object" ||
@@ -264,16 +222,11 @@ export class AccountStore {
       x: BigInt(String(row.x)),
       y: BigInt(String(row.y)),
       ...(row.user_handle ? { userHandle: String(row.user_handle) } : {}),
-      ...(metadata as Pick<
-        StoredCredential,
-        "backupEligible" | "backedUp" | "transports"
-      >),
+      ...(metadata as Pick<StoredCredential, "backupEligible" | "backedUp" | "transports">),
     });
   }
   credential(id: string): AccountCredential | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM credentials WHERE id=?")
-      .get(id) as Row | undefined;
+    const row = this.db.prepare("SELECT * FROM credentials WHERE id=?").get(id) as Row | undefined;
     return row && this.decodeCredential(row);
   }
   credentials(id: string): readonly AccountCredential[] {
@@ -283,17 +236,8 @@ export class AccountStore {
       .all(id)
       .map((row) => this.decodeCredential(row as Row));
   }
-  storeCredential(
-    id: string,
-    value: StoredCredential,
-    userHandle?: string,
-  ): void {
-    if (
-      !this.account(id) ||
-      !value.id ||
-      !Number.isSafeInteger(value.counter) ||
-      value.counter < 0
-    )
+  storeCredential(id: string, value: StoredCredential, userHandle?: string): void {
+    if (!this.account(id) || !value.id || !Number.isSafeInteger(value.counter) || value.counter < 0)
       throw new Error("invalid account credential");
     this.transaction(() => {
       if (
@@ -304,9 +248,7 @@ export class AccountStore {
             Buffer.from(c.publicKey).equals(Buffer.from(value.publicKey)),
         )
       )
-        throw new Error(
-          "account roles are immutable and must use distinct keys",
-        );
+        throw new Error("account roles are immutable and must use distinct keys");
       this.db.prepare("INSERT INTO credentials VALUES (?,?,?,?,?,?,?,?,?)").run(
         value.id,
         id,
@@ -334,8 +276,7 @@ export class AccountStore {
     const changed = this.db
       .prepare("UPDATE credentials SET counter=? WHERE id=? AND counter=?")
       .run(next, id, previous);
-    if (changed.changes !== 1)
-      throw new Error("credential counter changed; use a fresh assertion");
+    if (changed.changes !== 1) throw new Error("credential counter changed; use a fresh assertion");
   }
   consumeApproval(
     accountId: string,
@@ -346,8 +287,7 @@ export class AccountStore {
   ): void {
     this.transaction(() => {
       const c = this.credential(credentialId);
-      if (!c || c.accountId !== accountId)
-        throw new Error("approval credential account mismatch");
+      if (!c || c.accountId !== accountId) throw new Error("approval credential account mismatch");
       this.updateCounter(credentialId, previous, next);
       this.db
         .prepare("INSERT INTO consumed_approvals VALUES (?,?,?,?)")
@@ -366,10 +306,8 @@ export class AccountStore {
     });
   }
   createSession(accountId?: string, authenticated = false): NewAccountSession {
-    if (authenticated && !accountId)
-      throw new Error("authenticated session requires an account");
-    if (accountId && !this.account(accountId))
-      throw new Error("unknown account");
+    if (authenticated && !accountId) throw new Error("authenticated session requires an account");
+    if (accountId && !this.account(accountId)) throw new Error("unknown account");
     const id = randomUUID(),
       token = randomBytes(32).toString("base64url"),
       now = this.now();
@@ -397,21 +335,15 @@ export class AccountStore {
   }
   session(token: string): AccountSession | undefined {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return;
-    const row = this.db
-      .prepare("SELECT * FROM sessions WHERE token_hash=?")
-      .get(hash(token)) as Row | undefined;
+    const row = this.db.prepare("SELECT * FROM sessions WHERE token_hash=?").get(hash(token)) as
+      Row | undefined;
     if (!row) return;
     const now = this.now();
-    if (
-      Number(row.expires) <= now ||
-      Number(row.last_used) + 30 * 60_000 <= now
-    ) {
+    if (Number(row.expires) <= now || Number(row.last_used) + 30 * 60_000 <= now) {
       this.revokeSession(token);
       return;
     }
-    this.db
-      .prepare("UPDATE sessions SET last_used=? WHERE id=?")
-      .run(now, row.id);
+    this.db.prepare("UPDATE sessions SET last_used=? WHERE id=?").run(now, row.id);
     return Object.freeze({
       id: String(row.id),
       ...(row.account_id ? { accountId: String(row.account_id) } : {}),
@@ -430,17 +362,12 @@ export class AccountStore {
     )
       throw new Error("invalid session CSRF token");
   }
-  createChallenge(
-    sessionId: string,
-    purpose: string,
-    role?: BackendPasskeyRole,
-  ): AccountChallenge {
+  createChallenge(sessionId: string, purpose: string, role?: BackendPasskeyRole): AccountChallenge {
     const id = randomUUID(),
       now = this.now(),
-      challenge = Buffer.concat([
-        Buffer.from(`vault-${purpose}:`),
-        randomBytes(32),
-      ]).toString("base64url");
+      challenge = Buffer.concat([Buffer.from(`vault-${purpose}:`), randomBytes(32)]).toString(
+        "base64url",
+      );
     this.db.prepare("DELETE FROM challenges WHERE expires<=?").run(now);
     this.db
       .prepare("INSERT INTO challenges VALUES (?,?,?,?,?,?)")
@@ -455,9 +382,7 @@ export class AccountStore {
   ): AccountChallenge {
     return this.transaction(() => {
       const row = this.db
-        .prepare(
-          "SELECT * FROM challenges WHERE id=? AND session_id=? AND purpose=? AND role IS ?",
-        )
+        .prepare("SELECT * FROM challenges WHERE id=? AND session_id=? AND purpose=? AND role IS ?")
         .get(id, sessionId, purpose, role ?? null) as Row | undefined;
       if (!row || Number(row.expires) <= this.now())
         throw new Error("unknown, expired or consumed challenge");
@@ -471,9 +396,7 @@ export class AccountStore {
   }
   assertActiveSession(id: string, accountId: string): void {
     const row = this.db
-      .prepare(
-        "SELECT * FROM sessions WHERE id=? AND account_id=? AND authenticated=1",
-      )
+      .prepare("SELECT * FROM sessions WHERE id=? AND account_id=? AND authenticated=1")
       .get(id, accountId) as Row | undefined;
     if (
       !row ||
@@ -484,9 +407,7 @@ export class AccountStore {
   }
   submissionOwner(accountId: string, id: string): string | undefined {
     const row = this.db
-      .prepare(
-        "SELECT session_id FROM submission_owners WHERE account_id=? AND id=?",
-      )
+      .prepare("SELECT session_id FROM submission_owners WHERE account_id=? AND id=?")
       .get(accountId, id) as Row | undefined;
     return row ? String(row.session_id) : undefined;
   }
@@ -496,15 +417,9 @@ export class AccountStore {
       .run(accountId, id, sessionId);
     this.assertSubmissionOwner(accountId, id, sessionId);
   }
-  assertSubmissionOwner(
-    accountId: string,
-    id: string,
-    sessionId: string,
-  ): void {
+  assertSubmissionOwner(accountId: string, id: string, sessionId: string): void {
     const row = this.db
-      .prepare(
-        "SELECT session_id FROM submission_owners WHERE account_id=? AND id=?",
-      )
+      .prepare("SELECT session_id FROM submission_owners WHERE account_id=? AND id=?")
       .get(accountId, id) as Row | undefined;
     if (!row || row.session_id !== sessionId)
       throw new Error("submission belongs to another session");

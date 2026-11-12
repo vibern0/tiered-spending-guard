@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx --env-file=.env src/main.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "profile:verification": "tsx scripts/profile-verification.ts"
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "22.16.5",
+    "prettier": "3.9.9",
     "tsx": "4.19.4",
     "typescript": "5.8.3",
     "vitest": "4.1.10"

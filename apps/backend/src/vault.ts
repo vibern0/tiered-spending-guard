@@ -7,19 +7,12 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import {
-  SubmissionJournal,
-  type JournalEntry,
-  type Reconciliation,
-} from "./journal";
+import { SubmissionJournal, type JournalEntry, type Reconciliation } from "./journal";
 import type { VaultProvisioningResult } from "./server";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-export const SEPOLIA_USDC_ADDRESS =
-  "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
-const USDC_ABI = parseAbi([
-  "function transfer(address to,uint256 amount) returns (bool)",
-]);
+export const SEPOLIA_USDC_ADDRESS = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
+const USDC_ABI = parseAbi(["function transfer(address to,uint256 amount) returns (bool)"]);
 const SAFE_TX_TYPES = [
   { name: "to", type: "address" },
   { name: "value", type: "uint256" },
@@ -111,8 +104,7 @@ function assertHex(value: Hex, label: string): void {
 }
 
 function assertAddress(value: Address, label: string): void {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value))
-    throw new Error(`${label} is invalid`);
+  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) throw new Error(`${label} is invalid`);
 }
 
 function assertExactInput(input: PreparedUsdcTransfer): void {
@@ -147,12 +139,7 @@ export async function prepareUsdcTransfer(
   assertAddress(input.recipient, "recipient");
   if (input.usdc.toLowerCase() !== input.configuredUsdc.toLowerCase())
     throw new Error("USDC address is not the configured Circle USDC candidate");
-  if (
-    input.usdc === ZERO ||
-    input.recipient === ZERO ||
-    input.amount <= 0n ||
-    input.nonce < 0n
-  )
+  if (input.usdc === ZERO || input.recipient === ZERO || input.amount <= 0n || input.nonce < 0n)
     throw new Error("invalid USDC transfer bounds");
   if (
     !input.allowedRecipients.some(
@@ -165,8 +152,7 @@ export async function prepareUsdcTransfer(
   assertHex(input.idempotencyKey, "idempotencyKey");
   if (input.signatures !== undefined) {
     assertHex(input.signatures, "signatures");
-    if (input.signatures.length < 132)
-      throw new Error("primary Safe signature is invalid");
+    if (input.signatures.length < 132) throw new Error("primary Safe signature is invalid");
   }
   const data = encodeFunctionData({
     abi: USDC_ABI,
@@ -228,9 +214,7 @@ export type SafeSubmissionServiceOptions = Readonly<{
     request: SafeExecutionRequest,
     signatures: Readonly<{ role: "primary" | "secondary"; signature: Hex }[]>,
   ) => Promise<Hex>;
-  reconcile?: (
-    request: SafeExecutionRequest,
-  ) => Promise<Reconciliation | undefined>;
+  reconcile?: (request: SafeExecutionRequest) => Promise<Reconciliation | undefined>;
 }>;
 
 const exactRequest = (request: SafeExecutionRequest): SafeExecutionRequest =>
@@ -277,10 +261,7 @@ export class SafeSubmissionService {
   readonly broadcast: SafeSubmissionServiceOptions["broadcast"];
   private readonly options: SafeSubmissionServiceOptions;
   private readonly requests = new Map<string, SafeExecutionRequest>();
-  private readonly approvals = new Map<
-    string,
-    { primary?: Hex; secondary?: Hex }
-  >();
+  private readonly approvals = new Map<string, { primary?: Hex; secondary?: Hex }>();
 
   constructor(options: SafeSubmissionServiceOptions) {
     this.options = options;
@@ -339,8 +320,7 @@ export class SafeSubmissionService {
   ): Promise<SubmissionStatus> {
     const existing = this.options.journal.get(request.idempotencyKey);
     if (existing?.state === "uncertain") {
-      if (!this.options.reconcile)
-        throw new Error("reconcile uncertain broadcast before retry");
+      if (!this.options.reconcile) throw new Error("reconcile uncertain broadcast before retry");
       const reconciled = await this.options.reconcile(request);
       if (!reconciled) throw new Error("broadcast remains uncertain");
       this.options.journal.reconcile(request.idempotencyKey, reconciled);
@@ -355,10 +335,7 @@ export class SafeSubmissionService {
     if (existing?.state === "confirmed" || existing?.state === "reverted")
       return this.statusFromJournal(request, required);
     try {
-      if (
-        !approvals.primary ||
-        (required !== "primary" && !approvals.secondary)
-      )
+      if (!approvals.primary || (required !== "primary" && !approvals.secondary))
         throw new Error("required approvals are incomplete");
       const transactionHash = await this.broadcast(request, [
         { role: "primary", signature: approvals.primary },
@@ -366,10 +343,7 @@ export class SafeSubmissionService {
           ? [{ role: "secondary" as const, signature: approvals.secondary }]
           : []),
       ]);
-      this.options.journal.markSubmitted(
-        request.idempotencyKey,
-        transactionHash,
-      );
+      this.options.journal.markSubmitted(request.idempotencyKey, transactionHash);
       this.options.journal.reconcile(request.idempotencyKey, {
         status: "confirmed",
         transactionHash,
@@ -397,14 +371,10 @@ export class SafeSubmissionService {
       signature.length < 132 ||
       !(await this.options.verifySignature(role, request, signature))
     )
-      throw new Error(
-        `${role} signature does not authorize the exact Safe digest`,
-      );
+      throw new Error(`${role} signature does not authorize the exact Safe digest`);
   }
 
-  private requiredApprovals(
-    request: SafeExecutionRequest,
-  ): SubmissionStatus["requiredApprovals"] {
+  private requiredApprovals(request: SafeExecutionRequest): SubmissionStatus["requiredApprovals"] {
     const decoded = decodeFunctionData({
       abi: USDC_ABI,
       data: request.transaction.data,
@@ -425,8 +395,7 @@ export class SafeSubmissionService {
   ): SubmissionStatus {
     const entry = this.options.journal.get(request.idempotencyKey);
     if (!entry) throw new Error("unknown submission");
-    if (entry.state === "uncertain")
-      throw new Error("reconcile uncertain broadcast before retry");
+    if (entry.state === "uncertain") throw new Error("reconcile uncertain broadcast before retry");
     if (entry.state !== "confirmed" && entry.state !== "reverted")
       return {
         id: request.idempotencyKey,
@@ -467,8 +436,7 @@ export type BackendPreparedSubmission = Readonly<{
   publicRequest: Readonly<Record<string, unknown>>;
 }>;
 export type BackendSubmissionBody =
-  | Readonly<{ role: "primary" | "secondary"; assertion: unknown }>
-  | Readonly<{ role: "none" }>;
+  Readonly<{ role: "primary" | "secondary"; assertion: unknown }> | Readonly<{ role: "none" }>;
 export type BackendApproval = Readonly<{
   role: "primary" | "secondary";
   payload: Hex;
@@ -507,19 +475,14 @@ export type PwaSubmissionServiceOptions = Readonly<{
     approvals: readonly BackendApproval[],
     outerTransactionHash: Hex,
   ) => Promise<Hex>;
-  reconcile: (
-    outerTransactionHash: Hex,
-  ) => Promise<BackendSubmissionReceipt | undefined>;
+  reconcile: (outerTransactionHash: Hex) => Promise<BackendSubmissionReceipt | undefined>;
   discard?: (prepared: BackendPreparedSubmission) => void | Promise<void>;
 }>;
 
 const bytes32 = /^0x[0-9a-fA-F]{64}$/;
 
 function assertPreparedSubmission(value: BackendPreparedSubmission): void {
-  if (
-    !/^[A-Za-z0-9._:-]{1,160}$/.test(value.id) ||
-    !bytes32.test(value.requestHash)
-  )
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(value.id) || !bytes32.test(value.requestHash))
     throw new Error("prepared submission identity is invalid");
   if (
     ![
@@ -533,23 +496,16 @@ function assertPreparedSubmission(value: BackendPreparedSubmission): void {
     ].includes(value.kind)
   )
     throw new Error("prepared submission kind is invalid");
-  const direct =
-    value.kind === "execute-ready" || value.kind === "skip-expired";
+  const direct = value.kind === "execute-ready" || value.kind === "skip-expired";
   const expected =
-    value.kind === "base-transfer"
-      ? ["primary"]
-      : direct
-        ? []
-        : ["primary", "secondary"];
+    value.kind === "base-transfer" ? ["primary"] : direct ? [] : ["primary", "secondary"];
   if (
     value.requiredApprovals.length !== expected.length ||
     value.requiredApprovals.some((role, index) => role !== expected[index])
   )
     throw new Error("prepared submission approval roles are invalid");
   if (!direct && (!value.safeTxHash || !bytes32.test(value.safeTxHash)))
-    throw new Error(
-      "signed submission requires an exact Safe transaction hash",
-    );
+    throw new Error("signed submission requires an exact Safe transaction hash");
 }
 
 function assertSubmitBody(body: BackendSubmissionBody): void {
@@ -558,9 +514,7 @@ function assertSubmitBody(body: BackendSubmissionBody): void {
   const keys = Object.keys(body);
   if (body.role === "none") {
     if (keys.length !== 1)
-      throw new Error(
-        "permissionless submission contains an unsupported field",
-      );
+      throw new Error("permissionless submission contains an unsupported field");
     return;
   }
   if (
@@ -582,9 +536,7 @@ function publicView(
     requestHash: entry.requestHash,
     requiredApprovals: prepared?.requiredApprovals ?? [],
     approvals: entry.approvals,
-    ...(entry.outerTransactionHash
-      ? { transactionHash: entry.outerTransactionHash }
-      : {}),
+    ...(entry.outerTransactionHash ? { transactionHash: entry.outerTransactionHash } : {}),
     ...(entry.receipt ? { receipt: entry.receipt } : {}),
   });
 }
@@ -595,10 +547,7 @@ export class PwaSubmissionService {
   readonly broadcast: PwaSubmissionServiceOptions["broadcast"];
   private readonly options: PwaSubmissionServiceOptions;
   private readonly prepared = new Map<string, BackendPreparedSubmission>();
-  private readonly approvals = new Map<
-    string,
-    Map<"primary" | "secondary", BackendApproval>
-  >();
+  private readonly approvals = new Map<string, Map<"primary" | "secondary", BackendApproval>>();
   private readonly flights = new Map<string, Promise<BackendSubmissionView>>();
   private readonly statusFlights = new Map<string, Promise<BackendSubmissionView>>();
 
@@ -611,16 +560,9 @@ export class PwaSubmissionService {
   prepare(prepared: BackendPreparedSubmission): BackendPreparedSubmission {
     assertPreparedSubmission(prepared);
     const existing = this.prepared.get(prepared.id);
-    if (
-      existing &&
-      existing.requestHash.toLowerCase() !== prepared.requestHash.toLowerCase()
-    )
+    if (existing && existing.requestHash.toLowerCase() !== prepared.requestHash.toLowerCase())
       throw new Error("submission ID is already bound to another request");
-    const entry = this.journal.prepare(
-      prepared.id,
-      prepared.requestHash,
-      prepared.publicRequest,
-    );
+    const entry = this.journal.prepare(prepared.id, prepared.requestHash, prepared.publicRequest);
     this.prepared.set(
       prepared.id,
       existing ??
@@ -635,17 +577,14 @@ export class PwaSubmissionService {
     return this.prepared.get(prepared.id)!;
   }
 
-  forgetApprovalsFor(matches: (id: string) => boolean): void { for (const id of this.approvals.keys()) if (matches(id)) this.approvals.delete(id); }
+  forgetApprovalsFor(matches: (id: string) => boolean): void {
+    for (const id of this.approvals.keys()) if (matches(id)) this.approvals.delete(id);
+  }
 
-  submit(
-    id: string,
-    body: BackendSubmissionBody,
-  ): Promise<BackendSubmissionView> {
+  submit(id: string, body: BackendSubmissionBody): Promise<BackendSubmissionView> {
     const active = this.flights.get(id);
     if (active) return active;
-    const flight = this.submitOnce(id, body).finally(() =>
-      this.flights.delete(id),
-    );
+    const flight = this.submitOnce(id, body).finally(() => this.flights.delete(id));
     this.flights.set(id, flight);
     return flight;
   }
@@ -662,19 +601,11 @@ export class PwaSubmissionService {
     const entry = this.journal.get(id);
     if (!entry) throw new Error("unknown submission");
     if (entry.state === "submitting" || entry.state === "uncertain") {
-      if (
-        !entry.outerTransactionHash ||
-        !bytes32.test(entry.outerTransactionHash)
-      )
+      if (!entry.outerTransactionHash || !bytes32.test(entry.outerTransactionHash))
         throw new Error("durable outer transaction hash is missing");
-      const receipt = await this.options.reconcile(
-        entry.outerTransactionHash as Hex,
-      );
+      const receipt = await this.options.reconcile(entry.outerTransactionHash as Hex);
       if (receipt) {
-        if (
-          receipt.transactionHash.toLowerCase() !==
-          entry.outerTransactionHash.toLowerCase()
-        )
+        if (receipt.transactionHash.toLowerCase() !== entry.outerTransactionHash.toLowerCase())
           throw new Error("reconciliation returned another transaction hash");
         return this.reconcileTerminalView(id, receipt);
       }
@@ -691,15 +622,7 @@ export class PwaSubmissionService {
     if (!prepared) return this.status(id);
     const existing = this.journal.get(id);
     if (!existing) throw new Error("unknown submission");
-    if (
-      [
-        "submitting",
-        "uncertain",
-        "confirmed",
-        "reverted",
-        "superseded",
-      ].includes(existing.state)
-    )
+    if (["submitting", "uncertain", "confirmed", "reverted", "superseded"].includes(existing.state))
       return this.status(id);
     const direct = prepared.requiredApprovals.length === 0;
     if (body.role === "none") {
@@ -709,27 +632,16 @@ export class PwaSubmissionService {
         );
       return this.broadcastPrepared(prepared, []);
     }
-    if (direct)
-      throw new Error("permissionless lifecycle submission must use role none");
+    if (direct) throw new Error("permissionless lifecycle submission must use role none");
     if (!prepared.requiredApprovals.includes(body.role))
       throw new Error(`${body.role} approval is not required`);
-    const current =
-      this.approvals.get(id) ??
-      new Map<"primary" | "secondary", BackendApproval>();
+    const current = this.approvals.get(id) ?? new Map<"primary" | "secondary", BackendApproval>();
     if (body.role === "secondary" && !current.has("primary"))
       throw new Error("primary approval is required before secondary approval");
-    if (current.has(body.role))
-      throw new Error(`${body.role} approval is already present`);
+    if (current.has(body.role)) throw new Error(`${body.role} approval is already present`);
     await this.revalidateOrSupersede(prepared);
-    const approval = await this.options.verifyApproval(
-      body.role,
-      prepared,
-      body.assertion,
-    );
-    if (
-      approval.role !== body.role ||
-      !/^0x(?:[0-9a-fA-F]{2})+$/.test(approval.payload)
-    )
+    const approval = await this.options.verifyApproval(body.role, prepared, body.assertion);
+    if (approval.role !== body.role || !/^0x(?:[0-9a-fA-F]{2})+$/.test(approval.payload))
       throw new Error("verified approval does not match the requested role");
     current.set(body.role, approval);
     this.approvals.set(id, current);
@@ -749,10 +661,7 @@ export class PwaSubmissionService {
     await this.revalidateOrSupersede(prepared);
     let outerTransactionHash: Hex;
     try {
-      outerTransactionHash = await this.options.deriveOuterHash(
-        prepared,
-        approvals,
-      );
+      outerTransactionHash = await this.options.deriveOuterHash(prepared, approvals);
       if (!bytes32.test(outerTransactionHash))
         throw new Error("locally derived outer transaction hash is invalid");
     } catch (error) {
@@ -766,11 +675,7 @@ export class PwaSubmissionService {
       throw error;
     }
     try {
-      const broadcastHash = await this.options.broadcast(
-        prepared,
-        approvals,
-        outerTransactionHash,
-      );
+      const broadcastHash = await this.options.broadcast(prepared, approvals, outerTransactionHash);
       if (broadcastHash.toLowerCase() !== outerTransactionHash.toLowerCase())
         throw new Error("provider returned another transaction hash");
       const view = await this.status(prepared.id);
@@ -781,25 +686,28 @@ export class PwaSubmissionService {
       // flight. Never downgrade that durable evidence after a provider failure.
       if (this.journal.get(prepared.id)?.state === "submitting")
         this.journal.markUncertain(prepared.id);
-      throw new Error(
-        "submission became uncertain; reconcile the durable outer hash",
-      );
+      throw new Error("submission became uncertain; reconcile the durable outer hash");
     } finally {
       this.approvals.delete(prepared.id);
     }
   }
 
-  private reconcileTerminalView(id: string, receipt: BackendSubmissionReceipt): BackendSubmissionView {
+  private reconcileTerminalView(
+    id: string,
+    receipt: BackendSubmissionReceipt,
+  ): BackendSubmissionView {
     const retained = (): BackendSubmissionView | undefined => {
       const current = this.journal.get(id);
-      if (!current || (current.state !== "confirmed" && current.state !== "reverted")) return undefined;
+      if (!current || (current.state !== "confirmed" && current.state !== "reverted"))
+        return undefined;
       if (
         current.state !== receipt.status ||
         current.outerTransactionHash?.toLowerCase() !== receipt.transactionHash.toLowerCase() ||
         current.receipt?.transactionHash.toLowerCase() !== receipt.transactionHash.toLowerCase() ||
         current.receipt?.blockNumber !== receipt.blockNumber ||
         current.receipt?.blockHash.toLowerCase() !== receipt.blockHash.toLowerCase()
-      ) throw new Error("terminal receipt conflicts with retained evidence");
+      )
+        throw new Error("terminal receipt conflicts with retained evidence");
       return publicView(current, this.prepared.get(id));
     };
     const existing = retained();
@@ -809,7 +717,10 @@ export class PwaSubmissionService {
     } catch (error) {
       // Another process can finish between the fresh read and the locked mutation.
       // Only a terminal-state race is reusable; persistence errors must still stop.
-      if (error instanceof Error && /^terminal submission cannot be reconciled from (confirmed|reverted)$/.test(error.message)) {
+      if (
+        error instanceof Error &&
+        /^terminal submission cannot be reconciled from (confirmed|reverted)$/.test(error.message)
+      ) {
         const raced = retained();
         if (raced) return raced;
       }
@@ -817,9 +728,7 @@ export class PwaSubmissionService {
     }
   }
 
-  private async revalidateOrSupersede(
-    prepared: BackendPreparedSubmission,
-  ): Promise<void> {
+  private async revalidateOrSupersede(prepared: BackendPreparedSubmission): Promise<void> {
     try {
       await this.options.revalidate(prepared);
     } catch (error) {
@@ -830,8 +739,16 @@ export class PwaSubmissionService {
 
   private async discardBeforeBroadcast(prepared: BackendPreparedSubmission): Promise<void> {
     this.approvals.delete(prepared.id);
-    try { await this.options.discard?.(prepared); } catch { /* Preserve the signing/persistence failure; never broadcast. */ }
-    try { this.supersede(prepared.id); } catch { /* A failed journal remains non-authorizing. */ }
+    try {
+      await this.options.discard?.(prepared);
+    } catch {
+      /* Preserve the signing/persistence failure; never broadcast. */
+    }
+    try {
+      this.supersede(prepared.id);
+    } catch {
+      /* A failed journal remains non-authorizing. */
+    }
   }
 
   private supersede(id: string): void {
@@ -853,12 +770,8 @@ export async function provisionFreshVault(
     provisioner: FreshVaultProvisioner;
   }>,
 ): Promise<VaultProvisioningResult> {
-  if (input.chainId !== 11155111)
-    throw new Error("only Sepolia vault provisioning is supported");
-  if (
-    !input.relayPrivateKey ||
-    !/^0x[0-9a-fA-F]{64}$/.test(input.relayPrivateKey)
-  )
+  if (input.chainId !== 11155111) throw new Error("only Sepolia vault provisioning is supported");
+  if (!input.relayPrivateKey || !/^0x[0-9a-fA-F]{64}$/.test(input.relayPrivateKey))
     throw new Error("local relay secret is required");
   if (input.usdc.toLowerCase() !== SEPOLIA_USDC_ADDRESS.toLowerCase())
     throw new Error("reviewed Sepolia USDC address is required");
