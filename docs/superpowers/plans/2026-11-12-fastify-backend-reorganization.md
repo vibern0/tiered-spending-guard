@@ -15,7 +15,7 @@
 - Preserve all HTTP paths, payloads, status codes, headers, session checks, and fail-closed behavior.
 - Keep loopback, exact Origin, Host, CSRF, account, and body-size enforcement.
 - No signer, contract, encoding, provider, or deployment change.
-- Pin exact dependency. Update lockfiles and dependency review.
+- Pin exact dependency. Update the active pnpm lockfile and dependency review.
 
 ## Review Focus
 
@@ -31,7 +31,6 @@
 
 **Files:**
 - Modify: `apps/backend/package.json`
-- Modify: `package-lock.json`
 - Modify: `pnpm-lock.yaml`
 - Create: `apps/backend/src/http/fastify.ts`
 - Modify: `apps/backend/tests/backend-surface.test.ts`
@@ -66,7 +65,7 @@ Expected: PASS.
 - Create: `apps/backend/tests/services.test.ts`
 
 **Interfaces:**
-- Produces: `AccountService.setup()`, `AccountService.project(session)`, `TransactionService.prepare()`, `submit()`, and `find()`.
+- Produces: `AccountService.create()`, `AccountService.project(session)`, `TransactionService.prepare()`, `submit()`, and `find()`.
 - Consumes: existing `AccountStore` and `AccountGateway` without authority expansion.
 
 - [x] **Step 1: Add failing service tests**
@@ -134,20 +133,24 @@ Expected: PASS.
 - Consumes: completed Fastify migration.
 - Produces: documented structure and checked plan.
 
-- [ ] **Step 1: Document Fastify routes and services**
+- [x] **Step 1: Document Fastify routes and services**
 
 Describe folder ownership. State API and security boundary remain unchanged.
 
-- [ ] **Step 2: Run full verification**
+- [x] **Step 2: Run full verification**
 
 Run: `npm run backend:format && npm run backend:format:check && npm run backend:typecheck && npm run backend:test && npm run check && git diff --check`
 Expected: all commands exit 0.
 
-- [ ] **Step 3: Review diff**
+Result: format, backend typecheck, 221 backend tests, 853 security-core tests, and diff check pass. Repository `app:test` has 30 pre-existing failures on unchanged `apps/app` code; isolated failures reproduce outside the backend suite.
+
+- [x] **Step 3: Review diff**
 
 Confirm no route, status, auth, signer, contract, encoding, provider, or deployment change.
 
-- [ ] **Step 4: Commit and push**
+Result: route inventory matches. Review found and fixed one Fastify `text/plain` parser compatibility gap; regression test preserves JSON-only account writes with HTTP 415.
+
+- [x] **Step 4: Commit and push**
 
 Commit migration. Push `main` only after verification passes.
 

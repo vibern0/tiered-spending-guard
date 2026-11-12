@@ -97,6 +97,15 @@ describe("multi-user passkey HTTP", () => {
     expect(backend.fastify.hasRoute({ method: "GET", url: "/v1/submissions/:id" })).toBe(true);
   });
 
+  it("keeps the JSON-only account write boundary", async () => {
+    const { client } = await fixture();
+    const response = await client().request("/v1/auth/setup", {}, { "content-type": "text/plain" });
+    expect(response).toMatchObject({
+      status: 415,
+      data: { error: "JSON request required", code: "account_request_failed" },
+    });
+  });
+
   it("automatically starts reconciliation when listening and drains it before closing", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

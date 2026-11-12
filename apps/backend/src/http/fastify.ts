@@ -77,6 +77,12 @@ export function createBackendFastify(options: BackendFastifyOptions): FastifyIns
   fastify.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
     observeBackendRequest(request.raw, reply.raw, request.id, options.log);
+    if (
+      options.json.strictContentType &&
+      request.method === "POST" &&
+      request.headers["content-type"]?.split(";", 1)[0] !== "application/json"
+    )
+      throw statusError(415, "JSON request required");
   });
   fastify.addHook("onSend", async (_request, reply, payload) => {
     reply.header("cache-control", "no-store");

@@ -22,6 +22,12 @@ A shared payer-wide queue/lease serializes nonce planning and broadcasts across 
 
 Local tests represent synced credentials cryptographically. Actual cloud-provider synchronization and another physical device reaching this service remain later HTTPS/mobile gates: a phone's localhost is its own loopback address.
 
+## Code structure
+
+Fastify creates and owns both backend HTTP servers. `src/http/fastify.ts` defines the shared JSON, request-ID, no-store, and request-observation boundary. `src/routes/` contains every route registration, split between multi-user account domains and the historical single-vault test surface. `src/services/account-service.ts` owns account creation and public session projection. `src/services/transaction-service.ts` owns account-scoped submission preparation, submission, and lookup orchestration. `src/account-server.ts` and `src/server.ts` only compose those pieces, map safe errors, and manage lifecycle resources.
+
+This layout does not change the HTTP contract or authority model. Routes still enforce loopback, Host, exact Origin, cookie, CSRF, selected-account, body-size, and no-store requirements. Services receive only the existing store and gateway capabilities; they do not gain signer, RPC, contract, or deployment authority.
+
 ## Run
 
 Keep relay keys, RPC URLs, credential metadata, and journal data outside the repository. Set:
