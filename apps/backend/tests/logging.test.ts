@@ -1,105 +1,134 @@
-import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
-import {
-  backendLogRoute,
-  logBackendReady,
-  logBackendStarting,
-  observeBackendRequest,
-  type BackendLogEvent,
-} from "../src/logging";
-import type { BackendConfig } from "../src/config";
+import { createBackendFastify } from "../src/http/fastify";
+import { captureBackendLogs } from "./logger-fixture";
 
-const servers: ReturnType<typeof createServer>[] = [];
+const servers: ReturnType<typeof createBackendFastify>[] = [];
 afterEach(async () => {
-  for (const server of servers.splice(0)) {
-    server.closeAllConnections();
-    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+	for (const server of servers.splice(0)) await server.close();
 });
-const config = {
-  host: "127.0.0.1",
-  port: 0,
-  origin: "http://localhost:5173",
-  rpcUrl: "https://rpc.invalid/private-token",
-  relayPrivateKey: `0x${"11".repeat(32)}`,
-} as BackendConfig;
+function fixture() {
+	const { logger, entries } = captureBackendLogs();
+	const server = createBackendFastify({
+		logger,
+		json: {
+			strictContentType: true,
+			requireObject: true,
+			invalidMessage: "invalid JSON",
+			bigintKeys: [],
+		},
+	});
+	servers.push(server);
+	server.get("/health", async () => ({ ok: true }));
+	server.post("/v1/submissions/:id/submit", async (request) => {
+		request.log.info("Checking approved submission");
+		return { ok: true };
+	});
+	server.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: "not found" }));
+	return { server, entries };
+}
 
-it("distinguishes startup from actual listening and reports the real bound port without secrets", async () => {
-  const events: BackendLogEvent[] = [];
-  const log = (event: BackendLogEvent) => {
-    events.push(event);
-  };
-  const server = createServer();
-  servers.push(server);
-  logBackendStarting(config, log);
-  expect(events).toEqual([
-    expect.objectContaining({
-      code: "backend_starting",
-      host: "127.0.0.1",
-      port: 0,
-    }),
-  ]);
-  expect(() => logBackendReady(config, server, log)).toThrow("not listening");
-  expect(events).toHaveLength(1);
-  await new Promise<void>((resolve) => server.listen(0, config.host, resolve));
-  logBackendReady(config, server, log);
-  const port = (server.address() as { port: number }).port;
-  expect(events[1]).toMatchObject({
-    code: "backend_ready",
-    host: "127.0.0.1",
-    port,
-    url: `http://localhost:${port}`,
-    allowedOrigin: config.origin,
-    message: `Backend ready at http://localhost:${port}`,
-  });
-  expect(JSON.stringify(events)).not.toMatch(/rpc\.invalid|private-token|1111111111/);
-});
-
-it("logs long-running arrivals immediately and reports a disconnected client once", async () => {
-  const events: BackendLogEvent[] = [];
-  let received!: () => void;
-  let aborted!: () => void;
-  const arrival = new Promise<void>((resolve) => {
-    received = resolve;
-  });
-  const disconnected = new Promise<void>((resolve) => {
-    aborted = resolve;
-  });
-  const server = createServer((req, res) => {
-    observeBackendRequest(req, res, "test-request", (event) => {
-      events.push(event);
-      if (event.code === "request_received") received();
-      if (event.code === "request_aborted") aborted();
-    });
-    // Keep the response open, as during a long confirmation wait.
-  });
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, config.host, resolve));
-  const port = (server.address() as { port: number }).port;
-  const controller = new AbortController();
-  const request = fetch(`http://127.0.0.1:${port}/v1/vaults/auto-provision`, {
-    method: "POST",
-    signal: controller.signal,
-  }).catch(() => undefined);
-  await arrival;
-  expect(events).toHaveLength(1);
-  controller.abort();
-  await request;
-  await disconnected;
-  expect(events).toHaveLength(2);
-  expect(events[1]).toMatchObject({
-    level: "warn",
-    code: "request_aborted",
-    requestId: "test-request",
-    durationMs: expect.any(Number),
-  });
-  expect(events[1]).not.toHaveProperty("status");
+it("uses native Fastify request logs with one generated correlation ID and response timing", async () => {
+	const { server, entries } = fixture();
+	const response = await server.inject({
+		url: "/health",
+		headers: { "x-request-id": "untrusted-id" },
+	});
+	expect(response.statusCode).toBe(200);
+	expect(entries).toEqual([
+		expect.objectContaining({
+			level: 30,
+			msg: "incoming request",
+			req: { method: "GET", route: "/health" },
+			reqId: response.headers["x-request-id"],
+		}),
+		expect.objectContaining({
+			level: 30,
+			msg: "request completed",
+			res: { statusCode: 200 },
+			responseTime: expect.any(Number),
+			reqId: response.headers["x-request-id"],
+		}),
+	]);
+	expect(response.headers["x-request-id"]).not.toBe("untrusted-id");
 });
 
-it("redacts submission identifiers and never logs arbitrary paths", () => {
-  expect(backendLogRoute("/v1/submissions/private-reference/submit?secret=never")).toBe(
-    "/v1/submissions/:id/submit",
-  );
-  expect(backendLogRoute("/v1/submissions/private-reference")).toBe("/v1/submissions/:id");
-  expect(backendLogRoute("/private-token")).toBe("unmatched");
+it("keeps headers, bodies, identifiers and unknown paths out of native logs", async () => {
+	const { server, entries } = fixture();
+	await server.inject({
+		method: "POST",
+		url: "/v1/submissions/private-reference/submit?secret=query-token",
+		headers: {
+			authorization: "Bearer header-token",
+			cookie: "session=cookie-token",
+			"content-type": "application/json",
+		},
+		payload: { assertion: "body-token" },
+	});
+	await server.inject({ url: "/private-path-token?secret=query-token" });
+	expect(entries).toContainEqual(
+		expect.objectContaining({
+			msg: "incoming request",
+			req: { method: "POST", route: "/v1/submissions/:id/submit" },
+		}),
+	);
+	expect(entries).toContainEqual(
+		expect.objectContaining({
+			msg: "incoming request",
+			req: { method: "GET", route: "unmatched" },
+		}),
+	);
+	const custom = entries.find((entry) => entry.msg === "Checking approved submission");
+	expect(custom?.reqId).toBe(entries[0].reqId);
+	expect(JSON.stringify(entries)).not.toMatch(
+		/private-reference|query-token|header-token|cookie-token|body-token|private-path-token/,
+	);
+});
+
+it("lets Fastify log the actual listening address", async () => {
+	const { server, entries } = fixture();
+	await server.listen({ port: 0, host: "127.0.0.1" });
+	const port = (server.server.address() as { port: number }).port;
+	expect(entries).toContainEqual(
+		expect.objectContaining({ msg: `Server listening at http://127.0.0.1:${port}` }),
+	);
+});
+
+it("prevents Pino from copying private error text into an implicit log message", () => {
+	const { logger, entries } = captureBackendLogs();
+	const error = new Error("request /private-reference?secret=provider-token failed");
+	logger.warn({ err: error });
+	logger.error(error);
+	logger.error({ err: error, code: "rpc_request_failed" }, "Provider verification failed safely");
+	expect(entries).toHaveLength(3);
+	expect(entries[2]).toMatchObject({
+		code: "rpc_request_failed",
+		msg: "Provider verification failed safely",
+	});
+	expect(JSON.stringify(entries)).not.toMatch(/private-reference|provider-token/);
+	expect(error.message).toContain("provider-token");
+});
+
+it("records a disconnected long-running request once without leaking input", async () => {
+	const { server, entries } = fixture();
+	let received!: () => void;
+	const arrival = new Promise<void>((resolve) => {
+		received = resolve;
+	});
+	server.get("/v1/submissions/:id", async (_request, reply) => {
+		received();
+		await new Promise<void>((resolve) => reply.raw.once("close", resolve));
+	});
+	await server.listen({ port: 0, host: "127.0.0.1" });
+	const port = (server.server.address() as { port: number }).port;
+	const controller = new AbortController();
+	const response = fetch(`http://127.0.0.1:${port}/v1/submissions/private-reference`, {
+		signal: controller.signal,
+	}).catch(() => undefined);
+	await arrival;
+	controller.abort();
+	await response;
+	await expect
+		.poll(() => entries.filter((entry) => entry.msg === "request aborted").length)
+		.toBe(1);
+	expect(JSON.stringify(entries)).not.toContain("private-reference");
 });

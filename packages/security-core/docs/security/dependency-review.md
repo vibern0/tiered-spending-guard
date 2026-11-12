@@ -144,3 +144,41 @@ No package, version, lockfile, contract artifact or signed profile commitment ch
 ## 2026-11-12 project identity rename
 
 The repository, web apps, and private workspace package scope are renamed to `tiered-spending-guard` and `@tiered-spending-guard/*`. No third-party package version, resolved artifact, Solidity dependency, contract bytecode, signer behavior, transaction encoding, deployment address, or runtime security boundary changed. Historical evidence retains the filesystem paths and legacy contract names recorded when that evidence was produced.
+
+## Backend dotenv, ESLint and Swagger — 2026-11-12
+
+Scope: backend developer tooling and public read-only HTTP documentation. Exact direct versions are pinned in `apps/backend/package.json`; transitive versions and registry SHA-512 integrity are committed in `pnpm-lock.yaml`. Existing contracts, compiled dependencies, canonical deployment addresses and runtime code hashes are unchanged. These packages are not deployed EVM dependencies; chain/address/runtime-bytecode fields are not applicable. Registry integrity establishes artifact identity, not an audit. No independent security audit of these additions or this composition is claimed.
+
+| Package | Exact version | Role / provenance |
+| --- | --- | --- |
+| `dotenv` | `18.0.10` | Runtime CLI-only external configuration loader; [upstream source](https://github.com/motdotla/dotenv), BSD-2-Clause. Explicit quiet/debug/override options; shell precedence and sanitized failures. |
+| `@fastify/swagger` | `9.9.3` | Runtime static OpenAPI decorator; [upstream source](https://github.com/fastify/fastify-swagger), MIT. Documentation schemas are not attached to executable route validation. |
+| `@fastify/swagger-ui` | `6.1.3` | Runtime bundled documentation UI/assets; [tagged upstream source](https://github.com/fastify/fastify-swagger-ui/tree/v6.1.3), MIT. Installed plugin metadata requires Fastify `5.x` and `@fastify/swagger`; tests verify compatibility with pinned `fastify@5.12.8`. |
+| `eslint`, `@eslint/js` | `9.39.5` | Development-only recommended lint rules; [ESLint source](https://github.com/eslint/eslint), MIT. Matches existing web-workspace resolution; no production import. |
+| `typescript-eslint` | `8.71.0` | Development-only TypeScript lint parser/rules; [upstream source](https://github.com/typescript-eslint/typescript-eslint), MIT. |
+| `eslint-config-prettier` | `10.1.8` | Development-only conflict removal between lint and formatting; [upstream source](https://github.com/prettier/eslint-config-prettier), MIT. |
+| `openapi-types` | `12.1.3` | Development-only static specification types; [upstream source](https://github.com/kogosoftwarellc/open-api/tree/master/packages/openapi-types), MIT. Type imports erase at runtime. |
+
+Direct runtime integrity:
+
+- `dotenv@18.0.10`: `sha512-89FAA1xchzK2mxVWdr5F/0rldwiueXs6zJM86rO66EzekR1iBdiXRthyG+m5GvkJaFH3C2LESzamTkgndmLT2A==`
+- `@fastify/swagger@9.9.3`: `sha512-1whjjguZlh4VV6OP2SD7w7ZNXXuLPwLcxbKIu7GckhHGgCyIYwtOyBskc3TLZa7LsaRmZZRiB1nz/JTaCI5grQ==`
+- `@fastify/swagger-ui@6.1.3`: `sha512-gEV0wqNx9yBqTUAw0TOpVQRtHPxehk91rVRRTDrWVbi1FnV0R4Vb6qh7jYlqoEiL1/qSix/dhHzmeUbKbgrAGg==`
+
+The initial Swagger UI 5 candidate was rejected after registry audit found vulnerable `@fastify/static@9.3.0`, including route-guard/path-normalization bypass advisories. The selected UI resolves `@fastify/static@10.1.10`, `glob@14.0.5` and `minimatch@11.0.8` in the lockfile. The shared `fast-uri` resolution was patched from `3.1.8` to `3.1.9` (BSD-3-Clause; integrity `sha512-hS/0Wt3Ya043oKXs0sIxrMpKQITXhMLIrVAKKXi4gozGC9v7YRWVnXIZzjNPTO02M9BdxLCWqK1yRXgNziVyJQ==`) to avoid introducing the known URI normalization/host/scheme advisories through Swagger's resolver. This also patches existing consumers of that same resolution. No other pre-existing direct package was upgraded.
+
+`pnpm audit --prod --json` after these changes reports no advisory paths through the added dotenv/Swagger packages. The workspace audit is not clean: it still reports 2 high, 5 moderate and 2 low findings in existing dependencies, including backend `viem → abitype → zod@3.25.76` paths. These pre-existing dependencies are outside this tooling change and require a separate compatibility/security review; the audit result is not presented as a passing security gate. The configured Codacy MCP analyzer is unavailable in this session; registry audit, ESLint, TypeScript and executable regression/integration tests supply the available local checks.
+
+Swagger inherits the existing loopback/Host/Origin/no-store boundary and serves only committed static descriptions and bundled assets. UI write controls, persisted authorization and remote validation are disabled. Tests exercise denial on documentation and asset paths, response privacy, route coverage and both server compositions. The environment loader accepts an external absolute file or the existing ignored symlink to one; its parser receives explicit quiet/debug/override settings and does not import into the isolated read-only profiler. Existing file/path/profile validation and every signer/transaction/monitoring invariant remain in force.
+
+Prettier stays pinned at `3.9.9`; backend `useTabs: true` and `tabWidth: 4` plus editor defaults change source formatting only. ESLint fixes remove unused bindings and preserve initialization timing for late-bound handlers with narrow documented exceptions. Raw Node-server test startup was replaced by Fastify lifecycle startup to await asynchronous documentation plugins. No deployment, signing or live broadcast was performed.
+
+## Native backend logging — 2026-11-12 follow-up
+
+Backend now directly pins `pino@10.4.0` (MIT), the exact version already used transitively by `fastify@5.12.8`. No Pino runtime version changes. Registry integrity: `sha512-bk1ZMTwG/Vymx+zPoa28MhNzucFvXJWp3csrSuxuHPSMeUettaCoQ5Jvg07mtC4JGNpcfTwz41oVCnNgBK9+vA==`. [Pino source](https://github.com/pinojs/pino); configuration follows [Fastify logging](https://fastify.dev/docs/latest/Reference/Logging/). Fastify receives the native instance through `loggerInstance`; custom console JSON events are removed. Explicit serializers emit only allowlisted request/response information, raw error serialization is suppressed, and caller request-ID headers are disabled. Handlers and receipt reconciliation use the native request/server logger.
+
+`pino-pretty@13.2.0` is an exact development dependency (MIT), integrity `sha512-jjghD1ML+Di/WxjJDz6j6Y4FT7hIXOlb8h27AyJ+ohtAXJXH4PS/xkv7si+RCCIW59HMgZsMKTDgzdr0RhuRrg==`; [upstream source](https://github.com/pinojs/pino-pretty). Only non-production CLI startup selects its transport. `NODE_ENV=production` keeps native JSON and requires no pretty formatter. No chain/deployment address or runtime bytecode fields apply to these Node logging packages; registry identity is not audit evidence.
+
+The post-install production registry audit has the same existing 2 high / 5 moderate / 2 low findings and no new advisory paths through Pino. Contract, signer, encoding, provider, deployment, receipt and independent-alert gates remain unchanged. New CLI modules isolate execution from imported factories/profiler code. Tests capture actual Pino output and verify redaction, correlation, real bound address, completion timing, disconnect behavior and startup formatting without private data or live broadcasts.
+
+Review reproduced Pino copying raw error text into implicit `msg` before serialization. A narrow native `logMethod` hook now supplies a generic message for implicit Error/err calls; the serializer still excludes the structured payload. Tests proved the leak before the hook and verify both implicit forms, unchanged original errors and preserved explicit safe diagnostic codes/messages.

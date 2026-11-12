@@ -30,6 +30,12 @@ This layout does not change the HTTP contract or authority model. Routes still e
 
 ## Run
 
+`pnpm backend:dev` loads dotenv before validating configuration. By default it resolves `apps/backend/.env` relative to the entrypoint, independently of the shell's current directory. Keep the actual file outside this repository and use a local ignored symlink, or set `DOTENV_CONFIG_PATH` to an absolute external file. Existing shell values take precedence. A missing default file is allowed when settings are exported; an explicitly selected missing file, broken symlink, unreadable file or repository-local target fails with a sanitized error. Environment contents and private paths are never printed by the loader. The read-only profiling command deliberately does not load backend secrets.
+
+```sh
+DOTENV_CONFIG_PATH=/absolute/path/outside/repository/backend.env pnpm backend:dev
+```
+
 Keep relay keys, RPC URLs, credential metadata, and journal data outside the repository. Set:
 
 ```sh
@@ -59,6 +65,33 @@ After recovery, first-passkey sign-in opens the existing account without requiri
 This automation deliberately accepts the backend-compromise risk for local Sepolia Phase One. The local authorizer bounds consistency and cost; it is not an independent approver because it runs in the same process and trust domain as the planner, relay key, and broadcaster. A compromised backend that can alter that process can approve its own malicious plan within or by bypassing those checks. A later KMS/policy service must implement the same `ProvisioningAuthorizer` boundary in a separately administered trust domain before this design can claim independent authorization.
 
 ## HTTP contract
+
+Open [Swagger UI](http://localhost:8787/documentation/) after starting the backend. The [OpenAPI JSON](http://localhost:8787/documentation/json) and [YAML](http://localhost:8787/documentation/yaml) document every application endpoint, request/response schema, approval sequence, authentication/header requirement and bigint wire format. The normal account API documents 13 operations; the legacy/test/HTTPS composition serves its own 10-operation specification, including singleton-only rebind routes. Documentation and bundled assets inherit existing loopback, Host (account API), Origin and no-store checks. Swagger's write console and remote validator are disabled. Schemas describe the existing contract without replacing runtime validation or serialization.
+
+## Logging and entrypoints
+
+`pnpm backend:dev` runs the dedicated `src/index.ts` entrypoint. `src/main.ts` exports import-safe server factories; importing it never starts a server or loads private configuration. The read-only profiler also has its own `scripts/profile-verification-cli.ts` entrypoint, separate from its importable implementation. Neither command detects execution by comparing file URLs with process arguments.
+
+Fastify's native Pino logger records incoming requests, completion status and response time with a generated `reqId`. Handlers use `request.log`; background receipt checks use `fastify.log`. Development startup uses `pino-pretty` for readable timestamps/levels; `NODE_ENV=production` keeps standard JSON output and does not load the development formatter. Both use stdout. Tests normally use a silent logger or capture real Pino records.
+
+Request/response serializers include only the method, closed route label and status code. Headers, cookies, bodies, assertions, submission identifiers, unknown paths and raw error payloads/stacks are excluded. A narrow Pino hook prevents implicit error messages from copying raw error text before serialization. Safe diagnostic codes/stages remain available for failures; disconnects are recorded once through the request logger. This operational logging never authorizes transactions and does not replace independent receipt alerts.
+
+## Development checks and structure guide
+
+Backend formatting uses **tab characters with a display width of 4** (`useTabs: true`, `tabWidth: 4`), also declared in `.editorconfig`. Prettier controls formatting; ESLint checks TypeScript correctness/style without competing indentation rules. Private environment/data files and generated output are excluded.
+
+```sh
+pnpm backend:format
+pnpm backend:format:check
+pnpm backend:lint
+pnpm backend:lint:fix
+pnpm backend:typecheck
+pnpm backend:test
+```
+
+The root `check` includes backend linting. See the [current codebase diagrams and reorganization candidates](../../docs/codebase-map.md) and [file-by-file guide](../../docs/file-guide.md) before moving responsibilities.
+
+### Submission behavior
 
 The local default composes fixed-provider topology/snapshot verification, closed intent preparation and simulation, verified primary-first approvals, bounded exact outer-envelope signing, a synced public hash before one broadcast, and six-confirmation read-only observation. `GET /health` exposes `provisioningReady` separately from `writesReady`: empty fresh setup may register/provision while sends remain unavailable. An authenticated first key and a current verified vault are required; exact second approvals remain action-specific. The external submission journal and provisioning runner share a payer lease; any unresolved submission hash blocks a new signature even after restart. Status reconciliation reconstructs the original prepared intent at its recorded block and follows the exact stored hash without another signature or broadcast.
 
