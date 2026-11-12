@@ -69,20 +69,20 @@ Expected: PASS.
 - Produces: `AccountService.setup()`, `AccountService.project(session)`, `TransactionService.prepare()`, `submit()`, and `find()`.
 - Consumes: existing `AccountStore` and `AccountGateway` without authority expansion.
 
-- [ ] **Step 1: Add failing service tests**
+- [x] **Step 1: Add failing service tests**
 
 Prove account setup returns one unprivileged session projection. Prove transaction lookup passes exact account and submission ID. Prove prepare/submit pass exact session ownership.
 
-- [ ] **Step 2: Run service tests**
+- [x] **Step 2: Run service tests**
 
 Run: `npm --prefix apps/backend test -- --run tests/services.test.ts`
 Expected: FAIL because service modules are absent.
 
-- [ ] **Step 3: Implement minimal services**
+- [x] **Step 3: Implement minimal services**
 
 Move orchestration only. Keep persistence, WebAuthn verification, signing, and gateway authority in current owners.
 
-- [ ] **Step 4: Run service tests**
+- [x] **Step 4: Run service tests**
 
 Run: `npm --prefix apps/backend test -- --run tests/services.test.ts`
 Expected: PASS.

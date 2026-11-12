@@ -139,7 +139,7 @@ export function createBackendServer(
     (options.log ?? writeBackendLog)(event);
     return reply.code(400).send({ error: message, ...diagnostic, requestId: request.id });
   });
-  void fastify.ready().catch((error: Error) => fastify.server.emit("error", error));
+  void Promise.resolve(fastify.ready()).catch((error: Error) => fastify.server.emit("error", error));
   return Object.freeze({
     fastify,
     server: fastify.server,
