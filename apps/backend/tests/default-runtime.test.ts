@@ -9,7 +9,7 @@ import type { BackendPwaProvisioningCompletion } from "../src/provisioner";
 import type {
   PwaHistoricalVault,
   PwaProvisioningPlan,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 
 const mocks = vi.hoisted(() => ({
   factory: vi.fn(),

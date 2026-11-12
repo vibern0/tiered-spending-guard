@@ -1,5 +1,5 @@
 {
-  "name": "@recent-tx-safe-guard/landing",
+  "name": "@tiered-spending-guard/landing",
   "private": true,
   "sideEffects": false,
   "type": "module",

@@ -2,7 +2,7 @@
 
 **Status:** Research baseline
 **Date:** 2026-09-16
-**Repository:** `recent-tx-safe-guard`
+**Repository:** `tiered-spending-guard`
 
 ## 2026-10-19 supersession: approved native Safe ERC-4337 candidate
 

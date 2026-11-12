@@ -16,12 +16,12 @@ import { formatCountdown } from "@/lib/activity-model";
 export const Route = createFileRoute("/limits")({
   head: () => ({
     meta: [
-      { title: "Limits & security — USDC Vault" },
+      { title: "Limits & security — tiered-spending-guard" },
       {
         name: "description",
         content: "Daily limits, waiting period, allowed recipients and approval devices.",
       },
-      { property: "og:title", content: "Limits & security — USDC Vault" },
+      { property: "og:title", content: "Limits & security — tiered-spending-guard" },
       {
         property: "og:description",
         content: "Daily limits, waiting period, allowed recipients and approval devices.",

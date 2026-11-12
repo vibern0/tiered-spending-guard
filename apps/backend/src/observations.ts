@@ -11,8 +11,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
-import type { PwaObserverRecord } from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import type { PwaObserverRecord } from "@tiered-spending-guard/security-core/pwa";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 const comparable = ({

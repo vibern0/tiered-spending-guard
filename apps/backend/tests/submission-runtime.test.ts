@@ -8,7 +8,7 @@ import { loadBackendConfig } from "../src/config";
 
 // Unit boundary only: the separate EVM integration suite uses original branded proofs.
 const f = vi.hoisted(() => ({ prepare: vi.fn(), snapshot: {} as any, policy: {} as any }));
-vi.mock("@recent-tx-safe-guard/security-core/pwa", async (original) => {
+vi.mock("@tiered-spending-guard/security-core/pwa", async (original) => {
   const actual = await original<any>();
   const core = actual.default ?? actual;
   return {

@@ -12,7 +12,7 @@ import { executeVaultPrerequisites } from "./vault-runner";
 import { buildOrdinaryReviewPolicyDraft, ORDINARY_REVIEW_SIGNER_SOURCE, readOrdinaryReviewConfig, selectApprovedFees } from "./ordinary-review-profile";
 import { prepareOrdinaryReviewExecutionPreflight, runOnlyWithLiveSubmitAuthorization } from "./ordinary-review-execution";
 
-const directory = "/Users/bernardo/.local/share/recent-tx-safe-guard/sepolia";
+const directory = "/Users/bernardo/.local/share/tiered-spending-guard/sepolia";
 const zero = "0x0000000000000000000000000000000000000000" as const;
 
 async function main(): Promise<void> {

@@ -5,7 +5,7 @@ import { createPublicClient, createWalletClient, http, parseAbi, toHex, type Hex
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { describe, expect, it, vi } from "vitest";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { AccountStore } from "../src/account-store";
 import { createAccountServer } from "../src/account-server";
 import { createAccountGatewayForTestsOnly } from "../src/account-runtime";

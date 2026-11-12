@@ -7,7 +7,7 @@ import {
   brandPwaProvisioningExecutionContextForTestsOnly,
   type PwaProvisioningPlan,
   type PwaProvisioningTransaction,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 import {
   createAutomaticPwaProvisioner,
   pwaProvisioningAuthorizationPath,

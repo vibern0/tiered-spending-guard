@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Session } from "node:inspector/promises";
 import { isAddress, type Address } from "viem";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { assertExternalBackendPath } from "../src/config";
 import { createSubmissionReadClient } from "../src/submission-runtime";
 import { loadManagedPwaSuccessors, mergePwaSuccessors } from "../src/managed-successors";

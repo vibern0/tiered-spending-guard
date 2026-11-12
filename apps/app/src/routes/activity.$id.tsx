@@ -16,9 +16,9 @@ import { useNow, useVault } from "@/lib/vault-store";
 export const Route = createFileRoute("/activity/$id")({
   head: () => ({
     meta: [
-      { title: "Transfer details — USDC Vault" },
+      { title: "Transfer details — tiered-spending-guard" },
       { name: "description", content: "Status, approvals and technical details for one transfer." },
-      { property: "og:title", content: "Transfer details — USDC Vault" },
+      { property: "og:title", content: "Transfer details — tiered-spending-guard" },
       {
         property: "og:description",
         content: "Status, approvals and technical details for one transfer.",

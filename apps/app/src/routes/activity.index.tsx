@@ -18,12 +18,12 @@ export const Route = createFileRoute("/activity/")({
   validateSearch: z.object({ filter: z.enum(["all", "attention", "done", "closed"]).optional() }),
   head: () => ({
     meta: [
-      { title: "Activity — USDC Vault" },
+      { title: "Activity — tiered-spending-guard" },
       {
         name: "description",
         content: "Every transfer, approval and scheduled withdrawal in one timeline.",
       },
-      { property: "og:title", content: "Activity — USDC Vault" },
+      { property: "og:title", content: "Activity — tiered-spending-guard" },
       {
         property: "og:description",
         content: "Every transfer, approval and scheduled withdrawal in one timeline.",

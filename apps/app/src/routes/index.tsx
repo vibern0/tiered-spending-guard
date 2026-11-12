@@ -17,12 +17,12 @@ import { useNow, useVault } from "@/lib/vault-store";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Home — USDC Vault" },
+      { title: "Home — tiered-spending-guard" },
       {
         name: "description",
         content: "Your Sepolia USDC balance, quick actions and recent activity.",
       },
-      { property: "og:title", content: "Home — USDC Vault" },
+      { property: "og:title", content: "Home — tiered-spending-guard" },
       {
         property: "og:description",
         content: "Your Sepolia USDC balance, quick actions and recent activity.",

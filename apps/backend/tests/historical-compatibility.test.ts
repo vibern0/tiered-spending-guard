@@ -6,7 +6,7 @@ import { loadBackendConfig } from "../src/config";
 import { createConfiguredBackend } from "../src/main";
 import { createAutomaticPwaProvisioner } from "../src/provisioner";
 import { createBackendHandlers } from "../src/handlers";
-import type { PwaHistoricalVault } from "@recent-tx-safe-guard/security-core/pwa";
+import type { PwaHistoricalVault } from "@tiered-spending-guard/security-core/pwa";
 
 const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
 const hash = `0x${"12".repeat(32)}` as const;

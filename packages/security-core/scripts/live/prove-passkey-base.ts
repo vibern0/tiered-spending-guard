@@ -7,7 +7,7 @@ import { createLiveJournalStore, createSepoliaLiveContext } from "./runtime";
 import { submitLiveIntent, type LiveIntent } from "./submission";
 import { signWebAuthn } from "./webauthn";
 
-const directory = "/Users/bernardo/.local/share/recent-tx-safe-guard/sepolia";
+const directory = "/Users/bernardo/.local/share/tiered-spending-guard/sepolia";
 const safe = "0x0129cba52b1f0b929f2a9a971fff841f5228ff4e" as const;
 const primary = "0x6F9c2f4f8526A17f38c9409a8cBF605b34Fa146c" as const;
 const zero = "0x0000000000000000000000000000000000000000" as const;

@@ -253,7 +253,7 @@ importers:
 
   apps/backend:
     dependencies:
-      '@recent-tx-safe-guard/security-core':
+      '@tiered-spending-guard/security-core':
         specifier: workspace:*
         version: link:../../packages/security-core
       '@simplewebauthn/server':

@@ -8,7 +8,7 @@ import type { VerifiedPasskeyApproval } from "../src/webauthn";
 import type {
   PwaProvisioningPlan,
   PwaProvisioningResult,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;

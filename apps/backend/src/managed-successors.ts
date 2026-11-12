@@ -11,8 +11,8 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import type { Address } from "viem";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
-import type { PwaProvisioningSuccessor } from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import type { PwaProvisioningSuccessor } from "@tiered-spending-guard/security-core/pwa";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 type Ledger = {

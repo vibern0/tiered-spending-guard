@@ -39,7 +39,7 @@ const testPasskeySigner = (provider = verifierProvider(), sign: (request: SafeSi
 const fabricatedDeployments = (branded = false) => Object.freeze({
   chainId: 31337,
   dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ address: PASSKEY }) }),
-  ...(branded ? { [Symbol.for("recent-tx-safe-guard.test.verified-deployments")]: true } : {}),
+  ...(branded ? { [Symbol.for("tiered-spending-guard.test.verified-deployments")]: true } : {}),
 });
 
 const verifiedDeployments = () => brandVerifiedDeploymentInfrastructureForTestsOnly({

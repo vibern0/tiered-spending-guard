@@ -15,7 +15,7 @@ import type { Address, Hex } from "viem";
 import type {
   PwaProvisioningPlan,
   PwaProvisioningResult,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 
 export type CredentialRebindStatus = Readonly<{
   required: boolean;

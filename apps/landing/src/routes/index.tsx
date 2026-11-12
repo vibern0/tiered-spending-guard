@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "recent-tx-safe-guard — Onchain policy for self-custody" },
+      { title: "tiered-spending-guard — Onchain policy for self-custody" },
       {
         name: "description",
         content:
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/")({
       },
       {
         property: "og:title",
-        content: "recent-tx-safe-guard — Onchain policy for self-custody",
+        content: "tiered-spending-guard — Onchain policy for self-custody",
       },
       {
         property: "og:description",
@@ -135,10 +135,10 @@ function LandingHeader() {
         <a
           href="#top"
           className="brand-mark"
-          aria-label="recent-tx-safe-guard home"
+          aria-label="tiered-spending-guard home"
         >
           <ShieldCheck className="size-5 text-violet-300" aria-hidden />
-          <span>recent-tx-safe-guard</span>
+          <span>tiered-spending-guard</span>
           <small>simple rules. safer ownership.</small>
         </a>
         <Link
@@ -166,7 +166,7 @@ function Hero() {
           </span>
         </h1>
         <p className="hero-description">
-          recent-tx-safe-guard is a one-Safe vault with a clear transaction
+          tiered-spending-guard is a one-Safe vault with a clear transaction
           policy. Everyday actions are fast. Larger actions are delayed. Your
           assets, better protected.
         </p>
@@ -637,7 +637,7 @@ function LandingFooter() {
         <div className="footer-bottom">
           <span className="brand-mark">
             <ShieldCheck className="size-5 text-violet-300" aria-hidden />
-            <span>recent-tx-safe-guard</span>
+            <span>tiered-spending-guard</span>
           </span>
           <span>
             Independent review and audit required before production use.

@@ -1,4 +1,4 @@
-# recent-tx-safe-guard landing page
+# tiered-spending-guard landing page
 
 Standalone technical landing page for the security-core project.
 

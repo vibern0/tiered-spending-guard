@@ -383,7 +383,7 @@ Expected: all commands exit 0; 0 test failures; Slither has no unreviewed findin
 
 - [x] **Step 5: Generate and inspect unsigned example package**
 
-Run: `npm run package:sepolia-rehearsal -- config/sepolia.example.json /tmp/recent-tx-safe-guard-issue-5-rehearsal`
+Run: `npm run package:sepolia-rehearsal -- config/sepolia.example.json /tmp/tiered-spending-guard-issue-5-rehearsal`
 
 Expected: deterministic public artifacts only. Record human signing/live-Sepolia gate outstanding. Do not fabricate transaction hashes or mark issue #5 complete.
 

@@ -5,7 +5,7 @@ import { createPublicClient, http, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { describe, expect, it } from "vitest";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { profileVerification } from "../scripts/profile-verification";
 import type { BackendConfig } from "../src/config";
 import {

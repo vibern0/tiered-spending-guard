@@ -11,12 +11,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/send")({
   head: () => ({
     meta: [
-      { title: "Send USDC — USDC Vault" },
+      { title: "Send USDC — tiered-spending-guard" },
       {
         name: "description",
         content: "Send USDC and see exactly which approvals are needed first.",
       },
-      { property: "og:title", content: "Send USDC — USDC Vault" },
+      { property: "og:title", content: "Send USDC — tiered-spending-guard" },
       {
         property: "og:description",
         content: "Send USDC and see exactly which approvals are needed first.",

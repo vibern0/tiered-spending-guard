@@ -17,7 +17,7 @@ import {
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { BackendPreparedSubmission } from "./vault";
 import { SubmissionJournal } from "./journal";
-import type { PwaHistoricalVault } from "@recent-tx-safe-guard/security-core/pwa";
+import type { PwaHistoricalVault } from "@tiered-spending-guard/security-core/pwa";
 
 export type VaultProvisioningResult = Readonly<{
   chainId: 11155111;

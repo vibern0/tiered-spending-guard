@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { assertExternalBackendPath } from "./config";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;

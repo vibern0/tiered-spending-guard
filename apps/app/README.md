@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# tiered-spending-guard wallet app
 
 This project was built with [Lovable](https://lovable.dev).
 
@@ -16,7 +16,7 @@ Prefer working locally? You need Node.js and pnpm.
 
 ```sh
 git clone <this-repository-url>
-cd <repository-name>
+cd tiered-spending-guard
 pnpm install
 pnpm --dir apps/app dev
 ```

@@ -15,7 +15,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import type {
   PreparedPwaIntent,
   PwaIntent,
@@ -24,7 +24,7 @@ import type {
   PwaObserverClient,
   SubmissionRequest,
   RelayerContext,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 import type { BackendConfig } from "./config";
 import type { BackendIntent, BackendVaultRecord } from "./handlers";
 import type { ConfiguredSubmissionRuntime } from "./main";

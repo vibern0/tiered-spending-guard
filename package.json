@@ -1,5 +1,5 @@
 {
-  "name": "recent-tx-safe-guard",
+  "name": "tiered-spending-guard",
   "private": true,
   "workspaces": [
     "packages/*",

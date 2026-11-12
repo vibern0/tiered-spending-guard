@@ -48,7 +48,7 @@ Review every decoded setup call against `docs/security/call-graph.md` before any
 Create the public review package:
 
 ```sh
-npm run package:sepolia-rehearsal -- config/sepolia.example.json /tmp/recent-tx-safe-guard-issue-5-rehearsal
+npm run package:sepolia-rehearsal -- config/sepolia.example.json /tmp/tiered-spending-guard-issue-5-rehearsal
 ```
 
 The package directory contains only `unsigned-plan.json`, `decoded-review.json`, `public-manifest.json`, and `expected-evidence-hashes.json`. It must not contain signatures, private keys, RPC URLs, passkey material, Burner PINs, broadcast instructions, or recovery fields. Treat the package as input to human review; it is not an instruction to submit any transaction.

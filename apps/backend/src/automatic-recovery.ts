@@ -1,4 +1,4 @@
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import type { Address } from "viem";
 import type {
   PwaHistoricalVault,
@@ -7,7 +7,7 @@ import type {
   PwaProvisioningSuccessor,
   HistoricalPwaReadClient,
   PwaProvisioningRecoveryClient,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 import type { BackendConfig } from "./config";
 import {
   appendManagedPwaSuccessor,

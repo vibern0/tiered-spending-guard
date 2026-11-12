@@ -1,6 +1,6 @@
 {
-  "name": "Sepolia USDC Vault",
-  "short_name": "USDC Vault",
+  "name": "tiered-spending-guard",
+  "short_name": "tiered-spending-guard",
   "description": "Installable Sepolia-only prototype for a guarded USDC vault.",
   "id": "/",
   "start_url": "/",

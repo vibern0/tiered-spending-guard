@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Address, Hex } from "viem";
-import type { PwaProvisioningSuccessor } from "@recent-tx-safe-guard/security-core/pwa";
+import type { PwaProvisioningSuccessor } from "@tiered-spending-guard/security-core/pwa";
 import { describe, expect, it } from "vitest";
 import {
   appendManagedPwaSuccessor,

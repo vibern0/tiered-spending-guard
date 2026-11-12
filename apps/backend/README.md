@@ -1,4 +1,4 @@
-# Local USDC wallet backend
+# tiered-spending-guard local wallet backend
 
 `apps/backend` is a loopback-only Ethereum Sepolia testnet backend for the browser wallet. It is required for passkey registration, automatic Phase One vault provisioning, and Safe submissions. The local CLI composes a concrete `ConfiguredSubmissionRuntime`; HTTP sending becomes ready for the signed-in account after vault verification; the first signer approves base transfers and the second signer is requested only by actions that require it. Historical vaults remain read-only.
 

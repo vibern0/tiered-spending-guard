@@ -11,9 +11,9 @@ export const Route = createFileRoute("/receive")({
   validateSearch: z.object({ mode: z.enum(["topup", "receive"]).optional() }),
   head: () => ({
     meta: [
-      { title: "Add USDC — USDC Vault" },
+      { title: "Add USDC — tiered-spending-guard" },
       { name: "description", content: "Get free test USDC or receive from another account." },
-      { property: "og:title", content: "Add USDC — USDC Vault" },
+      { property: "og:title", content: "Add USDC — tiered-spending-guard" },
       {
         property: "og:description",
         content: "Get free test USDC or receive from another account.",

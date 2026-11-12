@@ -1,5 +1,5 @@
 {
-  "name": "@recent-tx-safe-guard/app",
+  "name": "@tiered-spending-guard/app",
   "private": true,
   "sideEffects": false,
   "type": "module",

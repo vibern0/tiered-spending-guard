@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/onboarding")({
   head: () => ({
     meta: [
-      { title: "Set up your account — USDC Vault" },
+      { title: "Set up your account — tiered-spending-guard" },
       {
         name: "description",
         content: "Register two passkeys and provision a reviewed Sepolia vault.",

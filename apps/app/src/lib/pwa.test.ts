@@ -90,8 +90,8 @@ describe("wallet PWA artifacts", () => {
     };
 
     expect(manifest).toMatchObject({
-      name: "Sepolia USDC Vault",
-      short_name: "USDC Vault",
+      name: "tiered-spending-guard",
+      short_name: "tiered-spending-guard",
       start_url: "/",
       scope: "/",
       display: "standalone",

@@ -789,7 +789,7 @@ export function createVaultBackend(
       const passkeyName = `tiered-guard-vault-${timestamp}`;
       const registrationOptions = {
         challenge: options.challenge,
-        rp: { id: options.rpId, name: "USDC Vault Demo" },
+        rp: { id: options.rpId, name: "tiered-spending-guard" },
         user: {
           id:
             options.userHandle ??

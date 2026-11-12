@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { AccountStore } from "./account-store";
 import type { AccountGateway } from "./account-server";
 import type { BackendConfig } from "./config";

@@ -8,9 +8,9 @@ const valid = {
   BACKEND_RP_ID: "localhost",
   BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
   BACKEND_RPC_URL: "https://sepolia.example.invalid",
-  BACKEND_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/backend-journal.json",
-  BACKEND_PROVISIONING_JOURNAL_PATH: "/tmp/recent-tx-safe-guard/provisioning-live-journal.json",
-  BACKEND_PROVISIONING_REVIEW_DIRECTORY: "/tmp/recent-tx-safe-guard/provisioning-reviews",
+  BACKEND_JOURNAL_PATH: "/tmp/tiered-spending-guard/backend-journal.json",
+  BACKEND_PROVISIONING_JOURNAL_PATH: "/tmp/tiered-spending-guard/provisioning-live-journal.json",
+  BACKEND_PROVISIONING_REVIEW_DIRECTORY: "/tmp/tiered-spending-guard/provisioning-reviews",
 };
 
 describe("backend configuration", () => {

@@ -1,7 +1,7 @@
 import { createPublicClient, http, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import * as pwaNamespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as pwaNamespace from "@tiered-spending-guard/security-core/pwa";
 import type {
   PwaProvisioningExecutionContext,
   PwaProvisioningPlan,
@@ -12,7 +12,7 @@ import type {
   PwaProvisioningTransaction,
   PwaHistoricalVault,
   HistoricalPwaReadClient,
-} from "@recent-tx-safe-guard/security-core/pwa";
+} from "@tiered-spending-guard/security-core/pwa";
 import type { StoredCredential } from "./webauthn";
 import type { BackendConfig } from "./config";
 import { recoverAutomaticPwaProvisioning } from "./automatic-recovery";

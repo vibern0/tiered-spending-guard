@@ -4,9 +4,9 @@
 
 **Date:** 2026-09-26
 
-**Issue:** [#5](https://github.com/vibern0/recent-tx-safe-guard/issues/5)
+**Issue:** [#5](https://github.com/vibern0/tiered-spending-guard/issues/5)
 
-**Blocks:** [#4](https://github.com/vibern0/recent-tx-safe-guard/issues/4)
+**Blocks:** [#4](https://github.com/vibern0/tiered-spending-guard/issues/4)
 
 ## Purpose
 

@@ -1,5 +1,5 @@
 {
-  "name": "@recent-tx-safe-guard/security-core",
+  "name": "@tiered-spending-guard/security-core",
   "private": true,
   "exports": {
     "./pwa": {

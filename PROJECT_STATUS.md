@@ -1,4 +1,4 @@
-# Project checkpoint — paused 2026-10-29
+# tiered-spending-guard checkpoint — paused 2026-10-29
 
 Work is paused at the user’s request. The client-only Safe/Pimlico wallet is not complete; this snapshot preserves the ordinary-Safe baseline, recovery tooling and partial Sepolia evidence.
 

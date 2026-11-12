@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import * as pwaNamespace from "@recent-tx-safe-guard/security-core/pwa";
+import * as pwaNamespace from "@tiered-spending-guard/security-core/pwa";
 
 const pwaRuntime =
   (pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;

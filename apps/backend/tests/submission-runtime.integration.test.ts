@@ -22,8 +22,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { describe, expect, it, vi } from "vitest";
-import * as namespace from "@recent-tx-safe-guard/security-core/pwa";
-import type { PwaProvisioningResult } from "@recent-tx-safe-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import type { PwaProvisioningResult } from "@tiered-spending-guard/security-core/pwa";
 import {
   createSubmissionReadClient,
   createSubmissionRuntimeForTestsOnly,
