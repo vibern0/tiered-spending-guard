@@ -88,6 +88,31 @@ describe("backend public surface", () => {
     expect(typeof createBackendServer).toBe("function");
   });
 
+  it("uses Fastify as the backend server foundation", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pwa-backend-fastify-"));
+    const config = loadBackendConfig({
+      BACKEND_PROFILE: "local",
+      BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
+      BACKEND_RPC_URL: "https://sepolia.example.invalid",
+      BACKEND_JOURNAL_PATH: join(directory, "journal.json"),
+      BACKEND_PROVISIONING_JOURNAL_PATH: join(directory, "provisioning-journal.json"),
+      BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(directory, "reviews"),
+    });
+    const backend = createBackendServer(config, {
+      autoProvisionVault: async () => {
+        throw new Error("not used");
+      },
+    });
+    try {
+      expect(backend.fastify.server).toBe(backend.server);
+      const response = await backend.fastify.inject({ method: "GET", url: "/health" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, chainId: 11155111 });
+    } finally {
+      if (backend.server.listening) await backend.close();
+    }
+  });
+
   it("starts through the real entrypoint with the concrete internal provisioner", async () => {
     const directory = mkdtempSync(join(tmpdir(), "pwa-backend-startup-"));
     const config = loadBackendConfig({

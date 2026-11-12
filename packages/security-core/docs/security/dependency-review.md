@@ -18,6 +18,7 @@ This allowlist pins exact npm versions. Integrity values are the npm registry `d
 | `apps/app` direct `viem` dependency | `2.56.7` | `sha512-8YXhttIOKikDnTLj4byvGQmF43Gi0FtEfxUWd6OqSJiuz9bxNYNGmzlS8ZaNiYSKUEfs5vmNprvwPIki9Lk4YA==` | npm `2.56.7` | Client library; no smart-contract audit claim | Sepolia demo reads only | Not applicable | Not applicable |
 | `@simplewebauthn/browser` | `14.0.0` | `sha512-1odWVqeEBTl7lJ9zMKLEsmTlnyrDO5iRcTvfMKKk1WThUnp/i8JJdffdj2icP+tty159s4PgwE3BiMoEW9NFow==` | npm `14.0.0`; https://github.com/MasterKale/SimpleWebAuthn | Browser WebAuthn transport; no custody or contract-audit claim | Sepolia demo browser only | Not applicable | Not applicable |
 | `@simplewebauthn/server` | `14.0.3` | `sha512-D39/0fiDiYmGV+nraY9s63D1Ho2AX/waMLy22/9gUadTUuvbAnstfb4bpbHYbwZuV5ZLDYN1SmzDKuiHzKAA4Q==` | npm `14.0.3`; https://github.com/MasterKale/SimpleWebAuthn | Backend WebAuthn verification; no custody or contract-audit claim | Loopback backend only | Not applicable | Not applicable |
+| `fastify` | `5.12.8` | `sha512-moP8exb2sCHLUbJkwp+I6C0padhy4D8lp0SdmzY7HhSdZuqm7O/u3o2aq7u8okaQ//33QDzj3G/u+FsSdB8Qzw==` | npm `5.12.8`; https://github.com/fastify/fastify | OpenJS Foundation HTTP framework; no custody or contract-audit claim | Loopback backend only | Not applicable | Not applicable |
 | `tsx` | `4.19.4` | `sha512-gK5GVzDkJK1SI1zwHf32Mqxf2tSJkNx+eYcNly5+nHvWqXUJYUkWBQtKauoESz3ymezAI++ZwT855x5p5eop+Q==` | npm `4.19.4`; https://github.com/privatenumber/tsx | Dev-only TypeScript entrypoint; no custody or contract-audit claim | Local testnet process only | Not applicable | Not applicable |
 
 Safe v1.5 module guards are a hard requirement for later integration. The old `@gnosis.pm/safe-contracts@1.3.0` dependency is deliberately rejected and removed because the historical prototype predates module guards and is not an acceptable security baseline.
@@ -135,6 +136,10 @@ No package, version, lockfile, contract artifact or signed profile commitment ch
 ## 2026-11-12 backend Prettier formatter
 
 `apps/backend` pins `prettier@3.9.9` with npm integrity `sha512-Z/CJHIkdujO/OtN7nXUii0Rf3VT5SRuhjBA82Xvu2XhBUgX3nhP67T0LHceBdQLex7OOFGTox+Q5Yg8Jk2Qivg==` from the tagged MIT-licensed Prettier release. It is a development-only source formatter and is not imported by backend runtime code, bundled for deployment, or involved in contracts, transaction encoding, signer validation, RPC transport, provisioning, or broadcasts. The exact version is recorded in `apps/backend/package.json` and `pnpm-lock.yaml`; formatting and format-check scripts exclude the private `.env` symlink and generated output directories.
+
+## 2026-11-12 Fastify backend runtime
+
+`apps/backend` pins `fastify@5.12.8` with npm integrity `sha512-moP8exb2sCHLUbJkwp+I6C0padhy4D8lp0SdmzY7HhSdZuqm7O/u3o2aq7u8okaQ//33QDzj3G/u+FsSdB8Qzw==`. Fastify owns HTTP routing, body parsing, request lifecycle, and the Node server. Existing backend code still enforces loopback, Host, exact Origin, cookie, CSRF, account binding, body size, no-store, error sanitization, and receipt-worker shutdown. This dependency changes no contract, signer, transaction encoding, provider identity, deployment artifact, or browser write authority. The backend remains testnet research and is not production-ready.
 
 ## 2026-11-12 project identity rename
 
