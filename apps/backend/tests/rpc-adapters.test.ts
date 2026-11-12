@@ -17,7 +17,8 @@ vi.mock("viem", async (original) => ({
 	...(await original<any>()),
 	createPublicClient: () => rpc,
 }));
-import { createReadClient, createRelayClient } from "../src/provisioner";
+import { createReadClient } from "../src/chain/read-client";
+import { createRelayClient } from "../src/chain/relay-client";
 
 describe("configured provisioning relay pinned reads", () => {
 	it("normalizes only viem transaction absence into pending evidence", async () => {

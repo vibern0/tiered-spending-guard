@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { encodePacked, keccak256, type Address, type Hex } from "viem";
-import type { BackendVaultRecord } from "../src/handlers";
-import { loadBackendConfig } from "../src/config";
+import type { BackendVaultRecord } from "../src/vaults/types";
+import { loadBackendConfig } from "../src/config/config";
 
 // Unit boundary only: the separate EVM integration suite uses original branded proofs.
 const f = vi.hoisted(() => ({ prepare: vi.fn(), snapshot: {} as any, policy: {} as any }));
@@ -37,7 +37,7 @@ vi.mock("@tiered-spending-guard/security-core/pwa", async (original) => {
 import {
 	createSubmissionReadClient,
 	createSubmissionRuntimeForTestsOnly,
-} from "../src/submission-runtime";
+} from "../src/submissions/runtime";
 
 const address = (i: number) => `0x${i.toString(16).padStart(40, "0")}` as Address;
 const blockHash = `0x${"ab".repeat(32)}` as Hex;

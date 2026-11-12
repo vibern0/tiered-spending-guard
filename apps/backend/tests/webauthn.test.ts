@@ -2,13 +2,13 @@ import type { Address, Hex } from "viem";
 import { bytesToHex, encodeAbiParameters } from "viem";
 import { describe, expect, it } from "vitest";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
-import { decodeP256Credential, parseP256DerSignature } from "../src/webauthn-signature";
+import { decodeP256Credential, parseP256DerSignature } from "../src/auth/signatures";
 import {
 	encodeP256CosePublicKey,
 	verifyPasskeyAssertion,
 	verifyPasskeyRebind,
 	verifyPasskeyRegistration,
-} from "../src/webauthn";
+} from "../src/auth/webauthn";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const HASH = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hex;
@@ -408,7 +408,7 @@ describe("backend recovered-credential rebind", () => {
 
 describe("durable approval replay identity", () => {
 	it("normalizes the P-256 s ambiguity without changing the Safe payload", async () => {
-		const { passkeyApprovalFingerprint } = await import("../src/webauthn");
+		const { passkeyApprovalFingerprint } = await import("../src/auth/webauthn");
 		const parameters = [
 			{ type: "bytes" },
 			{ type: "string" },

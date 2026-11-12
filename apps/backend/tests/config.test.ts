@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadBackendConfig } from "../src/config";
+import { loadBackendConfig } from "../src/config/config";
 import { resolve } from "node:path";
 
 const valid = {

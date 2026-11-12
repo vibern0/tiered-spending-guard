@@ -24,9 +24,23 @@ Local tests represent synced credentials cryptographically. Actual cloud-provide
 
 ## Code structure
 
-Fastify creates and owns both backend HTTP servers. `src/http/fastify.ts` defines the shared JSON, request-ID, no-store, and request-observation boundary. `src/routes/` contains every route registration, split between multi-user account domains and the historical single-vault test surface. `src/services/account-service.ts` owns account creation and public session projection. `src/services/transaction-service.ts` owns account-scoped submission preparation, submission, and lookup orchestration. `src/account-server.ts` and `src/server.ts` only compose those pieces, map safe errors, and manage lifecycle resources.
+`src/index.ts` is the executable entrypoint. It loads external environment/configuration, configures logging and starts the import-safe application factory in `src/app.ts`. Application composition connects the account store, shared payer coordinator, account runtimes, HTTP server and receipt worker; shutdown drains work and closes owned resources.
 
-This layout does not change the HTTP contract or authority model. Routes still enforce loopback, Host, exact Origin, cookie, CSRF, selected-account, body-size, and no-store requirements. Services receive only the existing store and gateway capabilities; they do not gain signer, RPC, contract, or deployment authority.
+| Folder           | Responsibility                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accounts/`      | SQLite public metadata, account/session projection, per-account runtime cache and shared application contracts. Counter/replay writes remain atomic in one store. |
+| `auth/`          | HTTP adapters, registration/login workflows, exact transaction-approval credential handling, WebAuthn verification and signature parsing.                         |
+| `vaults/`        | Current verified vault, readiness and provisioning/submission coordination.                                                                                       |
+| `provisioning/`  | Immutable deployment workflow, concrete private runtime, verified restart recovery and successor lineage.                                                         |
+| `submissions/`   | Closed intent preparation, approval/state lifecycle, bounded execution, canonical receipt verification, durable journals and public observations.                 |
+| `chain/`         | Shared approved RPC readers, relay adapters, strict batching and one payer-wide queue/lease across all accounts.                                                  |
+| `http/`          | Fastify setup, request security context, safe error mapping, health, Swagger and documentation schema helpers.                                                    |
+| `jobs/`          | Receipt reconciliation scheduling and drain-on-shutdown.                                                                                                          |
+| `compatibility/` | Preserved singleton test/restricted HTTPS routes, challenge stores and older submission API.                                                                      |
+
+Feature `schemas.ts` files own their documentation models and endpoint descriptions; `http/openapi.ts` assembles them without changing runtime validation. Routes adapt HTTP inputs/context/results. Services own workflow ordering. Chain adapters own narrow external capabilities. The receipt observer receives no private signer or broadcaster. Existing exported constructor names are retained where callers rely on them.
+
+See the [current codebase diagrams](../../docs/codebase-map.md) and [complete file guide](../../docs/file-guide.md) for responsibilities and dependency flow.
 
 ## Run
 
@@ -70,7 +84,7 @@ Open [Swagger UI](http://localhost:8787/documentation/) after starting the backe
 
 ## Logging and entrypoints
 
-`pnpm backend:dev` runs the dedicated `src/index.ts` entrypoint. `src/main.ts` exports import-safe server factories; importing it never starts a server or loads private configuration. The read-only profiler also has its own `scripts/profile-verification-cli.ts` entrypoint, separate from its importable implementation. Neither command detects execution by comparing file URLs with process arguments.
+`pnpm backend:dev` runs the dedicated `src/index.ts` entrypoint. `src/app.ts` exports import-safe server factories; importing it never starts a server or loads private configuration. The read-only profiler also has its own `scripts/profile-verification-cli.ts` entrypoint, separate from its importable implementation. Neither command detects execution by comparing file URLs with process arguments.
 
 Fastify's native Pino logger records incoming requests, completion status and response time with a generated `reqId`. Handlers use `request.log`; background receipt checks use `fastify.log`. Development startup uses `pino-pretty` for readable timestamps/levels; `NODE_ENV=production` keeps standard JSON output and does not load the development formatter. Both use stdout. Tests normally use a silent logger or capture real Pino records.
 

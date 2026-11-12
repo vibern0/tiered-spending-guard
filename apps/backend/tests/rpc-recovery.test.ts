@@ -1,6 +1,6 @@
 import { EstimateGasExecutionError, HttpRequestError, ResourceNotFoundRpcError } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sanitizeRpc } from "../src/provisioner";
+import { sanitizeRpc } from "../src/chain/read-client";
 
 afterEach(() => vi.useRealTimers());
 

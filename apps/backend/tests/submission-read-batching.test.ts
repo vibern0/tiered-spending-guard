@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseAbi, type Address } from "viem";
-import { createSubmissionReadClient } from "../src/submission-runtime";
+import { createSubmissionReadClient } from "../src/submissions/runtime";
 
 const address = `0x${"11".repeat(20)}` as Address;
 const zeroWord = `0x${"00".repeat(32)}`;
@@ -51,7 +51,7 @@ describe("submission JSON-RPC batching", () => {
 	it("shares Tenderly pacing across clients and retains the slot through response-body validation", async () => {
 		vi.resetModules();
 		const { createSubmissionReadClient: freshReadClient } =
-			await import("../src/submission-runtime");
+			await import("../src/submissions/runtime");
 		vi.useFakeTimers();
 		const starts: number[] = [],
 			batches: number[] = [];
@@ -121,7 +121,7 @@ describe("submission JSON-RPC batching", () => {
 
 	it("paces Tenderly singleton batches by member count across independent schedulers", async () => {
 		vi.resetModules();
-		const { batchedReadTransport } = await import("../src/batched-read-transport");
+		const { batchedReadTransport } = await import("../src/chain/batched-transport");
 		vi.useFakeTimers();
 		const initial = Date.now(),
 			starts: number[] = [];
@@ -159,7 +159,7 @@ describe("submission JSON-RPC batching", () => {
 
 	it("never starts Tenderly requests aborted while queued or waiting for the pacing interval", async () => {
 		vi.resetModules();
-		const { batchedReadTransport } = await import("../src/batched-read-transport");
+		const { batchedReadTransport } = await import("../src/chain/batched-transport");
 		vi.useFakeTimers();
 		let release!: () => void;
 		const firstBody = new Promise<void>((resolve) => {
@@ -228,7 +228,7 @@ describe("submission JSON-RPC batching", () => {
 
 	it("keeps existing transport timeouts bounded while a Tenderly read awaits its slot", async () => {
 		vi.resetModules();
-		const { batchedReadTransport } = await import("../src/batched-read-transport");
+		const { batchedReadTransport } = await import("../src/chain/batched-transport");
 		vi.useFakeTimers();
 		let starts = 0;
 		const fetchFn: typeof fetch = async (_input, init) => {
@@ -265,7 +265,7 @@ describe("submission JSON-RPC batching", () => {
 
 	it("does not pace other provider URLs, including different paths on Tenderly", async () => {
 		vi.resetModules();
-		const { batchedReadTransport } = await import("../src/batched-read-transport");
+		const { batchedReadTransport } = await import("../src/chain/batched-transport");
 		vi.useFakeTimers();
 		const starts: number[] = [],
 			initial = Date.now();

@@ -1,6 +1,6 @@
 # Current codebase map
 
-Snapshot: 2026-11-12. See the [file-by-file guide](file-guide.md) for every tracked file. Formatting/linting changes in this task apply only to `apps/backend`. No files were relocated.
+Snapshot: 2026-11-12. See the [file-by-file guide](file-guide.md) for every tracked file. The approved backend domain reorganization is reflected below. Formatting/linting scope remains `apps/backend`.
 
 ## Workspace layout
 
@@ -49,63 +49,109 @@ The browser can read chain state and request exact passkey approvals. It cannot 
 
 ## Backend composition
 
-```mermaid
-flowchart TD
-    Start["index.ts → main.ts\nCLI startup / import-safe server factories"] --> Env["environment.ts → config.ts\nexternal .env / validated settings"]
-    Start --> Store["account-store.ts\nSQLite account + session metadata"]
-    Start --> Gateway["account-runtime.ts\nper-account runtime + shared payer coordination"]
-    Start --> Server["account-server.ts\nnormal local multi-user server"]
-    Server --> HTTP["http/fastify.ts\nJSON / size / request IDs / no-store"]
-    Server --> Boundary["routes/account-context.ts\nloopback / Host / Origin / cookie / CSRF / account"]
-    Server --> Routes["routes/account-*.ts\nhealth / auth / registration / vault / submissions"]
-    Routes --> Services["services/account-service.ts\nservices/transaction-service.ts"]
-    Routes --> WebAuthn["webauthn.ts + webauthn-signature.ts\ncredential and exact approval verification"]
-    Services --> Store
-    Services --> Gateway
-    Gateway --> Handlers["handlers.ts\ncredential / vault readiness / closed intents"]
-    Gateway --> Provision["provisioner.ts + automatic-recovery.ts\nverified deployment and restart recovery"]
-    Gateway --> Submission["submission-runtime.ts + vault.ts\nprepare / simulate / approve / sign / reconcile"]
-    Submission --> Journal["journal.ts + observations.ts\ndurable hashes / public receipt observations"]
-    Server --> Worker["receipt-reconciler.ts\nbackground read-only reconciliation"]
-    Server --> Docs["http/documentation.ts + openapi.ts\nread-only Swagger + specification"]
-    Legacy["server.ts + routes/legacy.ts\nexplicit singleton test seam / restricted HTTPS compatibility"] --> HTTP
-    Legacy --> Docs
+The backend is organized by workflow ownership. `index.ts` starts the process; `app.ts` constructs dependencies and owns cleanup. Every feature's `routes.ts` adapts HTTP, while services perform the workflow. There is no extra transaction forwarding service.
+
+```text
+apps/backend/src/
+  index.ts                         Executable startup
+  app.ts                           Import-safe application composition
+  logging.ts                       Native Pino privacy/display configuration
+  config/                          Environment loading and validated settings
+  http/                            Fastify, security, errors, health and OpenAPI assembly
+  accounts/                        SQLite metadata, account projection and runtime cache
+  auth/                            Setup/login/registration, vault credentials and cryptography
+  vaults/                          Verified vault lifecycle, readiness and operation coordination
+  provisioning/                    Immutable deployment workflow and restart recovery
+  submissions/                     Preparation, approvals, execution, receipts and journals
+  chain/                           Shared RPC adapters and payer-wide coordination
+  jobs/                            Non-overlapping receipt scheduling and shutdown drain
+  compatibility/                   Preserved singleton/test/HTTPS behavior and old submission API
 ```
 
-`server.ts` is not the normal local multi-user server. `main.ts` selects `account-server.ts` for the local CLI and retains the older composition for the explicit test injection seam and restricted non-local compatibility. The normal account server has 13 method/path operations. The older composition has 10, including its two credential rebind operations. Swagger reflects the composition actually running.
+```mermaid
+flowchart TD
+    Index["index.ts\nEnvironment + configuration + logger"] --> App["app.ts\nConstruct resources / select composition"]
+    App --> HTTP["http/server.ts + http/fastify.ts\nFastify lifecycle / security / errors"]
+    App --> Store["accounts/store.ts\nAtomic SQLite public metadata"]
+    App --> Runtime["accounts/runtime.ts\nPer-account cache / active session ownership"]
+    HTTP --> Auth["auth/routes.ts + auth/service.ts\nLogin / registration / rotation"]
+    Auth --> Store
+    Auth --> Crypto["auth/webauthn.ts + signatures.ts\nReal credential/digest verification"]
+    HTTP --> VaultRoutes["vaults/routes.ts"]
+    HTTP --> SubmissionRoutes["submissions/routes.ts"]
+    VaultRoutes --> Runtime
+    SubmissionRoutes --> Runtime
+    Runtime --> Payer["chain/payer-coordinator.ts\nOne shared queue + lease / unresolved-work gate"]
+    Runtime --> Vault["vaults/service.ts\nVerified vault + readiness"]
+    Vault --> Credentials["auth/vault-credentials.ts\nRecovered-key readiness / exact approvals"]
+    Vault --> Provision["provisioning/service.ts + runtime.ts\nReviewed plan / bounded serial deployment"]
+    Provision --> Recovery["provisioning/recovery.ts + successors.ts\nExact saved evidence / lineage"]
+    Vault --> Lifecycle["submissions/service.ts\nApproval/state lifecycle + durable hash"]
+    Lifecycle --> Prepare["submissions/prepare.ts\nCanonical intent / verified state / simulation"]
+    Lifecycle --> Execute["submissions/execute.ts\nBounded private signing / one broadcast"]
+    Lifecycle --> Receipt["submissions/reconcile.ts\nExact independent receipts / observation"]
+    Lifecycle --> Journal["submissions/journal.ts\nDurable execution evidence"]
+    Prepare --> Readers["chain/read-client.ts + batched-transport.ts\nApproved strict read capabilities"]
+    Receipt --> Readers
+    Execute --> Relay["Configured relay capability"]
+    HTTP --> Job["jobs/receipt-reconciler.ts\nRead-only scheduled sweeps"]
+    Job --> Runtime
+    HTTP --> Docs["http/openapi.ts\nAssemble feature schemas / Swagger"]
+    App --> Compatibility["compatibility/server.ts\nPreserved restricted older composition"]
+```
+
+The normal local account API still has 13 method/path operations. The compatibility composition still has 10, including singleton credential rebind. Their generated OpenAPI objects are structurally identical to the pre-refactor contracts. Schemas describe the API and are not attached to runtime validation.
+
+## Responsibility rules
+
+| Area | Owns | Boundary |
+| --- | --- | --- |
+| `index.ts` | Process startup, environment loading and startup diagnostics. | Import-safe factories live elsewhere. |
+| `app.ts` | Construct stores/runtimes/server and close owned resources. | Workflow logic stays inside features. |
+| `http/` and feature routes | Parse HTTP inputs/context, enforce HTTP access checks, apply cookie/session actions and send safe responses. | Routes delegate application ordering to services. |
+| `accounts/` | Public account/session/credential metadata, account projection and runtime ownership. | SQLite status cannot replace canonical execution evidence. |
+| `auth/` | Registration/login/rebind/approval proof and session transitions. | Browser login never substitutes for an exact Safe approval. |
+| `vaults/` | Verified vault identity, readiness and closed operation coordination. | Uses existing core/provisioning/submission capabilities. |
+| `provisioning/` | Reviewed immutable deployment, quote/authorization composition and exact recovery lineage. | Recovery verifies recorded progress; it cannot invent a replacement transaction. |
+| `submissions/` | Prepared intent, required approval order, durable state, bounded execution and canonical receipts. | Receipt reconciliation receives no private signer or broadcast capability. |
+| `chain/` | Approved readers, strict batching, pre-signed-envelope relay and shared payer exclusion. | One payer coordinator spans every account and rechecks authoritative journals before writes. |
+| `jobs/` | When to run another receipt sweep; shutdown drains active work. | Scheduling has no approval or signing authority. |
+| `compatibility/` | Preserved older test/restricted HTTPS composition and APIs. | Historical profiles remain read-only. |
+
+`accounts/types.ts`, `vaults/types.ts` and `submissions/types.ts` own application contracts; application code no longer imports these contracts from a server or bootstrap file. Shared RPC helpers no longer come from the deployment service. Authentication routes apply returned session/cookie transitions before account projection, preserving response/error ordering.
 
 ## Main flows
 
-| Flow | Current files / responsibilities |
+| Flow | Files and responsibility |
 | --- | --- |
-| Start | `index.ts` loads external environment before config validation; `main.ts` constructs store, gateway, server and shutdown resources. |
-| Create/sign in | Auth routes + `AccountService` + SQLite store + WebAuthn verifier. First-key login rotates the browser session; second-key possession does not log in. |
-| Register | Registration routes consume one-use role challenges. First-key authentication precedes secondary setup. Public metadata persists externally. |
-| Provision | Account gateway → handlers/provisioner → security-core plan, quote and authorizer → exact serial deployment journal → six-confirmation topology verification. |
-| Send | Closed intent → verified snapshot/classification/simulation → prepared digest → primary and optional secondary assertions → revalidation → bounded payer envelope → durable hash → one broadcast. |
-| Reconcile | Stored exact hash → independent canonical receipt reads → durable observation. Never sign a replacement simply because a result is uncertain. |
-| Queue | Exact approved operation → Delay → mandatory cooldown → execute, cancel or expire according to policy. |
-| Inspect API | `/documentation/`, JSON/YAML specification and bundled static assets. Existing server checks and no-store apply; write console is disabled. |
+| Start | `index.ts` loads the selected external configuration, then `app.ts` builds resources and starts Fastify. |
+| Create/sign in | Auth routes/service, account projection/store and WebAuthn verifier; proof/counter/session rotation ordering is preserved. |
+| Register | Registration route/service enforce immutable role setup and first-key authentication before secondary setup. |
+| Provision | Account runtime obtains the shared payer lease, then vault/provisioning services run the exact existing seven-transaction workflow and verification. |
+| Send | Canonical intent → verified snapshot/classification/simulation → exact approvals → revalidation → bounded envelope → durable hash → one broadcast. |
+| Reconcile | Exact saved hash → independent canonical receipts → public durable observation. No replacement signing. |
+| Queue | Existing exact approved operation enters Delay; cooldown, execution, cancellation and expiry remain core/onchain responsibilities. |
+| Inspect API | Feature schemas/operation catalogs → OpenAPI assembly → read-only Swagger under the same HTTP boundary. |
 
-## Reorganization candidates
+## What changed from the old layout
 
-These are review suggestions, not approved security changes. File sizes are useful clues; responsibility and authority boundaries should decide the split.
+| Previous file | Current ownership |
+| --- | --- |
+| `main.ts` | `app.ts`; executable startup stays in `index.ts`. |
+| `account-server.ts` | `http/server.ts`; shared contracts moved into feature `types.ts` files. |
+| `account-runtime.ts` | `accounts/runtime.ts`; global queue/lease checks extracted into `chain/payer-coordinator.ts`. |
+| `account-store.ts` | `accounts/store.ts`; atomic SQLite operations kept together. |
+| `handlers.ts` | `vaults/service.ts`, credential proof/readiness in `auth/vault-credentials.ts`, contracts in `vaults/types.ts`. |
+| `vault.ts` | Durable current lifecycle in `submissions/service.ts`, contracts in `submissions/types.ts`, older API in `compatibility/submission.ts`. |
+| `submission-runtime.ts` | Composed `submissions/runtime.ts` with focused preparation/execution/reconciliation/read adapters. |
+| `provisioner.ts` | Workflow in `provisioning/service.ts`, concrete composition in `provisioning/runtime.ts`, shared readers/relay in `chain/`. |
+| `automatic-recovery.ts`, `managed-successors.ts` | `provisioning/recovery.ts`, `provisioning/successors.ts`. |
+| `server.ts`, `session.ts`, older routes | `compatibility/server.ts`, `registration-sessions.ts`, `routes.ts`. |
+| `http/openapi.ts` monolith | Feature-owned `schemas.ts` files plus small shared helpers/assembler. |
+| `services/transaction-service.ts` | Removed forwarding-only class; routes consume the existing gateway contract directly. |
 
-| Priority | Current concentration | Suggested boundary | Why / condition |
-| --- | --- | --- | --- |
-| 1 | `apps/app/src/lib/vault-store.tsx` (~2,100 lines) | Separate account/session client, onboarding, submission state, chain-backed projection, and React provider. | One provider currently couples browser transport, authentication, setup, approval flows and presentation state. Keep screens advisory and preserve exact approval sequencing. |
-| 2 | Backend `submission-runtime.ts` (~940 lines) and `vault.ts` (~820 lines) | Separate pinned read adapters, intent preparation/simulation, outer transaction execution and submission state machine. | Runtime composition and transaction lifecycle are difficult to review together. Move only behind existing capability interfaces and security tests. |
-| 3 | Backend `provisioner.ts` (~860 lines) | Separate plan construction, quote/authorization, serial execution and completed/prefix recovery composition. | Recovery and fresh deployment share invariants but have different broadcast authority. Preserve exact nonce and evidence gates. |
-| 4 | Backend `handlers.ts` (~475 lines), `account-runtime.ts`, `account-store.ts` and `journal.ts` | Clarify who owns credential lifecycle, per-session attempts, shared payer lease, SQLite metadata and append-only execution evidence. | Several layers coordinate state; their responsibilities are more significant than cosmetic folder changes. Journals must remain authoritative for exact transaction hashes. |
-| 5 | `security-core/src/pwa/` mixes provisioning, recovery, intents, observation and profiles | Group by domain after documenting public interfaces; keep one stable export boundary. | `backend-api.d.ts` manually describes a large runtime API while `index.ts` re-exports implementation. Review drift risk before splitting packages. |
-| 6 | Live scenario scripts accumulate successor/proposal/certificate/report variants | Separate reusable evidence primitives from scenario-specific entrypoints. | Do not collapse historically distinct evidence or overwrite committed packages; filenames encode lineage and approval scope. |
-| 7 | Root npm, yarn and pnpm lockfiles; nested security-core npm lockfile | Choose/document one install workflow, then remove obsolete lockfiles in a separate reviewed change. | Current workspace uses pnpm and `workspace:*`; mixed snapshots obscure reproducibility. This task updates only pnpm's lockfile. |
-| 8 | Large `http/openapi.ts` contract catalog | Keep schema definitions and per-domain operations together if it grows. | It intentionally describes rather than changes runtime validation. Route coverage tests must continue to catch undocumented additions. |
+## Verification and remaining boundaries
 
-A reasonable next order is: agree domain ownership, extract the browser transport/state pieces, isolate backend read adapters from execution, then reorganize provisioning/recovery and scenario tooling. Each extraction needs behavior-preserving tests around authentication, exact transaction binding, journal recovery and payer serialization. Moving folders alone will not simplify those boundaries.
+Preservation proof includes unchanged public OpenAPI contracts; real cryptographic login/registration tests; session revocation during proof; actual-Safe provisioning/submission/queue/cancellation/restart tests; shared-payer and unresolved-hash rejection; canonical provider/receipt validation; and explicit backend-relative `.env` selection. The observer source identity now hashes the composed extracted implementation, rather than only its former monolithic source file. This changes diagnostic provenance identity, not transaction authorization or receipt validity.
 
-The scoped lint setup keeps strict production TypeScript rules. Tests allow explicit `any` for deliberately malformed RPC/ABI fixtures and CommonJS resolution used by the existing harness. Existing late-bound handler callbacks carry narrow `prefer-const` exceptions so applying lint does not change initialization timing.
-
-## Logging follow-up
-
-The backend now uses Fastify/Pino directly: safe request/response serializers, native `reqId` and response timing, request-scoped handler logs and a shared server logger for receipt reconciliation. Development CLI output is formatted with `pino-pretty`; production remains JSON. `src/index.ts` and `scripts/profile-verification-cli.ts` are executable entrypoints. Their imported implementation modules have no execution-detection guards or startup side effects.
+No contract, dependency, pinned artifact, X/Y/Z policy, signer semantics or browser write boundary changed in the domain reorganization. Independent alert delivery, live Sepolia and audit gates remain separate. The exact responsibility of every current file is listed in the [file guide](file-guide.md).

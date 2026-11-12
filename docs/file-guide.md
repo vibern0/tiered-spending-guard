@@ -4,7 +4,7 @@ Snapshot: 2026-11-12. One row per tracked file plus the new files in this change
 
 Start with the [codebase map and reorganization candidates](codebase-map.md). This is a current-structure reference; it does not authorize moving security boundaries.
 
-Inventory: **693 files**.
+Inventory: **720 files**.
 
 ## Root and integration files
 
@@ -38,44 +38,69 @@ Inventory: **693 files**.
 | [apps/backend/scripts/profile-verification-cli.ts](../apps/backend/scripts/profile-verification-cli.ts) | Dedicated executable read-only profiler entrypoint; help, argument parsing, output and safe failure reporting. |
 | [apps/backend/scripts/profile-verification.ts](../apps/backend/scripts/profile-verification.ts) | Read-only external deployment verification profiling; emits private local performance artifacts. |
 | [apps/backend/scripts/verification-profiler.ts](../apps/backend/scripts/verification-profiler.ts) | Counts/times phases and strict read-only HTTP activity without recording secrets. |
-| [apps/backend/src/account-runtime.ts](../apps/backend/src/account-runtime.ts) | Composes lazy runtimes per account, session-owned approval attempts, shared payer serialization and restart reconciliation. |
-| [apps/backend/src/account-server.ts](../apps/backend/src/account-server.ts) | Composes the normal local multi-user Fastify server, domain routes, safe error mapping and receipt-worker lifecycle. |
-| [apps/backend/src/account-store.ts](../apps/backend/src/account-store.ts) | External SQLite accounts, public credentials, challenges, hashed cookie sessions, CSRF checks and durable replay fingerprints. |
-| [apps/backend/src/automatic-recovery.ts](../apps/backend/src/automatic-recovery.ts) | Resolves completed or partial automatic provisioning from verified external journals and committed successor lineage. |
-| [apps/backend/src/batched-read-transport.ts](../apps/backend/src/batched-read-transport.ts) | Bounded JSON-RPC read batching; rejects malformed, duplicate, missing or unrelated response IDs before demultiplexing. |
-| [apps/backend/src/config.ts](../apps/backend/src/config.ts) | Validates loopback/Sepolia profiles, exact WebAuthn identity, external paths and required private runtime settings. |
-| [apps/backend/src/environment.ts](../apps/backend/src/environment.ts) | Loads external dotenv configuration before CLI startup; shell values win, errors stay sanitized and logs stay quiet. |
-| [apps/backend/src/evidence-access.ts](../apps/backend/src/evidence-access.ts) | Selects the approved read-provider pair from optional private external evidence access configuration. |
-| [apps/backend/src/handlers.ts](../apps/backend/src/handlers.ts) | Orchestrates credential storage/rebind, verified vault readiness, automatic provisioning and closed intent preparation. |
-| [apps/backend/src/http/documentation.ts](../apps/backend/src/http/documentation.ts) | Registers local static OpenAPI and bundled Swagger UI with write-console and remote validation disabled. |
-| [apps/backend/src/http/fastify.ts](../apps/backend/src/http/fastify.ts) | Shared Fastify instance with bounded JSON/bigint parsing, request IDs, no-store serialization and safe request observation. |
-| [apps/backend/src/http/openapi.ts](../apps/backend/src/http/openapi.ts) | Documentation-only schemas and operation catalog for the account and legacy HTTP surfaces; no runtime validation changes. |
-| [apps/backend/src/index.ts](../apps/backend/src/index.ts) | Dedicated executable backend entrypoint; loads external environment, starts shared native Pino logging and invokes the server factory. |
-| [apps/backend/src/journal.ts](../apps/backend/src/journal.ts) | Durable Safe-submission state machine, exact hashes, approval fingerprints, crash recovery and receipt evidence. |
-| [apps/backend/src/logging.ts](../apps/backend/src/logging.ts) | Native Pino logger configuration with safe request/response serializers, redaction and optional readable development output. |
-| [apps/backend/src/main.ts](../apps/backend/src/main.ts) | Import-safe server factory and lifecycle composition; chooses account or compatibility server and owns store cleanup. |
-| [apps/backend/src/managed-successors.ts](../apps/backend/src/managed-successors.ts) | Loads, merges and persists account-managed provisioning successor lineage without accepting browser overrides. |
-| [apps/backend/src/observations.ts](../apps/backend/src/observations.ts) | Persists public verified receipt/queue observations without turning monitoring into authorization. |
-| [apps/backend/src/provisioner.ts](../apps/backend/src/provisioner.ts) | Composes the seven-transaction provisioning planner, bounded authorizer, exact quotes, journal runner and recovery verification. |
-| [apps/backend/src/receipt-reconciler.ts](../apps/backend/src/receipt-reconciler.ts) | Schedules non-overlapping read-only pending-receipt checks and drains an in-flight check during shutdown. |
-| [apps/backend/src/routes/account-auth.ts](../apps/backend/src/routes/account-auth.ts) | Session projection, setup, primary-passkey login challenge/verification and logout routes. |
-| [apps/backend/src/routes/account-context.ts](../apps/backend/src/routes/account-context.ts) | Shared loopback/Host/Origin/cookie/CSRF/account checks, safe HTTP errors and role/submission identifier parsing. |
-| [apps/backend/src/routes/account-health.ts](../apps/backend/src/routes/account-health.ts) | Public health/readiness response; writable status belongs only to the authenticated caller. |
-| [apps/backend/src/routes/account-registrations.ts](../apps/backend/src/routes/account-registrations.ts) | Role-bound credential registration challenges and verification, preserving first-key-before-secondary ordering. |
-| [apps/backend/src/routes/account-submissions.ts](../apps/backend/src/routes/account-submissions.ts) | Account/session-bound preparation, exact approval submission and status lookup routes. |
-| [apps/backend/src/routes/account-vaults.ts](../apps/backend/src/routes/account-vaults.ts) | Authenticated current-vault and local automatic-provisioning routes. |
-| [apps/backend/src/routes/legacy.ts](../apps/backend/src/routes/legacy.ts) | Older singleton test/restricted HTTPS route composition, including local-only credential rebind; not the normal local API. |
-| [apps/backend/src/server.ts](../apps/backend/src/server.ts) | Composes the legacy/test/HTTPS compatibility server, injectable handler contract and sanitized diagnostics. |
-| [apps/backend/src/services/account-service.ts](../apps/backend/src/services/account-service.ts) | Creates setup accounts and projects only the current session/account public metadata and verified vault. |
-| [apps/backend/src/services/transaction-service.ts](../apps/backend/src/services/transaction-service.ts) | Small account-scoped gateway facade for prepare, submit and status lookup; owns no signing or RPC authority. |
-| [apps/backend/src/session.ts](../apps/backend/src/session.ts) | In-memory one-use registration and historical rebind challenges with expiry and role tracking. |
-| [apps/backend/src/submission-runtime.ts](../apps/backend/src/submission-runtime.ts) | Concrete pinned chain readers, verified snapshot/intent preparation, simulation, bounded outer execution and receipt reconciliation. |
-| [apps/backend/src/vault.ts](../apps/backend/src/vault.ts) | Safe/submission request types, preparation and submission state machines, approval ordering and provisioning contracts. |
-| [apps/backend/src/webauthn-signature.ts](../apps/backend/src/webauthn-signature.ts) | Decodes public P-256 credentials, DER signatures and WebAuthn fields into reviewed signature components. |
-| [apps/backend/src/webauthn.ts](../apps/backend/src/webauthn.ts) | Verifies registration, primary login, recovered-key proof and exact transaction assertions; exposes public credential metadata. |
+| [apps/backend/src/accounts/runtime.ts](../apps/backend/src/accounts/runtime.ts) | Create/cache per-account capabilities and bind prepared/approved submissions to active sessions; use the shared payer coordinator for writes. |
+| [apps/backend/src/accounts/schemas.ts](../apps/backend/src/accounts/schemas.ts) | Documentation-only account/session response models. |
+| [apps/backend/src/accounts/service.ts](../apps/backend/src/accounts/service.ts) | Create an unprivileged setup account/session and project only its public authenticated account/vault/submission metadata. |
+| [apps/backend/src/accounts/store.ts](../apps/backend/src/accounts/store.ts) | SQLite public account/credential/session metadata, challenges, replay fingerprints, ownership and evidence inventory; atomic security updates stay together. |
+| [apps/backend/src/accounts/types.ts](../apps/backend/src/accounts/types.ts) | Application contracts for account records, public credentials, sessions, challenges and the account gateway; independent of HTTP/bootstrap. |
+| [apps/backend/src/app.ts](../apps/backend/src/app.ts) | Import-safe application composition: construct owned resources, select normal/compatibility server and close stores/workers safely. |
+| [apps/backend/src/auth/errors.ts](../apps/backend/src/auth/errors.ts) | Shared application authentication/access error preserving the existing safe status/message contract. |
+| [apps/backend/src/auth/registration-routes.ts](../apps/backend/src/auth/registration-routes.ts) | HTTP credential-registration adapters; obtain selected account/session/role, invoke workflow and send public result. |
+| [apps/backend/src/auth/routes.ts](../apps/backend/src/auth/routes.ts) | HTTP setup/login/session/logout adapters; validate fields, obtain context, apply returned cookie/session actions and project responses. |
+| [apps/backend/src/auth/schemas.ts](../apps/backend/src/auth/schemas.ts) | Documentation-only authentication/credential models and account/legacy authentication operation descriptions. |
+| [apps/backend/src/auth/service.ts](../apps/backend/src/auth/service.ts) | Registration/setup/login/logout workflows with exact challenge, proof, counter, active-session and rotation ordering; no Fastify request/reply dependency. |
+| [apps/backend/src/auth/signatures.ts](../apps/backend/src/auth/signatures.ts) | P-256 credential/DER signature/WebAuthn field decoding and canonical signature components. |
+| [apps/backend/src/auth/types.ts](../apps/backend/src/auth/types.ts) | Explicit session/token inputs and session replacement actions passed between auth workflows and HTTP adapters. |
+| [apps/backend/src/auth/vault-credentials.ts](../apps/backend/src/auth/vault-credentials.ts) | Per-vault credential readiness, recovered-key rebind and exact Safe-digest approval verification with explicit vault state callbacks. |
+| [apps/backend/src/auth/webauthn.ts](../apps/backend/src/auth/webauthn.ts) | Cryptographic registration, primary login, recovered-key and exact Safe transaction assertion verification. |
+| [apps/backend/src/chain/batched-transport.ts](../apps/backend/src/chain/batched-transport.ts) | Bounded strict JSON-RPC batching; reject malformed/missing/duplicate/unrelated response identity and redirects. |
+| [apps/backend/src/chain/evidence-access.ts](../apps/backend/src/chain/evidence-access.ts) | Select the fixed approved independent evidence-reader pair from optional private external access configuration. |
+| [apps/backend/src/chain/payer-coordinator.ts](../apps/backend/src/chain/payer-coordinator.ts) | One queue/filesystem lease across all accounts; reread authoritative journals and block signatures on unresolved or incomplete work. |
+| [apps/backend/src/chain/read-client.ts](../apps/backend/src/chain/read-client.ts) | Shared read-only Sepolia RPC adapter, bounded/sanitized retry and canonical transaction/receipt projection. |
+| [apps/backend/src/chain/relay-client.ts](../apps/backend/src/chain/relay-client.ts) | Configured provisioning relay RPC adapter for fee/nonce reads, broadcasting already-signed envelopes and canonical receipt waits; owns no private signing key. |
+| [apps/backend/src/compatibility/registration-sessions.ts](../apps/backend/src/compatibility/registration-sessions.ts) | Older one-use in-memory registration/rebind challenge stores with role and expiry checks. |
+| [apps/backend/src/compatibility/routes.ts](../apps/backend/src/compatibility/routes.ts) | Older singleton endpoints, local-only credential rebind and historical read-only request boundary. |
+| [apps/backend/src/compatibility/server.ts](../apps/backend/src/compatibility/server.ts) | Preserved singleton test/restricted HTTPS HTTP composition with existing safe errors and readiness behavior. |
+| [apps/backend/src/compatibility/submission.ts](../apps/backend/src/compatibility/submission.ts) | Preserved older Safe submission/preparation/provisioning API and its exact request/evidence contracts; not the normal account service. |
+| [apps/backend/src/config/config.ts](../apps/backend/src/config/config.ts) | Validate loopback/Sepolia settings, exact WebAuthn identity, external paths and private configuration without reading secrets from the repository. |
+| [apps/backend/src/config/environment.ts](../apps/backend/src/config/environment.ts) | Quiet external dotenv loading through the backend .env link or explicit external path; shell values win and failures are sanitized. |
+| [apps/backend/src/http/documentation.ts](../apps/backend/src/http/documentation.ts) | Register static OpenAPI and bundled read-only Swagger UI with existing server security/no-store checks. |
+| [apps/backend/src/http/errors.ts](../apps/backend/src/http/errors.ts) | Translate existing application/framework failures into safe HTTP statuses/messages and diagnostic classifications. |
+| [apps/backend/src/http/fastify.ts](../apps/backend/src/http/fastify.ts) | Shared Fastify instance: native safe logging, bounded JSON/bigint parsing, generated request IDs, disconnect handling and no-store serialization. |
+| [apps/backend/src/http/health.ts](../apps/backend/src/http/health.ts) | Public health response with write readiness scoped only to the authenticated caller. |
+| [apps/backend/src/http/openapi.ts](../apps/backend/src/http/openapi.ts) | Assemble account/legacy OpenAPI documents from feature-owned schemas and descriptions while retaining existing security/header/error documentation. |
+| [apps/backend/src/http/schema.ts](../apps/backend/src/http/schema.ts) | Documentation schema helpers, wire primitives and endpoint-description types; never runtime validators. |
+| [apps/backend/src/http/schemas.ts](../apps/backend/src/http/schemas.ts) | Documentation-only shared empty/error/health models and health operation description. |
+| [apps/backend/src/http/security.ts](../apps/backend/src/http/security.ts) | HTTP cookie/session context, loopback/Host/Origin/CORS/CSRF/account checks and safe path/field validation. |
+| [apps/backend/src/http/server.ts](../apps/backend/src/http/server.ts) | Compose normal account HTTP routes, shared security/error mapping, documentation and receipt-worker lifecycle. |
+| [apps/backend/src/http/types.ts](../apps/backend/src/http/types.ts) | Native logger injection options shared by normal and compatibility HTTP compositions. |
+| [apps/backend/src/index.ts](../apps/backend/src/index.ts) | Executable startup: load external environment/configuration, create shared native logger and start the application. |
+| [apps/backend/src/jobs/receipt-reconciler.ts](../apps/backend/src/jobs/receipt-reconciler.ts) | Schedule non-overlapping read-only pending-receipt sweeps, safe warnings and drain-on-shutdown. |
+| [apps/backend/src/logging.ts](../apps/backend/src/logging.ts) | Native Pino configuration with safe route/request/response serializers, implicit-error protection and optional development formatting. |
+| [apps/backend/src/provisioning/recovery.ts](../apps/backend/src/provisioning/recovery.ts) | Read/reconcile exact saved deployment progress and verified successor lineage; never sign or broadcast. |
+| [apps/backend/src/provisioning/runtime.ts](../apps/backend/src/provisioning/runtime.ts) | Wire approved providers, payer, committed profile/authorizer, exact quotes and durable serial deployment execution/recovery capabilities. |
+| [apps/backend/src/provisioning/service.ts](../apps/backend/src/provisioning/service.ts) | Coordinate one immutable reviewed deployment, concurrency, bounded retry and completed/historical behavior. |
+| [apps/backend/src/provisioning/successors.ts](../apps/backend/src/provisioning/successors.ts) | Load, merge and retain verified account-managed deployment continuation lineage. |
+| [apps/backend/src/submissions/core.ts](../apps/backend/src/submissions/core.ts) | Normalize the existing CommonJS/ESM security-core PWA namespace for submission consumers. |
+| [apps/backend/src/submissions/execute.ts](../apps/backend/src/submissions/execute.ts) | Private exact-envelope revalidation, lease/nonce/cost checks, signing, durable-hash verification, one broadcast and memory cleanup. |
+| [apps/backend/src/submissions/journal.ts](../apps/backend/src/submissions/journal.ts) | Durable submission states, immutable public requests, approval fingerprints, exact outer hashes and restart/receipt evidence. |
+| [apps/backend/src/submissions/observations.ts](../apps/backend/src/submissions/observations.ts) | Atomically retain verified public receipt evidence and hash the composed observer implementation for diagnostic identity. |
+| [apps/backend/src/submissions/prepare.ts](../apps/backend/src/submissions/prepare.ts) | Canonicalize closed intents, verify snapshots, classify/simulate exact actions and revalidate prepared state. |
+| [apps/backend/src/submissions/read-client.ts](../apps/backend/src/submissions/read-client.ts) | Submission-specific strict read adapter for logs, pinned state and exact RPC observation. |
+| [apps/backend/src/submissions/reconcile.ts](../apps/backend/src/submissions/reconcile.ts) | Reconstruct public prepared evidence when needed, verify exact independent receipts and persist confirmed observations; no signer/broadcast capability. |
+| [apps/backend/src/submissions/routes.ts](../apps/backend/src/submissions/routes.ts) | Authenticated account/session HTTP adapters for prepare, submit and status; call the account gateway directly. |
+| [apps/backend/src/submissions/runtime.ts](../apps/backend/src/submissions/runtime.ts) | Construct approved runtime clients and compose preparation, private execution and read-only reconciliation with narrow interfaces. |
+| [apps/backend/src/submissions/schemas.ts](../apps/backend/src/submissions/schemas.ts) | Documentation-only closed intent/prepared/submission/approval models and submission operation descriptions. |
+| [apps/backend/src/submissions/service.ts](../apps/backend/src/submissions/service.ts) | Durable submission state machine and exact approval sequencing; journal hashes before broadcast and reconcile uncertainty without replacement signing. |
+| [apps/backend/src/submissions/types.ts](../apps/backend/src/submissions/types.ts) | Closed prepared submission, approval, receipt, view, runtime-state and narrow capability contracts. |
+| [apps/backend/src/vaults/routes.ts](../apps/backend/src/vaults/routes.ts) | Authenticated current-vault and automatic-provisioning HTTP adapters. |
+| [apps/backend/src/vaults/schemas.ts](../apps/backend/src/vaults/schemas.ts) | Documentation-only current/historical vault models and vault operation descriptions. |
+| [apps/backend/src/vaults/service.ts](../apps/backend/src/vaults/service.ts) | Orchestrate verified vault lifecycle/readiness and gate closed operations through credential and provisioning/submission capabilities. |
+| [apps/backend/src/vaults/types.ts](../apps/backend/src/vaults/types.ts) | Verified vault records, public provisioning results, readiness/credential state and application capability contracts. |
 | [apps/backend/tests/account-runtime.test.ts](../apps/backend/tests/account-runtime.test.ts) | Regression/unit tests: account runtime and shared payer. |
 | [apps/backend/tests/account-server.test.ts](../apps/backend/tests/account-server.test.ts) | Regression/unit tests: multi-user passkey HTTP. |
 | [apps/backend/tests/account-store.test.ts](../apps/backend/tests/account-store.test.ts) | Regression/unit tests: persistent multi-user account store. |
+| [apps/backend/tests/auth-service.test.ts](../apps/backend/tests/auth-service.test.ts) | Regression/unit tests: account authentication workflow. |
 | [apps/backend/tests/automatic-http-fixtures.ts](../apps/backend/tests/automatic-http-fixtures.ts) | Local test fixture for automatic http fixtures. Supplies controlled input/evidence; not live deployment authorization. |
 | [apps/backend/tests/automatic-http.integration.test.ts](../apps/backend/tests/automatic-http.integration.test.ts) | Integration tests: automatic Phase One through frontend-equivalent HTTP. |
 | [apps/backend/tests/backend-surface.test.ts](../apps/backend/tests/backend-surface.test.ts) | Regression/unit tests: backend public surface. |
@@ -745,6 +770,8 @@ Inventory: **693 files**.
 | --- | --- |
 | [docs/codebase-map.md](../docs/codebase-map.md) | Documentation: Current codebase map. |
 | [docs/file-guide.md](../docs/file-guide.md) | Complete per-file responsibility inventory for the current repository snapshot. |
+| [docs/superpowers/plans/2026-11-12-backend-domain-reorganization.md](../docs/superpowers/plans/2026-11-12-backend-domain-reorganization.md) | Plan/spec: Backend Domain Reorganization Implementation Plan. |
 | [docs/superpowers/plans/2026-11-12-backend-tooling-and-code-map.md](../docs/superpowers/plans/2026-11-12-backend-tooling-and-code-map.md) | Plan/spec: Backend Tooling and Code Map Implementation Plan. |
 | [docs/superpowers/plans/2026-11-12-fastify-backend-reorganization.md](../docs/superpowers/plans/2026-11-12-fastify-backend-reorganization.md) | Plan/spec: Fastify Backend Reorganization Implementation Plan. |
+| [docs/superpowers/specs/2026-11-12-backend-domain-reorganization-design.md](../docs/superpowers/specs/2026-11-12-backend-domain-reorganization-design.md) | Plan/spec: Backend Domain Reorganization Design. |
 | [docs/superpowers/specs/2026-11-12-fastify-backend-reorganization-design.md](../docs/superpowers/specs/2026-11-12-fastify-backend-reorganization-design.md) | Plan/spec: Fastify Backend Reorganization Design. |

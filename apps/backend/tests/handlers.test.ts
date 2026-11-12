@@ -1,10 +1,10 @@
 import type { Address, Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
-import { createBackendHandlers } from "../src/handlers";
-import type { BackendConfig } from "../src/config";
-import type { BackendPreparedSubmission } from "../src/vault";
-import type { AutomaticPwaProvisioner } from "../src/provisioner";
-import type { VerifiedPasskeyApproval } from "../src/webauthn";
+import { createBackendHandlers } from "../src/vaults/service";
+import type { BackendConfig } from "../src/config/config";
+import type { BackendPreparedSubmission } from "../src/submissions/types";
+import type { AutomaticPwaProvisioner } from "../src/provisioning/service";
+import type { VerifiedPasskeyApproval } from "../src/auth/webauthn";
 import type {
 	PwaProvisioningPlan,
 	PwaProvisioningResult,

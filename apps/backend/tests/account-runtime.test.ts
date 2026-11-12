@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
-import { AccountStore } from "../src/account-store";
-import { createAccountGatewayForTestsOnly } from "../src/account-runtime";
-import { loadBackendConfig } from "../src/config";
-import { SubmissionJournal } from "../src/journal";
+import { AccountStore } from "../src/accounts/store";
+import { createAccountGatewayForTestsOnly } from "../src/accounts/runtime";
+import { loadBackendConfig } from "../src/config/config";
+import { SubmissionJournal } from "../src/submissions/journal";
 const H = `0x${"12".repeat(32)}` as const;
 const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
 function fixture() {

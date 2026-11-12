@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SubmissionJournal } from "../src/journal";
+import { SubmissionJournal } from "../src/submissions/journal";
 
 const syncEvidence = vi.hoisted(() => ({ events: [] as string[], failFileSync: false }));
 vi.mock("node:fs", async (original) => {

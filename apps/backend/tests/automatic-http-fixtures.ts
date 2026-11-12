@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { keccak256, parseAbi, stringToHex, toHex, type Address, type Hex } from "viem";
 import { expect } from "vitest";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
-import { encodeP256CosePublicKey } from "../src/webauthn";
+import { encodeP256CosePublicKey } from "../src/auth/webauthn";
 
 // The canonical fixture matches submission-runtime.integration.test.ts; local only.
 const coreDirectory = resolve(

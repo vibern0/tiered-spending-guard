@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Address, Hex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadBackendConfig } from "../src/config";
-import { createConfiguredBackend } from "../src/main";
-import type { BackendPwaProvisioningCompletion } from "../src/provisioner";
+import { loadBackendConfig } from "../src/config/config";
+import { createConfiguredBackend } from "../src/app";
+import type { BackendPwaProvisioningCompletion } from "../src/provisioning/service";
 import type {
 	PwaHistoricalVault,
 	PwaProvisioningPlan,
@@ -19,9 +19,9 @@ const mocks = vi.hoisted(() => ({
 	broadcast: vi.fn(),
 	reconcile: vi.fn(),
 }));
-vi.mock("../src/submission-runtime", () => ({ createConfiguredSubmissionRuntime: mocks.factory }));
-vi.mock("../src/webauthn", async (original) => ({
-	...(await original<typeof import("../src/webauthn")>()),
+vi.mock("../src/submissions/runtime", () => ({ createConfiguredSubmissionRuntime: mocks.factory }));
+vi.mock("../src/auth/webauthn", async (original) => ({
+	...(await original<typeof import("../src/auth/webauthn")>()),
 	verifyPasskeyRegistration: vi.fn(async ({ role }: { role: "primary" | "secondary" }) => ({
 		role,
 		id: role,

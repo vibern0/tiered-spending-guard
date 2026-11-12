@@ -27,16 +27,13 @@ import type { PwaProvisioningResult } from "@tiered-spending-guard/security-core
 import {
 	createSubmissionReadClient,
 	createSubmissionRuntimeForTestsOnly,
-} from "../src/submission-runtime";
-import {
-	createBackendHandlers,
-	type BackendIntent,
-	type BackendVaultRecord,
-} from "../src/handlers";
-import { SubmissionJournal } from "../src/journal";
-import { PwaSubmissionService } from "../src/vault";
-import { encodeP256CosePublicKey, type StoredCredential } from "../src/webauthn";
-import type { BackendConfig } from "../src/config";
+} from "../src/submissions/runtime";
+import { createBackendHandlers } from "../src/vaults/service";
+import { type BackendIntent, type BackendVaultRecord } from "../src/vaults/types";
+import { SubmissionJournal } from "../src/submissions/journal";
+import { PwaSubmissionService } from "../src/submissions/service";
+import { encodeP256CosePublicKey, type StoredCredential } from "../src/auth/webauthn";
+import type { BackendConfig } from "../src/config/config";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 const coreDirectory = resolve(

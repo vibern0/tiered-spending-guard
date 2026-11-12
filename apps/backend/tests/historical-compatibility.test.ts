@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadBackendConfig } from "../src/config";
-import { createConfiguredBackend } from "../src/main";
-import { createAutomaticPwaProvisioner } from "../src/provisioner";
-import { createBackendHandlers } from "../src/handlers";
+import { loadBackendConfig } from "../src/config/config";
+import { createConfiguredBackend } from "../src/app";
+import { createAutomaticPwaProvisioner } from "../src/provisioning/service";
+import { createBackendHandlers } from "../src/vaults/service";
 import type { PwaHistoricalVault } from "@tiered-spending-guard/security-core/pwa";
 
 const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;

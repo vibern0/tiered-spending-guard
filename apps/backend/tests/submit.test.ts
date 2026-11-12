@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Hex } from "viem";
-import { SubmissionJournal } from "../src/journal";
-import { PwaSubmissionService, type BackendPreparedSubmission } from "../src/vault";
+import { SubmissionJournal } from "../src/submissions/journal";
+import { PwaSubmissionService } from "../src/submissions/service";
+import { type BackendPreparedSubmission } from "../src/submissions/types";
 
 const HASH = `0x${"aa".repeat(32)}` as Hex;
 const OUTER = `0x${"bb".repeat(32)}` as Hex;

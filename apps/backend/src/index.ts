@@ -1,8 +1,8 @@
-import { loadBackendEnvironment } from "./environment";
-import { loadBackendConfig } from "./config";
+import { loadBackendEnvironment } from "./config/environment";
+import { loadBackendConfig } from "./config/config";
 import { createBackendLogger } from "./logging";
-import { createConfiguredBackend } from "./main";
-import { sanitizeBackendMessage } from "./server";
+import { createConfiguredBackend } from "./app";
+import { sanitizeBackendMessage } from "./http/errors";
 
 async function run(): Promise<void> {
 	loadBackendEnvironment();

@@ -15,20 +15,18 @@ import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { describe, expect, it, vi } from "vitest";
 import * as namespace from "@tiered-spending-guard/security-core/pwa";
-import type { BackendConfig } from "../src/config";
-import type { BackendVaultRecord } from "../src/handlers";
-import { createConfiguredBackend } from "../src/main";
-import {
-	createConfiguredAutomaticPwaProvisionerForTestsOnly,
-	type BackendPwaProvisioningCompletion,
-} from "../src/provisioner";
+import type { BackendConfig } from "../src/config/config";
+import type { BackendVaultRecord } from "../src/vaults/types";
+import { createConfiguredBackend } from "../src/app";
+import { createConfiguredAutomaticPwaProvisionerForTestsOnly } from "../src/provisioning/runtime";
+import { type BackendPwaProvisioningCompletion } from "../src/provisioning/service";
 import {
 	createSubmissionReadClient,
 	createSubmissionRuntimeForTestsOnly,
-} from "../src/submission-runtime";
-import { SubmissionJournal } from "../src/journal";
-import type { BackendPreparedSubmission } from "../src/vault";
-import type { BackendServer } from "../src/server";
+} from "../src/submissions/runtime";
+import { SubmissionJournal } from "../src/submissions/journal";
+import type { BackendPreparedSubmission } from "../src/submissions/types";
+import type { BackendServer } from "../src/compatibility/server";
 import {
 	installPublicRuntimes,
 	localChain,

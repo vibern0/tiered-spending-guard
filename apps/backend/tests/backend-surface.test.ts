@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { loadBackendConfig } from "../src/config";
-import { createBackendServer } from "../src/server";
-import { createConfiguredBackend } from "../src/main";
+import { loadBackendConfig } from "../src/config/config";
+import { createBackendServer } from "../src/compatibility/server";
+import { createConfiguredBackend } from "../src/app";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ import {
 	createPwaProvisioningRuntime,
 	type PwaProvisioningPlan,
 } from "@tiered-spending-guard/security-core/pwa";
-import { SubmissionJournal } from "../src/journal";
+import { SubmissionJournal } from "../src/submissions/journal";
 
 describe("backend public surface", () => {
 	it("loads external .env through the real dev entrypoint before configuration validation", () => {
@@ -31,16 +31,16 @@ describe("backend public surface", () => {
 
 	it("keeps committed and automatically verified successor lineage outside browser and environment inputs", () => {
 		const recoverySource = readFileSync(
-			join(process.cwd(), "src/automatic-recovery.ts"),
+			join(process.cwd(), "src/provisioning/recovery.ts"),
 			"utf8",
 		);
 		const backendSources = [
-			"src/config.ts",
-			"src/main.ts",
-			"src/provisioner.ts",
-			"src/server.ts",
-			"src/automatic-recovery.ts",
-			"src/managed-successors.ts",
+			"src/config/config.ts",
+			"src/app.ts",
+			"src/provisioning/service.ts",
+			"src/compatibility/server.ts",
+			"src/provisioning/recovery.ts",
+			"src/provisioning/successors.ts",
 		]
 			.map((path) => readFileSync(join(process.cwd(), path), "utf8"))
 			.join("\n");
@@ -71,7 +71,7 @@ describe("backend public surface", () => {
 			[
 				require.resolve("tsx/cli"),
 				"--eval",
-				'import("./src/main.ts").then(() => process.stdout.write("factory imported"))',
+				'import("./src/app.ts").then(() => process.stdout.write("factory imported"))',
 			],
 			{
 				cwd: process.cwd(),

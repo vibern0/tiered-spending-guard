@@ -2,10 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AccountStore } from "../src/account-store";
-import { loadBackendConfig } from "../src/config";
-import { AccountService } from "../src/services/account-service";
-import { TransactionService } from "../src/services/transaction-service";
+import { AccountStore } from "../src/accounts/store";
+import { loadBackendConfig } from "../src/config/config";
+import { AccountService } from "../src/accounts/service";
 
 function storeFixture() {
 	const root = mkdtempSync(join(tmpdir(), "vault-services-"));
@@ -50,44 +49,5 @@ describe("backend services", () => {
 		} finally {
 			store.close();
 		}
-	});
-
-	it("keeps prepare, submit, and transaction lookup scoped to exact account and session", async () => {
-		const service = new TransactionService({
-			prepare: async (accountId, sessionId, body) => {
-				if (
-					accountId !== "account-a" ||
-					sessionId !== "session-a" ||
-					body !== "prepare-body"
-				)
-					throw new Error("prepare scope changed");
-				return { state: "prepared" };
-			},
-			submit: async (accountId, sessionId, id, body) => {
-				if (
-					accountId !== "account-a" ||
-					sessionId !== "session-a" ||
-					id !== "transaction-a" ||
-					body !== "submit-body"
-				)
-					throw new Error("submit scope changed");
-				return { state: "submitted" };
-			},
-			status: async (accountId, id) => {
-				if (accountId !== "account-a" || id !== "transaction-a")
-					throw new Error("lookup scope changed");
-				return { state: "confirmed" };
-			},
-		});
-
-		await expect(service.prepare("account-a", "session-a", "prepare-body")).resolves.toEqual({
-			state: "prepared",
-		});
-		await expect(
-			service.submit("account-a", "session-a", "transaction-a", "submit-body"),
-		).resolves.toEqual({ state: "submitted" });
-		await expect(service.find("account-a", "transaction-a")).resolves.toEqual({
-			state: "confirmed",
-		});
 	});
 });

@@ -1,8 +1,8 @@
 import { captureBackendLogs } from "./logger-fixture";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startReceiptReconciler } from "../src/receipt-reconciler";
-import { SubmissionJournal } from "../src/journal";
-import { PwaSubmissionService } from "../src/vault";
+import { startReceiptReconciler } from "../src/jobs/receipt-reconciler";
+import { SubmissionJournal } from "../src/submissions/journal";
+import { PwaSubmissionService } from "../src/submissions/service";
 
 afterEach(() => vi.useRealTimers());
 

@@ -3,9 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AccountStore } from "../src/account-store";
-import { createAccountServer, type AccountGateway } from "../src/account-server";
-import { loadBackendConfig } from "../src/config";
+import { AccountStore } from "../src/accounts/store";
+import { createAccountServer } from "../src/http/server";
+import { type AccountGateway } from "../src/accounts/types";
+import { loadBackendConfig } from "../src/config/config";
 import { softwareAuthenticator } from "./automatic-http-fixtures";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -239,7 +240,7 @@ describe("multi-user passkey HTTP", () => {
 				id: key.id,
 				role: "primary",
 				...key.coordinates,
-				publicKey: (await import("../src/webauthn")).encodeP256CosePublicKey(
+				publicKey: (await import("../src/auth/webauthn")).encodeP256CosePublicKey(
 					key.coordinates,
 				),
 				counter: 0,

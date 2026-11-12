@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 import { describe, expect, it } from "vitest";
-import { prepareUsdcTransfer } from "../src/vault";
+import { prepareUsdcTransfer } from "../src/compatibility/submission";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;

@@ -11,8 +11,8 @@ import {
 import {
 	createAutomaticPwaProvisioner,
 	pwaProvisioningAuthorizationPath,
-} from "../src/provisioner";
-import type { StoredCredential } from "../src/webauthn";
+} from "../src/provisioning/service";
+import type { StoredCredential } from "../src/auth/webauthn";
 
 const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as Address;
 const hex = (n: number) => `0x${n.toString(16).padStart(2, "0")}` as Hex;

@@ -7,13 +7,11 @@ import { sepolia } from "viem/chains";
 import { describe, expect, it } from "vitest";
 import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { profileVerification } from "../scripts/profile-verification";
-import type { BackendConfig } from "../src/config";
-import {
-	createConfiguredAutomaticPwaProvisionerForTestsOnly,
-	createReadClient,
-	createRelayClient,
-} from "../src/provisioner";
-import { verifyPasskeyRegistration } from "../src/webauthn";
+import type { BackendConfig } from "../src/config/config";
+import { createConfiguredAutomaticPwaProvisionerForTestsOnly } from "../src/provisioning/runtime";
+import { createReadClient } from "../src/chain/read-client";
+import { createRelayClient } from "../src/chain/relay-client";
+import { verifyPasskeyRegistration } from "../src/auth/webauthn";
 import {
 	installPublicRuntimes,
 	localChain,

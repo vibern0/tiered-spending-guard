@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AccountStore } from "../src/account-store";
-import { createAccountServer, type AccountGateway } from "../src/account-server";
-import { loadBackendConfig } from "../src/config";
-import { createBackendServer } from "../src/server";
+import { AccountStore } from "../src/accounts/store";
+import { createAccountServer } from "../src/http/server";
+import { type AccountGateway } from "../src/accounts/types";
+import { loadBackendConfig } from "../src/config/config";
+import { createBackendServer } from "../src/compatibility/server";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {

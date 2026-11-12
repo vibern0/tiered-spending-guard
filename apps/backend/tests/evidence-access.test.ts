@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import * as access from "../src/evidence-access";
+import * as access from "../src/chain/evidence-access";
 const api = access;
 const key = "a".repeat(32);
 const valid = {

@@ -1,8 +1,14 @@
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { loadBackendEnvironment } from "../src/environment";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadBackendEnvironment } from "../src/config/environment";
+
+vi.mock("node:fs", async (importOriginal) => {
+	const fs = await importOriginal<typeof import("node:fs")>();
+	return { ...fs, lstatSync: vi.fn(fs.lstatSync) };
+});
 
 const directories: string[] = [];
 function fixture() {
@@ -16,6 +22,15 @@ afterEach(() => {
 });
 
 describe("backend environment loading", () => {
+	it("selects this backend's .env link rather than a machine-specific resolved target", () => {
+		let selected: string | undefined;
+		vi.mocked(lstatSync).mockImplementationOnce((path) => {
+			selected = String(path);
+			throw Object.assign(new Error("test default file absent"), { code: "ENOENT" });
+		});
+		loadBackendEnvironment({});
+		expect(selected).toBe(resolve(dirname(fileURLToPath(import.meta.url)), "../.env"));
+	});
 	it("loads an external dotenv file and preserves shell values", () => {
 		const path = join(fixture(), "backend.env");
 		writeFileSync(path, 'BACKEND_PROFILE=local\nBACKEND_ORIGIN="http://localhost:5173"\n');

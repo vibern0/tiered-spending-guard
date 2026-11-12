@@ -5,11 +5,11 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { Session } from "node:inspector/promises";
 import { isAddress, type Address } from "viem";
 import * as namespace from "@tiered-spending-guard/security-core/pwa";
-import { assertExternalBackendPath } from "../src/config";
-import { createSubmissionReadClient } from "../src/submission-runtime";
-import { loadManagedPwaSuccessors, mergePwaSuccessors } from "../src/managed-successors";
+import { assertExternalBackendPath } from "../src/config/config";
+import { createSubmissionReadClient } from "../src/submissions/runtime";
+import { loadManagedPwaSuccessors, mergePwaSuccessors } from "../src/provisioning/successors";
 import { VerificationProfiler } from "./verification-profiler";
-import { loadEvidenceAccess } from "../src/evidence-access";
+import { loadEvidenceAccess } from "../src/chain/evidence-access";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 export type ProfileOptions = Readonly<{

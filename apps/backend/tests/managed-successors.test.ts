@@ -8,7 +8,7 @@ import {
 	appendManagedPwaSuccessor,
 	loadManagedPwaSuccessors,
 	mergePwaSuccessors,
-} from "../src/managed-successors";
+} from "../src/provisioning/successors";
 
 const deployer = `0x${"11".repeat(20)}` as Address;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as Hex;

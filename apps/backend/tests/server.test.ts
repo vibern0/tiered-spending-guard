@@ -1,8 +1,11 @@
 import { captureBackendLogs } from "./logger-fixture";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackendServer } from "../src/server";
-import type { BackendConfig } from "../src/config";
-import { RebindSessionStore, RegistrationSessionStore } from "../src/session";
+import { createBackendServer } from "../src/compatibility/server";
+import type { BackendConfig } from "../src/config/config";
+import {
+	RebindSessionStore,
+	RegistrationSessionStore,
+} from "../src/compatibility/registration-sessions";
 
 const config = {
 	id: "local",

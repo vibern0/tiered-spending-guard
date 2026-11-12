@@ -10,8 +10,8 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AccountStore } from "../src/account-store";
-import { loadBackendConfig } from "../src/config";
+import { AccountStore } from "../src/accounts/store";
+import { loadBackendConfig } from "../src/config/config";
 const stores: AccountStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
 function config() {
