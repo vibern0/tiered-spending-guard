@@ -273,45 +273,4 @@ describe("automatic PWA provisioner", () => {
 		expect(events).not.toContain("authorize:primary-signer");
 		expect(events).not.toContain("submit:secondary-signer");
 	});
-
-	it("exposes a read-only recovery preflight without planning, signing, or opening execution", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "automatic-pwa-preflight-"));
-		const value = plan();
-		const createPlan = vi.fn();
-		const executionContext = vi.fn();
-		const preflightResult = Object.freeze({
-			confirmedPrefixLength: 2,
-			nextTransactionId: "setup-helper" as const,
-			nextTransactionNonce: "3",
-			packageHash: hash(50),
-			planHash: value.planHash,
-			quoteBlockNumber: "100",
-			quoteBlockHash: hash(51),
-			gasEstimateA: "100000",
-			gasEstimateB: "101000",
-			gasLimit: "131300",
-			maxFeePerGas: "3000000000",
-			maxPriorityFeePerGas: "1000000000",
-			confirmedActualCost: "200000",
-			resultingOutlayWei: "394100000000000",
-			relayBalance: "10000000000000000",
-		});
-		const preflight = vi.fn(async () => preflightResult);
-		const provisioner = createAutomaticPwaProvisioner({
-			reviewDirectory: join(directory, "reviews"),
-			recovery: {
-				plan: value,
-				confirmedPrefixLength: 2,
-				credentials: { primary: { x: 1n, y: 2n }, secondary: { x: 3n, y: 4n } },
-			},
-			createPlan,
-			executionContext,
-			preflight,
-		});
-
-		await expect(provisioner.preflight!()).resolves.toBe(preflightResult);
-		expect(preflight).toHaveBeenCalledOnce();
-		expect(createPlan).not.toHaveBeenCalled();
-		expect(executionContext).not.toHaveBeenCalled();
-	});
 });

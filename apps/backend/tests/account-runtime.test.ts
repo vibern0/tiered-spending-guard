@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it, vi } from "vitest";
+import type { BackendPwaProvisioningCompletion } from "../src/provisioning/service";
 import { AccountStore } from "../src/accounts/store";
 import { createAccountGatewayForTestsOnly } from "../src/accounts/runtime";
 import { loadBackendConfig } from "../src/config/config";
@@ -15,9 +16,7 @@ function fixture() {
 			BACKEND_PROFILE: "local",
 			BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
 			BACKEND_RPC_URL: "https://unused.invalid",
-			BACKEND_JOURNAL_PATH: join(dir, "old-s.json"),
-			BACKEND_PROVISIONING_JOURNAL_PATH: join(dir, "old-p.json"),
-			BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(dir, "old-r"),
+			BACKEND_DATA_DIRECTORY: dir,
 		});
 	const store = new AccountStore(config);
 	return { config, store };
@@ -69,6 +68,45 @@ function journal(path: string, config: ReturnType<typeof loadBackendConfig>, pen
 	);
 }
 describe("account runtime and shared payer", () => {
+	it("restores an already completed third creation attempt before applying the retry budget", async () => {
+		const { config, store } = fixture();
+		try {
+			const account = ready(store);
+			for (let i = 0; i < 3; i++) store.beginCreation(account.id);
+			journal(account.config.provisioningJournalPath, config);
+			const gateway = createAccountGatewayForTestsOnly(config, store, {
+				provisioner: async () => ({
+					completedRecoveryReady: true,
+					recoveryCredentials: { primary: { x: 1n, y: 2n }, secondary: { x: 3n, y: 4n } },
+					provision: async () => ({
+						response: {
+							chainId: 11155111,
+							safe: address(1),
+							guard: address(2),
+							delay: address(3),
+							primaryPasskey: address(4),
+							secondaryPasskey: address(5),
+							usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+							evidence: {
+								setupTransactionHash: H,
+								verificationReportHash: H,
+								deploymentsHash: H,
+								policyHash: H,
+								blockNumber: "1",
+							},
+						},
+						verified: {} as never,
+					}),
+				}),
+				runtime: () => ({}) as never,
+			});
+			await gateway.runProvisioning!(account.id);
+			expect(store.account(account.id)?.state).toBe("verified");
+			expect(store.account(account.id)?.creationAttempts).toBe(3);
+		} finally {
+			store.close();
+		}
+	});
 	it("reconciles only durable pending hashes after restart without sessions, signing or broadcasting", async () => {
 		const { config, store: initial } = fixture();
 		const a = ready(initial),
@@ -157,7 +195,7 @@ describe("account runtime and shared payer", () => {
 			expect(provision).toHaveBeenCalledTimes(1);
 			expect(sign).not.toHaveBeenCalled();
 			expect(broadcast).not.toHaveBeenCalled();
-			expect(store.account(idle.id)?.state).toBe("registering");
+			expect(store.account(idle.id)?.state).toBe("queued");
 			await gateway.reconcilePending!();
 			expect(reconcile).toHaveBeenCalledTimes(2);
 		} finally {
@@ -212,7 +250,7 @@ describe("account runtime and shared payer", () => {
 				outerTransactionHash: secondHash,
 			});
 			expect(new SubmissionJournal(b.config.journalPath).listPending()).toHaveLength(1);
-			await expect(gateway.provision(ready(store).id)).rejects.toThrow(
+			await expect(gateway.runProvisioning!(ready(store).id)).rejects.toThrow(
 				/unresolved durable submission/,
 			);
 		} finally {
@@ -220,40 +258,16 @@ describe("account runtime and shared payer", () => {
 		}
 	});
 
-	it("leaves historical pending evidence read-only and skips absent legacy journals", async () => {
-		const { config, store } = fixture();
-		const legacy = store.adoptLegacy();
-		const historical = ready(store);
-		const durable = new SubmissionJournal(historical.config.journalPath);
-		durable.prepare("historical", H);
-		durable.markSubmitting("historical", H);
-		const runtime = vi.fn();
-		const factory = vi.fn(async () => ({
-			historicalVault: { safe: address(1) },
-			provision: vi.fn(),
-		}));
-		const gateway = createAccountGatewayForTestsOnly(config, store, {
-			provisioner: factory as never,
-			runtime,
-		});
-		try {
-			expect(gateway.reconcilePending).toBeTypeOf("function");
-			await gateway.reconcilePending!();
-			expect(factory).toHaveBeenCalledTimes(1);
-			expect(runtime).not.toHaveBeenCalled();
-			expect(durable.listPending()).toHaveLength(1);
-			expect(store.account(legacy.id)?.state).toBe("queued");
-		} finally {
-			store.close();
-		}
-	});
 	it("serializes different account deployment plans and scopes active submissions to sessions", async () => {
 		const { store, config } = fixture();
 		try {
 			let active = 0,
 				max = 0,
 				next = 10;
+			const completed = new Map<string, BackendPwaProvisioningCompletion>();
 			const provision = vi.fn(async (c: any) => {
+				const prior = completed.get(c.provisioningJournalPath);
+				if (prior) return prior;
 				active++;
 				max = Math.max(max, active);
 				await new Promise((r) => setTimeout(r, 10));
@@ -275,10 +289,15 @@ describe("account runtime and shared payer", () => {
 						blockNumber: "1",
 					},
 				};
-				return { response, verified: {} as never };
+				const result = { response, verified: {} as never };
+				completed.set(c.provisioningJournalPath, result);
+				return result;
 			});
 			const gateway = createAccountGatewayForTestsOnly(config, store, {
-				provisioner: async (c) => ({ provision: () => provision(c) }),
+				provisioner: async (c) => ({
+					completedRecoveryReady: completed.has(c.provisioningJournalPath),
+					provision: () => provision(c),
+				}),
 				runtime: () =>
 					({
 						prepare: async ({ request }: any) => ({
@@ -297,11 +316,10 @@ describe("account runtime and shared payer", () => {
 			});
 			const a = ready(store),
 				b = ready(store);
-			const [one, two] = await Promise.all([
-				gateway.provision(a.id),
-				gateway.provision(b.id),
-			]);
-			expect(one.safe).not.toBe(two.safe);
+			await Promise.all([gateway.runProvisioning!(a.id), gateway.runProvisioning!(b.id)]);
+			expect((await gateway.handlers(a.id)).currentVault()?.safe).not.toBe(
+				(await gateway.handlers(b.id)).currentVault()?.safe,
+			);
 			expect(max).toBe(1);
 			const session = store.createSession(a.id, true),
 				other = store.createSession(a.id, true);
@@ -335,7 +353,7 @@ describe("account runtime and shared payer", () => {
 				provisioner: factory,
 				runtime: vi.fn(),
 			});
-			await expect(gateway.provision(b.id)).rejects.toThrow(/unresolved|incomplete/);
+			await expect(gateway.runProvisioning!(b.id)).rejects.toThrow(/unresolved|incomplete/);
 			expect(factory).not.toHaveBeenCalled();
 		} finally {
 			store.close();

@@ -52,24 +52,6 @@ describe("automatic provisioning onboarding", () => {
     useVaultMock.mockReturnValue(base);
   });
 
-  it("offers fresh test-vault setup from a historical account without registering credentials", async () => {
-    useVaultMock.mockReturnValue({
-      ...base,
-      state: {
-        ...base.state,
-        safe: "0x1111111111111111111111111111111111111111",
-        compatibility: { mode: "read-only" },
-      },
-    });
-    render(<OnboardingPage />);
-    expect(screen.getByText(/old vault and its funds stay unchanged/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Start a new test vault/i }));
-    await waitFor(() => expect(base.startNewVault).toHaveBeenCalledTimes(1));
-    expect(base.registerPrimary).not.toHaveBeenCalled();
-    expect(base.registerSecondary).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Provisioning and verifying/i)).not.toBeInTheDocument();
-  });
-
   it("shows automatic progress without plan, approval, or provision buttons", () => {
     render(<OnboardingPage />);
     expect(screen.getByText(/Provisioning and verifying/i)).toBeInTheDocument();
@@ -92,9 +74,7 @@ describe("automatic provisioning onboarding", () => {
     });
     const { rerender } = render(<OnboardingPage />);
     expect(screen.getByRole("status")).toHaveTextContent("resume-123");
-    expect(
-      screen.queryByRole("button", { name: /Retry automatic provisioning/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Check setup status/i })).not.toBeInTheDocument();
     useVaultMock.mockReturnValue({
       ...base,
       setup: {
@@ -105,7 +85,7 @@ describe("automatic provisioning onboarding", () => {
     });
     rerender(<OnboardingPage />);
     expect(screen.getByRole("alert")).toHaveTextContent("stopped-123");
-    expect(screen.getByRole("button", { name: /Retry automatic provisioning/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Check setup status/i })).toBeEnabled();
     expect(base.registerPrimary).not.toHaveBeenCalled();
     expect(base.registerSecondary).not.toHaveBeenCalled();
   });
@@ -113,35 +93,8 @@ describe("automatic provisioning onboarding", () => {
   it("offers only explicit retry after a fail-closed automatic attempt", () => {
     useVaultMock.mockReturnValue({ ...base, setup: { ...base.setup, provisioning: "failed" } });
     render(<OnboardingPage />);
-    fireEvent.click(screen.getByRole("button", { name: /Retry automatic provisioning/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Check setup status/i }));
     expect(base.retryProvisioning).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows first then second signer verification only for recovered credentials", async () => {
-    useVaultMock.mockReturnValue({
-      ...base,
-      setup: {
-        ...base.setup,
-        credentialRebind: { required: true, primary: "required", secondary: "required" },
-      },
-    });
-    const { rerender } = render(<OnboardingPage />);
-    fireEvent.click(screen.getByRole("button", { name: /Verify first signer/i }));
-    await waitFor(() => expect(base.rebindPrimary).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("button", { name: /Verify second signer/i })).not.toBeInTheDocument();
-
-    useVaultMock.mockReturnValue({
-      ...base,
-      setup: {
-        ...base.setup,
-        credentialRebind: { required: true, primary: "ready", secondary: "required" },
-      },
-    });
-    rerender(<OnboardingPage />);
-    fireEvent.click(screen.getByRole("button", { name: /Verify second signer/i }));
-    await waitFor(() => expect(base.rebindSecondary).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/operator approval/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/gas/i)).not.toBeInTheDocument();
   });
 });
 
@@ -199,26 +152,6 @@ it("does not request generic second-key recovery after first-key account sign-in
   render(<OnboardingPage />);
   expect(screen.queryByRole("button", { name: /Verify second signer/i })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
-});
-
-it("offers explicit earlier-account sign-in without creating replacement credentials", async () => {
-  const openEarlierAccount = vi.fn().mockResolvedValue(undefined);
-  useVaultMock.mockReturnValue({
-    ...base,
-    sessionManaged: true,
-    authenticated: false,
-    accountId: undefined,
-    signIn: vi.fn(),
-    createAccount: vi.fn(),
-    openEarlierAccount,
-    setup: { ...base.setup, primaryCredentialId: undefined, secondaryCredentialId: undefined },
-  });
-  render(<OnboardingPage />);
-  expect(screen.getByText(/public key cannot reconstruct/i)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Open an earlier account" }));
-  await waitFor(() => expect(openEarlierAccount).toHaveBeenCalledTimes(1));
-  expect(base.registerPrimary).not.toHaveBeenCalled();
-  expect(base.registerSecondary).not.toHaveBeenCalled();
 });
 
 it("resumes a bound recovery plan without offering a replacement second registration", () => {

@@ -68,8 +68,6 @@ import {
   useVault,
   VaultProvider,
   walletStorageKey,
-  walletArchiveStorageKey,
-  readWalletAccountArchive,
   type VaultBackend,
   type VaultProvisioningResult,
 } from "./vault-store";
@@ -79,22 +77,7 @@ import type { WalletEnvironmentProfile } from "./environment-profile";
 import type { VaultConfig } from "./vault-chain";
 import { TEST_USDC_ADDRESS, TEST_USDC_RUNTIME } from "./usdc-test-fixture";
 import { activateWaitingServiceWorkerWhenSafe } from "./pwa";
-import { HISTORICAL_GUARD_RUNTIME, decodeHistoricalPolicy } from "./historical-guard-test-fixture";
 import { TopologyAlert } from "../components/wallet/topology-alert";
-
-function historicalClient(): PublicClient {
-  const historical = makeClient();
-  vi.mocked(historical.getBytecode).mockImplementation(async ({ address }) =>
-    address === GUARD ? HISTORICAL_GUARD_RUNTIME : TEST_USDC_RUNTIME,
-  );
-  const baseRead = vi.mocked(historical.readContract).getMockImplementation()!;
-  vi.mocked(historical.readContract).mockImplementation(async (input) =>
-    input.functionName === "assetPolicy"
-      ? (decodeHistoricalPolicy(input.abi) as never)
-      : baseRead(input),
-  );
-  return historical;
-}
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const GUARD = "0x2222222222222222222222222222222222222222" as Address;
@@ -171,12 +154,13 @@ function makeClient(
   } as unknown as PublicClient;
 }
 
-function legacyHttpBackend(): VaultBackend {
+function isolatedHttpBackend(): VaultBackend {
   const {
     session: _session,
     signIn: _signIn,
     signOut: _signOut,
     createAccount: _createAccount,
+    history: _history,
     ...api
   } = createVaultBackend();
   return api;
@@ -187,7 +171,7 @@ function wrapper(
   return ({ children }: { children: ReactNode }) =>
     createElement(
       VaultProvider,
-      { ...options, backend: options.backend ?? legacyHttpBackend(), children },
+      { ...options, backend: options.backend ?? isolatedHttpBackend(), children },
       children,
     );
 }
@@ -432,53 +416,6 @@ describe("VaultProvider", () => {
     expect(backend.submit).not.toHaveBeenCalled();
   });
 
-  it("archives the exact historical account before starting clean setup and keeps it after reload", async () => {
-    const profile = { id: "local" as const, rpId: "localhost" };
-    const oldConfig = JSON.stringify({ ...config, preservedPublicReference: "old-account" });
-    localStorage.setItem(walletStorageKey("config", profile), oldConfig);
-    localStorage.setItem(
-      walletStorageKey("ui", profile),
-      JSON.stringify({
-        primaryCredentialId: "old-primary",
-        secondaryCredentialId: "old-secondary",
-        secondaryAuthenticator: "cross-platform",
-        submissionIds: ["old-submission"],
-        provisioning: "provisioned",
-        rehearsed: true,
-      }),
-    );
-    localStorage.setItem("unrelated-data", "keep");
-    const first = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: historicalClient() }),
-    });
-    await waitFor(() => expect(first.result.current.state.compatibility?.mode).toBe("read-only"));
-    const oldUi = localStorage.getItem(walletStorageKey("ui", profile));
-    await act(() => first.result.current.startNewVault());
-    expect(readWalletAccountArchive(profile, SAFE)).toMatchObject({ config: oldConfig, ui: oldUi });
-    expect(localStorage.getItem(walletStorageKey("config", profile))).toBeNull();
-    expect(first.result.current.hasAccount).toBe(false);
-    expect(first.result.current.state.safe).toBe("");
-    expect(first.result.current.setup).toMatchObject({
-      provisioning: "registering",
-      submissionIds: [],
-    });
-    expect(first.result.current.setup.primaryCredentialId).toBeUndefined();
-    expect(first.result.current.setup.secondaryCredentialId).toBeUndefined();
-    expect(first.result.current.state.onboarding).toEqual({
-      firstSigner: false,
-      secondSigner: false,
-      limits: false,
-      rehearsed: false,
-    });
-    expect(localStorage.getItem("unrelated-data")).toBe("keep");
-    first.unmount();
-    const second = renderHook(() => useVault(), { wrapper: wrapper({ client: makeClient() }) });
-    await waitFor(() => expect(second.result.current.hydrated).toBe(true));
-    expect(second.result.current.hasAccount).toBe(false);
-    expect(second.result.current.setup.submissionIds).toEqual([]);
-    expect(readWalletAccountArchive(profile, SAFE)).toMatchObject({ config: oldConfig, ui: oldUi });
-  });
-
   it("shows a canonical queued recipient addition as a policy change rather than a zero-USDC transfer", async () => {
     const candidate = "0x8888888888888888888888888888888888888888" as Address;
     const data = encodeFunctionData({
@@ -528,63 +465,6 @@ describe("VaultProvider", () => {
     expect(result.current.state.recipients).toEqual([{ name: RECIPIENT, address: RECIPIENT }]);
   });
 
-  it("leaves the active account intact when its archive cannot be saved", async () => {
-    const profile = { id: "local" as const, rpId: "localhost" };
-    localStorage.setItem(walletStorageKey("config", profile), JSON.stringify(config));
-    localStorage.setItem(
-      walletStorageKey("ui", profile),
-      JSON.stringify({
-        primaryCredentialId: "old-primary",
-        secondaryCredentialId: "old-secondary",
-        submissionIds: ["old-submission"],
-      }),
-    );
-    const { result } = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: historicalClient() }),
-    });
-    await waitFor(() => expect(result.current.state.compatibility?.mode).toBe("read-only"));
-    const oldConfig = localStorage.getItem(walletStorageKey("config", profile));
-    const oldUi = localStorage.getItem(walletStorageKey("ui", profile));
-    const setItem = Storage.prototype.setItem;
-    const save = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
-      this: Storage,
-      key,
-      value,
-    ) {
-      if (key === walletArchiveStorageKey(profile, SAFE))
-        throw new Error("Archive storage unavailable");
-      return setItem.call(this, key, value);
-    });
-    try {
-      await expect(result.current.startNewVault()).rejects.toThrow(/archive/i);
-      expect(result.current.hasAccount).toBe(true);
-      expect(result.current.state.safe).toBe(SAFE);
-      expect(localStorage.getItem(walletStorageKey("config", profile))).toBe(oldConfig);
-      expect(localStorage.getItem(walletStorageKey("ui", profile))).toBe(oldUi);
-    } finally {
-      save.mockRestore();
-    }
-  });
-
-  it("never replaces an earlier archive with different account metadata", async () => {
-    const profile = { id: "local" as const, rpId: "localhost" };
-    localStorage.setItem(walletStorageKey("config", profile), JSON.stringify(config));
-    const previousArchive = JSON.stringify({
-      formatVersion: 1,
-      safe: SAFE,
-      config: JSON.stringify(config),
-      ui: "previous metadata",
-    });
-    localStorage.setItem(walletArchiveStorageKey(profile, SAFE), previousArchive);
-    const { result } = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: historicalClient() }),
-    });
-    await waitFor(() => expect(result.current.state.compatibility?.mode).toBe("read-only"));
-    await expect(result.current.startNewVault()).rejects.toThrow(/archive/i);
-    expect(localStorage.getItem(walletArchiveStorageKey(profile, SAFE))).toBe(previousArchive);
-    expect(result.current.hasAccount).toBe(true);
-  });
-
   it("allows provisioning-ready setup while sending remains unready and honors explicit provisioning refusal", async () => {
     const profile: WalletEnvironmentProfile = {
       id: "local",
@@ -624,53 +504,6 @@ describe("VaultProvider", () => {
         "provision",
       ),
     ).rejects.toThrow(/provisioning.*not ready/i);
-  });
-
-  it("shows historical balances with an explicit read-only notice instead of a verification error", async () => {
-    render(
-      createElement(VaultProvider, {
-        client: historicalClient(),
-        config,
-        children: createElement(TopologyAlert),
-      }),
-    );
-    await waitFor(() =>
-      expect(screen.getByText("Earlier vault version · read-only")).toBeInTheDocument(),
-    );
-    expect(screen.queryByText("Account verification needs attention")).not.toBeInTheDocument();
-    expect(screen.queryByText("Guard, Delay, and USDC checks passed.")).not.toBeInTheDocument();
-  });
-
-  it("blocks historical queue preparation and approvals before backend or signer calls", async () => {
-    localStorage.setItem(
-      walletStorageKey("ui", { id: "local", rpId: "localhost" }),
-      JSON.stringify({ primaryCredentialId: "p", secondaryCredentialId: "s", submissionIds: [] }),
-    );
-    const backend = {
-      health: vi.fn(),
-      registerPasskey: vi.fn(),
-      autoProvisionVault: vi.fn(),
-      prepareIntent: vi.fn(),
-      submit: vi.fn(),
-      submission: vi.fn(),
-    };
-    const { result } = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: historicalClient(), config, backend }),
-    });
-    await waitFor(() => expect(result.current.state.balance).toBe(12_345_678n));
-    expect(result.current.canWrite).toBe(false);
-    expect(result.current.state.compatibility?.mode).toBe("read-only");
-    await expect(
-      result.current.cancelQueued({ queueNonce: 1, txHash: `0x${"12".repeat(32)}` } as never),
-    ).rejects.toThrow(/read-only/i);
-    await expect(result.current.approveSubmission("stale-request", "primary")).rejects.toThrow(
-      /read-only/i,
-    );
-    expect(backend.health).not.toHaveBeenCalled();
-    expect(backend.prepareIntent).not.toHaveBeenCalled();
-    expect(backend.submit).not.toHaveBeenCalled();
-    const { signSafeDigest } = await import("./webauthn-passkey");
-    expect(signSafeDigest).not.toHaveBeenCalled();
   });
 
   it("blocks writes when backend readiness is unhealthy", async () => {
@@ -1127,63 +960,6 @@ it("auto-provisions immediately after secondary registration and persists only v
   expect(JSON.stringify(localStorage)).not.toMatch(/assertion|signature/i);
 });
 
-it("logs safe correlated diagnostics for each bounded backend provisioning attempt", async () => {
-  localStorage.setItem(
-    walletStorageKey("ui", { id: "local", rpId: "localhost" }),
-    JSON.stringify({
-      primaryCredentialId: "primary-credential",
-      secondaryCredentialId: "secondary-credential",
-      secondaryAuthenticator: "cross-platform",
-      submissionIds: [],
-    }),
-  );
-  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      if (url.endsWith("/health"))
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            writesReady: true,
-            chainId: 11155111,
-            profileId: "local",
-            origin: "http://localhost:5173",
-            rpId: "localhost",
-          }),
-          { status: 200 },
-        );
-      return new Response(
-        JSON.stringify({
-          error:
-            "provisioning quote nonce mismatch for secondary-signer: expected 1032, observed 1033",
-          code: "provisioning_nonce_mismatch",
-          stage: "provisioning-quote",
-          requestId: "request-123",
-        }),
-        { status: 400, headers: { "x-request-id": "request-123" } },
-      );
-    }),
-  );
-  const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client: makeClient() }) });
-  await waitFor(() => expect(result.current.hydrated).toBe(true));
-
-  await expect(act(() => result.current.retryProvisioning())).rejects.toThrow(/nonce mismatch/i);
-  expect(log).toHaveBeenCalledTimes(3);
-  expect(log).toHaveBeenCalledWith(
-    "Vault backend request failed",
-    expect.objectContaining({
-      code: "provisioning_nonce_mismatch",
-      stage: "provisioning-quote",
-      requestId: "request-123",
-      path: "/v1/vaults/auto-provision",
-    }),
-  );
-  expect(JSON.stringify(log.mock.calls)).not.toContain("primary-credential");
-  log.mockRestore();
-});
-
 it("keeps credentials but no config after failure and single-flights explicit retry", async () => {
   const registration = (role: "primary" | "secondary") => ({
     role,
@@ -1378,7 +1154,6 @@ it.each([
   "primary-only",
   "other-profile",
   "current-account",
-  "historical-account",
   "malformed-config",
   "malformed-credentials",
   "same-credential",
@@ -1404,175 +1179,14 @@ it.each([
   const backend = resumeBackend();
   const { result } = renderHook(() => useVault(), {
     wrapper: wrapper({
-      client: kind === "historical-account" ? historicalClient() : makeClient(),
-      ...(kind === "current-account" || kind === "historical-account" ? { config } : {}),
+      client: makeClient(),
+      ...(kind === "current-account" ? { config } : {}),
       backend,
     }),
   });
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(backend.autoProvisionVault).not.toHaveBeenCalled();
   expect(backend.registerPasskey).not.toHaveBeenCalled();
-  if (kind === "historical-account")
-    expect(result.current.state.compatibility?.mode).toBe("read-only");
-});
-
-it.each(["rpc_request_failed", "provisioning_nonce_mismatch", "provisioning_pending_confirmation"])(
-  "automatically retries %s with bounded waits and preserves credentials",
-  async (code) => {
-    storeInterruptedSetup();
-    const backend = resumeBackend();
-    vi.mocked(backend.autoProvisionVault).mockRejectedValueOnce(
-      new BackendRequestError({
-        status: 503,
-        message: "Temporary setup wait",
-        code,
-        requestId: "resume-123",
-      }),
-    );
-    vi.useFakeTimers();
-    let mounted!: ReturnType<typeof renderHook<ReturnType<typeof useVault>, unknown>>;
-    await act(async () => {
-      mounted = renderHook(() => useVault(), {
-        wrapper: wrapper({ client: makeClient(), backend }),
-      });
-    });
-    expect(backend.autoProvisionVault).toHaveBeenCalledTimes(1);
-    expect(mounted.result.current.setup.provisioning).toBe("provisioning");
-    expect(localStorage.getItem(walletStorageKey("config", resumeProfile))).toBeNull();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(999);
-    });
-    expect(backend.autoProvisionVault).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(mounted.result.current.setup.provisioning).toBe("provisioned");
-    expect(backend.autoProvisionVault).toHaveBeenCalledTimes(2);
-    expect(backend.registerPasskey).not.toHaveBeenCalled();
-    expect(mounted.result.current.setup.primaryCredentialId).toBe("primary-credential");
-  },
-);
-
-it.each(["rpc_request_failed", "unrecognized_failure"])(
-  "stops automatic retries after a bounded %s failure",
-  async (code) => {
-    storeInterruptedSetup();
-    const backend = resumeBackend();
-    vi.mocked(backend.autoProvisionVault).mockRejectedValue(
-      new BackendRequestError({
-        status: 503,
-        message: "Setup unavailable",
-        code,
-        requestId: "bounded-123",
-      }),
-    );
-    vi.useFakeTimers();
-    let mounted!: ReturnType<typeof renderHook<ReturnType<typeof useVault>, unknown>>;
-    await act(async () => {
-      mounted = renderHook(() => useVault(), {
-        wrapper: wrapper({ client: makeClient(), backend }),
-      });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
-    expect(backend.autoProvisionVault).toHaveBeenCalledTimes(code === "rpc_request_failed" ? 3 : 1);
-    expect(mounted.result.current.setup.provisioning).toBe("failed");
-    expect(mounted.result.current.setup.provisioningError).toContain("bounded-123");
-    expect(localStorage.getItem(walletStorageKey("config", resumeProfile))).toBeNull();
-    expect(mounted.result.current.setup.secondaryCredentialId).toBe("secondary-credential");
-    expect(backend.registerPasskey).not.toHaveBeenCalled();
-  },
-);
-
-it.each([200, 404])(
-  "reads the saved account through the current-vault HTTP endpoint (%s) without redeployment",
-  async (status) => {
-    storeInterruptedSetup({ provisioning: "provisioned" });
-    const saved = JSON.stringify(config);
-    localStorage.setItem(walletStorageKey("config", resumeProfile), saved);
-    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(init?.method ?? "GET").toBe("GET");
-      if (String(input).endsWith("/v1/vaults/current"))
-        return new Response(
-          JSON.stringify(
-            status === 404
-              ? { error: "vault is not provisioned" }
-              : {
-                  ...resumedProvisioningResult,
-                  credentialRebind: { required: true, primary: "required", secondary: "required" },
-                },
-          ),
-          { status },
-        );
-      expect(String(input)).toBe("http://localhost:8787/health");
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          provisioningReady: true,
-          writesReady: false,
-          chainId: 11155111,
-          profileId: "local",
-          origin: "http://localhost:5173",
-          rpId: "localhost",
-        }),
-      );
-    });
-    vi.stubGlobal("fetch", fetcher);
-    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client: makeClient() }) });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(
-      fetcher.mock.calls.filter(([url]) => String(url).endsWith("/v1/vaults/current")),
-    ).toHaveLength(1);
-    expect(result.current.canWrite).toBe(false);
-    expect(result.current.state.safe).toBe(SAFE);
-    if (status === 200)
-      expect(result.current.setup.credentialRebind).toEqual({
-        required: true,
-        primary: "required",
-        secondary: "required",
-      });
-    expect(localStorage.getItem(walletStorageKey("config", resumeProfile))).toBe(saved);
-    expect(signSafeDigest).not.toHaveBeenCalled();
-  },
-);
-
-it("reloads a saved vault's backend binding status after restart without provisioning or a device prompt", async () => {
-  storeInterruptedSetup({
-    provisioning: "provisioned",
-    credentialRebind: { required: false, primary: "ready", secondary: "ready" },
-  });
-  localStorage.setItem(walletStorageKey("config", resumeProfile), JSON.stringify(config));
-  const backend = {
-    ...resumeBackend(),
-    health: vi
-      .fn()
-      .mockRejectedValue(new Error("Backend health check failed: submission runtime is not ready")),
-    currentVault: vi.fn().mockResolvedValue({
-      ...resumedProvisioningResult,
-      credentialRebind: { required: true, primary: "required", secondary: "required" },
-    }),
-  };
-  const { result, rerender } = renderHook(() => useVault(), {
-    wrapper: wrapper({ client: makeClient(), backend }),
-  });
-  await waitFor(() => expect(result.current.loading).toBe(false));
-  expect(result.current.setup.credentialRebind).toEqual({
-    required: true,
-    primary: "required",
-    secondary: "required",
-  });
-  expect(result.current.setup.provisioning).toBe("provisioning");
-  expect(result.current.canWrite).toBe(false);
-  expect(result.current.state.safe).toBe(SAFE);
-  expect(backend.currentVault).toHaveBeenCalledTimes(1);
-  rerender();
-  expect(backend.currentVault).toHaveBeenCalledTimes(1);
-  expect(backend.autoProvisionVault).not.toHaveBeenCalled();
-  expect(backend.registerPasskey).not.toHaveBeenCalled();
-  await act(() => result.current.refresh());
-  expect(backend.currentVault).toHaveBeenCalledTimes(2);
-  expect(result.current.setup.credentialRebind.primary).toBe("required");
 });
 
 it.each(["chainId", "safe", "guard", "delay", "usdc"])(
@@ -1604,148 +1218,14 @@ it.each(["chainId", "safe", "guard", "delay", "usdc"])(
   },
 );
 
-it("does not query the current backend vault for a historical account", async () => {
-  storeInterruptedSetup({ provisioning: "provisioned" });
-  const backend = { ...resumeBackend(), currentVault: vi.fn() };
+it("blocks writes when the current backend vault is unavailable", async () => {
+  const backend = { ...resumeBackend(), currentVault: vi.fn().mockResolvedValue(undefined) };
   const { result } = renderHook(() => useVault(), {
-    wrapper: wrapper({ client: historicalClient(), config, backend }),
+    wrapper: wrapper({ client: makeClient(), config, backend }),
   });
   await waitFor(() => expect(result.current.loading).toBe(false));
-  expect(result.current.state.compatibility?.mode).toBe("read-only");
-  expect(backend.currentVault).not.toHaveBeenCalled();
+  expect(result.current.canWrite).toBe(false);
   expect(backend.autoProvisionVault).not.toHaveBeenCalled();
-});
-
-it.each([undefined, {}, { required: false, primary: "required", secondary: "ready" }])(
-  "blocks writes when current vault or its binding status is unavailable or inconsistent: %j",
-  async (credentialRebind) => {
-    const backend = {
-      ...resumeBackend(),
-      currentVault: vi
-        .fn()
-        .mockResolvedValue(
-          credentialRebind === undefined
-            ? undefined
-            : { ...resumedProvisioningResult, credentialRebind },
-        ),
-    };
-    const { result } = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: makeClient(), config, backend }),
-    });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.canWrite).toBe(false);
-    expect(backend.autoProvisionVault).not.toHaveBeenCalled();
-  },
-);
-
-it("persists a recovered vault, resumes signer rebind after reload, and never writes before both roles are ready", async () => {
-  const storage = { id: "local" as const, rpId: "localhost" };
-  localStorage.setItem(
-    walletStorageKey("ui", storage),
-    JSON.stringify({
-      notifications: { email: true, push: false },
-      rehearsed: false,
-      primaryCredentialId: "primary-credential",
-      secondaryCredentialId: "secondary-credential",
-      secondaryAuthenticator: "cross-platform",
-      provisioning: "failed",
-      submissionIds: [],
-    }),
-  );
-  const prepareIntent = vi.fn();
-  const rebound = new Set<string>();
-  const rebindPasskey = vi.fn(async (role: "primary" | "secondary") => {
-    rebound.add(role);
-    return {
-      required: rebound.size !== 2,
-      primary: rebound.has("primary") ? ("ready" as const) : ("required" as const),
-      secondary: rebound.has("secondary") ? ("ready" as const) : ("required" as const),
-    };
-  });
-  const backend = {
-    health: async (purpose?: "provision" | "write") =>
-      checkBackendHealth(
-        {
-          id: "local",
-          rpId: "localhost",
-          chainId: 11155111,
-          appOrigin: "http://localhost:5173",
-          backendOrigin: "http://localhost:8787",
-          credentials: "include",
-        },
-        async () =>
-          new Response(
-            JSON.stringify({
-              ok: true,
-              provisioningReady: true,
-              writesReady: rebound.size === 2,
-              chainId: 11155111,
-              profileId: "local",
-              origin: "http://localhost:5173",
-              rpId: "localhost",
-            }),
-          ),
-        purpose,
-      ),
-    registerPasskey: vi.fn(),
-    autoProvisionVault: vi.fn().mockResolvedValue({
-      chainId: 11155111,
-      safe: SAFE,
-      guard: GUARD,
-      delay: DELAY,
-      usdc: USDC,
-      primaryPasskey: SAFE,
-      secondaryPasskey: GUARD,
-      evidence: {
-        setupTransactionHash: `0x${"11".repeat(32)}`,
-        verificationReportHash: `0x${"22".repeat(32)}`,
-        blockNumber: "100",
-      },
-      credentialRebind: { required: true, primary: "required", secondary: "required" },
-    }),
-    rebindPasskey,
-    prepareIntent,
-    submit: vi.fn(),
-    submission: vi.fn(),
-  } satisfies VaultBackend;
-  const first = renderHook(() => useVault(), {
-    wrapper: wrapper({ client: makeClient(), backend }),
-  });
-  await waitFor(() => expect(first.result.current.hydrated).toBe(true));
-  await act(() => first.result.current.retryProvisioning());
-  expect(first.result.current.setup.credentialRebind).toEqual({
-    required: true,
-    primary: "required",
-    secondary: "required",
-  });
-  expect(
-    JSON.parse(localStorage.getItem(walletStorageKey("config", storage)) ?? "null"),
-  ).toMatchObject({ safe: SAFE });
-  first.unmount();
-
-  const resumed = renderHook(() => useVault(), {
-    wrapper: wrapper({ client: makeClient(), backend }),
-  });
-  await waitFor(() => expect(resumed.result.current.state.safe).toBe(SAFE));
-  expect(resumed.result.current.canWrite).toBe(false);
-  expect(resumed.result.current.setup.credentialRebind.primary).toBe("required");
-  await expect(
-    resumed.result.current.prepareTransfer({ recipient: RECIPIENT, amount: 1n }),
-  ).rejects.toThrow(/verify both recovered signers/i);
-  expect(prepareIntent).not.toHaveBeenCalled();
-  await act(() => resumed.result.current.rebindPrimary());
-  expect(rebindPasskey).toHaveBeenNthCalledWith(1, "primary", "primary-credential");
-  await expect(resumed.result.current.reconcileSubmission("pending")).rejects.toThrow(
-    /verify both recovered signers/i,
-  );
-  expect(backend.submission).not.toHaveBeenCalled();
-  await act(() => resumed.result.current.rebindSecondary());
-  expect(rebindPasskey).toHaveBeenNthCalledWith(2, "secondary", "secondary-credential");
-  expect(resumed.result.current.setup).toMatchObject({
-    provisioning: "provisioned",
-    credentialRebind: { required: false, primary: "ready", secondary: "ready" },
-  });
-  expect(resumed.result.current.canWrite).toBe(true);
 });
 
 it("warns when the secondary is same-device and isolates public state by environment", async () => {
@@ -2040,65 +1520,6 @@ it("discards an exact approval when logout occurs while the browser signer is op
   expect(api.submit).not.toHaveBeenCalled();
   expect(result.current.state.safe).toBe("");
 });
-
-it("creates a separate server account when starting fresh from a historical signed-in vault", async () => {
-  const createAccount = vi.fn(async () => ({
-    authenticated: false,
-    account: { id: "fresh", userHandle: "dXNlcg", state: "registering" as const },
-  }));
-  const signOut = vi.fn(async () => ({ authenticated: false }));
-  const api: VaultBackend = {
-    ...resumeBackend(),
-    createAccount,
-    signOut,
-    session: vi.fn(async () => ({
-      authenticated: true,
-      account: {
-        id: "old",
-        userHandle: "dXNlcg",
-        state: "verified" as const,
-        primaryCredentialId: "old-first",
-        vault: resumedProvisioningResult,
-      },
-    })),
-  };
-  const { result } = renderHook(() => useVault(), {
-    wrapper: wrapper({ client: historicalClient(), backend: api }),
-  });
-  await waitFor(() => expect(result.current.state.compatibility?.mode).toBe("read-only"));
-  await act(() => result.current.startNewVault());
-  expect(signOut).toHaveBeenCalledTimes(1);
-  expect(createAccount).toHaveBeenCalledTimes(1);
-  expect(result.current.accountId).toBe("fresh");
-  expect(readWalletAccountArchive(resumeProfile, SAFE)?.safe).toBe(SAFE);
-});
-
-it.each(["queued", "provisioning"] as const)(
-  "resumes a %s immutable legacy plan without a secondary credential reference or re-registration",
-  async (phase) => {
-    const api: VaultBackend = {
-      ...resumeBackend(),
-      session: vi.fn(async () => ({
-        authenticated: true,
-        account: {
-          id: "legacy",
-          userHandle: "dXNlcg",
-          state: phase,
-          primaryCredentialId: "legacy-first",
-        },
-      })),
-    };
-    const { result } = renderHook(() => useVault(), {
-      wrapper: wrapper({ client: makeClient(), backend: api }),
-    });
-    await waitFor(() => expect(api.autoProvisionVault).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current.setup.provisioning).toBe("provisioned"));
-    expect(result.current.setup.reviewedPlanBound).toBe(true);
-    expect(result.current.setup.secondaryCredentialId).toBeUndefined();
-    expect(api.registerPasskey).not.toHaveBeenCalled();
-    expect(signSafeDigest).not.toHaveBeenCalled();
-  },
-);
 
 it("does not treat a registering account with a missing second signer as a bound recovery plan", async () => {
   const api: VaultBackend = {

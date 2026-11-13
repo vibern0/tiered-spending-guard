@@ -58,3 +58,30 @@ describe("automatic receipt display", () => {
     expect(screen.queryByText("Status temporarily unavailable")).not.toBeInTheDocument();
   });
 });
+
+it("distinguishes completed scheduled proposals from actual withdrawals and self transfers", () => {
+  const item = {
+    id: "proposal",
+    kind: "transfer",
+    proposal: true,
+    direction: "out",
+    amount: 123000000n,
+    counterparty: "Recipient",
+    address: "0x11",
+    lane: "delayed",
+    status: "executed",
+    createdAt: 1,
+    approvers: [],
+    fingerprint: "f",
+  };
+  useVaultMock.mockReturnValue({
+    state: {
+      ...emptyState(),
+      activity: [item, { ...item, id: "self", proposal: false, direction: "self" }],
+    },
+    setup: { submissionIds: [] },
+  });
+  render(<ActivityPage />);
+  expect(screen.getByText("Scheduled · 123.00 USDC")).toBeInTheDocument();
+  expect(screen.getByText("Self · 123.00 USDC")).toBeInTheDocument();
+});

@@ -1,6 +1,8 @@
+import { isAddress, zeroAddress } from "viem";
+import type { HistoryVault } from "../history/types";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, opendirSync, openSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, basename } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { BackendPasskeyRole, StoredCredential } from "../auth/webauthn";
 import { assertExternalBackendPath, type BackendConfig } from "../config/config";
@@ -29,12 +31,27 @@ export class AccountStore {
 		private readonly base: BackendConfig,
 		private readonly now: () => number = Date.now,
 	) {
-		this.databasePath = assertExternalBackendPath(
-			base.accountDatabasePath ?? `${base.provisioningJournalPath}.accounts.sqlite`,
-			"account database",
-		);
+		this.databasePath = assertExternalBackendPath(base.accountDatabasePath, "account database");
 		if ([base.journalPath, base.provisioningJournalPath].includes(this.databasePath))
 			throw new Error("account database cannot replace an execution journal");
+		if (existsSync(base.dataRoot)) {
+			const root = opendirSync(base.dataRoot);
+			const name = basename(this.databasePath);
+			const allowed = new Set([
+				name,
+				`${name}-wal`,
+				`${name}-shm`,
+				`${name}.data`,
+				`${name}.payer.lock`,
+			]);
+			try {
+				for (let entry = root.readSync(); entry; entry = root.readSync())
+					if (!allowed.has(entry.name))
+						throw new Error("backend requires a fresh or compatible data directory");
+			} finally {
+				root.closeSync();
+			}
+		}
 		this.dataDirectory = assertExternalBackendPath(
 			`${this.databasePath}.data`,
 			"account data directory",
@@ -64,19 +81,28 @@ export class AccountStore {
 				"PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF;",
 			);
 			const version = this.db.prepare("PRAGMA user_version").get() as Row;
-			if (version.user_version !== 0 && version.user_version !== 1) {
+			if (version.user_version !== 0 && version.user_version !== 2) {
 				throw new Error("unsupported account database schema");
 			}
+			if (
+				version.user_version === 0 &&
+				this.db
+					.prepare(
+						"SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+					)
+					.get()
+			)
+				throw new Error("unsupported account database format");
 			this.db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS identity (id INTEGER PRIMARY KEY CHECK(id=1), chain INTEGER NOT NULL, rp TEXT NOT NULL, origin TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, user_handle TEXT UNIQUE NOT NULL, state TEXT NOT NULL CHECK(state IN ('registering','queued','provisioning','verified')), legacy INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, user_handle TEXT UNIQUE NOT NULL, state TEXT NOT NULL CHECK(state IN ('registering','queued','provisioning','verified','blocked')), created INTEGER NOT NULL, creation_attempts INTEGER NOT NULL DEFAULT 0, creation_error TEXT, history_vault TEXT);
       CREATE TABLE IF NOT EXISTS credentials (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), role TEXT NOT NULL CHECK(role IN ('primary','secondary')), public_key BLOB NOT NULL, counter INTEGER NOT NULL, x TEXT NOT NULL, y TEXT NOT NULL, user_handle TEXT, metadata TEXT NOT NULL DEFAULT '{}', UNIQUE(account_id,role));
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, account_id TEXT REFERENCES accounts(id), authenticated INTEGER NOT NULL, created INTEGER NOT NULL, last_used INTEGER NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS challenges (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, purpose TEXT NOT NULL, role TEXT, challenge TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS submission_owners (account_id TEXT NOT NULL REFERENCES accounts(id), id TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY(account_id,id));
       CREATE TABLE IF NOT EXISTS consumed_approvals (account_id TEXT NOT NULL REFERENCES accounts(id), credential_id TEXT NOT NULL REFERENCES credentials(id), fingerprint TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(account_id,fingerprint));
       CREATE INDEX IF NOT EXISTS account_credentials ON credentials(account_id);
-      PRAGMA user_version=1; COMMIT;`);
+      PRAGMA user_version=2; COMMIT;`);
 			const identity = this.db.prepare("SELECT * FROM identity WHERE id=1").get() as
 				Row | undefined;
 			if (
@@ -114,8 +140,6 @@ export class AccountStore {
 	private decodeAccount(row: Row): AccountRecord {
 		const id = String(row.id);
 		identifier(id);
-		const legacy = row.legacy === 1;
-		if (legacy && id !== "legacy") throw new Error("invalid legacy account binding");
 		const directory = assertExternalBackendPath(
 			join(this.dataDirectory, id),
 			"account directory",
@@ -129,15 +153,14 @@ export class AccountStore {
 			id,
 			userHandle: String(row.user_handle),
 			state: row.state as AccountRecord["state"],
-			legacy,
-			config: legacy
-				? this.base
-				: {
-						...this.base,
-						journalPath: join(directory, "submissions.json"),
-						provisioningJournalPath: join(directory, "provisioning.json"),
-						provisioningReviewDirectory: join(directory, "reviews"),
-					},
+			creationAttempts: Number(row.creation_attempts),
+			...(row.creation_error ? { creationError: String(row.creation_error) } : {}),
+			config: {
+				...this.base,
+				journalPath: join(directory, "submissions.json"),
+				provisioningJournalPath: join(directory, "provisioning.json"),
+				provisioningReviewDirectory: join(directory, "reviews"),
+			},
 		});
 	}
 	validateEvidenceInventory(): void {
@@ -151,9 +174,7 @@ export class AccountStore {
 					!/^[A-Za-z0-9-]{1,64}$/.test(entry.name)
 				)
 					throw new Error("account registry has unknown evidence entries");
-				const row = this.db
-					.prepare("SELECT id FROM accounts WHERE id=? AND legacy=0")
-					.get(entry.name);
+				const row = this.db.prepare("SELECT id FROM accounts WHERE id=?").get(entry.name);
 				if (!row) throw new Error("account registry omits retained execution evidence");
 				this.account(entry.name);
 			}
@@ -164,7 +185,9 @@ export class AccountStore {
 	createAccount(): AccountRecord {
 		const id = randomUUID();
 		this.db
-			.prepare("INSERT INTO accounts VALUES (?,?, 'registering',0,?)")
+			.prepare(
+				"INSERT INTO accounts (id,user_handle,state,created) VALUES (?,?, 'registering',?)",
+			)
 			.run(id, randomBytes(32).toString("base64url"), this.now());
 		return this.account(id)!;
 	}
@@ -174,14 +197,104 @@ export class AccountStore {
 		return row && this.decodeAccount(row);
 	}
 	*accounts(): IterableIterator<AccountRecord> {
-		for (const row of this.db.prepare("SELECT * FROM accounts ORDER BY created,id").iterate())
+		let created: number | null = null,
+			id = "";
+		const query = this.db.prepare(
+			"SELECT * FROM accounts WHERE ? IS NULL OR created>? OR (created=? AND id>?) ORDER BY created,id LIMIT 100",
+		);
+		for (;;) {
+			// Materialize each bounded page before yielding across an await: no WAL snapshot stays pinned.
+			const rows = query.all(created, created, created, id) as Row[];
+			if (!rows.length) return;
+			for (const row of rows) yield this.decodeAccount(row);
+			const last = rows.at(-1)!;
+			created = Number(last.created);
+			id = String(last.id);
+		}
+	}
+	*provisioningJobs(): IterableIterator<AccountRecord> {
+		for (const row of this.db
+			.prepare(
+				"SELECT * FROM accounts WHERE state IN ('queued','provisioning') ORDER BY CASE state WHEN 'provisioning' THEN 0 ELSE 1 END,created,id LIMIT 20",
+			)
+			.all())
 			yield this.decodeAccount(row as Row);
 	}
-	adoptLegacy(): AccountRecord {
+	historyAccounts(after = ""): readonly AccountRecord[] {
+		return this.db
+			.prepare(
+				"SELECT * FROM accounts WHERE state='verified' AND history_vault IS NOT NULL AND id>? ORDER BY id LIMIT 20",
+			)
+			.all(after)
+			.map((row) => this.decodeAccount(row as Row));
+	}
+	/** Display discovery only. This projection never supplies a verified execution capability. */
+	completeCreation(id: string, vault: HistoryVault): void {
+		const projection: HistoryVault = {
+			chainId: vault.chainId,
+			safe: vault.safe,
+			guard: vault.guard,
+			delay: vault.delay,
+			usdc: vault.usdc,
+			evidence: { blockNumber: vault.evidence.blockNumber },
+		};
+		const serialized = JSON.stringify(projection);
+		this.transaction(() => {
+			const row = this.db.prepare("SELECT history_vault FROM accounts WHERE id=?").get(id) as
+				Row | undefined;
+			if (!row) throw new Error("unknown account");
+			if (row.history_vault && row.history_vault !== serialized)
+				throw new Error("verified vault projection changed");
+			this.db
+				.prepare(
+					"UPDATE accounts SET state='verified',history_vault=?,creation_error=NULL WHERE id=?",
+				)
+				.run(serialized, id);
+		});
+	}
+	historyVault(id: string): HistoryVault | undefined {
+		const row = this.db
+			.prepare("SELECT history_vault FROM accounts WHERE id=? AND state='verified'")
+			.get(id) as Row | undefined;
+		if (!row?.history_vault) return;
+		try {
+			const value = JSON.parse(String(row.history_vault));
+			if (
+				!value ||
+				Object.keys(value).sort().join() !== "chainId,delay,evidence,guard,safe,usdc" ||
+				value.chainId !== 11155111 ||
+				!value.evidence ||
+				Object.keys(value.evidence).join() !== "blockNumber" ||
+				typeof value.evidence.blockNumber !== "string" ||
+				!/^(0|[1-9][0-9]*)$/.test(value.evidence.blockNumber) ||
+				[value.safe, value.guard, value.delay, value.usdc].some(
+					(address) =>
+						typeof address !== "string" ||
+						!isAddress(address) ||
+						address.toLowerCase() === zeroAddress,
+				)
+			)
+				throw new Error();
+			return value as HistoryVault;
+		} catch {
+			throw new Error("stored vault history identity is invalid");
+		}
+	}
+	beginCreation(id: string): void {
+		const changed = this.db
+			.prepare(
+				"UPDATE accounts SET state='provisioning',creation_attempts=creation_attempts+1,creation_error=NULL WHERE id=? AND state IN ('queued','provisioning') AND creation_attempts<3",
+			)
+			.run(id);
+		if (changed.changes !== 1)
+			throw new Error("creation job unavailable or retry budget exhausted");
+	}
+	creationFailed(id: string, retryable: boolean): void {
 		this.db
-			.prepare("INSERT OR IGNORE INTO accounts VALUES ('legacy',?,'queued',1,?)")
-			.run(randomBytes(32).toString("base64url"), this.now());
-		return this.account("legacy")!;
+			.prepare(
+				"UPDATE accounts SET state=CASE WHEN ?=1 AND creation_attempts<3 THEN 'queued' ELSE 'blocked' END,creation_error='creation_verification_failed' WHERE id=?",
+			)
+			.run(retryable ? 1 : 0, id);
 	}
 	markProvisioning(id: string, state: AccountRecord["state"]): void {
 		if (!this.account(id)) throw new Error("unknown account");
@@ -265,6 +378,15 @@ export class AccountStore {
 					...(value.transports ? { transports: value.transports } : {}),
 				}),
 			);
+			if (value.role === "secondary") {
+				if (!this.credentials(id).some((c) => c.role === "primary"))
+					throw new Error("first credential required before creation");
+				this.db
+					.prepare(
+						"UPDATE accounts SET state='queued' WHERE id=? AND state='registering'",
+					)
+					.run(id);
+			}
 		});
 	}
 	updateCounter(id: string, previous: number, next: number): void {
@@ -291,17 +413,6 @@ export class AccountStore {
 			this.db
 				.prepare("INSERT INTO consumed_approvals VALUES (?,?,?,?)")
 				.run(accountId, credentialId, fingerprint, this.now());
-		});
-	}
-	learnApproval(
-		accountId: string,
-		credential: StoredCredential,
-		next: number,
-		fingerprint: string,
-	): void {
-		this.transaction(() => {
-			this.storeCredential(accountId, { ...credential, counter: 0 });
-			this.consumeApproval(accountId, credential.id, 0, next, fingerprint);
 		});
 	}
 	createSession(accountId?: string, authenticated = false): NewAccountSession {

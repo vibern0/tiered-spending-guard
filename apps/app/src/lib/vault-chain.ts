@@ -44,12 +44,6 @@ const GUARD_ABI = parseAbi([
   "function getPolicyRecipients(address) view returns (address[])",
   "function spendState(address) view returns (uint256 window,uint256 baseSpent,uint256 instantSpent)",
 ]);
-const HISTORICAL_ASSET_POLICY_ABI = parseAbi([
-  "function assetPolicy(address) view returns (uint256 basePerTransaction,uint256 stepUpPerTransaction,uint256 baseDailyLimit,uint256 instantDailyLimit)",
-]);
-const HISTORICAL_GUARD_RUNTIME_CODE_HASH =
-  "0x596a66022b0aa360ed7faa0ba2fa550480f6b750a3ccc44da125ff14eff38428" as Hex;
-
 const DELAY_ABI = parseAbi([
   "function owner() view returns (address)",
   "function avatar() view returns (address)",
@@ -149,11 +143,6 @@ export type VaultTopology = Readonly<{
 }>;
 
 export type VaultSnapshot = Readonly<{
-  compatibility?: Readonly<{
-    mode: "read-only";
-    profileVersion: "sepolia-pwa-phase-one-allowlisted-v1";
-    reason: string;
-  }>;
   chainId: typeof SEPOLIA_CHAIN_ID;
   safe: Address;
   usdc?: UsdcMetadata;
@@ -312,7 +301,6 @@ export async function readVaultSnapshot(
         "guard-runtime-missing",
         "The configured guard has no deployed code",
       );
-    const historical = keccak256(guardRuntime) === HISTORICAL_GUARD_RUNTIME_CODE_HASH;
     const [
       nativeBalance,
       usdcBalance,
@@ -442,7 +430,7 @@ export async function readVaultSnapshot(
       const [asset, recipients, spend] = await Promise.all([
         readAt<readonly [bigint, bigint, bigint, bigint, number?]>(
           config.guard,
-          historical ? HISTORICAL_ASSET_POLICY_ABI : GUARD_ABI,
+          GUARD_ABI,
           "assetPolicy",
           [config.usdc],
         ),
@@ -457,9 +445,8 @@ export async function readVaultSnapshot(
         stepUpPerTransaction: asset[1],
         baseDailyLimit: asset[2],
         instantDailyLimit: asset[3],
-        baseRecipientMode: historical
-          ? "allowlisted"
-          : asset[4] === 1
+        baseRecipientMode:
+          asset[4] === 1
             ? "any-valid-address"
             : asset[4] === 0
               ? "allowlisted"
@@ -471,7 +458,7 @@ export async function readVaultSnapshot(
                 })(),
         recipients,
       };
-      if (!historical && policy.baseRecipientMode !== "any-valid-address")
+      if (policy.baseRecipientMode !== "any-valid-address")
         failures.push({
           code: "policy-invalid",
           message:
@@ -571,16 +558,6 @@ export async function readVaultSnapshot(
     const observedTimestamp = finalBlock.timestamp;
 
     return {
-      ...(historical
-        ? {
-            compatibility: {
-              mode: "read-only" as const,
-              profileVersion: "sepolia-pwa-phase-one-allowlisted-v1" as const,
-              reason:
-                "This vault restricts recipients on every tier. Balances and activity are available for viewing; transfers are disabled.",
-            },
-          }
-        : {}),
       chainId: config.chainId,
       safe: config.safe,
       usdc,
@@ -606,7 +583,7 @@ export async function readVaultSnapshot(
       ...(spendState === undefined ? {} : { spendState }),
       queueItems,
       health: failures,
-      writable: !historical && failures.length === 0,
+      writable: failures.length === 0,
       observedBlock,
       observedTimestamp,
     };

@@ -36,6 +36,8 @@ export type BackendSubmissionReceipt = Readonly<{
 }>;
 
 export type BackendSubmissionView = Readonly<{
+	publicRequest: Readonly<Record<string, unknown>>;
+	createdAt?: number;
 	id: string;
 	state: JournalEntry["state"];
 	kind: BackendSubmissionKind | string;

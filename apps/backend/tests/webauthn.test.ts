@@ -2,13 +2,9 @@ import type { Address, Hex } from "viem";
 import { bytesToHex, encodeAbiParameters } from "viem";
 import { describe, expect, it } from "vitest";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
+import { softwareAuthenticator } from "./automatic-http-fixtures";
 import { decodeP256Credential, parseP256DerSignature } from "../src/auth/signatures";
-import {
-	encodeP256CosePublicKey,
-	verifyPasskeyAssertion,
-	verifyPasskeyRebind,
-	verifyPasskeyRegistration,
-} from "../src/auth/webauthn";
+import { verifyPasskeyAssertion, verifyPasskeyRegistration } from "../src/auth/webauthn";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
 const HASH = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hex;
@@ -97,6 +93,31 @@ const registrationResponse = (
 });
 
 describe("backend WebAuthn registration", () => {
+	it.each([undefined, "cross-platform"] as const)(
+		"accepts a verified synced primary without forcing attachment: %s",
+		async (attachment) => {
+			const key = softwareAuthenticator("primary", { synced: true });
+			const response = key.registration(CHALLENGE);
+			response.authenticatorAttachment = attachment;
+			await expect(
+				verifyPasskeyRegistration({
+					role: "primary",
+					credentialId: key.id,
+					challenge: CHALLENGE,
+					rpId: "localhost",
+					origin: ORIGIN,
+					response,
+				}),
+			).resolves.toMatchObject({
+				role: "primary",
+				id: key.id,
+				...key.coordinates,
+				backupEligible: true,
+				backedUp: true,
+			});
+		},
+	);
+
 	it("accepts ES256/P-256 primary platform and secondary cross-platform credentials", async () => {
 		const primaryKey = coseKey();
 		const secondaryKey = coseKey({
@@ -145,7 +166,7 @@ describe("backend WebAuthn registration", () => {
 		expect(secondary.x).not.toBe(primary.x);
 	});
 
-	it("rejects wrong attachment, algorithm, curve, RP, and origin", async () => {
+	it("rejects primary algorithm, curve, RP and origin mismatches plus wrong secondary attachment", async () => {
 		const verify = (publicKey: Uint8Array) => async () => ({
 			verified: true,
 			credentialId: "primary-credential",
@@ -161,14 +182,8 @@ describe("backend WebAuthn registration", () => {
 			response: registrationResponse("primary-credential", "platform"),
 		};
 		await expect(
-			verifyPasskeyRegistration(
-				{
-					...input,
-					response: registrationResponse("primary-credential", "cross-platform"),
-				},
-				verify(coseKey()),
-			),
-		).rejects.toThrow(/platform/i);
+			verifyPasskeyRegistration({ ...input, role: "secondary" }, verify(coseKey())),
+		).rejects.toThrow(/cross-platform/i);
 		await expect(
 			verifyPasskeyRegistration(input, verify(coseKey({ alg: 0x27 }))),
 		).rejects.toThrow(/ES256/i);
@@ -313,96 +328,6 @@ describe("backend WebAuthn assertion binding", () => {
 				authenticationInfo: { newCounter: 3 },
 			})),
 		).rejects.toThrow(/counter/i);
-	});
-});
-
-describe("backend recovered-credential rebind", () => {
-	it("encodes reviewed coordinates as the canonical ES256 COSE key and accepts the credential ID only from a verified assertion", async () => {
-		const x = BigInt(bytesToHex(new Uint8Array(32).fill(0x11)));
-		const y = BigInt(bytesToHex(new Uint8Array(32).fill(0x22)));
-		expect(encodeP256CosePublicKey({ x, y })).toEqual(coseKey());
-		const response = assertion();
-		const rebound = await verifyPasskeyRebind(
-			{
-				role: "primary",
-				coordinates: { x, y },
-				challenge: CHALLENGE,
-				rpId: "localhost",
-				origin: ORIGIN,
-				response,
-			},
-			async (input) => {
-				expect(input.credential.id).toBe(response.id);
-				expect(input.credential.publicKey).toEqual(coseKey());
-				expect(input.credential.counter).toBe(0);
-				return { verified: true, authenticationInfo: { newCounter: 1 } };
-			},
-		);
-		expect(rebound).toMatchObject({
-			role: "primary",
-			id: response.id,
-			credentialId: response.id,
-			counter: 1,
-			x,
-			y,
-		});
-	});
-
-	it("rejects missing UV/UP, counter rollback, and a role-key mismatch", async () => {
-		const coordinates = {
-			x: BigInt(bytesToHex(new Uint8Array(32).fill(0x11))),
-			y: BigInt(bytesToHex(new Uint8Array(32).fill(0x22))),
-		};
-		const noUv = assertion({
-			response: {
-				...assertion().response,
-				authenticatorData: base64url(
-					Uint8Array.from([...new Uint8Array(32), 0x01, 0, 0, 0, 1]),
-				),
-			},
-		});
-		await expect(
-			verifyPasskeyRebind(
-				{
-					role: "primary",
-					coordinates,
-					challenge: CHALLENGE,
-					rpId: "localhost",
-					origin: ORIGIN,
-					response: noUv,
-				},
-				async () => ({ verified: true, authenticationInfo: { newCounter: 1 } }),
-			),
-		).rejects.toThrow(/presence|verification/i);
-		await expect(
-			verifyPasskeyRebind(
-				{
-					role: "primary",
-					coordinates,
-					challenge: CHALLENGE,
-					rpId: "localhost",
-					origin: ORIGIN,
-					response: assertion(),
-				},
-				async () => ({ verified: true, authenticationInfo: { newCounter: -1 } }),
-			),
-		).rejects.toThrow(/counter/i);
-		await expect(
-			verifyPasskeyRebind(
-				{
-					role: "secondary",
-					coordinates: { ...coordinates, x: coordinates.x + 1n },
-					challenge: CHALLENGE,
-					rpId: "localhost",
-					origin: ORIGIN,
-					response: assertion(),
-				},
-				async (input) => {
-					if (input.credential.x !== coordinates.x) throw new Error("wrong role key");
-					return { verified: true, authenticationInfo: { newCounter: 1 } };
-				},
-			),
-		).rejects.toThrow(/role key/i);
 	});
 });
 

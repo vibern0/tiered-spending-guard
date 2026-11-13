@@ -41,17 +41,13 @@ export function OnboardingPage() {
     authenticated,
     accountId,
     signIn,
-    openEarlierAccount,
     signOut,
     createAccount,
     loading,
     registerPrimary,
     registerSecondary,
     retryProvisioning,
-    rebindPrimary,
-    rebindSecondary,
     finishSetup,
-    startNewVault,
   } = useVault();
   const nav = useNavigate();
   const [err, setErr] = useState<string | null>(null);
@@ -96,14 +92,9 @@ export function OnboardingPage() {
             Your second signer is requested only when an action needs it. Create an account to set
             up a separate test vault.
           </p>
-          {err && (
+          {(err || setup.provisioningError) && (
             <p role="alert" className="text-sm text-danger-ink">
-              {err}
-            </p>
-          )}
-          {setup.provisioningError && !err && (
-            <p role="alert" className="text-sm text-danger-ink">
-              {setup.provisioningError}
+              {err ?? setup.provisioningError}
             </p>
           )}
           <PrimaryButton
@@ -115,68 +106,14 @@ export function OnboardingPage() {
               })
             }
           >
-            {busy === "login" || (verifyingFirst && busy === "primary")
-              ? "Waiting for first passkey…"
-              : "Sign in with passkey"}
+            {busy === "login" ? "Waiting for first passkey…" : "Sign in with passkey"}
           </PrimaryButton>
-          <PrimaryButton
-            disabled={loading || busy !== null}
-            onClick={() =>
-              run("earlier-account", async () => {
-                await openEarlierAccount();
-                nav({ to: "/" });
-              })
-            }
-          >
-            {busy === "earlier-account"
-              ? "Waiting for original first passkey…"
-              : "Open an earlier account"}
-          </PrimaryButton>
-          <p className="text-sm text-muted-foreground">
-            For an earlier passkey that is not discoverable, its original credential reference must
-            still exist in this browser or the backend. A public key cannot reconstruct that
-            reference. This opens the existing account and does not replace its passkeys.
-          </p>
           <PrimaryButton
             disabled={loading || busy !== null}
             onClick={() => run("create", createAccount)}
           >
             {busy === "create" ? "Creating account…" : "Create account"}
           </PrimaryButton>
-        </Card>
-      </div>
-    );
-
-  if (state.compatibility?.mode === "read-only")
-    return (
-      <div className="space-y-4 pt-6">
-        <div className="flex items-center justify-between">
-          <h1 className="font-display text-2xl font-bold">Start a new test vault</h1>
-          <NetworkPill />
-        </div>
-        <Card className="space-y-3">
-          <p>
-            Your old vault and its funds stay unchanged. Its account references and history will be
-            saved in this browser before new setup starts.
-          </p>
-          <p className="break-all font-mono text-xs">{state.safe}</p>
-          <p className="text-sm text-muted-foreground">
-            You will register two new passkeys for the new Sepolia vault.
-          </p>
-          {err && (
-            <p role="alert" className="text-sm text-danger-ink">
-              {err}
-            </p>
-          )}
-          <PrimaryButton
-            disabled={loading || busy !== null}
-            onClick={() => run("new-vault", startNewVault)}
-          >
-            {busy === "new-vault" ? "Saving old account…" : "Start a new test vault"}
-          </PrimaryButton>
-          <Link to="/" className="block text-sm underline">
-            Back to old account
-          </Link>
         </Card>
       </div>
     );
@@ -292,45 +229,16 @@ export function OnboardingPage() {
                     </dl>
                     {setup.provisioning === "provisioning" && (
                       <p className="rounded-xl bg-approval-soft p-3 text-sm text-approval-ink">
-                        {setup.credentialRebind.required
-                          ? sessionManaged
-                            ? "Deployment verified. Sign in with your first passkey to unlock vault actions."
-                            : "Deployment verified. Verify both existing signers to unlock vault actions."
-                          : "Provisioning and verifying… Existing setup resumes automatically while Sepolia transactions confirm."}
+                        Provisioning and verifying… Setup continues in the background when you close
+                        this page.
                       </p>
                     )}
-                    {setup.credentialRebind.primary === "required" && (
-                      <PrimaryButton
-                        disabled={busy !== null}
-                        onClick={() => run("rebind-primary", rebindPrimary)}
-                      >
-                        <Fingerprint className="size-5" aria-hidden />
-                        {busy === "rebind-primary"
-                          ? "Verifying first signer…"
-                          : "Verify first signer"}
-                      </PrimaryButton>
-                    )}
-                    {!sessionManaged &&
-                      setup.credentialRebind.primary === "ready" &&
-                      setup.credentialRebind.secondary === "required" && (
-                        <PrimaryButton
-                          disabled={busy !== null}
-                          onClick={() => run("rebind-secondary", rebindSecondary)}
-                        >
-                          <KeyRound className="size-5" aria-hidden />
-                          {busy === "rebind-secondary"
-                            ? "Verifying second signer…"
-                            : "Verify second signer"}
-                        </PrimaryButton>
-                      )}
-                    {setup.provisioning === "failed" && !setup.credentialRebind.required && (
+                    {setup.provisioning === "failed" && (
                       <PrimaryButton
                         disabled={busy !== null}
                         onClick={() => run("retry", retryProvisioning)}
                       >
-                        {busy === "retry"
-                          ? "Provisioning and verifying…"
-                          : "Retry automatic provisioning"}
+                        {busy === "retry" ? "Provisioning and verifying…" : "Check setup status"}
                       </PrimaryButton>
                     )}
                   </>

@@ -21,6 +21,13 @@ import { createReadClient } from "../src/chain/read-client";
 import { createRelayClient } from "../src/chain/relay-client";
 
 describe("configured provisioning relay pinned reads", () => {
+	it("does not expose an RPC credential through public reader identity metadata", () => {
+		const reader = createReadClient(
+			"https://unused.invalid/private-token",
+			"independent reader",
+		);
+		expect(JSON.stringify(reader)).not.toContain("private-token");
+	});
 	it("normalizes only viem transaction absence into pending evidence", async () => {
 		const client = createReadClient("https://unused.invalid", "test reader");
 		const hash = `0x${"ab".repeat(32)}` as Hex;

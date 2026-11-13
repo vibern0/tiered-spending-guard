@@ -136,7 +136,7 @@ describe("account HTTP client", () => {
           })
         : response(projection("a")),
     );
-    await createVaultBackend(profile, fetcher).signIn!("first", undefined, ["hybrid", "internal"]);
+    await createVaultBackend(profile, fetcher).signIn!("first", ["hybrid", "internal"]);
     expect(authenticateVaultPasskey).toHaveBeenCalledWith(
       expect.objectContaining({
         credentialTransports: ["hybrid", "internal"],
@@ -266,7 +266,7 @@ describe("server-authoritative account lifecycle", () => {
     await waitFor(() => expect(result.current.hydrated).toBe(true));
     await act(() => result.current.createAccount());
     await act(() => result.current.registerPrimary());
-    expect(api.signIn).toHaveBeenCalledWith("synced-first", undefined, ["hybrid", "internal"]);
+    expect(api.signIn).toHaveBeenCalledWith("synced-first", ["hybrid", "internal"]);
   });
 });
 
@@ -392,37 +392,6 @@ it("never sends a registration response to a different account after the browser
   expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/verify"))).toBe(false);
 });
 
-it("keeps an explicit legacy account reference bound through login verification and uses only its server credential list", async () => {
-  const fetcher = vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
-    String(url).endsWith("/login/options")
-      ? response({
-          sessionId: "legacy-challenge",
-          challenge: "YQ",
-          rpId: "localhost",
-          origin: profile.appOrigin,
-          userVerification: "required",
-          csrfToken: "legacy-csrf",
-          credentialIds: ["legacy-first"],
-        })
-      : response(projection("legacy-account")),
-  );
-  const api = createVaultBackend(profile, fetcher);
-  await api.signIn!(undefined, "legacy-account");
-  expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({
-    accountId: "legacy-account",
-  });
-  expect(authenticateVaultPasskey).toHaveBeenCalledWith(
-    expect.objectContaining({ credentialIds: ["legacy-first"] }),
-    undefined,
-  );
-  const [, verify] = fetcher.mock.calls.find(([url]) => String(url).endsWith("/login/verify"))!;
-  expect(JSON.parse(verify!.body as string)).toEqual({
-    sessionId: "legacy-challenge",
-    assertion: { id: "first", response: {} },
-    accountId: "legacy-account",
-  });
-});
-
 it("does not restrict normal discoverable login with an unsolicited server credential list", async () => {
   const fetcher = vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
     String(url).endsWith("/login/options")
@@ -449,46 +418,6 @@ it("explains the first-passkey sign-in gate without requesting a second signer",
   await expect(
     result.current.prepareTransfer({ recipient: `0x${"11".repeat(20)}`, amount: 1n }),
   ).rejects.toThrow(/first-passkey sign-in/i);
-});
-
-it.each(["original-first", undefined])(
-  "uses old browser credential references only as a targeted earlier-account hint (%s)",
-  async (reference) => {
-    if (reference)
-      localStorage.setItem(
-        walletStorageKey("ui", { id: "local", rpId: "localhost" }),
-        JSON.stringify({ primaryCredentialId: reference }),
-      );
-    const api = backend();
-    const { result } = renderHook(() => useVault(), { wrapper: wrapper(api) });
-    await waitFor(() => expect(result.current.hydrated).toBe(true));
-    expect(result.current.accountId).toBeUndefined();
-    expect(result.current.setup.primaryCredentialId).toBeUndefined();
-    await act(() => result.current.openEarlierAccount());
-    expect(api.signIn).toHaveBeenCalledWith(reference, "legacy");
-    expect(api.registerPasskey).not.toHaveBeenCalled();
-  },
-);
-
-it("prefers server-known legacy credential IDs to a stale browser hint", async () => {
-  const fetcher = vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
-    String(url).endsWith("/login/options")
-      ? response({
-          sessionId: "challenge",
-          challenge: "YQ",
-          rpId: "localhost",
-          origin: profile.appOrigin,
-          userVerification: "required",
-          csrfToken: "csrf",
-          credentialIds: ["server-first"],
-        })
-      : response(projection("legacy")),
-  );
-  await createVaultBackend(profile, fetcher).signIn!("stale-cached-first", "legacy");
-  expect(authenticateVaultPasskey).toHaveBeenCalledWith(
-    expect.objectContaining({ credentialIds: ["server-first"] }),
-    undefined,
-  );
 });
 
 it("restores server-owned submission references after cleared-browser sign-in without importing another account's cache", async () => {
@@ -542,4 +471,88 @@ it("uses cached references only for the selected account when an older projectio
   });
   await waitFor(() => expect(result.current.hydrated).toBe(true));
   expect(result.current.setup.submissionIds).toEqual(["own-cached"]);
+});
+
+it("observes background setup through session polling without re-entering deployment", async () => {
+  let phase: "queued" | "provisioning" | "blocked" = "queued";
+  const api = backend({
+    session: vi.fn(async () => ({
+      ...projection("background"),
+      account: { ...account("background"), state: phase, secondaryCredentialId: "second" },
+    })),
+  });
+  const { result } = renderHook(() => useVault(), { wrapper: wrapper(api) });
+  await waitFor(() => expect(result.current.setup.provisioning).toBe("provisioning"));
+  phase = "blocked";
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(result.current.setup.provisioning).toBe("failed"));
+  expect(api.autoProvisionVault).not.toHaveBeenCalled();
+  expect(api.registerPasskey).not.toHaveBeenCalled();
+});
+
+it("requests paginated account history with bigint decoding and rejects late history after logout", async () => {
+  let release!: (response: Response) => void;
+  const fetcher = vi.fn(async (url: string | URL | Request) => {
+    if (String(url).includes("/history"))
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    return response(String(url).endsWith("/logout") ? { authenticated: false } : projection("a"));
+  });
+  const api = createVaultBackend(profile, fetcher);
+  await api.session!();
+  const pending = api.history!("cursor value").catch((error) => error);
+  expect(fetcher.mock.calls.at(-1)?.[0]).toBe(
+    `${profile.backendOrigin}/v1/vaults/current/history?limit=50&cursor=cursor%20value`,
+  );
+  await api.signOut!();
+  release(response({ items: [], observedAt: 1, indexedThrough: "12n" }));
+  expect(await pending).toBeInstanceOf(Error);
+});
+
+it("polls a committed setup job for a blocked state and stops observing after logout without submitting a job", async () => {
+  vi.useFakeTimers();
+  let state: "queued" | "provisioning" | "blocked" = "queued";
+  const api = backend({
+    session: vi.fn(async () => ({ ...projection("poll"), account: { ...account("poll"), state } })),
+  });
+  let mounted!: ReturnType<typeof renderHook<ReturnType<typeof useVault>, unknown>>;
+  await act(async () => {
+    mounted = renderHook(() => useVault(), { wrapper: wrapper(api) });
+  });
+  expect(mounted.result.current.setup.provisioning).toBe("provisioning");
+  state = "blocked";
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(mounted.result.current.setup.provisioning).toBe("failed");
+  await act(() => mounted.result.current.signOut());
+  const reads = vi.mocked(api.session!).mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(9000);
+  });
+  expect(api.session).toHaveBeenCalledTimes(reads);
+  expect(api.autoProvisionVault).not.toHaveBeenCalled();
+});
+
+it("decodes confirmed history and acknowledged setup without a long deployment response", async () => {
+  const fetcher = vi.fn(async (url: string | URL | Request) =>
+    response(
+      String(url).includes("/history")
+        ? {
+            items: [{ amount: "9007199254740993n", blockNumber: "99n", queueNonce: "0n" }],
+            indexedThrough: "100n",
+            observedAt: 1,
+          }
+        : { state: "queued" },
+    ),
+  );
+  const api = createVaultBackend(profile, fetcher);
+  expect(await api.autoProvisionVault()).toEqual({ state: "queued" });
+  expect(await api.history!()).toMatchObject({
+    items: [{ amount: 9007199254740993n, blockNumber: 99n, queueNonce: 0n }],
+    indexedThrough: 100n,
+  });
 });

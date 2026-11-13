@@ -10,7 +10,13 @@ async function run(): Promise<void> {
 	try {
 		const config = loadBackendConfig();
 		logger.info({ stage: "startup" }, "Starting backend; verifying saved accounts");
-		await createConfiguredBackend(undefined, config, undefined, { logger });
+		const backend = await createConfiguredBackend(config, { logger });
+		for (const signal of ["SIGINT", "SIGTERM"] as const)
+			process.once(signal, () => {
+				void backend.close().catch(() => {
+					process.exitCode = 1;
+				});
+			});
 	} catch (error) {
 		process.exitCode = 1;
 		logger.error(

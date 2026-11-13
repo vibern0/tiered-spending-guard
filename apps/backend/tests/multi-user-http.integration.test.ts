@@ -96,6 +96,8 @@ describe("real Safe multi-user HTTP", () => {
 				origin: ORIGIN,
 				rpcUrl: chain.url,
 				relayPrivateKey: PAYER_KEY,
+				dataRoot: join(directory, "account-data"),
+				accountDatabasePath: join(directory, "account-data", "accounts.sqlite"),
 				journalPath: join(directory, "legacy-s.json"),
 				provisioningJournalPath: join(directory, "legacy-p.json"),
 				provisioningReviewDirectory: join(directory, "legacy-r"),
@@ -161,7 +163,9 @@ describe("real Safe multi-user HTTP", () => {
 					},
 					async post(path: string, value: unknown) {
 						const result = await this.request(path, value);
-						expect(result.status, `${path}: ${JSON.stringify(result.body)}`).toBe(200);
+						expect(result.status, `${path}: ${JSON.stringify(result.body)}`).toBe(
+							path === "/v1/vaults/auto-provision" ? 202 : 200,
+						);
 						return result.body;
 					},
 				};
@@ -194,8 +198,20 @@ describe("real Safe multi-user HTTP", () => {
 					return { client, primary, secondary, account: setup.account };
 				}),
 			);
+			await Promise.all(people.map((p) => p.client.post("/v1/vaults/auto-provision", {})));
 			const vaults = await Promise.all(
-				people.map((p) => p.client.post("/v1/vaults/auto-provision", {})),
+				people.map(async (p) => {
+					let vault: Record<string, any> | undefined;
+					await vi.waitFor(
+						async () => {
+							const result = await p.client.request("/v1/vaults/current");
+							expect(result.status).toBe(200);
+							vault = result.body;
+						},
+						{ timeout: 60_000, interval: 100 },
+					);
+					return vault!;
+				}),
 			);
 			expect(new Set(vaults.map((v) => v.safe)).size).toBe(3);
 			expect(provisionSend).toHaveBeenCalledTimes(21);

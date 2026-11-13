@@ -1,10 +1,8 @@
 import type {
-	PwaHistoricalVault,
 	PwaProvisioningExecutionContext,
 	PwaProvisioningPlan,
 	PwaProvisioningRecovery,
 	PwaProvisioningResult,
-	PwaProvisioningTransaction,
 } from "@tiered-spending-guard/security-core/pwa";
 import * as pwaNamespace from "@tiered-spending-guard/security-core/pwa";
 import { type Address, type Hex } from "viem";
@@ -45,34 +43,13 @@ export type ProvisioningCredentials = Readonly<{
 	secondary: StoredCredential;
 }>;
 
-export type AutomaticPwaRecoveryPreflight = Readonly<{
-	confirmedPrefixLength: number;
-	nextTransactionId: PwaProvisioningTransaction["id"];
-	nextTransactionNonce: string;
-	packageHash: Hex;
-	planHash: Hex;
-	quoteBlockNumber: string;
-	quoteBlockHash: Hex;
-	gasEstimateA: string;
-	gasEstimateB: string;
-	gasLimit: string;
-	maxFeePerGas: string;
-	maxPriorityFeePerGas: string;
-	confirmedActualCost: string;
-	resultingOutlayWei: string;
-	relayBalance: string;
-}>;
-
 export type AutomaticPwaProvisioner = Readonly<{
-	historicalVault?: PwaHistoricalVault;
 	completedRecoveryReady?: boolean;
 	recoveryCredentials?: PwaProvisioningRecovery["credentials"];
-	preflight?(): Promise<AutomaticPwaRecoveryPreflight>;
 	provision(input?: ProvisioningCredentials): Promise<BackendPwaProvisioningCompletion>;
 }>;
 
 export type AutomaticPwaProvisionerOptions = Readonly<{
-	historicalVault?: PwaHistoricalVault;
 	reviewDirectory: string;
 	recovery?: PwaProvisioningRecovery;
 	reloadRecovery?(): Promise<PwaProvisioningRecovery | undefined>;
@@ -82,7 +59,6 @@ export type AutomaticPwaProvisionerOptions = Readonly<{
 	):
 		| Promise<Readonly<{ context: PwaProvisioningExecutionContext; close(): void }>>
 		| Readonly<{ context: PwaProvisioningExecutionContext; close(): void }>;
-	preflight?(): Promise<AutomaticPwaRecoveryPreflight>;
 }>;
 
 /** Keeps authorization evidence bound to one immutable reviewed package lineage. */
@@ -134,7 +110,6 @@ export function recoverableProvisioningFailure(error: unknown): boolean {
 export function createAutomaticPwaProvisioner(
 	options: AutomaticPwaProvisionerOptions,
 ): AutomaticPwaProvisioner {
-	if (options.historicalVault) return historicalProvisioner(options.historicalVault);
 	let boundCredentialIdentity: string | undefined;
 	let preparedPlan = options.recovery?.plan;
 	let recovered = options.recovery;
@@ -214,12 +189,7 @@ export function createAutomaticPwaProvisioner(
 		return operation;
 	};
 
-	const preflight =
-		options.preflight ??
-		(() =>
-			Promise.reject(new Error("recovery preflight is unavailable for fresh provisioning")));
 	return Object.freeze({
-		preflight,
 		provision,
 		get recoveryCredentials() {
 			return recovered?.credentials;
@@ -227,22 +197,5 @@ export function createAutomaticPwaProvisioner(
 		get completedRecoveryReady() {
 			return recovered?.confirmedPrefixLength === 7;
 		},
-	});
-}
-
-export function historicalProvisioner(
-	historicalVault: PwaHistoricalVault,
-): AutomaticPwaProvisioner {
-	const unavailable = () =>
-		Promise.reject(
-			new Error(
-				"historical vault is read-only; current-profile provisioning and transfers are disabled",
-			),
-		);
-	return Object.freeze({
-		historicalVault,
-		recoveryCredentials: historicalVault.credentials,
-		provision: unavailable,
-		preflight: unavailable,
 	});
 }

@@ -6,15 +6,10 @@ import type { AccountGateway, AccountRecord, AccountSession } from "../accounts/
 import type { BackendConfig } from "../config/config";
 import { AccountHttpError } from "./errors";
 import type { AuthSessionAction, AuthSessionContext } from "./types";
-import {
-	type BackendPasskeyRole,
-	verifyPasskeyLogin,
-	verifyPasskeyRebind,
-	verifyPasskeyRegistration,
-} from "./webauthn";
+import { type BackendPasskeyRole, verifyPasskeyLogin, verifyPasskeyRegistration } from "./webauthn";
 
 type AuthConfig = Pick<BackendConfig, "rpId" | "origin">;
-type AuthGateway = Pick<AccountGateway, "legacyCoordinates" | "releaseSession">;
+type AuthGateway = Pick<AccountGateway, "releaseSession">;
 
 function exactRegistrationFields(value: Record<string, unknown>, keys: readonly string[]): void {
 	if (Object.keys(value).sort().join() !== [...keys].sort().join())
@@ -83,48 +78,28 @@ export class AccountAuthService {
 			input.accountId ? `login:${input.accountId}` : "login",
 		);
 		const assertion = input.assertion;
-		let credential = this.store.credential(assertion.id);
-		if (!credential && this.gateway.legacyCoordinates) {
-			const target = this.store.account(
-				typeof input.accountId === "string" ? input.accountId : "legacy",
-			);
-			if (!target?.legacy)
-				throw new AccountHttpError(400, "first passkey authentication failed");
-			const coordinates = await this.gateway.legacyCoordinates(target.id);
-			if (!coordinates) throw new AccountHttpError(400, "existing account proof unavailable");
-			const verified = await verifyPasskeyRebind({
-				role: "primary",
-				coordinates,
-				challenge: challenge.challenge,
-				rpId: this.config.rpId,
-				origin: this.config.origin,
-				response: assertion,
-			});
-			this.store.storeCredential(target.id, verified);
-			credential = this.store.credential(verified.id);
-		} else {
-			if (
-				!credential ||
-				credential.role !== "primary" ||
-				(input.accountId !== undefined && credential.accountId !== input.accountId)
-			)
-				throw new AccountHttpError(400, "first passkey authentication failed");
-			const next = await verifyPasskeyLogin({
-				credential,
-				response: assertion,
-				challenge: challenge.challenge,
-				rpId: this.config.rpId,
-				origin: this.config.origin,
-				userHandle: credential.userHandle,
-				allowMissingUserHandle:
-					session.accountId === credential.accountId ||
-					input.accountId === credential.accountId,
-			});
-			this.store.updateCounter(credential.id, credential.counter, next);
-		}
+		const credential = this.store.credential(assertion.id);
+		if (
+			!credential ||
+			credential.role !== "primary" ||
+			(input.accountId !== undefined && credential.accountId !== input.accountId)
+		)
+			throw new AccountHttpError(400, "first passkey authentication failed");
+		const next = await verifyPasskeyLogin({
+			credential,
+			response: assertion,
+			challenge: challenge.challenge,
+			rpId: this.config.rpId,
+			origin: this.config.origin,
+			userHandle: credential.userHandle,
+			allowMissingUserHandle:
+				session.accountId === credential.accountId ||
+				input.accountId === credential.accountId,
+		});
+		this.store.updateCounter(credential.id, credential.counter, next);
 		if (this.store.session(token)?.id !== session.id)
 			throw new AccountHttpError(401, "sign-in session expired or revoked");
-		const created = this.store.createSession(credential!.accountId, true);
+		const created = this.store.createSession(credential.accountId, true);
 		this.store.revokeSession(token);
 		this.gateway.releaseSession?.(session.id);
 		return { session: created, replacement: created };
@@ -203,18 +178,14 @@ export class AccountRegistrationService {
 			role,
 		);
 		const response = input.registration as RegistrationResponseJSON;
-		const verified = await verifyPasskeyRegistration(
-			{
-				role,
-				credentialId: response.id,
-				challenge: challenge.challenge,
-				rpId: this.config.rpId,
-				origin: this.config.origin,
-				response,
-			},
-			undefined,
-			{ allowSyncedPrimary: true },
-		);
+		const verified = await verifyPasskeyRegistration({
+			role,
+			credentialId: response.id,
+			challenge: challenge.challenge,
+			rpId: this.config.rpId,
+			origin: this.config.origin,
+			response,
+		});
 		this.store.storeCredential(
 			account.id,
 			verified,

@@ -10,7 +10,6 @@ import {
 	ref,
 	role,
 	string,
-	type Endpoint,
 	type Schema,
 } from "../http/schema";
 
@@ -104,38 +103,3 @@ export const submissionsSchemas: Record<string, Schema> = {
 		["id", "state", "kind", "requestHash", "requiredApprovals", "approvals"],
 	),
 };
-
-export function documentSubmissions(add: (endpoint: Endpoint) => void, _account: boolean): void {
-	add({
-		method: "post",
-		path: "/v1/submissions/prepare",
-		tag: "Submissions",
-		summary: "Prepare a closed vault intent",
-		description:
-			"Verifies current state, classifies and simulates the intent. Returns exact digest and required approval roles without broadcasting. Amount and queueNonce use n-suffixed decimal strings. Account and session own the prepared attempt.",
-		access: "authenticated",
-		response: ref("Prepared"),
-		body: submissionsSchemas.Prepare,
-	});
-	add({
-		method: "post",
-		path: "/v1/submissions/{id}/submit",
-		tag: "Submissions",
-		summary: "Approve or execute the exact prepared submission",
-		description:
-			"Verifies each required passkey assertion over the exact Safe digest, primary first, then secondary when required. Revalidates state before bounded outer signing and one broadcast. Durable hashes reconcile after uncertainty without resubmission. Ready/expired queue actions require role=none and cannot authorize a new withdrawal.",
-		access: "authenticated",
-		response: ref("Submission"),
-		body: ref("Submit"),
-	});
-	add({
-		method: "get",
-		path: "/v1/submissions/{id}",
-		tag: "Submissions",
-		summary: "Read and reconcile submission status",
-		description:
-			"Looks up only the account-owned recorded submission and its exact durable transaction hash. Reconciliation observes receipts without signing or broadcasting.",
-		access: "authenticated",
-		response: ref("Submission"),
-	});
-}

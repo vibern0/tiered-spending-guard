@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AccountService } from "../src/accounts/service";
 import { AccountStore } from "../src/accounts/store";
 import { AccountAuthService, AccountRegistrationService } from "../src/auth/service";
-import { encodeP256CosePublicKey } from "../src/auth/webauthn";
+import { encodeP256CosePublicKey } from "./webauthn-fixtures";
 import { loadBackendConfig } from "../src/config/config";
 import { softwareAuthenticator } from "./automatic-http-fixtures";
 
@@ -18,9 +18,7 @@ function fixture() {
 		BACKEND_PROFILE: "local",
 		BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
 		BACKEND_RPC_URL: "https://unused.invalid",
-		BACKEND_JOURNAL_PATH: join(directory, "submissions.json"),
-		BACKEND_PROVISIONING_JOURNAL_PATH: join(directory, "provisioning.json"),
-		BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(directory, "reviews"),
+		BACKEND_DATA_DIRECTORY: directory,
 	});
 	const store = new AccountStore(config);
 	stores.push(store);
@@ -98,16 +96,26 @@ describe("account authentication workflow", () => {
 		expect(released.size).toBe(0);
 	});
 
-	it("learns a legacy first key only after proof, rotates the session and releases approvals on logout", async () => {
+	it("authenticates the registered first key, rotates the session and releases approvals on logout", async () => {
 		const { config, store, accounts } = fixture();
-		const account = store.adoptLegacy();
+		const account = store.createAccount();
 		const key = softwareAuthenticator("primary");
+		store.storeCredential(
+			account.id,
+			{
+				role: "primary",
+				id: key.id,
+				publicKey: encodeP256CosePublicKey(key.coordinates),
+				counter: 0,
+				...key.coordinates,
+			},
+			account.userHandle,
+		);
 		const retainedApprovals = new Set<string>();
 		const auth = new AccountAuthService(
 			config,
 			store,
 			{
-				legacyCoordinates: async (id) => (id === account.id ? key.coordinates : undefined),
 				releaseSession: (id) => {
 					retainedApprovals.delete(id);
 				},
@@ -117,7 +125,7 @@ describe("account authentication workflow", () => {
 		const session = store.createSession();
 		retainedApprovals.add(session.id);
 		const options = auth.loginOptions(session, account.id);
-		expect(store.credential(key.id)).toBeUndefined();
+		expect(store.credential(key.id)?.counter).toBe(0);
 		const action = await auth.verifyLogin(
 			{ token: session.token, session },
 			{

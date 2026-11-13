@@ -1,15 +1,10 @@
 import type {
-	PwaHistoricalVault,
 	PwaProvisioningPlan,
 	PwaProvisioningResult,
 } from "@tiered-spending-guard/security-core/pwa";
 import type { Address, Hex } from "viem";
-import type { VerifiedPasskeyApproval, verifyPasskeyAssertion } from "../auth/webauthn";
-import {
-	verifyPasskeyRebind,
-	type BackendPasskeyRole,
-	type StoredCredential,
-} from "../auth/webauthn";
+import type { VerifiedPasskeyApproval } from "../auth/webauthn";
+import { type BackendPasskeyRole, type StoredCredential } from "../auth/webauthn";
 import type { BackendConfig } from "../config/config";
 import type { AutomaticPwaProvisioner } from "../provisioning/service";
 import type { BackendPreparedSubmission } from "../submissions/types";
@@ -34,27 +29,6 @@ export type VaultProvisioningResult = Readonly<{
 		primary: "required" | "ready";
 		secondary: "required" | "ready";
 	}>;
-}>;
-
-export type BackendHandlers = Readonly<{
-	historicalVault?: PwaHistoricalVault;
-	getReadiness?: () => Readonly<{ provisioningReady: boolean; writesReady: boolean }>;
-	writesReady?: boolean;
-	currentVault?: () => PwaHistoricalVault | VaultProvisioningResult | undefined;
-	autoProvisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
-	storeCredential?: (
-		credential: Awaited<
-			ReturnType<typeof import("../auth/webauthn").verifyPasskeyRegistration>
-		>,
-	) => void;
-	prepareTransfer?: (body: unknown) => Promise<BackendPreparedSubmission>;
-	submit?: (id: string, body: unknown) => Promise<unknown>;
-	submission?: (id: string) => Promise<unknown>;
-	rebindCoordinates?: (role: BackendPasskeyRole) => Readonly<{ x: bigint; y: bigint }>;
-	storeReboundCredential?: (
-		credential: StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>,
-	) => unknown;
-	verifyRebind?: typeof verifyPasskeyRebind;
 }>;
 
 export type CredentialRebindStatus = Readonly<{
@@ -101,9 +75,7 @@ export type BackendHandlerOptions = Readonly<{
 	prepareTransfer?: BackendPreparation;
 	submit?: BackendSubmission;
 	submission?: BackendSubmissionReader;
-	verifyAssertion?: typeof verifyPasskeyAssertion;
-	actionSpecificApprovals?: true;
-	credentialStore?: Readonly<{
+	credentialStore: Readonly<{
 		get(role: BackendPasskeyRole): StoredCredential | undefined;
 		updateCounter(
 			credential: StoredCredential,
@@ -111,29 +83,16 @@ export type BackendHandlerOptions = Readonly<{
 			approval: VerifiedPasskeyApproval,
 			safeTxHash: Hex,
 		): void;
-		learn(
-			credential: StoredCredential,
-			approval: VerifiedPasskeyApproval,
-			safeTxHash: Hex,
-		): void;
 	}>;
 }>;
 
-export type BackendHandlerSet = Omit<BackendHandlers, "prepareTransfer" | "submit" | "submission"> &
-	Readonly<{
-		prepareTransfer: (body: unknown) => Promise<BackendPreparedSubmission>;
-		submit: (id: string, body: unknown) => Promise<unknown>;
-		submission: (id: string) => Promise<unknown>;
-		storeCredential: (
-			credential: StoredCredential &
-				Readonly<{ role: BackendPasskeyRole; credentialId: string }>,
-		) => void;
-		verifyApproval: (safeTxHash: Hex, body: unknown) => Promise<VerifiedPasskeyApproval>;
-		rebindCoordinates: (role: BackendPasskeyRole) => Readonly<{ x: bigint; y: bigint }>;
-		storeReboundCredential: (
-			credential: StoredCredential &
-				Readonly<{ role: BackendPasskeyRole; credentialId: string }>,
-		) => CredentialRebindStatus;
-		credentialRebindStatus: () => CredentialRebindStatus;
-		vaultRecord: () => BackendVaultRecord | undefined;
-	}>;
+export type BackendHandlerSet = Readonly<{
+	autoProvisionVault(body: unknown): Promise<VaultProvisioningResult>;
+	prepareTransfer(body: unknown): Promise<BackendPreparedSubmission>;
+	submit(id: string, body: unknown): Promise<unknown>;
+	submission(id: string): Promise<unknown>;
+	verifyApproval(safeTxHash: Hex, body: unknown): Promise<VerifiedPasskeyApproval>;
+	vaultRecord(): BackendVaultRecord | undefined;
+	currentVault(): VaultProvisioningResult | undefined;
+	getReadiness(): Readonly<{ provisioningReady: boolean; writesReady: boolean }>;
+}>;

@@ -1,3 +1,5 @@
+import { AccountStore } from "../src/accounts/store";
+import { passkeyApprovalFingerprint } from "../src/auth/webauthn";
 import { createHash, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -32,7 +34,8 @@ import { createBackendHandlers } from "../src/vaults/service";
 import { type BackendIntent, type BackendVaultRecord } from "../src/vaults/types";
 import { SubmissionJournal } from "../src/submissions/journal";
 import { PwaSubmissionService } from "../src/submissions/service";
-import { encodeP256CosePublicKey, type StoredCredential } from "../src/auth/webauthn";
+import type { StoredCredential } from "../src/auth/webauthn";
+import { encodeP256CosePublicKey } from "./webauthn-fixtures";
 import type { BackendConfig } from "../src/config/config";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
@@ -330,6 +333,8 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 				origin: "http://localhost:5173",
 				rpcUrl: chain.url,
 				relayPrivateKey: PAYER_KEY,
+				dataRoot: directory,
+				accountDatabasePath: join(directory, "accounts.sqlite"),
 				journalPath: join(directory, "submissions.json"),
 				provisioningJournalPath: join(directory, "provisioning.json"),
 				provisioningReviewDirectory: join(directory, "reviews"),
@@ -489,7 +494,27 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 					blockNumber: String(verified.setupReceipt.blockNumber),
 				},
 			};
+			const credentialStore = new AccountStore({
+				...config,
+				dataRoot: join(directory, "metadata"),
+				accountDatabasePath: join(directory, "metadata", "accounts.sqlite"),
+			});
+			const account = credentialStore.createAccount();
+			credentialStore.storeCredential(account.id, primary.stored);
+			credentialStore.storeCredential(account.id, secondary.stored);
 			handlers = createBackendHandlers({
+				credentialStore: {
+					get: (role) =>
+						credentialStore.credentials(account.id).find((c) => c.role === role),
+					updateCounter: (c, next, approval, hash) =>
+						credentialStore.consumeApproval(
+							account.id,
+							c.id,
+							c.counter,
+							next,
+							passkeyApprovalFingerprint(approval, hash),
+						),
+				},
 				config,
 				usdc: TOKEN,
 				provisioner: { provision: async () => ({ response, verified, plan }) },
@@ -498,8 +523,6 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 				submit: async ({ id, body }) => service.submit(id, body as never),
 				submission: async ({ id }) => service.status(id),
 			});
-			handlers.storeCredential(primary.stored);
-			handlers.storeCredential(secondary.stored);
 			await handlers.autoProvisionVault({});
 			topologyCollections = 0;
 			prepared = await handlers.prepareTransfer({
@@ -627,6 +650,8 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 			// across signing and broadcast. Change real guard code after outer signing.
 			const driftConfig = {
 				...config,
+				dataRoot: directory,
+				accountDatabasePath: join(directory, "accounts.sqlite"),
 				journalPath: join(directory, "drift-submissions.json"),
 			};
 			const drift = createSubmissionRuntimeForTestsOnly(
@@ -849,6 +874,7 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 			expect(readFileSync(config.journalPath, "utf8")).not.toMatch(
 				/assertion|signature|privateKey|authenticatorData|clientDataJSON/,
 			);
+			credentialStore.close();
 		} finally {
 			if (runtime && prepared) await runtime.discard?.(prepared);
 			await chain.close();

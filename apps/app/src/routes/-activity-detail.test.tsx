@@ -66,3 +66,26 @@ describe("recipient addition lifecycle", () => {
     await waitFor(() => expect(executeReady).toHaveBeenCalledWith(ready));
   });
 });
+
+it("keeps history-only expired events observational without a live queue binding", () => {
+  const { queueNonce: _nonce, ...historical } = addition;
+  useVaultMock.mockReturnValue({
+    state: { ...emptyState(), activity: [{ ...historical, canonicalNow: 900000 }] },
+    cancelQueued: vi.fn(),
+    executeReady: vi.fn(),
+  });
+  render(<DetailPage />);
+  expect(screen.queryByRole("button", { name: "Skip expired queue item" })).not.toBeInTheDocument();
+});
+
+it("labels an unresolved history outcome without suggesting success or lifecycle execution", () => {
+  const { queueNonce: _nonce, ...historical } = addition;
+  useVaultMock.mockReturnValue({
+    state: { ...emptyState(), activity: [{ ...historical, status: "unresolved" }] },
+    cancelQueued: vi.fn(),
+    executeReady: vi.fn(),
+  });
+  render(<DetailPage />);
+  expect(screen.getByText("Outcome unavailable")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Execute|Cancel|Skip/ })).not.toBeInTheDocument();
+});

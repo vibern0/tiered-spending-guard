@@ -19,48 +19,22 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 	let publicVaultBase: Omit<VaultProvisioningResult, "credentialRebind"> | undefined;
 	let provisioning: Promise<VaultProvisioningResult> | undefined;
 	const getRecoveryCredentials = () => options.provisioner.recoveryCredentials;
-	const historicalVault = options.provisioner.historicalVault;
-	const requireWritable = () => {
-		if (historicalVault)
-			throw new Error(
-				"historical vault is read-only; transfers and credential changes are disabled",
-			);
-	};
-
-	const {
-		currentCredential,
-		credentialRebindStatus,
-		storeCredential,
-		rebindCoordinates,
-		storeReboundCredential,
-		verifyApproval,
-	} = createVaultCredentials(
+	const { currentCredential, credentialRebindStatus, verifyApproval } = createVaultCredentials(
 		options,
-		{
-			get: () => vault,
-			set: (next) => {
-				vault = next;
-			},
-		},
 		() => requireReadyVault(),
-		() => requireVault(),
-		requireWritable,
 	);
 
 	const getReadiness = () =>
 		Object.freeze({
-			provisioningReady: !historicalVault && options.config.id === "local",
-			writesReady:
-				!historicalVault &&
-				Boolean(
-					vault &&
-					options.prepareTransfer &&
-					options.submit &&
-					options.submission &&
-					credentialRebindStatus().primary === "ready" &&
-					(options.actionSpecificApprovals ||
-						credentialRebindStatus().secondary === "ready"),
-				),
+			provisioningReady: true,
+			writesReady: Boolean(
+				vault &&
+				options.prepareTransfer &&
+				options.submit &&
+				options.submission &&
+				credentialRebindStatus().primary === "ready" &&
+				credentialRebindStatus().secondary === "ready",
+			),
 		});
 
 	const publicResult = (): VaultProvisioningResult => {
@@ -69,20 +43,10 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 	};
 
 	const autoProvisionVault = (input: unknown): Promise<VaultProvisioningResult> => {
-		if (historicalVault)
-			return Promise.reject(
-				new Error(
-					"historical vault is read-only; current-profile provisioning is disabled",
-				),
-			);
 		const body = record(input, "automatic vault provisioning request");
 		if (Object.keys(body).length !== 0)
 			return Promise.reject(
 				new Error("automatic vault provisioning body contains an unsupported field"),
-			);
-		if (options.config.id !== "local")
-			return Promise.reject(
-				new Error("automatic vault provisioning is available only in the local profile"),
 			);
 		if (publicVaultBase) return Promise.resolve(publicResult());
 		if (provisioning) return provisioning;
@@ -111,8 +75,10 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 					),
 				);
 		}
+		if (!primary || !secondary)
+			return Promise.reject(new Error("two verified credentials required"));
 		const operation = options.provisioner
-			.provision(primary && secondary ? { primary, secondary } : undefined)
+			.provision({ primary, secondary })
 			.then((completed) => {
 				const recovered = getRecoveryCredentials();
 				const currentPrimary = currentCredential("primary"),
@@ -134,8 +100,8 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 					throw new Error("verified provisioning result does not match backend identity");
 				vault = Object.freeze({
 					...completed.response,
-					primaryCredentialId: currentPrimary?.id ?? "",
-					secondaryCredentialId: currentSecondary?.id ?? "",
+					primaryCredentialId: currentPrimary!.id,
+					secondaryCredentialId: currentSecondary!.id,
 					verifiedProvisioning: completed.verified,
 					...(completed.plan ? { provisioningPlan: completed.plan } : {}),
 				});
@@ -157,21 +123,13 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 	};
 
 	const requireReadyVault = (): BackendVaultRecord => {
-		requireWritable();
 		const current = requireVault();
 		const status = credentialRebindStatus();
-		if (
-			status.primary !== "ready" ||
-			(!options.actionSpecificApprovals && status.secondary !== "ready")
-		)
-			throw new Error(
-				"both recovered passkeys must be rebound before spending or reconciliation",
-			);
+		if (status.primary !== "ready") throw new Error("primary credential is unavailable");
 		return current;
 	};
 
 	const prepareTransfer = async (input: unknown): Promise<BackendPreparedSubmission> => {
-		requireWritable();
 		if (!options.prepareTransfer) throw new Error("submission preparation unavailable");
 		const request = record(input, "transfer request");
 		const kind = request.kind;
@@ -224,13 +182,11 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 	};
 
 	const submit = async (id: string, body: unknown): Promise<unknown> => {
-		requireWritable();
 		if (!options.submit) throw new Error("submission unavailable");
 		return options.submit({ vault: requireReadyVault(), id, body });
 	};
 
 	const submission = async (id: string): Promise<unknown> => {
-		requireWritable();
 		if (!options.submission) throw new Error("submission unavailable");
 		return await options.submission({ vault: requireReadyVault(), id });
 	};
@@ -240,14 +196,9 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 		prepareTransfer,
 		submit,
 		submission,
-		storeCredential,
 		verifyApproval,
-		rebindCoordinates,
-		storeReboundCredential,
-		credentialRebindStatus,
 		vaultRecord: () => vault,
 		getReadiness,
-		...(historicalVault ? { historicalVault } : {}),
-		currentVault: () => historicalVault ?? (publicVaultBase ? publicResult() : undefined),
+		currentVault: () => (publicVaultBase ? publicResult() : undefined),
 	});
 }

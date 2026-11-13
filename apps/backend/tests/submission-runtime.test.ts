@@ -47,9 +47,7 @@ function fixture() {
 		BACKEND_PROFILE: "local",
 		BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
 		BACKEND_RPC_URL: "https://unused.invalid",
-		BACKEND_JOURNAL_PATH: join(dir, "submissions.json"),
-		BACKEND_PROVISIONING_JOURNAL_PATH: join(dir, "provisioning.json"),
-		BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(dir, "reviews"),
+		BACKEND_DATA_DIRECTORY: dir,
 	});
 	const vault = {
 		safe: address(1),

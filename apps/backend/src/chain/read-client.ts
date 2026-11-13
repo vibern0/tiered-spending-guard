@@ -1,8 +1,3 @@
-import type {
-	HistoricalPwaReadClient,
-	PwaProvisioningQuoteClient,
-	PwaProvisioningRecoveryClient,
-} from "@tiered-spending-guard/security-core/pwa";
 import { createPublicClient, http, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { batchedReadTransport } from "./batched-transport";
@@ -125,19 +120,7 @@ export function createReadClient(
 	url: string,
 	label: string,
 	options: Readonly<{ batch?: boolean; fetchFn?: typeof fetch; source?: string }> = {},
-): Omit<
-	HistoricalPwaReadClient & PwaProvisioningQuoteClient & PwaProvisioningRecoveryClient,
-	"getBlock"
-> &
-	Readonly<{
-		getBlock(input: { blockNumber: bigint }): Promise<{
-			number: bigint;
-			hash: Hex | null;
-			timestamp: bigint;
-			baseFeePerGas: bigint | null;
-			gasLimit: bigint;
-		}>;
-	}> {
+) {
 	const client = createPublicClient({
 		chain: sepolia,
 		transport: options.batch ? batchedReadTransport(url, options.fetchFn) : http(url),
@@ -145,7 +128,9 @@ export function createReadClient(
 	const read = <T>(method: string, operation: () => Promise<T>) =>
 		sanitizeRpc(label, method, operation, true);
 	return Object.freeze({
-		source: options.source ?? url,
+		source: options.source ?? label.replaceAll(" ", "-"),
+		getBalance: (args: { address: Address; blockNumber?: bigint }) =>
+			read("getBalance", () => client.getBalance(args)),
 		getChainId: () => read("getChainId", () => client.getChainId()),
 		getBlockNumber: () => read("getBlockNumber", () => client.getBlockNumber()),
 		getBlock: ({ blockNumber }: { blockNumber: bigint }) =>
@@ -198,7 +183,7 @@ export function createReadClient(
 			to?: Address;
 			data: Hex;
 			value: bigint;
-			blockNumber: bigint;
+			blockNumber?: bigint;
 		}) =>
 			read("estimateGas", () =>
 				client.estimateGas({ account, ...(to ? { to } : {}), data, value, blockNumber }),

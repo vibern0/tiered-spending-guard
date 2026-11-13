@@ -101,26 +101,4 @@ describe("delayed recipient addition", () => {
       ).not.toBeInTheDocument();
     }
   });
-
-  it("keeps historical policy read-only and links to preserved fresh setup", () => {
-    useVaultMock.mockReturnValue({
-      state: { ...state, compatibility: { mode: "read-only" } },
-      canWrite: false,
-      loading: false,
-    });
-    render(<LimitsPage />);
-    expect(
-      screen.queryByRole("textbox", { name: "New recipient address" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Start a new test vault" })).toHaveAttribute(
-      "href",
-      "/onboarding",
-    );
-    expect(
-      screen.getByText("Required for all transfers on this earlier vault."),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/Everyday transfers within X may use any valid/i),
-    ).not.toBeInTheDocument();
-  });
 });

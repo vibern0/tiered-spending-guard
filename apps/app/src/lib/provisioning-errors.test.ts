@@ -20,7 +20,7 @@ describe("describeProvisioningError", () => {
     ).toContain("backend is unhealthy");
   });
 
-  it("turns a correlated nonce failure into an actionable retry message", () => {
+  it("shows nonce drift as a blocked setup without promising automatic replacement", () => {
     const message = describeProvisioningError(
       new BackendRequestError({
         status: 400,
@@ -33,7 +33,8 @@ describe("describeProvisioningError", () => {
     );
 
     expect(message).toContain("secondary-signer");
-    expect(message).toMatch(/automatic/i);
+    expect(message).toMatch(/blocked|stopped/i);
+    expect(message).not.toMatch(/automatic|Retry automatic provisioning/i);
     expect(message).not.toMatch(/restart.*backend|check.*log/i);
     expect(message).toContain("request-123");
   });

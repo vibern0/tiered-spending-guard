@@ -1,11 +1,13 @@
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { passkeyApprovalFingerprint } from "../auth/webauthn";
 import { createPayerCoordinator } from "../chain/payer-coordinator";
 import type { BackendConfig } from "../config/config";
 import { createConfiguredAutomaticPwaProvisioner } from "../provisioning/runtime";
-import { type AutomaticPwaProvisioner } from "../provisioning/service";
+import {
+	recoverableProvisioningFailure,
+	type AutomaticPwaProvisioner,
+} from "../provisioning/service";
 import { SubmissionJournal } from "../submissions/journal";
 import { createConfiguredSubmissionRuntime } from "../submissions/runtime";
 import { PwaSubmissionService, SEPOLIA_USDC_ADDRESS } from "../submissions/service";
@@ -14,7 +16,6 @@ import { createBackendHandlers } from "../vaults/service";
 import { type BackendHandlerSet } from "../vaults/types";
 import { AccountStore } from "./store";
 import type { AccountGateway } from "./types";
-const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 type Factories = Readonly<{
 	provisioner(config: BackendConfig): Promise<AutomaticPwaProvisioner>;
 	runtime(
@@ -26,7 +27,7 @@ type Factories = Readonly<{
 type AccountRuntime = {
 	handlers: BackendHandlerSet;
 	provisioner: AutomaticPwaProvisioner;
-	service?: PwaSubmissionService;
+	service: PwaSubmissionService;
 };
 
 function compose(config: BackendConfig, store: AccountStore, factories: Factories): AccountGateway {
@@ -47,59 +48,53 @@ function compose(config: BackendConfig, store: AccountStore, factories: Factorie
 			if (!a) throw new Error("unknown account");
 			if (
 				a.state === "verified" &&
-				(!existsSync(a.config.provisioningJournalPath) ||
-					(!a.legacy && !existsSync(a.config.journalPath)))
+				(!existsSync(a.config.provisioningJournalPath) || !existsSync(a.config.journalPath))
 			)
 				throw new Error("verified account evidence disappeared");
 			const provisioner = await factories.provisioner(a.config);
 			// Late-bound: runtime callbacks capture handlers before their construction.
 			// eslint-disable-next-line prefer-const
 			let handlers: BackendHandlerSet;
-			const runtime = provisioner.historicalVault
-				? undefined
-				: factories.runtime(
-						a.config,
-						() => handlers?.vaultRecord(),
-						(submissionId) => assertSession(id, submissionId),
-					);
-			const service = runtime
-				? new PwaSubmissionService({
-						journal: new SubmissionJournal(a.config.journalPath),
-						revalidate: async (p) => {
-							assertSession(id, p.id);
-							await runtime.revalidate(p);
-							assertSession(id, p.id);
-						},
-						deriveOuterHash: async (p, approvals) => {
-							assertSession(id, p.id);
-							const hash = await runtime.deriveOuterHash(p, approvals);
-							assertSession(id, p.id);
-							return hash;
-						},
-						broadcast: async (p, approvals, hash) => {
-							assertSession(id, p.id);
-							return runtime.broadcast(p, approvals, hash);
-						},
-						reconcile: runtime.reconcile,
-						...(runtime.discard ? { discard: runtime.discard } : {}),
-						verifyApproval: async (role, prepared, assertion) => {
-							assertSession(id, prepared.id);
-							if (!prepared.safeTxHash)
-								throw new Error("exact Safe transaction hash required");
-							const approved = await handlers.verifyApproval(prepared.safeTxHash, {
-								role,
-								assertion,
-							});
-							assertSession(id, prepared.id);
-							return { role, payload: approved.payload };
-						},
-					})
-				: undefined;
+			const runtime = factories.runtime(
+				a.config,
+				() => handlers?.vaultRecord(),
+				(key) => assertSession(id, key),
+			);
+			const service = new PwaSubmissionService({
+				journal: new SubmissionJournal(a.config.journalPath),
+				revalidate: async (p) => {
+					assertSession(id, p.id);
+					await runtime.revalidate(p);
+					assertSession(id, p.id);
+				},
+				deriveOuterHash: async (p, approvals) => {
+					assertSession(id, p.id);
+					const hash = await runtime.deriveOuterHash(p, approvals);
+					assertSession(id, p.id);
+					return hash;
+				},
+				broadcast: async (p, approvals, hash) => {
+					assertSession(id, p.id);
+					return runtime.broadcast(p, approvals, hash);
+				},
+				reconcile: runtime.reconcile,
+				discard: runtime.discard,
+				verifyApproval: async (role, prepared, assertion) => {
+					assertSession(id, prepared.id);
+					if (!prepared.safeTxHash)
+						throw new Error("exact Safe transaction hash required");
+					const approved = await handlers.verifyApproval(prepared.safeTxHash, {
+						role,
+						assertion,
+					});
+					assertSession(id, prepared.id);
+					return { role, payload: approved.payload };
+				},
+			});
 			handlers = createBackendHandlers({
 				config: a.config,
 				usdc: SEPOLIA_USDC_ADDRESS,
 				provisioner,
-				actionSpecificApprovals: true,
 				credentialStore: {
 					get: (role) => store.credentials(id).find((c) => c.role === role),
 					updateCounter: (c, next, approval, hash) =>
@@ -110,31 +105,16 @@ function compose(config: BackendConfig, store: AccountStore, factories: Factorie
 							next,
 							passkeyApprovalFingerprint(approval, hash),
 						),
-					learn: (c, approval, hash) =>
-						store.learnApproval(
-							id,
-							c,
-							approval.counter,
-							passkeyApprovalFingerprint(approval, hash),
-						),
 				},
-				...(service && runtime
-					? {
-							prepareTransfer: async (input) =>
-								service.prepare(await runtime.prepare(input)),
-							submit: async ({ id, body }) => service.submit(id, body as never),
-							submission: async ({ id }) => service.status(id),
-						}
-					: {}),
+				prepareTransfer: async (input) => service.prepare(await runtime.prepare(input)),
+				submit: async ({ id, body }) => service.submit(id, body as never),
+				submission: async ({ id }) => service.status(id),
 			});
 			if (provisioner.completedRecoveryReady) {
-				await handlers.autoProvisionVault({});
-				if (a.state !== "verified") service?.journal.ensurePersisted();
-				store.markProvisioning(id, "verified");
+				const completed = await handlers.autoProvisionVault({});
+				if (a.state !== "verified") service.journal.ensurePersisted();
+				store.completeCreation(id, completed);
 			}
-			// Historical verification is read-only and account-scoped. It never grants
-			// any submission capability, but it is a completed preserved deployment.
-			if (provisioner.historicalVault) store.markProvisioning(id, "verified");
 			return { handlers, provisioner, service };
 		})();
 		runtimes.set(id, loading);
@@ -146,42 +126,47 @@ function compose(config: BackendConfig, store: AccountStore, factories: Factorie
 
 	return {
 		handlers: async (id) => (await load(id)).handlers,
-		legacyCoordinates: async (id) => (await load(id)).provisioner.recoveryCredentials?.primary,
-		provision: (id) =>
+		provision: async (id) => {
+			const account = store.account(id);
+			if (!account) throw new Error("unknown account");
+			return {
+				state: account.state,
+				...(account.creationError ? { error: account.creationError } : {}),
+			};
+		},
+		runProvisioning: (id, stopping) =>
 			withPayer(id, "provision", async () => {
-				const a = store.account(id)!;
-				const { handlers, provisioner, service } = await load(id);
-				if (provisioner.historicalVault) throw new Error("historical vault is read-only");
-				if (a.state === "verified") return handlers.autoProvisionVault({});
-				const credentials = store.credentials(id);
-				if (
-					!provisioner.recoveryCredentials &&
-					(credentials.length !== 2 ||
-						!credentials.some((c) => c.role === "primary") ||
-						!credentials.some((c) => c.role === "secondary"))
-				)
-					throw new Error(
-						"two distinct verified registrations required before provisioning",
-					);
-				store.markProvisioning(id, "provisioning");
+				if (stopping?.()) return;
+				const account = store.account(id);
+				if (!account || !["queued", "provisioning"].includes(account.state)) return;
+				if (account.creationAttempts < 3) store.beginCreation(id);
 				try {
-					const result = await handlers.autoProvisionVault({});
-					service?.journal.ensurePersisted();
-					store.markProvisioning(id, "verified");
-					return result;
-				} catch (error) {
-					// Only a provably empty attempt can relinquish nonce ownership. Any
-					// retained review, authorization or hash leaves the deployment blocked.
+					const { handlers, service } = await load(id);
+					if (store.account(id)?.state === "verified") {
+						runtimes.delete(id);
+						return;
+					}
+					if (account.creationAttempts >= 3)
+						throw new Error("creation retry budget exhausted");
+					const credentials = store.credentials(id);
 					if (
-						!core.readLiveJournal(a.config.provisioningJournalPath, payer).entries
-							.length &&
-						(!existsSync(a.config.provisioningReviewDirectory) ||
-							!readdirSync(a.config.provisioningReviewDirectory).length)
+						credentials.length !== 2 ||
+						!credentials.some((c) => c.role === "primary") ||
+						!credentials.some((c) => c.role === "secondary")
 					)
-						store.markProvisioning(id, "queued");
-					// A failed runner can leave a cached immutable plan; discard the entire
-					// account runtime and reconstruct solely from durable evidence on retry.
+						throw new Error("two verified registrations required before provisioning");
+					const completed = await handlers.autoProvisionVault({});
+					service.journal.ensurePersisted();
+					store.completeCreation(id, completed);
 					runtimes.delete(id);
+				} catch (error) {
+					runtimes.delete(id);
+					store.creationFailed(
+						id,
+						recoverableProvisioningFailure(error) ||
+							(error instanceof Error &&
+								error.message.includes("awaiting canonical confirmations")),
+					);
 					throw error;
 				}
 			}),
@@ -214,9 +199,10 @@ function compose(config: BackendConfig, store: AccountStore, factories: Factorie
 			);
 		},
 		status: async (id, key) => (await load(id)).handlers.submission(key),
-		reconcilePending: async () => {
+		reconcilePending: async (stopping) => {
 			let failed = false;
 			for (const account of store.accounts()) {
+				if (stopping?.()) break;
 				try {
 					// Scan source journals even when no browser has loaded this account.
 					// Absent/empty ledgers never create a runtime or provision a vault.
@@ -224,10 +210,8 @@ function compose(config: BackendConfig, store: AccountStore, factories: Factorie
 					const pending = new SubmissionJournal(account.config.journalPath).listPending();
 					if (!pending.length) continue;
 					const { service } = await load(account.id);
-					// Historical profiles have no submission capability. Their evidence
-					// remains pending and continues blocking the shared payer.
-					if (!service) continue;
 					for (const entry of pending) {
+						if (stopping?.()) break;
 						try {
 							await service.status(entry.id);
 						} catch {
@@ -241,12 +225,12 @@ function compose(config: BackendConfig, store: AccountStore, factories: Factorie
 			// Do not expose provider errors, account identifiers or retained hashes.
 			if (failed) throw new Error("pending receipt reconciliation failed safely");
 		},
-		submissionIds: async (id) => (await load(id)).service?.journal.recoveryIds() ?? [],
+		submissionIds: async (id) => (await load(id)).service.journal.recoveryIds() ?? [],
 		releaseSession: (sessionId) => {
 			for (const [id, promise] of runtimes)
 				void promise
 					.then((runtime) => {
-						runtime.service?.forgetApprovalsFor(
+						runtime.service.forgetApprovalsFor(
 							(key) => store.submissionOwner(id, key) === sessionId,
 						);
 					})

@@ -112,17 +112,6 @@ function LimitsPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Limits & security" right={<NetworkPill />} />
-      {state.compatibility?.mode === "read-only" && (
-        <Card className="space-y-2">
-          <p className="text-sm">
-            Keep this earlier account and start a separate Sepolia test vault with the current
-            recipient policy.
-          </p>
-          <Link to="/onboarding" className="inline-block font-semibold text-primary underline">
-            Start a new test vault
-          </Link>
-        </Card>
-      )}
       <p className="rounded-2xl bg-primary-soft p-3 text-sm font-semibold text-primary">
         Verified onchain policy · limits stay fixed
       </p>
@@ -160,9 +149,8 @@ function LimitsPage() {
       <Card>
         <h2 className="mb-2 font-semibold">Allowed recipients</h2>
         <p className="mb-3 text-sm text-muted-foreground">
-          {state.compatibility?.mode === "read-only"
-            ? "Required for all transfers on this earlier vault."
-            : "Required for second-signer and delayed transfers. Everyday transfers within X may use any valid nonzero address."}
+          Required for second-signer and delayed transfers. Everyday transfers within X may use any
+          valid nonzero address.
         </p>
         <ul className="space-y-2 text-sm">
           {state.recipients.map((r) => (
@@ -175,7 +163,7 @@ function LimitsPage() {
           ))}
         </ul>
       </Card>
-      {canWrite && !state.frozen && state.compatibility?.mode !== "read-only" && (
+      {canWrite && !state.frozen && (
         <Card className="space-y-3">
           <h2 className="font-semibold">Add an elevated recipient</h2>
           <p className="text-sm text-muted-foreground">

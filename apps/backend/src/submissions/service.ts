@@ -63,8 +63,14 @@ function publicView(
 ): BackendSubmissionView {
 	return Object.freeze({
 		id: entry.id,
+		publicRequest: entry.publicRequest,
+		...(typeof entry.publicRequest.preparedAt === "number"
+			? { createdAt: entry.publicRequest.preparedAt }
+			: {}),
 		state: entry.state,
-		kind: prepared?.kind ?? String(entry.publicRequest.kind ?? "unknown"),
+		kind:
+			prepared?.kind ??
+			String(entry.publicRequest.preparedKind ?? entry.publicRequest.kind ?? "unknown"),
 		requestHash: entry.requestHash,
 		requiredApprovals: prepared?.requiredApprovals ?? [],
 		approvals: entry.approvals,

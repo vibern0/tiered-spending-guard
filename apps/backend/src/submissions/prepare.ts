@@ -323,6 +323,8 @@ export function createSubmissionPreparation(
 			...request,
 			intent: JSON.parse(core.canonicalSubmissionJson(intent)),
 			preparedBlockNumber: String(prepared.blockNumber),
+			preparedAt: Number(prepared.timestamp) * 1000,
+			preparedKind: prepared.kind,
 		});
 		const publicPrepared: BackendPreparedSubmission = Object.freeze({
 			id: request.idempotencyKey,

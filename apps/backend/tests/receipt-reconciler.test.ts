@@ -1,6 +1,6 @@
 import { captureBackendLogs } from "./logger-fixture";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startReceiptReconciler } from "../src/jobs/receipt-reconciler";
+import { startBackgroundWorker } from "../src/jobs/worker";
 import { SubmissionJournal } from "../src/submissions/journal";
 import { PwaSubmissionService } from "../src/submissions/service";
 
@@ -17,7 +17,7 @@ describe("automatic receipt reconciliation worker", () => {
 			.fn()
 			.mockImplementationOnce(() => gate)
 			.mockResolvedValue(undefined);
-		const worker = startReceiptReconciler(sweep);
+		const worker = startBackgroundWorker("receipt", sweep);
 		try {
 			await vi.advanceTimersByTimeAsync(0);
 			expect(sweep).toHaveBeenCalledTimes(1);
@@ -43,14 +43,14 @@ describe("automatic receipt reconciliation worker", () => {
 			.fn()
 			.mockRejectedValueOnce(new Error("https://secret.invalid/key account secret-123"))
 			.mockResolvedValue(undefined);
-		const worker = startReceiptReconciler(sweep, { logger });
+		const worker = startBackgroundWorker("receipt", sweep, { logger });
 		try {
 			await vi.advanceTimersByTimeAsync(0);
 			expect(entries).toHaveLength(1);
 			expect(entries[0]).toMatchObject({
 				level: 40,
-				code: "receipt_reconciliation_failed",
-				stage: "receipt-reconciliation",
+				code: "receipt_worker_failed",
+				stage: "receipt",
 			});
 			expect(JSON.stringify(entries)).not.toMatch(/secret|https|account/);
 			await vi.advanceTimersByTimeAsync(12_000);
@@ -67,7 +67,7 @@ describe("automatic receipt reconciliation worker", () => {
 			release = resolve;
 		});
 		const sweep = vi.fn(() => gate);
-		const worker = startReceiptReconciler(sweep);
+		const worker = startBackgroundWorker("receipt", sweep);
 		await vi.advanceTimersByTimeAsync(0);
 		let stopped = false;
 		const stop = worker.stop().then(() => {
@@ -111,7 +111,7 @@ describe("automatic receipt reconciliation worker", () => {
 			deriveOuterHash: vi.fn(),
 		});
 		const manual = service.status("pending");
-		const worker = startReceiptReconciler(async () => {
+		const worker = startBackgroundWorker("receipt", async () => {
 			for (const entry of journal.listPending()) await service.status(entry.id);
 		});
 		await Promise.resolve();

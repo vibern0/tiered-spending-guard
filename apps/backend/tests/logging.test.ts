@@ -10,12 +10,6 @@ function fixture() {
 	const { logger, entries } = captureBackendLogs();
 	const server = createBackendFastify({
 		logger,
-		json: {
-			strictContentType: true,
-			requireObject: true,
-			invalidMessage: "invalid JSON",
-			bigintKeys: [],
-		},
 	});
 	servers.push(server);
 	server.get("/health", async () => ({ ok: true }));

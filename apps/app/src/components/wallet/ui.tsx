@@ -111,9 +111,19 @@ export function ActivityRow({ item, now }: { item: ActivityItem; now: number }) 
           >
             {item.kind === "recipient-addition"
               ? "Policy change"
-              : item.kind === "unsupported"
-                ? "Review required"
-                : `${item.direction === "in" ? "+" : "−"}${formatUsdc(item.amount)}`}
+              : item.kind === "cancel"
+                ? "Queue cancellation"
+                : item.kind === "execute"
+                  ? "Queue execution"
+                  : item.kind === "skip"
+                    ? "Expired item skipped"
+                    : item.proposal
+                      ? `Scheduled · ${formatUsdc(item.amount)}`
+                      : item.direction === "self"
+                        ? `Self · ${formatUsdc(item.amount)}`
+                        : item.kind === "unsupported"
+                          ? "Review required"
+                          : `${item.direction === "in" ? "+" : "−"}${formatUsdc(item.amount)}`}
           </span>
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">
@@ -127,6 +137,7 @@ export function ActivityRow({ item, now }: { item: ActivityItem; now: number }) 
 }
 
 export function relTime(t: number, now: number) {
+  if (t <= 0) return "Time unavailable";
   const d = now - t;
   if (d < 60_000) return "Just now";
   if (d < 3_600_000) return `${Math.floor(d / 60_000)} min ago`;

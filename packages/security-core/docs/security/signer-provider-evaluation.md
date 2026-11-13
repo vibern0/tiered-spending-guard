@@ -9,6 +9,14 @@ A fresh backend-only `vault-login:` challenge authenticates the first key and ro
 Application sessions hold no approval payloads. Approval attempts are account/session-bound; logout clears retained memory approvals, and active-session checks run before private outer signing and immediately before broadcast. Pending durable hashes are reconciled without another passkey or signature. First/second registration still precedes initial deployment. The strict platform/cross-platform defaults in the direct singleton harness are historical test behavior; the live localhost account server uses the explicit synced-first registration policy.
 
 
+## 2026-11-12 known risk: account database integrity
+
+Public credential keys are verification data; disclosure alone grants no signing authority. Database integrity remains a local-prototype trust assumption: unauthorized writes can corrupt account/key associations or session records, expose account views, deny access, or substitute credential inputs before initial provisioning. Private passkey material remains outside the database.
+
+For an already deployed vault, database edits must not replace its onchain signer or authorize spending. Preserve independent reviewed-key, exact-signature and topology checks, atomic counter/replay writes, and the delayed signer-replacement path. Recording this risk does not defer or remove those safeguards.
+
+Future research: authenticate account/key associations against an independently trusted onchain binding or commitment. The user suggested a ZK commitment/proof; it is unevaluated, not an implemented or accepted mitigation. ZK alone does not establish which key belongs to an account or protect writable session records. Compare direct verification against the existing onchain signer before adding cryptography. Any new custom-contract path requires the repository's separate design review.
+
 **Status:** Security-core design note
 **Date:** 2026-09-16
 

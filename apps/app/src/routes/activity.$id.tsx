@@ -55,6 +55,15 @@ function DetailPage() {
   const status = effectiveStatus(item, now);
   const policyChange = item.kind === "recipient-addition";
   const unsupported = item.kind === "unsupported";
+  const lifecycle =
+    item.kind === "cancel"
+      ? "Queue cancellation"
+      : item.kind === "execute"
+        ? "Queue execution"
+        : item.kind === "skip"
+          ? "Expired item skipped"
+          : undefined;
+  const liveQueue = item.queueNonce !== undefined;
   const displayNow = item.canonicalNow ?? now;
   const run = async (kind: "cancel" | "execute") => {
     setBusy(kind);
@@ -82,16 +91,22 @@ function DetailPage() {
         <p className="text-sm text-muted-foreground">
           {policyChange
             ? "Delayed recipient addition"
-            : unsupported
-              ? "Unsupported delayed operation"
-              : `${item.direction === "in" ? "From" : "To"} ${item.counterparty}`}
+            : (lifecycle ??
+              (unsupported
+                ? "Unsupported delayed operation"
+                : item.proposal
+                  ? `Scheduled withdrawal to ${item.counterparty}`
+                  : item.direction === "self"
+                    ? "Self-transfer"
+                    : `${item.direction === "in" ? "From" : "To"} ${item.counterparty}`))}
         </p>
         <p className="my-2 font-display text-4xl font-extrabold tabular-nums">
           {policyChange
             ? "Policy change"
-            : unsupported
-              ? "Review required"
-              : `${item.direction === "in" ? "+" : "−"}${formatUsdc(item.amount)}`}
+            : (lifecycle ??
+              (unsupported
+                ? "Review required"
+                : `${item.direction === "self" ? "" : item.direction === "in" ? "+" : "−"}${formatUsdc(item.amount)}`))}
         </p>
         <StatusBadge status={status} />
         {status === "queued" && item.earliestExecution && (
@@ -108,13 +123,19 @@ function DetailPage() {
         {item.failureReason && <p className="mt-3 text-sm text-danger-ink">{item.failureReason}</p>}
       </Card>
 
-      {policyChange && (
+      {policyChange && liveQueue && (status === "queued" || status === "ready") && (
         <p className="px-1 text-sm text-muted-foreground">
           Both signers approved this addition. Execute it after the waiting period to update the
           allowed recipients.
         </p>
       )}
-      {item.direction === "out" && !policyChange && !unsupported && (
+      {status === "unresolved" && (
+        <p className="px-1 text-sm text-muted-foreground">
+          Canonical evidence does not yet identify the outcome. This history record has no execution
+          action.
+        </p>
+      )}
+      {item.direction === "out" && !policyChange && !unsupported && !lifecycle && (
         <p className="px-1 text-sm text-muted-foreground">{LANE_COPY[item.lane].title}</p>
       )}
       {error && (
@@ -130,7 +151,7 @@ function DetailPage() {
         {status === "awaiting_second_signer" && (
           <PrimaryButton disabled>Approve with {state.secondSignerName}</PrimaryButton>
         )}
-        {status === "ready" && (
+        {status === "ready" && liveQueue && (
           <PrimaryButton onClick={() => run("execute")} disabled={busy !== null || unsupported}>
             {busy === "execute"
               ? "Executing from verified queue…"
@@ -139,27 +160,28 @@ function DetailPage() {
                 : "Execute withdrawal"}
           </PrimaryButton>
         )}
-        {status === "expired" && (
+        {status === "expired" && liveQueue && (
           <PrimaryButton onClick={() => run("execute")} disabled={busy !== null}>
             {busy === "execute" ? "Skipping expired item…" : "Skip expired queue item"}
           </PrimaryButton>
         )}
-        {(status === "queued" ||
-          status === "ready" ||
-          status === "awaiting_first_signer" ||
-          status === "awaiting_second_signer") && (
-          <SecondaryButton
-            onClick={() => run("cancel")}
-            disabled={busy !== null || (status !== "queued" && status !== "ready")}
-            className="bg-danger-soft text-danger-ink hover:bg-danger-soft/70"
-          >
-            {status === "queued" || status === "ready"
-              ? policyChange
-                ? "Cancel recipient addition"
-                : "Cancel withdrawal"
-              : "Discard request"}
-          </SecondaryButton>
-        )}
+        {liveQueue &&
+          (status === "queued" ||
+            status === "ready" ||
+            status === "awaiting_first_signer" ||
+            status === "awaiting_second_signer") && (
+            <SecondaryButton
+              onClick={() => run("cancel")}
+              disabled={busy !== null || (status !== "queued" && status !== "ready")}
+              className="bg-danger-soft text-danger-ink hover:bg-danger-soft/70"
+            >
+              {status === "queued" || status === "ready"
+                ? policyChange
+                  ? "Cancel recipient addition"
+                  : "Cancel withdrawal"
+                : "Discard request"}
+            </SecondaryButton>
+          )}
       </div>
 
       <Card className="space-y-2 text-sm">
@@ -180,9 +202,10 @@ function DetailPage() {
           v={
             policyChange
               ? `Delayed addition of ${item.address}`
-              : unsupported
-                ? "Unrecognized queued operation"
-                : `USDC.transfer(${item.address.slice(0, 10)}…, ${item.amount.toString()})`
+              : (lifecycle ??
+                (unsupported
+                  ? "Unrecognized queued operation"
+                  : `USDC.transfer(${item.address.slice(0, 10)}…, ${item.amount.toString()})`))
           }
         />
         <DRow k="Fingerprint" v={item.fingerprint} />

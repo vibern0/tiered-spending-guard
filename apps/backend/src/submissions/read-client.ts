@@ -22,8 +22,6 @@ export function createSubmissionReadClient(
 	return Object.freeze({
 		...base,
 		source: label.replaceAll(" ", "-"),
-		getBalance: (args: { address: Address; blockNumber?: bigint }) =>
-			read("getBalance", () => client.getBalance(args)),
 		call: (args: {
 			data: Hex;
 			to?: Address;

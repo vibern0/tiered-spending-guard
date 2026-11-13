@@ -2,9 +2,9 @@
 
 Snapshot: 2026-11-12. One row per tracked file plus the new files in this change. Excludes ignored private `.env` files/symlink targets, external data, dependencies and generated build output. Asset and historical-evidence files are listed so the inventory remains complete. Test descriptions name the covered domain, not a claim that any live gate passed.
 
-Start with the [codebase map and reorganization candidates](codebase-map.md). This is a current-structure reference; it does not authorize moving security boundaries.
+Start with the [codebase map](codebase-map.md). This is a current-structure reference; it does not authorize moving security boundaries.
 
-Inventory: **720 files**.
+Inventory: **712 files**.
 
 ## Root and integration files
 
@@ -35,52 +35,42 @@ Inventory: **720 files**.
 | [apps/backend/README.md](../apps/backend/README.md) | Documentation: tiered-spending-guard local wallet backend. |
 | [apps/backend/eslint.config.js](../apps/backend/eslint.config.js) | Workspace ESLint rules and formatter compatibility; backend check rejects warnings. |
 | [apps/backend/package.json](../apps/backend/package.json) | Workspace identity, scripts and dependency declarations for backend. |
-| [apps/backend/scripts/profile-verification-cli.ts](../apps/backend/scripts/profile-verification-cli.ts) | Dedicated executable read-only profiler entrypoint; help, argument parsing, output and safe failure reporting. |
-| [apps/backend/scripts/profile-verification.ts](../apps/backend/scripts/profile-verification.ts) | Read-only external deployment verification profiling; emits private local performance artifacts. |
-| [apps/backend/scripts/verification-profiler.ts](../apps/backend/scripts/verification-profiler.ts) | Counts/times phases and strict read-only HTTP activity without recording secrets. |
 | [apps/backend/src/accounts/runtime.ts](../apps/backend/src/accounts/runtime.ts) | Create/cache per-account capabilities and bind prepared/approved submissions to active sessions; use the shared payer coordinator for writes. |
-| [apps/backend/src/accounts/schemas.ts](../apps/backend/src/accounts/schemas.ts) | Documentation-only account/session response models. |
-| [apps/backend/src/accounts/service.ts](../apps/backend/src/accounts/service.ts) | Create an unprivileged setup account/session and project only its public authenticated account/vault/submission metadata. |
-| [apps/backend/src/accounts/store.ts](../apps/backend/src/accounts/store.ts) | SQLite public account/credential/session metadata, challenges, replay fingerprints, ownership and evidence inventory; atomic security updates stay together. |
-| [apps/backend/src/accounts/types.ts](../apps/backend/src/accounts/types.ts) | Application contracts for account records, public credentials, sessions, challenges and the account gateway; independent of HTTP/bootstrap. |
-| [apps/backend/src/app.ts](../apps/backend/src/app.ts) | Import-safe application composition: construct owned resources, select normal/compatibility server and close stores/workers safely. |
+| [apps/backend/src/accounts/schemas.ts](../apps/backend/src/accounts/schemas.ts) | Account/session response models shared by route contracts and documentation. |
+| [apps/backend/src/accounts/service.ts](../apps/backend/src/accounts/service.ts) | Create setup sessions and project only the selected account, setup state and recent/unresolved public submission references. |
+| [apps/backend/src/accounts/store.ts](../apps/backend/src/accounts/store.ts) | Version-2 SQLite public accounts, credentials, sessions, replay records and evidence inventory; atomically commits the second credential and its sole creation job. |
+| [apps/backend/src/accounts/types.ts](../apps/backend/src/accounts/types.ts) | Account, public credential, session, creation-state and gateway contracts; independent of HTTP/bootstrap. |
+| [apps/backend/src/app.ts](../apps/backend/src/app.ts) | Import-safe composition of the sole local account server, external stores, configured history and owned cleanup. |
 | [apps/backend/src/auth/errors.ts](../apps/backend/src/auth/errors.ts) | Shared application authentication/access error preserving the existing safe status/message contract. |
 | [apps/backend/src/auth/registration-routes.ts](../apps/backend/src/auth/registration-routes.ts) | HTTP credential-registration adapters; obtain selected account/session/role, invoke workflow and send public result. |
 | [apps/backend/src/auth/routes.ts](../apps/backend/src/auth/routes.ts) | HTTP setup/login/session/logout adapters; validate fields, obtain context, apply returned cookie/session actions and project responses. |
-| [apps/backend/src/auth/schemas.ts](../apps/backend/src/auth/schemas.ts) | Documentation-only authentication/credential models and account/legacy authentication operation descriptions. |
+| [apps/backend/src/auth/schemas.ts](../apps/backend/src/auth/schemas.ts) | Closed registration/login route contracts and public credential/authentication models. |
 | [apps/backend/src/auth/service.ts](../apps/backend/src/auth/service.ts) | Registration/setup/login/logout workflows with exact challenge, proof, counter, active-session and rotation ordering; no Fastify request/reply dependency. |
 | [apps/backend/src/auth/signatures.ts](../apps/backend/src/auth/signatures.ts) | P-256 credential/DER signature/WebAuthn field decoding and canonical signature components. |
 | [apps/backend/src/auth/types.ts](../apps/backend/src/auth/types.ts) | Explicit session/token inputs and session replacement actions passed between auth workflows and HTTP adapters. |
-| [apps/backend/src/auth/vault-credentials.ts](../apps/backend/src/auth/vault-credentials.ts) | Per-vault credential readiness, recovered-key rebind and exact Safe-digest approval verification with explicit vault state callbacks. |
-| [apps/backend/src/auth/webauthn.ts](../apps/backend/src/auth/webauthn.ts) | Cryptographic registration, primary login, recovered-key and exact Safe transaction assertion verification. |
+| [apps/backend/src/auth/vault-credentials.ts](../apps/backend/src/auth/vault-credentials.ts) | Persistent account credential boundary and exact Safe-digest approval verification; no legacy rebind or blanket second-key readiness. |
+| [apps/backend/src/auth/webauthn.ts](../apps/backend/src/auth/webauthn.ts) | Cryptographic registration, discoverable first-key login and exact transaction assertion verification. |
 | [apps/backend/src/chain/batched-transport.ts](../apps/backend/src/chain/batched-transport.ts) | Bounded strict JSON-RPC batching; reject malformed/missing/duplicate/unrelated response identity and redirects. |
-| [apps/backend/src/chain/evidence-access.ts](../apps/backend/src/chain/evidence-access.ts) | Select the fixed approved independent evidence-reader pair from optional private external access configuration. |
+| [apps/backend/src/chain/evidence-access.ts](../apps/backend/src/chain/evidence-access.ts) | Require private external version-2 configuration for the exact independent Infura/Alchemy Sepolia reader pair; sanitized fail-closed rejection. |
 | [apps/backend/src/chain/payer-coordinator.ts](../apps/backend/src/chain/payer-coordinator.ts) | One queue/filesystem lease across all accounts; reread authoritative journals and block signatures on unresolved or incomplete work. |
-| [apps/backend/src/chain/read-client.ts](../apps/backend/src/chain/read-client.ts) | Shared read-only Sepolia RPC adapter, bounded/sanitized retry and canonical transaction/receipt projection. |
+| [apps/backend/src/chain/read-client.ts](../apps/backend/src/chain/read-client.ts) | Shared read-only viem adapter with bounded sanitized reads and canonical transaction/receipt projection; no free-provider selection or Tenderly pacing. |
 | [apps/backend/src/chain/relay-client.ts](../apps/backend/src/chain/relay-client.ts) | Configured provisioning relay RPC adapter for fee/nonce reads, broadcasting already-signed envelopes and canonical receipt waits; owns no private signing key. |
-| [apps/backend/src/compatibility/registration-sessions.ts](../apps/backend/src/compatibility/registration-sessions.ts) | Older one-use in-memory registration/rebind challenge stores with role and expiry checks. |
-| [apps/backend/src/compatibility/routes.ts](../apps/backend/src/compatibility/routes.ts) | Older singleton endpoints, local-only credential rebind and historical read-only request boundary. |
-| [apps/backend/src/compatibility/server.ts](../apps/backend/src/compatibility/server.ts) | Preserved singleton test/restricted HTTPS HTTP composition with existing safe errors and readiness behavior. |
-| [apps/backend/src/compatibility/submission.ts](../apps/backend/src/compatibility/submission.ts) | Preserved older Safe submission/preparation/provisioning API and its exact request/evidence contracts; not the normal account service. |
 | [apps/backend/src/config/config.ts](../apps/backend/src/config/config.ts) | Validate loopback/Sepolia settings, exact WebAuthn identity, external paths and private configuration without reading secrets from the repository. |
 | [apps/backend/src/config/environment.ts](../apps/backend/src/config/environment.ts) | Quiet external dotenv loading through the backend .env link or explicit external path; shell values win and failures are sanitized. |
-| [apps/backend/src/http/documentation.ts](../apps/backend/src/http/documentation.ts) | Register static OpenAPI and bundled read-only Swagger UI with existing server security/no-store checks. |
+| [apps/backend/src/http/documentation.ts](../apps/backend/src/http/documentation.ts) | Generate OpenAPI from Fastify route schemas and serve bundled read-only Swagger under the existing HTTP security boundary. |
 | [apps/backend/src/http/errors.ts](../apps/backend/src/http/errors.ts) | Translate existing application/framework failures into safe HTTP statuses/messages and diagnostic classifications. |
 | [apps/backend/src/http/fastify.ts](../apps/backend/src/http/fastify.ts) | Shared Fastify instance: native safe logging, bounded JSON/bigint parsing, generated request IDs, disconnect handling and no-store serialization. |
 | [apps/backend/src/http/health.ts](../apps/backend/src/http/health.ts) | Public health response with write readiness scoped only to the authenticated caller. |
-| [apps/backend/src/http/openapi.ts](../apps/backend/src/http/openapi.ts) | Assemble account/legacy OpenAPI documents from feature-owned schemas and descriptions while retaining existing security/header/error documentation. |
-| [apps/backend/src/http/schema.ts](../apps/backend/src/http/schema.ts) | Documentation schema helpers, wire primitives and endpoint-description types; never runtime validators. |
-| [apps/backend/src/http/schemas.ts](../apps/backend/src/http/schemas.ts) | Documentation-only shared empty/error/health models and health operation description. |
+| [apps/backend/src/http/schema.ts](../apps/backend/src/http/schema.ts) | Shared closed route-schema helpers and bigint wire primitives; retain separate domain/cryptographic validation. |
+| [apps/backend/src/http/schemas.ts](../apps/backend/src/http/schemas.ts) | Shared empty/error/health route models. |
 | [apps/backend/src/http/security.ts](../apps/backend/src/http/security.ts) | HTTP cookie/session context, loopback/Host/Origin/CORS/CSRF/account checks and safe path/field validation. |
-| [apps/backend/src/http/server.ts](../apps/backend/src/http/server.ts) | Compose normal account HTTP routes, shared security/error mapping, documentation and receipt-worker lifecycle. |
-| [apps/backend/src/http/types.ts](../apps/backend/src/http/types.ts) | Native logger injection options shared by normal and compatibility HTTP compositions. |
+| [apps/backend/src/http/server.ts](../apps/backend/src/http/server.ts) | Compose the sole local account API, history pagination, security/error handling and post-listening worker lifecycle. |
+| [apps/backend/src/http/types.ts](../apps/backend/src/http/types.ts) | Native logger injection options for the local HTTP composition. |
 | [apps/backend/src/index.ts](../apps/backend/src/index.ts) | Executable startup: load external environment/configuration, create shared native logger and start the application. |
-| [apps/backend/src/jobs/receipt-reconciler.ts](../apps/backend/src/jobs/receipt-reconciler.ts) | Schedule non-overlapping read-only pending-receipt sweeps, safe warnings and drain-on-shutdown. |
 | [apps/backend/src/logging.ts](../apps/backend/src/logging.ts) | Native Pino configuration with safe route/request/response serializers, implicit-error protection and optional development formatting. |
-| [apps/backend/src/provisioning/recovery.ts](../apps/backend/src/provisioning/recovery.ts) | Read/reconcile exact saved deployment progress and verified successor lineage; never sign or broadcast. |
+| [apps/backend/src/provisioning/recovery.ts](../apps/backend/src/provisioning/recovery.ts) | Read/reconcile exact retained deployment progress; no signer, broadcast, automatic successor or nonce rebasing. |
 | [apps/backend/src/provisioning/runtime.ts](../apps/backend/src/provisioning/runtime.ts) | Wire approved providers, payer, committed profile/authorizer, exact quotes and durable serial deployment execution/recovery capabilities. |
-| [apps/backend/src/provisioning/service.ts](../apps/backend/src/provisioning/service.ts) | Coordinate one immutable reviewed deployment, concurrency, bounded retry and completed/historical behavior. |
-| [apps/backend/src/provisioning/successors.ts](../apps/backend/src/provisioning/successors.ts) | Load, merge and retain verified account-managed deployment continuation lineage. |
+| [apps/backend/src/provisioning/service.ts](../apps/backend/src/provisioning/service.ts) | Coordinate one immutable reviewed seven-transaction deployment, bounded transient retry and exact completion/restart verification. |
 | [apps/backend/src/submissions/core.ts](../apps/backend/src/submissions/core.ts) | Normalize the existing CommonJS/ESM security-core PWA namespace for submission consumers. |
 | [apps/backend/src/submissions/execute.ts](../apps/backend/src/submissions/execute.ts) | Private exact-envelope revalidation, lease/nonce/cost checks, signing, durable-hash verification, one broadcast and memory cleanup. |
 | [apps/backend/src/submissions/journal.ts](../apps/backend/src/submissions/journal.ts) | Durable submission states, immutable public requests, approval fingerprints, exact outer hashes and restart/receipt evidence. |
@@ -90,13 +80,13 @@ Inventory: **720 files**.
 | [apps/backend/src/submissions/reconcile.ts](../apps/backend/src/submissions/reconcile.ts) | Reconstruct public prepared evidence when needed, verify exact independent receipts and persist confirmed observations; no signer/broadcast capability. |
 | [apps/backend/src/submissions/routes.ts](../apps/backend/src/submissions/routes.ts) | Authenticated account/session HTTP adapters for prepare, submit and status; call the account gateway directly. |
 | [apps/backend/src/submissions/runtime.ts](../apps/backend/src/submissions/runtime.ts) | Construct approved runtime clients and compose preparation, private execution and read-only reconciliation with narrow interfaces. |
-| [apps/backend/src/submissions/schemas.ts](../apps/backend/src/submissions/schemas.ts) | Documentation-only closed intent/prepared/submission/approval models and submission operation descriptions. |
+| [apps/backend/src/submissions/schemas.ts](../apps/backend/src/submissions/schemas.ts) | Closed intent, prepared-request, approval and public-status route models, including validated public intent/time metadata. |
 | [apps/backend/src/submissions/service.ts](../apps/backend/src/submissions/service.ts) | Durable submission state machine and exact approval sequencing; journal hashes before broadcast and reconcile uncertainty without replacement signing. |
 | [apps/backend/src/submissions/types.ts](../apps/backend/src/submissions/types.ts) | Closed prepared submission, approval, receipt, view, runtime-state and narrow capability contracts. |
-| [apps/backend/src/vaults/routes.ts](../apps/backend/src/vaults/routes.ts) | Authenticated current-vault and automatic-provisioning HTTP adapters. |
-| [apps/backend/src/vaults/schemas.ts](../apps/backend/src/vaults/schemas.ts) | Documentation-only current/historical vault models and vault operation descriptions. |
-| [apps/backend/src/vaults/service.ts](../apps/backend/src/vaults/service.ts) | Orchestrate verified vault lifecycle/readiness and gate closed operations through credential and provisioning/submission capabilities. |
-| [apps/backend/src/vaults/types.ts](../apps/backend/src/vaults/types.ts) | Verified vault records, public provisioning results, readiness/credential state and application capability contracts. |
+| [apps/backend/src/vaults/routes.ts](../apps/backend/src/vaults/routes.ts) | Authenticated verified-vault reads and prompt HTTP-202 creation-job observation/rejoin. |
+| [apps/backend/src/vaults/schemas.ts](../apps/backend/src/vaults/schemas.ts) | Current verified vault and queued/provisioning/verified/blocked setup response models. |
+| [apps/backend/src/vaults/service.ts](../apps/backend/src/vaults/service.ts) | Verified vault/readiness lifecycle and closed operation coordination through persistent credentials and existing provisioning/submission capabilities. |
+| [apps/backend/src/vaults/types.ts](../apps/backend/src/vaults/types.ts) | Verified vault, public setup state and application capability contracts; no historical account modes. |
 | [apps/backend/tests/account-runtime.test.ts](../apps/backend/tests/account-runtime.test.ts) | Regression/unit tests: account runtime and shared payer. |
 | [apps/backend/tests/account-server.test.ts](../apps/backend/tests/account-server.test.ts) | Regression/unit tests: multi-user passkey HTTP. |
 | [apps/backend/tests/account-store.test.ts](../apps/backend/tests/account-store.test.ts) | Regression/unit tests: persistent multi-user account store. |
@@ -105,35 +95,35 @@ Inventory: **720 files**.
 | [apps/backend/tests/automatic-http.integration.test.ts](../apps/backend/tests/automatic-http.integration.test.ts) | Integration tests: automatic Phase One through frontend-equivalent HTTP. |
 | [apps/backend/tests/backend-surface.test.ts](../apps/backend/tests/backend-surface.test.ts) | Regression/unit tests: backend public surface. |
 | [apps/backend/tests/config.test.ts](../apps/backend/tests/config.test.ts) | Regression/unit tests: backend configuration. |
-| [apps/backend/tests/default-runtime.test.ts](../apps/backend/tests/default-runtime.test.ts) | Regression/unit tests: configured submission runtime composition. |
 | [apps/backend/tests/documentation.test.ts](../apps/backend/tests/documentation.test.ts) | Regression/unit tests: documentation. |
 | [apps/backend/tests/environment.test.ts](../apps/backend/tests/environment.test.ts) | Regression/unit tests: backend environment loading. |
 | [apps/backend/tests/evidence-access.test.ts](../apps/backend/tests/evidence-access.test.ts) | Regression/unit tests: reviewed archive evidence access. |
 | [apps/backend/tests/handlers.test.ts](../apps/backend/tests/handlers.test.ts) | Regression/unit tests: server-authoritative backend handlers. |
-| [apps/backend/tests/historical-compatibility.test.ts](../apps/backend/tests/historical-compatibility.test.ts) | Regression/unit tests: historical vault backend compatibility. |
 | [apps/backend/tests/journal.test.ts](../apps/backend/tests/journal.test.ts) | Regression/unit tests: submission journal. |
 | [apps/backend/tests/logger-fixture.ts](../apps/backend/tests/logger-fixture.ts) | Captures real native Pino JSON records for logging/privacy regression tests. |
 | [apps/backend/tests/logging.test.ts](../apps/backend/tests/logging.test.ts) | Regression/unit tests: logging. |
-| [apps/backend/tests/managed-successors.test.ts](../apps/backend/tests/managed-successors.test.ts) | Regression/unit tests: backend-managed public successor lineage. |
 | [apps/backend/tests/multi-user-http.integration.test.ts](../apps/backend/tests/multi-user-http.integration.test.ts) | Integration tests: real Safe multi-user HTTP. |
 | [apps/backend/tests/observations.test.ts](../apps/backend/tests/observations.test.ts) | Regression/unit tests: durable public receipt observations. |
-| [apps/backend/tests/profile-verification.integration.test.ts](../apps/backend/tests/profile-verification.integration.test.ts) | Integration tests: read-only verification profiling completed local deployment. |
-| [apps/backend/tests/profile-verification.test.ts](../apps/backend/tests/profile-verification.test.ts) | Regression/unit tests: read-only verification profiling command. |
 | [apps/backend/tests/provisioner.test.ts](../apps/backend/tests/provisioner.test.ts) | Regression/unit tests: automatic PWA provisioner. |
 | [apps/backend/tests/receipt-reconciler.test.ts](../apps/backend/tests/receipt-reconciler.test.ts) | Regression/unit tests: automatic receipt reconciliation worker. |
 | [apps/backend/tests/rpc-adapters.test.ts](../apps/backend/tests/rpc-adapters.test.ts) | Regression/unit tests: configured provisioning relay pinned reads. |
 | [apps/backend/tests/rpc-recovery.test.ts](../apps/backend/tests/rpc-recovery.test.ts) | Regression/unit tests: bounded provisioning RPC read recovery. |
-| [apps/backend/tests/server.test.ts](../apps/backend/tests/server.test.ts) | Regression/unit tests: backend HTTP boundary. |
 | [apps/backend/tests/services.test.ts](../apps/backend/tests/services.test.ts) | Regression/unit tests: backend services. |
 | [apps/backend/tests/submission-read-batching.test.ts](../apps/backend/tests/submission-read-batching.test.ts) | Regression/unit tests: submission JSON-RPC batching. |
 | [apps/backend/tests/submission-runtime.integration.test.ts](../apps/backend/tests/submission-runtime.integration.test.ts) | Integration tests: concrete PWA submission runtime on a real local Sepolia EVM. |
 | [apps/backend/tests/submission-runtime.test.ts](../apps/backend/tests/submission-runtime.test.ts) | Regression/unit tests: concrete submission runtime boundary. |
-| [apps/backend/tests/submit.test.ts](../apps/backend/tests/submit.test.ts) | Regression/unit tests: durable PWA submissions. |
-| [apps/backend/tests/vault.test.ts](../apps/backend/tests/vault.test.ts) | Regression/unit tests: bounded backend vault requests. |
-| [apps/backend/tests/verification-profiler.test.ts](../apps/backend/tests/verification-profiler.test.ts) | Regression/unit tests: local verification profiler. |
+| [apps/backend/tests/webauthn-fixtures.ts](../apps/backend/tests/webauthn-fixtures.ts) | Public COSE-key encoding for test authenticators; no production credential-rebind path. |
 | [apps/backend/tests/webauthn.test.ts](../apps/backend/tests/webauthn.test.ts) | Regression/unit tests: backend WebAuthn registration. |
 | [apps/backend/tsconfig.json](../apps/backend/tsconfig.json) | TypeScript compiler, module-resolution and source-inclusion settings. |
 | [apps/backend/vitest.config.ts](../apps/backend/vitest.config.ts) | Vitest discovery, environment and test execution settings. |
+
+| [apps/backend/src/history/read-client.ts](../apps/backend/src/history/read-client.ts) | Read-only configured RPC adaptation for bounded canonical blocks, USDC/vault events and direct eventless Delay calls. |
+| [apps/backend/src/history/service.ts](../apps/backend/src/history/service.ts) | Paired-reader six-confirmation history scan, durable rebuildable SQLite rows/checkpoints, reorg reconciliation and account-bound cursor pagination. |
+| [apps/backend/src/history/types.ts](../apps/backend/src/history/types.ts) | Confirmed history/page/read-client contracts; exact log/block/transaction identity, bigint amounts and seconds-based timestamps. |
+| [apps/backend/src/jobs/worker.ts](../apps/backend/src/jobs/worker.ts) | Non-overlapping post-listening creation, receipt and history scheduling; stop new sweeps and drain active work before store closure. |
+| [apps/backend/tests/history.test.ts](../apps/backend/tests/history.test.ts) | Local regression/integration coverage for history.test; no live deployment authority. |
+| [apps/backend/tests/minimal-account-lifecycle.test.ts](../apps/backend/tests/minimal-account-lifecycle.test.ts) | Local regression/integration coverage for minimal account lifecycle.test; no live deployment authority. |
+| [apps/backend/tests/route-schemas.test.ts](../apps/backend/tests/route-schemas.test.ts) | Local regression/integration coverage for route schemas.test; no live deployment authority. |
 
 ## Wallet app
 
@@ -218,7 +208,7 @@ Inventory: **720 files**.
 | [apps/app/src/lib/environment-profile.ts](../apps/app/src/lib/environment-profile.ts) | Loads the explicit browser demo/local/backend profile and public origins; no private backend configuration. |
 | [apps/app/src/lib/error-capture.ts](../apps/app/src/lib/error-capture.ts) | Captures browser errors into safe human-readable diagnostics. |
 | [apps/app/src/lib/error-page.ts](../apps/app/src/lib/error-page.ts) | Renders a fallback error page when normal rendering fails. |
-| [apps/app/src/lib/historical-guard-test-fixture.ts](../apps/app/src/lib/historical-guard-test-fixture.ts) | Public historical guard runtime test fixture; not a deployment or signing authority. |
+| [apps/app/src/lib/historical-guard-test-fixture.ts](../apps/app/src/lib/historical-guard-test-fixture.ts) | Public old guard runtime used only by negative tests proving the removed four-word ABI path fails closed; no runtime import or signing authority. |
 | [apps/app/src/lib/lovable-error-reporting.ts](../apps/app/src/lib/lovable-error-reporting.ts) | Bridges existing browser error reporting to the Lovable development integration. |
 | [apps/app/src/lib/protection-draft.test.ts](../apps/app/src/lib/protection-draft.test.ts) | Regression/unit tests: protection drafts. |
 | [apps/app/src/lib/protection-draft.ts](../apps/app/src/lib/protection-draft.ts) | Editable protection-policy draft and display/input validation; not onchain authorization. |
@@ -237,9 +227,9 @@ Inventory: **720 files**.
 | [apps/app/src/lib/vault-activity.test.ts](../apps/app/src/lib/vault-activity.test.ts) | Regression/unit tests: vault activity and policy boundaries. |
 | [apps/app/src/lib/vault-activity.ts](../apps/app/src/lib/vault-activity.ts) | Projects verified chain activity/alerts and prepares the closed recipient-policy maintenance action. |
 | [apps/app/src/lib/vault-chain.test.ts](../apps/app/src/lib/vault-chain.test.ts) | Regression/unit tests: validateUsdc. |
-| [apps/app/src/lib/vault-chain.ts](../apps/app/src/lib/vault-chain.ts) | Read-only Sepolia vault/USDC metadata, runtime/guard compatibility, state and queue verification. |
+| [apps/app/src/lib/vault-chain.ts](../apps/app/src/lib/vault-chain.ts) | Read-only Sepolia vault/USDC metadata, current guard ABI, state and queue verification; old four-word policy responses fail closed. |
 | [apps/app/src/lib/vault-store.test.tsx](../apps/app/src/lib/vault-store.test.tsx) | Regression/unit tests: VaultProvider. |
-| [apps/app/src/lib/vault-store.tsx](../apps/app/src/lib/vault-store.tsx) | Large React wallet provider combining account/session transport, onboarding, chain projection, intents and approval/submission state. |
+| [apps/app/src/lib/vault-store.tsx](../apps/app/src/lib/vault-store.tsx) | Account-scoped wallet state, session setup polling, verified chain projection, exact approvals/submission tracking and paginated history merging; rejects stale account responses. |
 | [apps/app/src/lib/webauthn-passkey.test.ts](../apps/app/src/lib/webauthn-passkey.test.ts) | Regression/unit tests: createVaultPasskey. |
 | [apps/app/src/lib/webauthn-passkey.ts](../apps/app/src/lib/webauthn-passkey.ts) | Browser registration/login/rebind and exact Safe-digest assertion transport; stores no private key. |
 | [apps/app/src/routeTree.gen.ts](../apps/app/src/routeTree.gen.ts) | Generated TanStack route manifest; regenerate from route files instead of editing by hand. |
@@ -269,6 +259,10 @@ Inventory: **720 files**.
 | [apps/app/tsconfig.json](../apps/app/tsconfig.json) | TypeScript compiler, module-resolution and source-inclusion settings. |
 | [apps/app/vite.config.ts](../apps/app/vite.config.ts) | Vite/TanStack application build and development configuration. |
 | [apps/app/vitest.config.ts](../apps/app/vitest.config.ts) | Vitest discovery, environment and test execution settings. |
+
+| [apps/app/src/lib/backend-history.ts](../apps/app/src/lib/backend-history.ts) | Public history wire types and exact-hash/fingerprint merge of confirmed records, current verified queue controls and pending/failed attempts. |
+| [apps/app/src/lib/backend-history.test.ts](../apps/app/src/lib/backend-history.test.ts) | Regression coverage for deposits, bigint amounts, scheduled proposals, self-transfers and hash/fingerprint deduplication. |
+| [apps/app/src/lib/backend-history-store.test.tsx](../apps/app/src/lib/backend-history-store.test.tsx) | Store-level history pagination, restored pending metadata and late-response/account-isolation regressions. |
 
 ## Landing site
 
@@ -700,7 +694,7 @@ Inventory: **720 files**.
 | [packages/security-core/docs/security/signer-provider-evaluation.md](../packages/security-core/docs/security/signer-provider-evaluation.md) | Documentation: Signer Provider Evaluation. |
 | [packages/security-core/docs/security/slither-baseline.md](../packages/security-core/docs/security/slither-baseline.md) | Documentation: Slither baseline. |
 | [packages/security-core/docs/security/testnet-runbook.md](../packages/security-core/docs/security/testnet-runbook.md) | Documentation: Sepolia testnet runbook. |
-| [packages/security-core/docs/security/verification-profiling.md](../packages/security-core/docs/security/verification-profiling.md) | Documentation: Read-only verification profiling. |
+| [packages/security-core/docs/security/verification-profiling.md](../packages/security-core/docs/security/verification-profiling.md) | Historical verification-profiling record; removed operational commands are not current instructions. |
 | [packages/security-core/docs/superpowers/plans/2026-09-16-personal-vault-security-core.md](../packages/security-core/docs/superpowers/plans/2026-09-16-personal-vault-security-core.md) | Plan/spec: Single-Safe Tiered Spending Security Core Implementation Plan. |
 | [packages/security-core/docs/superpowers/plans/2026-09-28-two-owner-atomic-deployment-transport.md](../packages/security-core/docs/superpowers/plans/2026-09-28-two-owner-atomic-deployment-transport.md) | Plan/spec: Two-Owner Atomic Deployment and Submission Transport Implementation Plan. |
 | [packages/security-core/docs/superpowers/plans/2026-10-01-secondary-signer-design.md](../packages/security-core/docs/superpowers/plans/2026-10-01-secondary-signer-design.md) | Plan/spec: Secondary Signer Implementation Plan. |
@@ -775,3 +769,4 @@ Inventory: **720 files**.
 | [docs/superpowers/plans/2026-11-12-fastify-backend-reorganization.md](../docs/superpowers/plans/2026-11-12-fastify-backend-reorganization.md) | Plan/spec: Fastify Backend Reorganization Implementation Plan. |
 | [docs/superpowers/specs/2026-11-12-backend-domain-reorganization-design.md](../docs/superpowers/specs/2026-11-12-backend-domain-reorganization-design.md) | Plan/spec: Backend Domain Reorganization Design. |
 | [docs/superpowers/specs/2026-11-12-fastify-backend-reorganization-design.md](../docs/superpowers/specs/2026-11-12-fastify-backend-reorganization-design.md) | Plan/spec: Fastify Backend Reorganization Design. |
+| [docs/superpowers/specs/2026-11-12-minimal-backend-design.md](../docs/superpowers/specs/2026-11-12-minimal-backend-design.md) | Approved minimal local backend design: fresh accounts, background creation and confirmed USDC/vault history. |

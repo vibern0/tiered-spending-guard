@@ -1,73 +1,40 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import * as access from "../src/chain/evidence-access";
-const api = access;
-const key = "a".repeat(32);
+import { afterEach, expect, it } from "vitest";
+import { loadEvidenceAccess } from "../src/chain/evidence-access";
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 const valid = {
-	version: 1,
-	profile: "infura-archive",
-	rpcUrl: `https://sepolia.infura.io/v3/${key}`,
+	version: 2,
+	infuraUrl: `https://sepolia.infura.io/v3/${"a".repeat(32)}`,
+	alchemyUrl: "https://eth-sepolia.g.alchemy.com/v2/test-key",
 };
-function file(value: unknown, mode = 0o600) {
-	const dir = mkdtempSync(join(tmpdir(), "evidence-access-")),
-		path = join(dir, "readers.json");
-	writeFileSync(path, JSON.stringify(value), { mode });
-	chmodSync(path, mode);
+function file(value: unknown) {
+	const root = mkdtempSync(join(tmpdir(), "readers-"));
+	roots.push(root);
+	const path = join(root, "readers.json");
+	writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
 	return path;
 }
-describe("reviewed archive evidence access", () => {
-	it("retains the committed public pair unless explicitly configured", () => {
-		expect(api.loadEvidenceAccess()).toEqual({
-			profile: "publicnode-tenderly",
-			urls: [
-				"https://ethereum-sepolia-rpc.publicnode.com",
-				"https://sepolia.gateway.tenderly.co",
-			],
-			operators: ["publicnode", "tenderly"],
-		});
+it("requires explicit independent configured readers with no free-provider fallback", () => {
+	expect(() => loadEvidenceAccess()).toThrow(/configuration/);
+	expect(loadEvidenceAccess(file(valid))).toEqual({
+		urls: [valid.infuraUrl, valid.alchemyUrl],
+		operators: ["infura", "alchemy"],
 	});
-	it("selects two independently administered readers with truthful source labels", () => {
-		expect(api.loadEvidenceAccess(file(valid))).toEqual({
-			profile: "infura-archive",
-			urls: [valid.rpcUrl, "https://sepolia.gateway.tenderly.co"],
-			operators: ["infura", "tenderly"],
-		});
-	});
-	it.each([
-		{ ...valid, version: 2 },
-		{ ...valid, profile: "arbitrary" },
+});
+it("rejects changed chains/operators, redirects in configuration, extra fields and exposed credentials", () => {
+	for (const value of [
+		{ ...valid, alchemyUrl: valid.infuraUrl },
+		{ ...valid, infuraUrl: valid.infuraUrl.replace("sepolia.", "mainnet.") },
+		{ ...valid, alchemyUrl: valid.alchemyUrl + "?secret=token" },
 		{ ...valid, extra: true },
-		[valid],
-		{ ...valid, rpcUrl: "https://sepolia.gateway.tenderly.co" },
-		{ ...valid, rpcUrl: `http://sepolia.infura.io/v3/${key}` },
-		{ ...valid, rpcUrl: `https://sepolia.infura.io.attacker.invalid/v3/${key}` },
-		{ ...valid, rpcUrl: `https://user:password@sepolia.infura.io/v3/${key}` },
-		{ ...valid, rpcUrl: `https://sepolia.infura.io:443/v3/${key}` },
-		{ ...valid, rpcUrl: `https://sepolia.infura.io/v3/${key}?secret=one` },
-		{ ...valid, rpcUrl: `https://sepolia.infura.io/v3/${key}#fragment` },
-		{ ...valid, rpcUrl: "https://sepolia.infura.io/v3/invalid" },
-	])("rejects unreviewed or ambiguous access config %#", (value) => {
-		expect(() => api.loadEvidenceAccess(file(value))).toThrow(
+	])
+		expect(() => loadEvidenceAccess(file(value))).toThrow(
 			"evidence access configuration failed closed",
 		);
-	});
-	it("rejects missing, insecure or repository-local credential files without echoing credentials", () => {
-		for (const path of [
-			"relative.json",
-			join(process.cwd(), "private-reader.json"),
-			file(valid, 0o644),
-			"/tmp/does-not-exist-vault-reader.json",
-		]) {
-			expect(() => api.loadEvidenceAccess(path)).toThrow(
-				"evidence access configuration failed closed",
-			);
-			try {
-				api.loadEvidenceAccess(path);
-			} catch (error) {
-				expect(String(error)).not.toContain(key);
-			}
-		}
-	});
+	const path = file(valid);
+	chmodSync(path, 0o644);
+	expect(() => loadEvidenceAccess(path)).toThrow("evidence access configuration failed closed");
 });

@@ -1,4 +1,7 @@
-# Read-only verification profiling
+# Historical read-only verification profiling
+
+> **Historical record — 2026-11-12:** The current minimal backend removed verification-profiling commands and their source modules. Commands, paths, reader defaults and version-1 access examples below describe the earlier diagnostic snapshot; they are not available instructions for the current backend. Retain the dated measurements and archived evidence in their original scope. Current local operation requires private version-2 Infura/Alchemy access configuration; see the [backend README](../../../../apps/backend/README.md). This record conveys no new live, independent-alert or audit approval.
+
 
 This diagnostic measures the verification core used by the loopback backend. It is security-research tooling for Ethereum Sepolia, not evidence of production readiness or end-to-end send performance.
 

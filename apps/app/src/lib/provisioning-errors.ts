@@ -22,17 +22,6 @@ export class BackendRequestError extends Error {
   }
 }
 
-export function canRetryAutomaticProvisioning(error: unknown): boolean {
-  return (
-    error instanceof BackendRequestError &&
-    [
-      "rpc_request_failed",
-      "provisioning_nonce_mismatch",
-      "provisioning_pending_confirmation",
-    ].includes(error.code ?? "")
-  );
-}
-
 export function describeProvisioningError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unknown provisioning error";
   const reference =
@@ -43,15 +32,15 @@ export function describeProvisioningError(error: unknown): string {
   if (error instanceof BackendRequestError && error.code === "provisioning_nonce_mismatch") {
     const transaction =
       message.match(/(?:for|before) ([a-z][a-z0-9-]+)/i)?.[1] ?? "the next deployment step";
-    return `Setup is waiting for verified recovery before ${transaction}. Recovery is automatic; your existing signers are preserved. If the wait continues, use Retry automatic provisioning.${reference}`;
+    return `Setup is blocked before ${transaction} because the deployment account changed unexpectedly. Your existing signers are preserved. Check setup status after the backend issue is resolved.${reference}`;
   }
 
   if (error instanceof BackendRequestError && error.code === "rpc_request_failed") {
-    return `A Sepolia provider is temporarily unavailable. Setup is recovering automatically. If the wait continues, use Retry automatic provisioning.${reference}`;
+    return `A Sepolia provider is temporarily unavailable. Setup is recovering automatically. Use Check setup status to observe progress.${reference}`;
   }
 
   if (error instanceof BackendRequestError && error.code === "provisioning_pending_confirmation") {
-    return `Setup is waiting for the recorded transaction to confirm. Confirmation checks resume automatically. If the wait continues, use Retry automatic provisioning.${reference}`;
+    return `Setup is waiting for the recorded transaction to confirm. Confirmation checks resume automatically. Use Check setup status to observe progress.${reference}`;
   }
 
   if (message.includes("VITE_SEPOLIA_RPC_URL")) {

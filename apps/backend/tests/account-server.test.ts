@@ -7,6 +7,7 @@ import { AccountStore } from "../src/accounts/store";
 import { createAccountServer } from "../src/http/server";
 import { type AccountGateway } from "../src/accounts/types";
 import { loadBackendConfig } from "../src/config/config";
+import { encodeP256CosePublicKey } from "./webauthn-fixtures";
 import { softwareAuthenticator } from "./automatic-http-fixtures";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -19,9 +20,7 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
 			BACKEND_PROFILE: "local",
 			BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
 			BACKEND_RPC_URL: "https://unused.invalid",
-			BACKEND_JOURNAL_PATH: join(root, "s.json"),
-			BACKEND_PROVISIONING_JOURNAL_PATH: join(root, "p.json"),
-			BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(root, "reviews"),
+			BACKEND_DATA_DIRECTORY: root,
 		}),
 		port: 0,
 	};
@@ -240,9 +239,7 @@ describe("multi-user passkey HTTP", () => {
 				id: key.id,
 				role: "primary",
 				...key.coordinates,
-				publicKey: (await import("../src/auth/webauthn")).encodeP256CosePublicKey(
-					key.coordinates,
-				),
+				publicKey: encodeP256CosePublicKey(key.coordinates),
 				counter: 0,
 			},
 			account.userHandle,

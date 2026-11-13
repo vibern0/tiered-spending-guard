@@ -1,15 +1,15 @@
 import type { BackendPasskeyRole, StoredCredential } from "../auth/webauthn";
 import type { BackendConfig } from "../config/config";
-import type { BackendHandlerSet, VaultProvisioningResult } from "../vaults/types";
+import type { BackendHandlerSet } from "../vaults/types";
 
 export type AccountGateway = Readonly<{
 	handlers(accountId: string): Promise<BackendHandlerSet>;
-	provision(accountId: string): Promise<VaultProvisioningResult>;
+	provision(accountId: string): Promise<ProvisioningStatus>;
+	runProvisioning?(accountId: string, stopping?: () => boolean): Promise<void>;
 	prepare(accountId: string, sessionId: string, body: unknown): Promise<unknown>;
 	submit(accountId: string, sessionId: string, id: string, body: unknown): Promise<unknown>;
 	status(accountId: string, id: string): Promise<unknown>;
-	reconcilePending?(): Promise<void>;
-	legacyCoordinates?(accountId: string): Promise<Readonly<{ x: bigint; y: bigint }> | undefined>;
+	reconcilePending?(stopping?: () => boolean): Promise<void>;
 	submissionIds?(accountId: string): Promise<readonly string[]>;
 	releaseSession?(sessionId: string): void;
 }>;
@@ -17,8 +17,9 @@ export type AccountGateway = Readonly<{
 export type AccountRecord = Readonly<{
 	id: string;
 	userHandle: string;
-	state: "registering" | "queued" | "provisioning" | "verified";
-	legacy: boolean;
+	state: "registering" | "queued" | "provisioning" | "verified" | "blocked";
+	creationAttempts: number;
+	creationError?: string;
 	config: BackendConfig;
 }>;
 
@@ -39,3 +40,5 @@ export type AccountChallenge = Readonly<{
 	challenge: string;
 	role?: BackendPasskeyRole;
 }>;
+
+export type ProvisioningStatus = Readonly<{ state: AccountRecord["state"]; error?: string }>;

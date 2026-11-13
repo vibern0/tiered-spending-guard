@@ -108,7 +108,11 @@ export function registerAccountSecurity(
 			return;
 		}
 		const path = request.raw.url?.split("?", 1)[0] ?? "/";
-		if (request.raw.url !== path) throw new AccountHttpError(404, "not found");
+		if (
+			request.raw.url !== path &&
+			!(request.method === "GET" && path === "/v1/vaults/current/history")
+		)
+			throw new AccountHttpError(404, "not found");
 		context.state(request);
 		if (request.method === "POST") {
 			if (origin !== config.origin)

@@ -12,9 +12,7 @@ function storeFixture() {
 		BACKEND_PROFILE: "local",
 		BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
 		BACKEND_RPC_URL: "https://unused.invalid",
-		BACKEND_JOURNAL_PATH: join(root, "submissions.json"),
-		BACKEND_PROVISIONING_JOURNAL_PATH: join(root, "provisioning.json"),
-		BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(root, "reviews"),
+		BACKEND_DATA_DIRECTORY: root,
 	});
 	return new AccountStore(config);
 }

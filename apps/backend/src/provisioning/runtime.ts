@@ -11,7 +11,7 @@ import { createReadClient } from "../chain/read-client";
 import { createRelayClient } from "../chain/relay-client";
 import type { BackendConfig } from "../config/config";
 import { recoverAutomaticPwaProvisioning } from "./recovery";
-import { historicalProvisioner, recoverableProvisioningFailure } from "./service";
+import { recoverableProvisioningFailure } from "./service";
 
 import {
 	createAutomaticPwaProvisioner,
@@ -103,7 +103,6 @@ async function composeAutomaticPwaProvisioner(
 				await new Promise<void>((resolve) => setTimeout(resolve, 500));
 			}
 		}
-		if (restored.historicalVault) return historicalProvisioner(restored.historicalVault);
 		recovery = restored.recovery;
 	} catch (error) {
 		const detail =
@@ -180,33 +179,8 @@ async function composeAutomaticPwaProvisioner(
 				throw new Error(
 					"automatic provisioning is still awaiting canonical confirmations for its recorded transaction",
 				);
-			if (restored.historicalVault) throw new Error("historical vault is read-only");
 			recovery = restored.recovery;
 			return recovery;
-		},
-		async preflight() {
-			if (!recovery)
-				throw new Error("recovery preflight requires a confirmed provisioning prefix");
-			const transaction = recovery.plan.transactions[recovery.confirmedPrefixLength];
-			if (!transaction) throw new Error("recovery has no missing provisioning transaction");
-			const facts = await authorizeNext(recovery.plan, transaction);
-			return Object.freeze({
-				confirmedPrefixLength: recovery.confirmedPrefixLength,
-				nextTransactionId: transaction.id,
-				nextTransactionNonce: transaction.nonce.toString(),
-				packageHash: provisioningPackageHash(recovery.plan),
-				planHash: recovery.plan.planHash,
-				quoteBlockNumber: facts.quote.blockNumber.toString(),
-				quoteBlockHash: facts.quote.blockHash,
-				gasEstimateA: facts.quote.estimates[0].toString(),
-				gasEstimateB: facts.quote.estimates[1].toString(),
-				gasLimit: facts.authorization.gasLimit,
-				maxFeePerGas: facts.authorization.maxFeePerGas,
-				maxPriorityFeePerGas: facts.authorization.maxPriorityFeePerGas,
-				confirmedActualCost: facts.confirmedActualCost.toString(),
-				resultingOutlayWei: facts.authorization.resultingOutlayWei,
-				relayBalance: facts.relayBalance.toString(),
-			});
 		},
 		async createPlan({ primary, secondary }) {
 			const expectedDeployerNonce = BigInt(

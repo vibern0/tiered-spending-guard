@@ -4,7 +4,9 @@ import type { AccountGateway } from "../accounts/types";
 import { registerAccountRegistrationRoutes } from "../auth/registration-routes";
 import { registerAccountAuthRoutes } from "../auth/routes";
 import type { BackendConfig } from "../config/config";
-import { startReceiptReconciler } from "../jobs/receipt-reconciler";
+import { startBackgroundWorker } from "../jobs/worker";
+import type { VaultHistory } from "../history/service";
+import { routeSchema, object, string } from "./schema";
 import { registerAccountSubmissionRoutes } from "../submissions/routes";
 import { registerAccountVaultRoutes } from "../vaults/routes";
 import { registerBackendDocumentation } from "./documentation";
@@ -19,27 +21,62 @@ export function createAccountServer(
 	config: BackendConfig,
 	store: AccountStore,
 	gateway: AccountGateway,
-	options: BackendServerOptions = {},
+	options: BackendServerOptions & { history?: Pick<VaultHistory, "scan" | "page"> } = {},
 ) {
 	if (config.id !== "local") throw new Error("multi-user provisioning is localhost-only");
 	const fastify = createBackendFastify({
 		logger: options.logger,
-		json: {
-			strictContentType: true,
-			requireObject: true,
-			invalidMessage: "invalid JSON request",
-			bigintKeys: ["amount", "queueNonce", "nonce"],
-		},
+	});
+	let stopping = false;
+	let closing: Promise<void> | undefined;
+	fastify.addHook("onRequest", async (_request, reply) => {
+		if (stopping) await reply.code(503).send({ error: "backend is shutting down" });
 	});
 	const context = new AccountRouteContext(store);
 	const accounts = new AccountService(store, gateway);
 	registerAccountSecurity(fastify, config, store, context);
-	registerAccountHealthRoutes(fastify, config, gateway, context);
-	registerAccountAuthRoutes(fastify, config, store, gateway, accounts, context);
-	registerAccountRegistrationRoutes(fastify, config, store, context);
-	registerAccountVaultRoutes(fastify, gateway, context);
-	registerAccountSubmissionRoutes(fastify, gateway, context);
-	registerBackendDocumentation(fastify, "account");
+	registerBackendDocumentation(fastify);
+	fastify.register(async (routes) => {
+		registerAccountHealthRoutes(routes, config, gateway, context);
+		registerAccountAuthRoutes(routes, config, store, gateway, accounts, context);
+		registerAccountRegistrationRoutes(routes, config, store, context);
+		registerAccountVaultRoutes(routes, gateway, context);
+		registerAccountSubmissionRoutes(routes, gateway, context);
+		if (options.history)
+			routes.get(
+				"/v1/vaults/current/history",
+				{
+					schema: {
+						...routeSchema({
+							tag: "Vaults",
+							summary: "Read confirmed USDC and vault history",
+							access: "authenticated",
+							response: { type: "object", additionalProperties: true },
+						}),
+						querystring: object(
+							{
+								cursor: string,
+								limit: { type: "string", pattern: "^(?:[1-9]|[1-9][0-9]|100)$" },
+							},
+							[],
+						),
+					},
+				},
+				async (request, reply) => {
+					context.session(request, true);
+					const account = context.account(request);
+					if (account.state !== "verified")
+						return reply.code(404).send({ error: "vault is not provisioned" });
+					const query = request.query as { cursor?: string; limit?: string };
+					return reply.send(
+						options.history!.page(account.id, {
+							cursor: query.cursor,
+							limit: query.limit ? Number(query.limit) : undefined,
+						}),
+					);
+				},
+			);
+	});
 	fastify.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: "not found" }));
 	fastify.setErrorHandler((error, request, reply) => {
 		const mapped = accountError(error);
@@ -86,19 +123,75 @@ export function createAccountServer(
 	void Promise.resolve(fastify.ready()).catch((error: Error) =>
 		fastify.server.emit("error", error),
 	);
-	let receiptWorker: ReturnType<typeof startReceiptReconciler> | undefined;
+	const workers: ReturnType<typeof startBackgroundWorker>[] = [];
+	let historyCursor: string | undefined;
 	fastify.server.once("listening", () => {
 		if (gateway.reconcilePending)
-			receiptWorker = startReceiptReconciler(() => gateway.reconcilePending!(), {
-				logger: fastify.log,
-			});
+			workers.push(
+				startBackgroundWorker("receipt", () => gateway.reconcilePending!(() => stopping), {
+					logger: fastify.log,
+				}),
+			);
+		if (gateway.runProvisioning)
+			workers.push(
+				startBackgroundWorker(
+					"provisioning",
+					async () => {
+						for (const account of store.provisioningJobs()) {
+							if (stopping) break;
+							try {
+								await gateway.runProvisioning!(account.id, () => stopping);
+							} catch {
+								fastify.log.warn(
+									{ code: "creation_job_blocked", stage: "provisioning" },
+									"Vault creation is awaiting verified recovery",
+								);
+							}
+						}
+					},
+					{ logger: fastify.log },
+				),
+			);
+		if (options.history)
+			workers.push(
+				startBackgroundWorker(
+					"history",
+					async () => {
+						let batch = store.historyAccounts(historyCursor);
+						if (!batch.length) {
+							historyCursor = undefined;
+							batch = store.historyAccounts();
+						}
+						for (const account of batch) {
+							if (stopping) break;
+							historyCursor = account.id;
+							try {
+								const vault = store.historyVault(account.id);
+								if (vault) await options.history!.scan(account.id, vault);
+							} catch {
+								fastify.log.warn(
+									{ code: "history_scan_failed", stage: "history" },
+									"Account history is awaiting verified observations",
+								);
+							}
+						}
+					},
+					{ logger: fastify.log },
+				),
+			);
 	});
 	return {
 		fastify,
 		server: fastify.server,
-		close: async () => {
-			await receiptWorker?.stop();
-			await fastify.close();
+		close: () => {
+			if (!closing) {
+				stopping = true;
+				closing = Promise.all([
+					fastify.close(),
+					...workers.map((worker) => worker.stop()),
+				]).then(() => undefined);
+			}
+			return closing;
 		},
 	};
 }

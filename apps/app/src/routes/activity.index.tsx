@@ -37,7 +37,17 @@ export const Route = createFileRoute("/activity/")({
 
 function ActivityPage() {
   const { filter = "all" } = Route.useSearch();
-  const { state, setup, submissions, accountId, reconcileSubmission } = useVault();
+  const {
+    state,
+    setup,
+    submissions,
+    accountId,
+    reconcileSubmission,
+    loadMoreHistory,
+    historyHasMore,
+    historyLoading,
+    historyError,
+  } = useVault();
   const scope = accountId ?? state.safe;
   const [recovery, setRecovery] = useState<
     Record<string, { scope: string; text: string; state: string | undefined }>
@@ -81,6 +91,25 @@ function ActivityPage() {
           items.map((i) => <ActivityRow key={i.id} item={i} now={now} />)
         )}
       </Card>
+      {historyError && (
+        <p role="alert" className="mt-3 text-sm text-danger-ink">
+          {historyError}
+        </p>
+      )}
+      {historyLoading && (
+        <p role="status" className="mt-3 text-sm text-muted-foreground">
+          Loading history…
+        </p>
+      )}
+      {historyHasMore && (
+        <button
+          className="mt-4 w-full rounded-2xl bg-card p-3 font-semibold"
+          disabled={historyLoading}
+          onClick={() => void loadMoreHistory()}
+        >
+          Load older activity
+        </button>
+      )}
       {setup.submissionIds.length > 0 && (
         <Card className="mt-4 space-y-2">
           <h2 className="font-semibold">Durable submission recovery</h2>

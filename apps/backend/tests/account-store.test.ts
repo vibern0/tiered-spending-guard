@@ -20,9 +20,7 @@ function config() {
 		BACKEND_PROFILE: "local",
 		BACKEND_RELAY_PRIVATE_KEY: `0x${"11".repeat(32)}`,
 		BACKEND_RPC_URL: "https://unused.invalid",
-		BACKEND_JOURNAL_PATH: join(root, "legacy-submit.json"),
-		BACKEND_PROVISIONING_JOURNAL_PATH: join(root, "legacy-provision.json"),
-		BACKEND_PROVISIONING_REVIEW_DIRECTORY: join(root, "legacy-reviews"),
+		BACKEND_DATA_DIRECTORY: root,
 	});
 }
 const credential = (id: string, role: "primary" | "secondary" = "primary", n = 1) => ({
@@ -141,4 +139,24 @@ it("consumes an accepted assertion fingerprint atomically with its counter", () 
 	s.consumeApproval(a.id, "p", 0, 0, "first");
 	expect(() => s.consumeApproval(a.id, "p", 0, 0, "first")).toThrow(/used|UNIQUE/);
 	expect(s.credential("p")?.counter).toBe(0);
+});
+
+it("allows session writes while background account enumeration writes its history cache", () => {
+	const store = open(),
+		account = store.createAccount(),
+		session = store.createSession(account.id, true);
+	store.createAccount();
+	const accounts = store.accounts();
+	expect(accounts.next().done).toBe(false);
+	const history = new DatabaseSync(store.databasePath);
+	try {
+		history.exec(
+			"CREATE TABLE history_probe (id INTEGER); INSERT INTO history_probe VALUES (1)",
+		);
+		expect(() => store.session(session.token)).not.toThrow();
+		expect(store.session(session.token)?.accountId).toBe(account.id);
+	} finally {
+		accounts.return?.();
+		history.close();
+	}
 });

@@ -1,3 +1,4 @@
+import { healthSchema } from "./schemas";
 import type { FastifyInstance } from "fastify";
 import type { BackendConfig } from "../config/config";
 import type { AccountGateway } from "../accounts/types";
@@ -9,7 +10,7 @@ export function registerAccountHealthRoutes(
 	gateway: AccountGateway,
 	context: AccountRouteContext,
 ): void {
-	fastify.get("/health", async (request, reply) => {
+	fastify.get("/health", { schema: healthSchema }, async (request, reply) => {
 		const session = context.state(request).session;
 		const handlers =
 			session?.authenticated && session.accountId

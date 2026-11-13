@@ -1,5 +1,18 @@
 # Phase One Automated PWA Provisioning Design
 
+## 2026-11-12 approved background-creation amendment
+
+The [approved minimal local backend design](../../../../../docs/superpowers/specs/2026-11-12-minimal-backend-design.md) supersedes older browser-driven provisioning, startup-no-broadcast, legacy adoption/rebind and automatic successor/rebase requirements below. The user authorized implementation and waived a separate implementation plan. This is a narrow local Sepolia amendment; X/Y/Z, exact approvals, immutable deployment commitments and all independent-alert/live/audit gates remain unchanged.
+
+The verified second credential and one queued creation-job marker commit atomically in the version-2 account database. After the server starts listening, only explicit queued/in-progress jobs in that current format may resume through the shared payer coordinator, bounded per-transaction authorizer, exact recovery verifier and existing seven serial transactions. Startup validation itself remains read-only; the committed job is the sole post-startup deployment exception. Historical files or two credential records alone never create a job. Browser closure, logout and session expiry do not revoke this bounded deployment job or authorize spending.
+
+HTTP returns setup state promptly; the browser observes account/session polling and never holds a deployment request open or re-registers a fixed key to resume. Fully confirmed work is never replayed. Reconcile exact retained hashes before any new signature; evidence conflicts, unexpected nonce use and exhausted transient retries leave a visible blocked state and preserve the shared payer blocker. There is no automatic successor or nonce rebasing. First-key login opens the account; fresh exact second approval remains action-specific. Explicit import/rebind/archive and singleton/HTTPS compatibility paths are removed.
+
+Use a fresh external data root. Do not migrate, delete or rewrite older account databases, journals, review packages or archived evidence. Missing/incompatible registries with retained evidence fail closed. Receipt/history workers remain read-only. Current readers require the fixed independent Infura/Alchemy Sepolia pair through private version-2 external access configuration; this does not rewrite signed deployment/profile commitments.
+
+Earlier sections remain historical design/evidence where superseded by this amendment.
+
+
 > **2026-11-06 multi-user amendment:** The [approved local account/session design](2026-11-06-multiple-vault-accounts-design.md) wraps this unchanged reviewed deployment process per account. Persistent metadata, first-passkey authentication and a shared payer coordinator replace process-global vault selection. The second signer remains mandatory during initial setup and for policy-required transaction approvals, not for sign-in/base/status.
 
 

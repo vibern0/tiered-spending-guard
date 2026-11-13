@@ -4,17 +4,7 @@ import { createBackendLogger } from "../logging";
 
 const BODY_LIMIT = 256 * 1024;
 
-export type BackendJsonOptions = Readonly<{
-	strictContentType: boolean;
-	requireObject: boolean;
-	invalidMessage: string;
-	bigintKeys: readonly string[];
-}>;
-
-export type BackendFastifyOptions = Readonly<{
-	logger?: FastifyBaseLogger;
-	json: BackendJsonOptions;
-}>;
+type BackendFastifyOptions = Readonly<{ logger?: FastifyBaseLogger }>;
 
 type StatusError = Error & Readonly<{ statusCode: number }>;
 
@@ -22,24 +12,21 @@ function statusError(statusCode: number, message: string): StatusError {
 	return Object.assign(new Error(message), { statusCode });
 }
 
-function parseJson(value: Buffer, options: BackendJsonOptions): unknown {
+function parseJson(value: Buffer): unknown {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(value.toString("utf8"), (key, item) => {
-			if (options.bigintKeys.includes(key) && typeof item === "string" && /^\d+n$/.test(item))
-				return BigInt(item.slice(0, -1));
-			return item;
-		});
+		parsed = JSON.parse(value.toString("utf8"));
 	} catch {
-		throw statusError(400, options.invalidMessage);
+		throw statusError(400, "invalid JSON request");
 	}
-	if (options.requireObject && (!parsed || typeof parsed !== "object" || Array.isArray(parsed)))
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
 		throw statusError(400, "request must be an object");
 	return parsed;
 }
 
-export function createBackendFastify(options: BackendFastifyOptions): FastifyInstance {
+export function createBackendFastify(options: BackendFastifyOptions = {}): FastifyInstance {
 	const fastify = Fastify({
+		ajv: { customOptions: { removeAdditional: false, coerceTypes: false, useDefaults: false } },
 		loggerInstance:
 			options.logger ??
 			createBackendLogger({ level: process.env.NODE_ENV === "test" ? "silent" : "info" }),
@@ -50,28 +37,33 @@ export function createBackendFastify(options: BackendFastifyOptions): FastifyIns
 	});
 
 	fastify.removeContentTypeParser("application/json");
-	if (!options.json.strictContentType) fastify.removeContentTypeParser("text/plain");
 	const parser = (
 		_request: unknown,
 		payload: string | Buffer,
 		done: (error: Error | null, body?: unknown) => void,
 	) => {
 		try {
-			done(
-				null,
-				parseJson(Buffer.isBuffer(payload) ? payload : Buffer.from(payload), options.json),
-			);
+			done(null, parseJson(Buffer.isBuffer(payload) ? payload : Buffer.from(payload)));
 		} catch (error) {
 			done(error as Error);
 		}
 	};
-	if (options.json.strictContentType)
-		fastify.addContentTypeParser(
-			"application/json",
-			{ parseAs: "buffer", bodyLimit: BODY_LIMIT },
-			parser,
-		);
-	else fastify.addContentTypeParser("*", { parseAs: "buffer", bodyLimit: BODY_LIMIT }, parser);
+	fastify.addContentTypeParser(
+		"application/json",
+		{ parseAs: "buffer", bodyLimit: BODY_LIMIT },
+		parser,
+	);
+
+	// Validate JSON wire types first; preserve the existing domain bigint representation.
+	fastify.addHook("preHandler", async (request) => {
+		const body = request.body as Record<string, unknown> | undefined;
+		if (!body) return;
+		for (const key of ["amount", "queueNonce"]) {
+			const value = body[key];
+			if (typeof value === "string" && /^(0|[1-9][0-9]*)n$/.test(value))
+				body[key] = BigInt(value.slice(0, -1));
+		}
+	});
 
 	fastify.setReplySerializer((payload) =>
 		JSON.stringify(payload, (_key, item) => (typeof item === "bigint" ? `${item}n` : item)),
@@ -87,7 +79,6 @@ export function createBackendFastify(options: BackendFastifyOptions): FastifyIns
 				request.log.warn({ responseTime: reply.elapsedTime }, "request aborted");
 		});
 		if (
-			options.json.strictContentType &&
 			request.method === "POST" &&
 			request.headers["content-type"]?.split(";", 1)[0] !== "application/json"
 		)

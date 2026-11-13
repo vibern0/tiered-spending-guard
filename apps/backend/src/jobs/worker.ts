@@ -1,8 +1,9 @@
 import type { FastifyBaseLogger } from "fastify";
 import { createBackendLogger } from "../logging";
 
-/** A read-only sweep. Retry only after completion, never alongside an earlier sweep. */
-export function startReceiptReconciler(
+/** Retry each task only after completion, never alongside an earlier sweep. */
+export function startBackgroundWorker(
+	name: "receipt" | "provisioning" | "history",
 	reconcilePending: () => Promise<void>,
 	options: Readonly<{ logger?: FastifyBaseLogger }> = {},
 ): Readonly<{ stop(): Promise<void> }> {
@@ -18,10 +19,10 @@ export function startReceiptReconciler(
 			.catch(() => {
 				logger.warn(
 					{
-						code: "receipt_reconciliation_failed",
-						stage: "receipt-reconciliation",
+						code: `${name}_worker_failed`,
+						stage: name,
 					},
-					"Pending receipt verification failed safely; retrying later",
+					"Background verification failed safely; retrying later",
 				);
 			})
 			.finally(() => {

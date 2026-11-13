@@ -40,7 +40,7 @@ export function createPayerCoordinator(store: AccountStore, payer: Address) {
 				throw new Error("another account has an incomplete immutable deployment");
 			if (a.id === requesting && kind === "submit" && a.state !== "verified")
 				throw new Error("account deployment is not verified");
-			if (a.state === "verified" && !a.legacy && !existsSync(a.config.journalPath))
+			if (a.state === "verified" && !existsSync(a.config.journalPath))
 				throw new Error("completed account submission evidence is missing");
 			if (existsSync(a.config.journalPath)) {
 				const pending = new SubmissionJournal(a.config.journalPath).listPending();

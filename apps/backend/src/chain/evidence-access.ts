@@ -1,56 +1,51 @@
 import { readFileSync, statSync } from "node:fs";
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
 import { assertExternalBackendPath } from "../config/config";
-
-const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 export type EvidenceAccess = Readonly<{
-	profile: "publicnode-tenderly" | "infura-archive";
 	urls: readonly [string, string];
-	operators: readonly ["publicnode" | "infura", "tenderly"];
+	operators: readonly ["infura", "alchemy"];
 }>;
-
-/** Current read access only. Never modifies historical signed PWA profile commitments. */
+/** Trusted external access config; signed deployment/profile commitments remain unchanged. */
 export function loadEvidenceAccess(configPath?: string): EvidenceAccess {
-	if (configPath === undefined)
-		return Object.freeze({
-			profile: "publicnode-tenderly",
-			urls: core.PWA_IDENTITY_PROVIDERS,
-			operators: Object.freeze(["publicnode", "tenderly"] as const),
-		});
 	try {
 		const path = assertExternalBackendPath(configPath, "evidence access configuration");
 		const stat = statSync(path);
-		if (!stat.isFile() || stat.size > 16_384 || (stat.mode & 0o077) !== 0) throw new Error();
-		const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-		if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
-		const record = value as Record<string, unknown>;
+		if (!stat.isFile() || stat.size > 16384 || (stat.mode & 0o077) !== 0) throw new Error();
+		const value = JSON.parse(readFileSync(path, "utf8"));
 		if (
-			Object.keys(record).sort().join() !== "profile,rpcUrl,version" ||
-			record.version !== 1 ||
-			record.profile !== "infura-archive" ||
-			typeof record.rpcUrl !== "string"
+			!value ||
+			Object.keys(value).sort().join() !== "alchemyUrl,infuraUrl,version" ||
+			value.version !== 2
 		)
 			throw new Error();
-		const url = new URL(record.rpcUrl);
-		if (
-			url.href !== record.rpcUrl ||
-			url.protocol !== "https:" ||
-			url.hostname !== "sepolia.infura.io" ||
-			url.port ||
-			url.username ||
-			url.password ||
-			url.search ||
-			url.hash ||
-			!/^\/v3\/[a-fA-F0-9]{32}$/.test(url.pathname)
-		)
-			throw new Error();
+		const checked = (input: unknown, host: string, pattern: RegExp) => {
+			if (typeof input !== "string") throw new Error();
+			const url = new URL(input);
+			if (
+				url.href !== input ||
+				url.protocol !== "https:" ||
+				url.hostname !== host ||
+				url.port ||
+				url.username ||
+				url.password ||
+				url.search ||
+				url.hash ||
+				!pattern.test(url.pathname)
+			)
+				throw new Error();
+			return url.href;
+		};
 		return Object.freeze({
-			profile: "infura-archive",
-			urls: Object.freeze([url.href, core.PWA_IDENTITY_PROVIDERS[1]] as const),
-			operators: Object.freeze(["infura", "tenderly"] as const),
+			urls: Object.freeze([
+				checked(value.infuraUrl, "sepolia.infura.io", /^\/v3\/[a-fA-F0-9]{32}$/),
+				checked(
+					value.alchemyUrl,
+					"eth-sepolia.g.alchemy.com",
+					/^\/v2\/[A-Za-z0-9_-]{1,128}$/,
+				),
+			] as const),
+			operators: Object.freeze(["infura", "alchemy"] as const),
 		});
 	} catch {
-		// Configuration may contain an RPC credential. Never echo its contents/path.
 		throw new Error("evidence access configuration failed closed");
 	}
 }

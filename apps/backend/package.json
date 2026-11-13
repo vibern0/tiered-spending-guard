@@ -9,8 +9,7 @@
 		"lint": "eslint . --max-warnings 0",
 		"lint:fix": "eslint . --fix --max-warnings 0",
 		"test": "vitest run",
-		"typecheck": "tsc --noEmit",
-		"profile:verification": "tsx scripts/profile-verification-cli.ts"
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@fastify/swagger": "9.9.3",

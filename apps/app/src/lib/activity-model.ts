@@ -22,12 +22,14 @@ export type ActivityStatus =
   | "ready"
   | "cancelled"
   | "failed"
-  | "expired";
+  | "expired"
+  | "unresolved";
 
 export type ActivityItem = {
   id: string;
-  kind?: "transfer" | "recipient-addition" | "unsupported";
-  direction: "in" | "out";
+  kind?: "transfer" | "recipient-addition" | "cancel" | "execute" | "skip" | "unsupported";
+  direction: "in" | "out" | "self";
+  proposal?: boolean;
   amount: bigint;
   counterparty: string;
   address: string;
@@ -57,6 +59,7 @@ export const STATUS_META: Record<ActivityStatus, { label: string; tone: Tone; ic
     cancelled: { label: "Cancelled", tone: "neutral", icon: Ban },
     failed: { label: "Failed", tone: "danger", icon: XCircle },
     expired: { label: "Expired", tone: "neutral", icon: TimerOff },
+    unresolved: { label: "Outcome unavailable", tone: "neutral", icon: Clock },
   };
 
 export const LANE_COPY: Record<Lane, { title: string; detail: string }> = {
@@ -92,7 +95,8 @@ export const needsAttention = (s: ActivityStatus) =>
   s === "awaiting_first_signer" ||
   s === "awaiting_second_signer" ||
   s === "queued" ||
-  s === "ready";
+  s === "ready" ||
+  s === "unresolved";
 
 export function fingerprintOf(parts: (string | number | bigint)[]): string {
   let h = 0xcbf29ce484222325n;
