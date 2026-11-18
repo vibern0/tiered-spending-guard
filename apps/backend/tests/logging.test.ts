@@ -4,7 +4,9 @@ import { captureBackendLogs } from "./logger-fixture";
 
 const servers: ReturnType<typeof createBackendFastify>[] = [];
 afterEach(async () => {
-	for (const server of servers.splice(0)) await server.close();
+	for (const server of servers.splice(0)) {
+		await server.close();
+	}
 });
 function fixture() {
 	const { logger, entries } = captureBackendLogs();

@@ -9,18 +9,32 @@ export { AccountHttpError } from "../auth/errors";
 
 const COOKIE = "vault_local_session";
 
+/**
+ * Reject request objects whose fields differ from the exact allowed set.
+ */
 export function exact(value: Record<string, unknown>, keys: readonly string[]): void {
-	if (Object.keys(value).sort().join() !== [...keys].sort().join())
+	if (Object.keys(value).sort().join() !== [...keys].sort().join()) {
 		throw new AccountHttpError(400, "unsupported request fields");
+	}
 }
 
+/**
+ * Parse a supported signer role from a route parameter, hiding unsupported roles behind a 404.
+ */
 export function passkeyRole(value: string): BackendPasskeyRole {
-	if (value !== "primary" && value !== "secondary") throw new AccountHttpError(404, "not found");
+	if (value !== "primary" && value !== "secondary") {
+		throw new AccountHttpError(404, "not found");
+	}
 	return value;
 }
 
+/**
+ * Reject malformed submission identifiers before looking up account-scoped state.
+ */
 export function submissionId(value: string): string {
-	if (!/^[A-Za-z0-9._:-]{1,160}$/.test(value)) throw new AccountHttpError(404, "not found");
+	if (!/^[A-Za-z0-9._:-]{1,160}$/.test(value)) {
+		throw new AccountHttpError(404, "not found");
+	}
 	return value;
 }
 
@@ -29,6 +43,9 @@ type RequestState = {
 	session: AccountSession | undefined;
 };
 
+/**
+ * Read exactly one session cookie; duplicate cookies deliberately resolve to an empty token.
+ */
 function cookie(request: FastifyRequest): string {
 	const values = (request.headers.cookie ?? "")
 		.split(";")
@@ -40,44 +57,73 @@ function cookie(request: FastifyRequest): string {
 export class AccountRouteContext {
 	private readonly requests = new WeakMap<FastifyRequest, RequestState>();
 
+	/**
+	 * Bind request authentication to the account store without loading a session until a request arrives.
+	 */
 	constructor(private readonly store: AccountStore) {}
 
+	/**
+	 * Resolve and cache the cookie token and live session once for this request.
+	 */
 	state(request: FastifyRequest): RequestState {
 		const existing = this.requests.get(request);
-		if (existing) return existing;
+		if (existing) {
+			return existing;
+		}
 		const token = cookie(request);
 		const state = { token, session: this.store.session(token) };
 		this.requests.set(request, state);
 		return state;
 	}
 
+	/**
+	 * Require a live session and, when requested, a completed first-passkey login.
+	 */
 	session(request: FastifyRequest, authenticated = false): AccountSession {
 		const session = this.state(request).session;
-		if (!session || (authenticated && !session.authenticated))
+		if (!session || (authenticated && !session.authenticated)) {
 			throw new AccountHttpError(401, "sign in with your first passkey");
+		}
 		return session;
 	}
 
+	/**
+	 * Resolve the session’s account only when the selected-account header matches it.
+	 */
 	account(request: FastifyRequest): AccountRecord {
 		const session = this.session(request);
-		if (!session.accountId || request.headers["x-vault-account"] !== session.accountId)
+		if (!session.accountId || request.headers["x-vault-account"] !== session.accountId) {
 			throw new AccountHttpError(403, "account does not match session");
+		}
 		return this.store.account(session.accountId)!;
 	}
 
+	/**
+	 * Update the request-local context after a workflow rotates the session.
+	 */
 	replaceSession(request: FastifyRequest, session: NewAccountSession): void {
 		this.requests.set(request, { token: session.token, session });
 	}
 
+	/**
+	 * Return the opaque session token in an HttpOnly, same-site cookie for the local profile.
+	 */
 	setCookie(reply: FastifyReply, token: string): void {
 		reply.header("set-cookie", `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`);
 	}
 
+	/**
+	 * Expire the browser session cookie; server-side revocation belongs to the auth workflow.
+	 */
 	clearCookie(reply: FastifyReply): void {
 		reply.header("set-cookie", `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
 	}
 }
 
+/**
+ * Install loopback, Host, Origin, path, session, and CSRF checks before feature handlers run.
+ * Cookies authenticate access; these checks never authorize a Safe transaction.
+ */
 export function registerAccountSecurity(
 	fastify: FastifyInstance,
 	config: BackendConfig,
@@ -85,14 +131,17 @@ export function registerAccountSecurity(
 	context: AccountRouteContext,
 ): void {
 	fastify.addHook("onRequest", async (request, reply) => {
-		if (!isLoopbackAddress(request.raw.socket.remoteAddress))
+		if (!isLoopbackAddress(request.raw.socket.remoteAddress)) {
 			throw new AccountHttpError(403, "loopback only");
+		}
 		const bound = (fastify.server.address() as { port: number } | null)?.port ?? config.port;
-		if (![`localhost:${bound}`, `127.0.0.1:${bound}`].includes(request.headers.host ?? ""))
+		if (![`localhost:${bound}`, `127.0.0.1:${bound}`].includes(request.headers.host ?? "")) {
 			throw new AccountHttpError(403, "host not allowed");
+		}
 		const origin = request.headers.origin;
-		if (origin !== undefined && origin !== config.origin)
+		if (origin !== undefined && origin !== config.origin) {
 			throw new AccountHttpError(403, "origin not allowed");
+		}
 		if (origin !== undefined) {
 			reply.header("access-control-allow-origin", config.origin);
 			reply.header("access-control-allow-credentials", "true");
@@ -111,12 +160,14 @@ export function registerAccountSecurity(
 		if (
 			request.raw.url !== path &&
 			!(request.method === "GET" && path === "/v1/vaults/current/history")
-		)
+		) {
 			throw new AccountHttpError(404, "not found");
+		}
 		context.state(request);
 		if (request.method === "POST") {
-			if (origin !== config.origin)
+			if (origin !== config.origin) {
 				throw new AccountHttpError(403, "exact browser origin required");
+			}
 			if (!["/v1/auth/setup", "/v1/auth/login/options"].includes(path)) {
 				const session = context.session(request);
 				try {

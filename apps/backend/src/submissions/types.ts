@@ -81,9 +81,9 @@ export type ConfiguredSubmissionRuntime = Readonly<{
 /** Runtime-local public intent evidence; never contains approval payloads or relay secrets. */
 export type SubmissionEntry = {
 	vault: import("../vaults/types").BackendVaultRecord;
-	intent: import("@tiered-spending-guard/security-core/pwa").PwaIntent;
-	snapshot: import("@tiered-spending-guard/security-core/pwa").VerifiedPwaSnapshot;
-	prepared: import("@tiered-spending-guard/security-core/pwa").PreparedPwaIntent;
+	intent: import("@tiered-spending-guard/sdk/pwa").PwaIntent;
+	snapshot: import("@tiered-spending-guard/sdk/pwa").VerifiedPwaSnapshot;
+	prepared: import("@tiered-spending-guard/sdk/pwa").PreparedPwaIntent;
 	publicPrepared: BackendPreparedSubmission;
 };
 

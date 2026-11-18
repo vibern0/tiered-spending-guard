@@ -11,12 +11,15 @@ import { type BackendPasskeyRole, verifyPasskeyLogin, verifyPasskeyRegistration 
 type AuthConfig = Pick<BackendConfig, "rpId" | "origin">;
 type AuthGateway = Pick<AccountGateway, "releaseSession">;
 
+/** Reject unsupported registration fields rather than accepting hidden request options. */
 function exactRegistrationFields(value: Record<string, unknown>, keys: readonly string[]): void {
-	if (Object.keys(value).sort().join() !== [...keys].sort().join())
+	if (Object.keys(value).sort().join() !== [...keys].sort().join()) {
 		throw new AccountHttpError(400, "unsupported request fields");
+	}
 }
 
 export class AccountAuthService {
+	/** Bind login/session persistence and approval cleanup to the configured WebAuthn identity. */
 	constructor(
 		private readonly config: AuthConfig,
 		private readonly store: AccountStore,
@@ -24,20 +27,28 @@ export class AccountAuthService {
 		private readonly accounts: Pick<AccountService, "create">,
 	) {}
 
+	/** Resume an unfinished setup session or create one, requiring authenticated users to sign out first. */
 	setup(current: AccountSession | undefined): AuthSessionAction {
-		if (current?.authenticated)
+		if (current?.authenticated) {
 			throw new AccountHttpError(409, "sign out before creating another account");
-		if (current?.accountId) return { session: current };
+		}
+		if (current?.accountId) {
+			return { session: current };
+		}
 		const created = this.accounts.create();
 		return { session: created, replacement: created };
 	}
 
+	/** Ensure login challenges have a server-side session without granting account authentication. */
 	loginSession(current: AccountSession | undefined): AuthSessionAction {
-		if (current) return { session: current };
+		if (current) {
+			return { session: current };
+		}
 		const created = this.store.createSession();
 		return { session: created, replacement: created };
 	}
 
+	/** Create a session-bound login challenge and optionally restrict credential discovery to an account primary key. */
 	loginOptions(session: AccountSession, accountId?: string) {
 		const challenge = this.store.createChallenge(
 			session.id,
@@ -63,6 +74,7 @@ export class AccountAuthService {
 		};
 	}
 
+	/** Consume the login challenge, verify the primary passkey, and rotate the live session while releasing cached approvals. */
 	async verifyLogin(
 		context: AuthSessionContext,
 		input: Readonly<{
@@ -83,8 +95,9 @@ export class AccountAuthService {
 			!credential ||
 			credential.role !== "primary" ||
 			(input.accountId !== undefined && credential.accountId !== input.accountId)
-		)
+		) {
 			throw new AccountHttpError(400, "first passkey authentication failed");
+		}
 		const next = await verifyPasskeyLogin({
 			credential,
 			response: assertion,
@@ -97,14 +110,16 @@ export class AccountAuthService {
 				input.accountId === credential.accountId,
 		});
 		this.store.updateCounter(credential.id, credential.counter, next);
-		if (this.store.session(token)?.id !== session.id)
+		if (this.store.session(token)?.id !== session.id) {
 			throw new AccountHttpError(401, "sign-in session expired or revoked");
+		}
 		const created = this.store.createSession(credential.accountId, true);
 		this.store.revokeSession(token);
 		this.gateway.releaseSession?.(session.id);
 		return { session: created, replacement: created };
 	}
 
+	/** Revoke the browser session and release its in-memory approvals before requesting cookie removal. */
 	logout({ token, session }: AuthSessionContext) {
 		this.store.revokeSession(token);
 		this.gateway.releaseSession?.(session.id);
@@ -113,11 +128,13 @@ export class AccountAuthService {
 }
 
 export class AccountRegistrationService {
+	/** Bind initial credential enrollment to the configured WebAuthn identity and account registry. */
 	constructor(
 		private readonly config: AuthConfig,
 		private readonly store: AccountStore,
 	) {}
 
+	/** Allow only initial role enrollment and require primary-key authentication before adding the secondary key. */
 	private assertRegistrationAllowed(
 		account: AccountRecord,
 		role: BackendPasskeyRole,
@@ -126,15 +143,18 @@ export class AccountRegistrationService {
 		if (
 			account.state !== "registering" ||
 			this.store.credentials(account.id).some((credential) => credential.role === role)
-		)
+		) {
 			throw new AccountHttpError(
 				409,
 				"existing signer cannot be replaced through registration",
 			);
-		if (role === "secondary" && !session.authenticated)
+		}
+		if (role === "secondary" && !session.authenticated) {
 			throw new AccountHttpError(401, "sign in with your first passkey");
+		}
 	}
 
+	/** Issue initial-enrollment options with role-separated user handles and cross-platform secondary enrollment. */
 	options(
 		account: AccountRecord,
 		session: AccountSession,
@@ -161,6 +181,7 @@ export class AccountRegistrationService {
 		};
 	}
 
+	/** Consume a role-bound enrollment challenge, verify the public key, and store immutable credential metadata. */
 	async verify(
 		account: AccountRecord,
 		session: AccountSession,
@@ -169,8 +190,9 @@ export class AccountRegistrationService {
 	) {
 		this.assertRegistrationAllowed(account, role, session);
 		exactRegistrationFields(input, ["sessionId", "registration"]);
-		if (typeof input.sessionId !== "string" || !input.registration)
+		if (typeof input.sessionId !== "string" || !input.registration) {
 			throw new AccountHttpError(400, "registration response required");
+		}
 		const challenge = this.store.consumeChallenge(
 			session.id,
 			input.sessionId,

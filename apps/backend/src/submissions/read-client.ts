@@ -17,11 +17,13 @@ export function createSubmissionReadClient(
 		chain: sepolia,
 		transport: batchedReadTransport(url, options.fetchFn),
 	});
+	/** Route RPC operations through sanitized error handling without exposing provider URLs. */
 	const read = <T>(method: string, operation: () => Promise<T>) =>
 		sanitizeRpc(label, method, operation, true);
 	return Object.freeze({
 		...base,
 		source: label.replaceAll(" ", "-"),
+		/** Simulate a call through the fixed backend provider without signing or sending a transaction. */
 		call: (args: {
 			data: Hex;
 			to?: Address;
@@ -29,12 +31,14 @@ export function createSubmissionReadClient(
 			value?: bigint;
 			blockNumber?: bigint;
 		}) => read("call", () => client.call(args)),
+		/** Read strictly decoded Delay queue events within the caller-supplied block range. */
 		getLogs: (args: {
 			address: Address;
 			fromBlock: bigint;
 			toBlock: bigint;
 			args: { queueNonce: bigint };
 		}) => read("getLogs", () => client.getLogs({ ...args, event: ADDED, strict: true })),
+		/** Return normalized public receipt evidence, or null while the exact transaction remains unmined. */
 		getTransactionReceipt: ({ hash: transactionHash }: { hash: Hex }) =>
 			read("getTransactionReceipt", async () => {
 				try {
@@ -58,8 +62,12 @@ export function createSubmissionReadClient(
 						})),
 					};
 				} catch (error) {
-					if (error instanceof Error && error.name === "TransactionReceiptNotFoundError")
+					if (
+						error instanceof Error &&
+						error.name === "TransactionReceiptNotFoundError"
+					) {
 						return null;
+					}
 					throw error;
 				}
 			}),

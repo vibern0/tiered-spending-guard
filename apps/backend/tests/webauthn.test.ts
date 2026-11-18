@@ -314,8 +314,9 @@ describe("backend WebAuthn assertion binding", () => {
 			changed(CLIENT_DATA_TEXT, Uint8Array.from([...new Uint8Array(32), 0x01, 0, 0, 0, 1])),
 			changed(CLIENT_DATA_TEXT, AUTHENTICATOR_DATA, der([0x00, 0x7f], [0x01])),
 		];
-		for (const candidate of cases)
+		for (const candidate of cases) {
 			await expect(verifyPasskeyAssertion(candidate as never, verifier)).rejects.toThrow();
+		}
 	});
 
 	it("rejects failed verification and counter rollback", async () => {

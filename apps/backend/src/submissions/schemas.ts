@@ -13,6 +13,7 @@ import {
 	type Schema,
 } from "../http/schema";
 
+/** Describe a closed queue action bound to an exact nonce, fingerprint and idempotency key. */
 const queueIntent = (kind: string): Schema =>
 	object({
 		kind: { type: "string", enum: [kind] },

@@ -5,18 +5,23 @@ import { AccountStore } from "./store";
 type AccountProjectionGateway = Pick<AccountGateway, "handlers" | "submissionIds">;
 
 export class AccountService {
+	/** Bind account metadata and runtime projections used to build browser session responses. */
 	constructor(
 		private readonly store: AccountStore,
 		private readonly gateway: AccountProjectionGateway,
 	) {}
 
+	/** Create an account registration record and its initial unauthenticated setup session. */
 	create(): NewAccountSession {
 		const account = this.store.createAccount();
 		return this.store.createSession(account.id);
 	}
 
+	/** Build the browser session view, exposing vault and recovery submission details only after authentication and verification. */
 	async project(session: AccountSession | undefined): Promise<Record<string, unknown>> {
-		if (!session) return { authenticated: false };
+		if (!session) {
+			return { authenticated: false };
+		}
 		const account = session.accountId ? this.store.account(session.accountId) : undefined;
 		const credentials = account ? this.store.credentials(account.id) : [];
 		const vault =

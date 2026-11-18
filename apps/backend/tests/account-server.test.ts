@@ -11,7 +11,9 @@ import { encodeP256CosePublicKey } from "./webauthn-fixtures";
 import { softwareAuthenticator } from "./automatic-http-fixtures";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
-	for (const close of cleanups.splice(0)) await close();
+	for (const close of cleanups.splice(0)) {
+		await close();
+	}
 });
 async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGateway> = {}) {
 	const root = mkdtempSync(join(tmpdir(), "vault-account-http-"));
@@ -41,10 +43,11 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
 			throw Error("not used");
 		},
 		status: async (_account, id) => {
-			if (id === "pending")
+			if (id === "pending") {
 				throw new Error(
 					"identity Sepolia RPC request failed https://private.invalid/secret",
 				);
+			}
 			return { state: "confirmed" };
 		},
 		...gatewayOverrides,
@@ -77,10 +80,16 @@ async function fixture(logs?: unknown[], gatewayOverrides: Partial<AccountGatewa
 					...(body === undefined ? {} : { body: JSON.stringify(body) }),
 				});
 				const set = response.headers.get("set-cookie");
-				if (set) cookie = set.split(";")[0]!;
+				if (set) {
+					cookie = set.split(";")[0]!;
+				}
 				const data = await response.json();
-				if (data.csrfToken) csrf = data.csrfToken;
-				if (data.account) account = data.account.id;
+				if (data.csrfToken) {
+					csrf = data.csrfToken;
+				}
+				if (data.account) {
+					account = data.account.id;
+				}
 				return { status: response.status, data };
 			},
 			clear() {

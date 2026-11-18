@@ -12,13 +12,16 @@ export function createVaultCredentials(
 	options: BackendHandlerOptions,
 	requireVault: () => BackendVaultRecord,
 ) {
+	/** Read role metadata and reject key coordinates that disagree with the reviewed recovery identity. */
 	const currentCredential = (role: BackendPasskeyRole) => {
 		const stored = options.credentialStore.get(role);
 		const expected = options.provisioner.recoveryCredentials?.[role];
-		if (stored && expected && (stored.x !== expected.x || stored.y !== expected.y))
+		if (stored && expected && (stored.x !== expected.x || stored.y !== expected.y)) {
 			throw new Error("credential does not match the reviewed role key");
+		}
 		return stored;
 	};
+	/** Report which public role credentials are locally available without treating metadata as spending authority. */
 	const credentialRebindStatus = (): CredentialRebindStatus => {
 		const primary = currentCredential("primary") ? ("ready" as const) : ("required" as const);
 		const secondary = currentCredential("secondary")
@@ -26,17 +29,25 @@ export function createVaultCredentials(
 			: ("required" as const);
 		return { required: primary !== "ready", primary, secondary };
 	};
+	/** Verify an assertion for the server-held Safe hash and persist its counter and one-use approval record. */
 	const verifyApproval = async (safeTxHash: Hex, input: unknown) => {
-		if (!/^0x[0-9a-fA-F]{64}$/.test(safeTxHash))
+		if (!/^0x[0-9a-fA-F]{64}$/.test(safeTxHash)) {
 			throw new Error("server-held Safe transaction hash is invalid");
-		if (!input || typeof input !== "object" || Array.isArray(input))
+		}
+		if (!input || typeof input !== "object" || Array.isArray(input)) {
 			throw new Error("passkey approval must be an object");
+		}
 		const { role, assertion } = input as { role?: unknown; assertion?: unknown };
-		if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
-		if (!assertion || typeof assertion !== "object" || Array.isArray(assertion))
+		if (role !== "primary" && role !== "secondary") {
+			throw new Error("unsupported passkey role");
+		}
+		if (!assertion || typeof assertion !== "object" || Array.isArray(assertion)) {
 			throw new Error("passkey assertion must be an object");
+		}
 		const stored = currentCredential(role);
-		if (!stored) throw new Error(`${role} credential is not registered`);
+		if (!stored) {
+			throw new Error(`${role} credential is not registered`);
+		}
 		const vault = requireVault();
 		const approval = await verifyPasskeyAssertion({
 			role,
@@ -55,8 +66,9 @@ export function createVaultCredentials(
 			approval.role !== role ||
 			approval.credentialId !== stored.id ||
 			approval.counter < stored.counter
-		)
+		) {
 			throw new Error("verified passkey approval does not match stored credential metadata");
+		}
 		options.credentialStore.updateCounter(stored, approval.counter, approval, safeTxHash);
 		return approval;
 	};

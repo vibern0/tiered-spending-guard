@@ -25,14 +25,22 @@ export type BackendConfig = Readonly<{
 
 export type BackendEnvironment = Readonly<Record<string, string | undefined>>;
 
+/**
+ * Resolve symlinks and existing parent directories to keep private state outside the repository.
+ * The final path may not exist yet; its nearest existing ancestor must resolve safely.
+ * @returns The absolute resolved target, or throws for a repository-local or relative path.
+ */
 export function assertExternalBackendPath(value: string | undefined, label: string): string {
-	if (!value || !isAbsolute(value))
+	if (!value || !isAbsolute(value)) {
 		throw new Error(`${label} must be an absolute path outside the repository`);
+	}
 	const parts: string[] = [];
 	let existing = resolve(value);
 	while (!existsSync(existing)) {
 		const parent = dirname(existing);
-		if (parent === existing) break;
+		if (parent === existing) {
+			break;
+		}
 		parts.unshift(basename(existing));
 		existing = parent;
 	}
@@ -43,29 +51,43 @@ export function assertExternalBackendPath(value: string | undefined, label: stri
 		(fromRepository !== ".." &&
 			!fromRepository.startsWith(`..${sep}`) &&
 			!isAbsolute(fromRepository))
-	)
+	) {
 		throw new Error(`${label} must point outside the repository`);
+	}
 	return target;
 }
 
+/**
+ * Reject any relying-party identity outside the reviewed localhost browser profile.
+ */
 export function assertBackendWebAuthnIdentity(id: string, origin: string, rpId: string): void {
-	if (id !== "local" || origin !== "http://localhost:5173" || rpId !== "localhost")
+	if (id !== "local" || origin !== "http://localhost:5173" || rpId !== "localhost") {
 		throw new Error(
 			"local BACKEND_ORIGIN and BACKEND_RP_ID must use the fixed localhost profile",
 		);
+	}
 }
 
+/**
+ * Validate environment settings and derive external account, journal, and review paths.
+ * Reads configuration values only; it does not create files or connect to the chain.
+ */
 export function loadBackendConfig(env: BackendEnvironment = process.env): BackendConfig {
-	if (env.BACKEND_PROFILE !== undefined && env.BACKEND_PROFILE !== "local")
+	if (env.BACKEND_PROFILE !== undefined && env.BACKEND_PROFILE !== "local") {
 		throw new Error("BACKEND_PROFILE supports only local");
+	}
 	const relayPrivateKey = env.BACKEND_RELAY_PRIVATE_KEY;
-	if (!relayPrivateKey || !/^0x[0-9a-fA-F]{64}$/.test(relayPrivateKey))
+	if (!relayPrivateKey || !/^0x[0-9a-fA-F]{64}$/.test(relayPrivateKey)) {
 		throw new Error("BACKEND_RELAY_PRIVATE_KEY is required and must be a local secret");
+	}
 	const rpcUrl = env.BACKEND_RPC_URL;
-	if (!rpcUrl || !/^https?:\/\//.test(rpcUrl)) throw new Error("BACKEND_RPC_URL is required");
+	if (!rpcUrl || !/^https?:\/\//.test(rpcUrl)) {
+		throw new Error("BACKEND_RPC_URL is required");
+	}
 	const port = Number(env.BACKEND_PORT ?? "8787");
-	if (!Number.isSafeInteger(port) || port < 1024 || port > 65535)
+	if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
 		throw new Error("BACKEND_PORT is invalid");
+	}
 	const origin = env.BACKEND_ORIGIN ?? "http://localhost:5173";
 	const rpId = env.BACKEND_RP_ID ?? "localhost";
 	assertBackendWebAuthnIdentity("local", origin, rpId);
@@ -98,6 +120,9 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
 	});
 }
 
+/**
+ * Recognize IPv4, IPv6, and IPv4-mapped loopback peers for the HTTP admission check.
+ */
 export function isLoopbackAddress(value: string | undefined): boolean {
 	return value === "127.0.0.1" || value === "::1" || value === "::ffff:127.0.0.1";
 }

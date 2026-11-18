@@ -2,9 +2,13 @@
 
 `apps/backend` is the required loopback write boundary for the Ethereum Sepolia wallet. It serves independent accounts, passkey login, background vault creation, ordinary-Safe submissions and confirmed USDC/vault history. This remains security research and a testnet prototype; live Sepolia, independent-alert and audit gates remain open.
 
+New to this code? Start with [Read the backend from here](src/README.md): a short reading order, every source folder's purpose, a request walkthrough, and what may be worth simplifying. The sections below describe running and operating it.
+
 Use Node **24.21.0** from `.node-version`. The browser runs at `http://localhost:5173`, uses `VITE_BACKEND_ORIGIN=http://localhost:8787`, and sends credentialed requests. The backend binds only `127.0.0.1`; use the browser hostname `localhost` consistently. Only the local profile is supported. Shared HTTPS access and physical-device/provider verification require a later reviewed identity.
 
 ## Run
+
+From the repository root, run `pnpm core:build` once before starting the backend (and again after contract/profile/build-input changes). The backend consumes reusable TypeScript through `@tiered-spending-guard/sdk/pwa`; core generates its public artifact/configuration resources. Do not clean/rebuild core while a backend is using those local files. See the [core](../../packages/core/README.md) and [SDK](../../packages/sdk/README.md) folder guides.
 
 Keep configuration, relay keys, RPC credentials, account data and evidence outside the repository. The CLI quietly loads an external environment file selected by `DOTENV_CONFIG_PATH`; alternatively, an ignored `apps/backend/.env` symlink may point outside the repository. Shell values take precedence. Missing explicit files, unreadable targets and repository-local targets fail with sanitized diagnostics.
 
@@ -63,4 +67,4 @@ pnpm backend:typecheck
 pnpm backend:test
 ```
 
-Backend source formatting uses tabs with width 4. See the [codebase map](../../docs/codebase-map.md) and [file guide](../../docs/file-guide.md) for current ownership. No mainnet deployment, funding or external data erasure is part of this workflow.
+Backend source formatting uses tabs with width 4. All control-flow bodies use braces, including single statements; ESLint enforces this after the formatter compatibility settings. Named implementation functions and methods use JSDoc to explain purpose and important side effects or security boundaries. Anonymous callbacks and type-only signatures do not need repetitive comments. See the [codebase map](../../docs/codebase-map.md) and [backend folder guide](src/README.md) for current ownership. No mainnet deployment, funding or external data erasure is part of this workflow.

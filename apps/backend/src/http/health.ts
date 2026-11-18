@@ -4,6 +4,9 @@ import type { BackendConfig } from "../config/config";
 import type { AccountGateway } from "../accounts/types";
 import type { AccountRouteContext } from "./security";
 
+/**
+ * Expose public backend identity and report write readiness only for the authenticated account.
+ */
 export function registerAccountHealthRoutes(
 	fastify: FastifyInstance,
 	config: BackendConfig,

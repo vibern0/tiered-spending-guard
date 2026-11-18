@@ -6,6 +6,10 @@ import { object, ref, routeSchema, string } from "../http/schema";
 
 type SubmissionParams = Readonly<{ id: string }>;
 
+/**
+ * Register authenticated account-scoped preparation, approval and read-only reconciliation endpoints.
+ * Mutating requests use the session boundary before delegating to the account gateway.
+ */
 export function registerAccountSubmissionRoutes(
 	fastify: FastifyInstance,
 	transactions: Pick<AccountGateway, "prepare" | "submit" | "status">,

@@ -11,7 +11,9 @@ import { registerBackendDocumentation } from "../src/http/documentation";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
-	for (const close of cleanups.splice(0)) await close();
+	for (const close of cleanups.splice(0)) {
+		await close();
+	}
 });
 
 function fixture() {
@@ -102,8 +104,9 @@ describe("local account API documentation", () => {
 					].schema,
 				).toBeTruthy();
 				expect(operation.responses["403"]).toBeTruthy();
-				if (method === "post")
+				if (method === "post") {
 					expect(operation.requestBody.content["application/json"].schema).toBeTruthy();
+				}
 				if (path.includes("/submissions")) {
 					expect(operation.security).toEqual([{ sessionCookie: [] }]);
 					expect(operation.parameters).toContainEqual(

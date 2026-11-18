@@ -3,13 +3,13 @@ import type {
 	PwaProvisioningPlan,
 	PwaProvisioningRecovery,
 	PwaProvisioningResult,
-} from "@tiered-spending-guard/security-core/pwa";
-import * as pwaNamespace from "@tiered-spending-guard/security-core/pwa";
+} from "@tiered-spending-guard/sdk/pwa";
+import * as pwaNamespace from "@tiered-spending-guard/sdk/pwa";
 import { type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import type { StoredCredential } from "../auth/webauthn";
 
-// Hardhat keeps security-core CommonJS; Node ESM exposes it under default while Vitest exposes named exports.
+// The SDK preserves CommonJS source exports; Node ESM exposes it under default while Vitest exposes named exports.
 const pwaRuntime =
 	(pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
 
@@ -66,6 +66,7 @@ export function pwaProvisioningAuthorizationPath(journalPath: string, packageHas
 	return `${journalPath}.authorizations.${packageHash.slice(2)}.json`;
 }
 
+/** Projects verified provisioning evidence to the frozen browser response without exposing the execution context. */
 function result(value: PwaProvisioningResult): BackendPwaProvisioningResult {
 	return Object.freeze({
 		chainId: value.chainId,
@@ -85,7 +86,9 @@ function result(value: PwaProvisioningResult): BackendPwaProvisioningResult {
 	});
 }
 
+/** Binds a fresh provisioning run to the exact primary and secondary credential pair. */
 function credentialIdentity(input: ProvisioningCredentials): string {
+	/** Serializes credential role, identifier, coordinates, and public key for exact pair comparison. */
 	const encode = (credential: StoredCredential) =>
 		JSON.stringify([
 			credential.role,
@@ -97,6 +100,7 @@ function credentialIdentity(input: ProvisioningCredentials): string {
 	return `${encode(input.primary)}:${encode(input.secondary)}`;
 }
 
+/** Recognizes transient observation or nonce failures while excluding explicit execution reverts from retry. */
 export function recoverableProvisioningFailure(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : "";
 	return (
@@ -116,44 +120,57 @@ export function createAutomaticPwaProvisioner(
 	let inFlight: Promise<BackendPwaProvisioningCompletion> | undefined;
 	let completed: BackendPwaProvisioningCompletion | undefined;
 
+	/** Binds credentials, shares in-flight work, and returns the cached verified completion on later calls. */
 	const provision = (
 		credentials?: ProvisioningCredentials,
 	): Promise<BackendPwaProvisioningCompletion> => {
-		if (!preparedPlan && !credentials && !options.reloadRecovery)
+		if (!preparedPlan && !credentials && !options.reloadRecovery) {
 			return Promise.reject(
 				new Error(
 					"verified primary and secondary credentials are required for fresh provisioning",
 				),
 			);
+		}
 		if (!options.recovery && credentials) {
 			const identity = credentialIdentity(credentials);
-			if (boundCredentialIdentity !== undefined && identity !== boundCredentialIdentity)
+			if (boundCredentialIdentity !== undefined && identity !== boundCredentialIdentity) {
 				return Promise.reject(
 					new Error(
 						"automatic provisioning is already bound to a different credential pair",
 					),
 				);
+			}
 			boundCredentialIdentity = identity;
 		}
-		if (completed) return Promise.resolve(completed);
-		if (inFlight) return inFlight;
+		if (completed) {
+			return Promise.resolve(completed);
+		}
+		if (inFlight) {
+			return inFlight;
+		}
 
+		/** Reloads durable progress, checks the immutable Sepolia review package, executes provisioning, and closes its lease. */
 		const executeOnce = async () => {
 			if (options.reloadRecovery) {
 				recovered = await options.reloadRecovery();
 				preparedPlan = recovered?.plan;
 			}
-			if (!preparedPlan && !credentials)
+			if (!preparedPlan && !credentials) {
 				throw new Error(
 					"verified primary and secondary credentials are required for fresh provisioning",
 				);
-			if (!preparedPlan) preparedPlan = await options.createPlan(credentials!);
+			}
+			if (!preparedPlan) {
+				preparedPlan = await options.createPlan(credentials!);
+			}
 			const plan = preparedPlan;
-			if (plan.chainId !== sepolia.id)
+			if (plan.chainId !== sepolia.id) {
 				throw new Error("automatic provisioning supports only Ethereum Sepolia");
+			}
 			const review = writePwaProvisioningReview(plan, options.reviewDirectory);
-			if (provisioningPackageHash(plan) !== review.packageHash)
+			if (provisioningPackageHash(plan) !== review.packageHash) {
 				throw new Error("automatic provisioning review package changed before execution");
+			}
 			const lease = await options.executionContext(plan);
 			try {
 				const verified = await executePwaProvisioning(plan, lease.context);
@@ -172,8 +189,9 @@ export function createAutomaticPwaProvisioner(
 						!options.reloadRecovery ||
 						!recoverableProvisioningFailure(error) ||
 						attempt >= 2
-					)
+					) {
 						throw error;
+					}
 					// Reconstruct and verify recorded progress before another attempt.
 					// A durable hash is reconciled, never signed or broadcast again.
 					await new Promise<void>((resolve) => setTimeout(resolve, 500));
@@ -183,7 +201,9 @@ export function createAutomaticPwaProvisioner(
 		inFlight = operation;
 		void operation
 			.finally(() => {
-				if (!completed) inFlight = undefined;
+				if (!completed) {
+					inFlight = undefined;
+				}
 			})
 			.catch(() => undefined);
 		return operation;
@@ -191,9 +211,11 @@ export function createAutomaticPwaProvisioner(
 
 	return Object.freeze({
 		provision,
+		/** Exposes credentials reconstructed from recorded provisioning evidence for resumed account setup. */
 		get recoveryCredentials() {
 			return recovered?.credentials;
 		},
+		/** Reports whether recovery has confirmed all seven deployment transactions. */
 		get completedRecoveryReady() {
 			return recovered?.confirmedPrefixLength === 7;
 		},

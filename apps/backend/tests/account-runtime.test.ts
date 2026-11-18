@@ -72,7 +72,9 @@ describe("account runtime and shared payer", () => {
 		const { config, store } = fixture();
 		try {
 			const account = ready(store);
-			for (let i = 0; i < 3; i++) store.beginCreation(account.id);
+			for (let i = 0; i < 3; i++) {
+				store.beginCreation(account.id);
+			}
 			journal(account.config.provisioningJournalPath, config);
 			const gateway = createAccountGatewayForTestsOnly(config, store, {
 				provisioner: async () => ({
@@ -127,18 +129,26 @@ describe("account runtime and shared payer", () => {
 			const outerHash =
 				id === "uncertain" ? uncertainHash : id === "submitting" ? H : terminalHash;
 			durable.prepare(id, H, { kind: "base-transfer" });
-			if (["submitting", "uncertain", "confirmed", "reverted"].includes(id))
+			if (["submitting", "uncertain", "confirmed", "reverted"].includes(id)) {
 				durable.markSubmitting(id, outerHash);
-			if (id === "uncertain") durable.markUncertain(id);
-			if (id === "awaiting") durable.transition(id, "awaiting-primary");
-			if (id === "confirmed" || id === "reverted")
+			}
+			if (id === "uncertain") {
+				durable.markUncertain(id);
+			}
+			if (id === "awaiting") {
+				durable.transition(id, "awaiting-primary");
+			}
+			if (id === "confirmed" || id === "reverted") {
 				durable.reconcile(id, {
 					status: id,
 					transactionHash: outerHash,
 					blockNumber: 1n,
 					blockHash: H,
 				});
-			if (id === "superseded") durable.transition(id, "superseded");
+			}
+			if (id === "superseded") {
+				durable.transition(id, "superseded");
+			}
 		}
 		initial.markProvisioning(a.id, "verified");
 		initial.close();
@@ -219,13 +229,16 @@ describe("account runtime and shared payer", () => {
 		second.markSubmitting("second", secondHash);
 		const unavailableReceiptHashes = new Set<string>([H]);
 		const reconcile = vi.fn(async (hash: string) => {
-			if (unavailableReceiptHashes.has(hash)) throw new Error("https://secret.invalid/token");
+			if (unavailableReceiptHashes.has(hash)) {
+				throw new Error("https://secret.invalid/token");
+			}
 			return { status: "reverted", transactionHash: hash, blockNumber: 12n, blockHash: H };
 		});
 		const gateway = createAccountGatewayForTestsOnly(config, store, {
 			provisioner: async (c) => {
-				if (c.journalPath === broken.config.journalPath)
+				if (c.journalPath === broken.config.journalPath) {
 					throw new Error("invalid recovered account");
+				}
 				return { provision: vi.fn() };
 			},
 			runtime: () =>
@@ -267,7 +280,9 @@ describe("account runtime and shared payer", () => {
 			const completed = new Map<string, BackendPwaProvisioningCompletion>();
 			const provision = vi.fn(async (c: any) => {
 				const prior = completed.get(c.provisioningJournalPath);
-				if (prior) return prior;
+				if (prior) {
+					return prior;
+				}
 				active++;
 				max = Math.max(max, active);
 				await new Promise((r) => setTimeout(r, 10));

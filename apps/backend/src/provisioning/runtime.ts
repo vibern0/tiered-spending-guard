@@ -2,8 +2,8 @@ import type {
 	PwaProvisioningPlan,
 	PwaProvisioningRecovery,
 	PwaProvisioningTransaction,
-} from "@tiered-spending-guard/security-core/pwa";
-import * as pwaNamespace from "@tiered-spending-guard/security-core/pwa";
+} from "@tiered-spending-guard/sdk/pwa";
+import * as pwaNamespace from "@tiered-spending-guard/sdk/pwa";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { loadEvidenceAccess } from "../chain/evidence-access";
@@ -19,7 +19,7 @@ import {
 	type AutomaticPwaProvisioner,
 } from "./service";
 
-// Hardhat keeps security-core CommonJS; Node ESM exposes it under default while Vitest exposes named exports.
+// The SDK preserves CommonJS source exports; Node ESM exposes it under default while Vitest exposes named exports.
 const pwaRuntime =
 	(pwaNamespace as unknown as { default?: typeof pwaNamespace }).default ?? pwaNamespace;
 
@@ -62,26 +62,31 @@ export function createConfiguredAutomaticPwaProvisioner(
 	});
 }
 
+/** Allows injected provisioning dependencies only in the test environment. */
 export function createConfiguredAutomaticPwaProvisionerForTestsOnly(
 	config: BackendConfig,
 	dependencies: AutomaticDependencies,
 ): Promise<AutomaticPwaProvisioner> {
-	if (process.env.NODE_ENV !== "test")
+	if (process.env.NODE_ENV !== "test") {
 		throw new Error("test-only automatic provisioning dependencies are disabled");
+	}
 	return composeAutomaticPwaProvisioner(config, dependencies);
 }
 
+/** Composes local Phase One authorization, durable recovery, and relay execution around the committed profile and policy. */
 async function composeAutomaticPwaProvisioner(
 	config: BackendConfig,
 	{ providers, relay }: AutomaticDependencies,
 ): Promise<AutomaticPwaProvisioner> {
-	if (config.id !== "local")
+	if (config.id !== "local") {
 		throw new Error("automatic PWA provisioning is available only for BACKEND_PROFILE=local");
+	}
 	const profile = loadCommittedPwaPhaseOneProfile();
 	const policy = loadCommittedPwaProvisioningAutomationPolicy();
 	const authorizer = createLocalPhaseOneProvisioningAuthorizer(policy);
 	const account = privateKeyToAccount(config.relayPrivateKey);
 	let recovery: PwaProvisioningRecovery | undefined;
+	/** Reconstructs deployment progress from recorded evidence with optional waiting for pending confirmations. */
 	const recover = (waitForPending = false) =>
 		recoverAutomaticPwaProvisioning({
 			config,
@@ -99,7 +104,9 @@ async function composeAutomaticPwaProvisioner(
 				restored = await recover();
 				break;
 			} catch (error) {
-				if (!recoverableProvisioningFailure(error) || attempt >= 2) throw error;
+				if (!recoverableProvisioningFailure(error) || attempt >= 2) {
+					throw error;
+				}
 				await new Promise<void>((resolve) => setTimeout(resolve, 500));
 			}
 		}
@@ -113,6 +120,7 @@ async function composeAutomaticPwaProvisioner(
 		throw new Error(`automatic provisioning recovery validation failed closed${detail}`);
 	}
 
+	/** Rejects a quote if the relay block identity or latest/pending deployer nonce has changed. */
 	const assertRelayQuoteAnchor = async (
 		plan: PwaProvisioningPlan,
 		transaction: PwaProvisioningTransaction,
@@ -126,16 +134,19 @@ async function composeAutomaticPwaProvisioner(
 		if (
 			block.number !== quote.blockNumber ||
 			block.hash?.toLowerCase() !== quote.blockHash.toLowerCase()
-		)
+		) {
 			throw new Error(
 				"fail closed: relay quote block changed before provisioning authorization",
 			);
-		if (BigInt(latest) !== transaction.nonce || BigInt(pending) !== transaction.nonce)
+		}
+		if (BigInt(latest) !== transaction.nonce || BigInt(pending) !== transaction.nonce) {
 			throw new Error(
 				"fail closed: relay latest/pending nonce changed before provisioning authorization",
 			);
+		}
 	};
 
+	/** Collects quote and budget evidence, rechecks the relay anchor, and obtains local policy authorization for one transaction. */
 	const authorizeNext = async (
 		plan: PwaProvisioningPlan,
 		transaction: PwaProvisioningTransaction,
@@ -173,15 +184,18 @@ async function composeAutomaticPwaProvisioner(
 	return createAutomaticPwaProvisioner({
 		reviewDirectory: config.provisioningReviewDirectory,
 		recovery,
+		/** Waits for recorded transactions to settle and reloads recovery before allowing provisioning to resume. */
 		async reloadRecovery() {
 			const restored = await recover(true);
-			if (restored.pending)
+			if (restored.pending) {
 				throw new Error(
 					"automatic provisioning is still awaiting canonical confirmations for its recorded transaction",
 				);
+			}
 			recovery = restored.recovery;
 			return recovery;
 		},
+		/** Resolves an unsigned deployment plan from verified passkey coordinates and the current deployer nonce. */
 		async createPlan({ primary, secondary }) {
 			const expectedDeployerNonce = BigInt(
 				await relay.getTransactionCount({ address: account.address, blockTag: "latest" }),
@@ -196,6 +210,7 @@ async function composeAutomaticPwaProvisioner(
 				client: relay,
 			});
 		},
+		/** Opens the provisioning runtime and lazily creates a package-bound authorization journal for missing transactions. */
 		executionContext(plan) {
 			const packageHash = provisioningPackageHash(plan);
 			let authorizationStore:
@@ -206,6 +221,7 @@ async function composeAutomaticPwaProvisioner(
 					journalPath: config.provisioningJournalPath,
 					account,
 					client: relay,
+					/** Persists validated local authorization and rechecks its quote anchor before returning the exact authorized fee envelope. */
 					async authorize(transaction: PwaProvisioningTransaction) {
 						// Completed restoration never opens an authorization writer. Acquire
 						// only when the exact missing deployment transaction needs approval.
@@ -238,6 +254,7 @@ async function composeAutomaticPwaProvisioner(
 				});
 				return Object.freeze({
 					context: runtime.context,
+					/** Closes the execution runtime and releases the authorization journal even if runtime cleanup fails. */
 					close: () => {
 						try {
 							runtime.close();

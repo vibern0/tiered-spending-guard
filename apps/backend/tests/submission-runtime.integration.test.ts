@@ -24,8 +24,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { describe, expect, it, vi } from "vitest";
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
-import type { PwaProvisioningResult } from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
+import type { PwaProvisioningResult } from "@tiered-spending-guard/sdk/pwa";
 import {
 	createSubmissionReadClient,
 	createSubmissionRuntimeForTestsOnly,
@@ -39,10 +39,7 @@ import { encodeP256CosePublicKey } from "./webauthn-fixtures";
 import type { BackendConfig } from "../src/config/config";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
-const coreDirectory = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../../packages/security-core",
-);
+const coreDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../../packages/core");
 const requireCore = createRequire(join(coreDirectory, "package.json"));
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const TOKEN = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
@@ -101,12 +98,16 @@ async function localChain(directory: string) {
 			body: JSON.stringify({ jsonrpc: "2.0", id: ++serial, method, params }),
 		});
 		const result = (await response.json()) as { result: T; error?: { message: string } };
-		if (result.error) throw new Error(`local ${method}: ${result.error.message}`);
+		if (result.error) {
+			throw new Error(`local ${method}: ${result.error.message}`);
+		}
 		return result.result;
 	};
 	for (let attempt = 0; ; attempt++) {
 		try {
-			if ((await rpc<string>("eth_chainId")) === "0xaa36a7") break;
+			if ((await rpc<string>("eth_chainId")) === "0xaa36a7") {
+				break;
+			}
 		} catch {
 			/* Wait only for the fresh local test node. */
 		}
@@ -121,7 +122,9 @@ async function localChain(directory: string) {
 		rpc,
 		async close() {
 			child.kill("SIGTERM");
-			if (child.exitCode === null) await once(child, "exit");
+			if (child.exitCode === null) {
+				await once(child, "exit");
+			}
 		},
 	};
 }
@@ -294,8 +297,9 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 				return {
 					...base,
 					readContract: async (args: Parameters<typeof base.readContract>[0]) => {
-						if (source === "identity-a" && args.functionName === "VERSION")
+						if (source === "identity-a" && args.functionName === "VERSION") {
 							topologyCollections++;
+						}
 						return base.readContract(args);
 					},
 					getBlockNumber: async () => BigInt(await chain.rpc<string>("eth_blockNumber")),
@@ -728,7 +732,7 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 				);
 				expect(prepared.kind).toBe(expectedKind);
 				let result: unknown;
-				if (prepared.requiredApprovals.length === 0)
+				if (prepared.requiredApprovals.length === 0) {
 					result = await continuousService
 						.submit(prepared.id, { role: "none" })
 						.catch((error) => {
@@ -737,14 +741,16 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 									(error instanceof Error ? error.message : "submit failed"),
 							);
 						});
-				else
-					for (const role of prepared.requiredApprovals)
+				} else {
+					for (const role of prepared.requiredApprovals) {
 						result = await continuousService.submit(prepared.id, {
 							role,
 							assertion: (role === "primary" ? primary : secondary).assertion(
 								prepared.safeTxHash!,
 							),
 						});
+					}
+				}
 				expect(result).toMatchObject({ state: "uncertain" });
 				await mine();
 				expect(await continuousService.status(prepared.id)).toMatchObject({
@@ -876,7 +882,9 @@ describe("concrete PWA submission runtime on a real local Sepolia EVM", () => {
 			);
 			credentialStore.close();
 		} finally {
-			if (runtime && prepared) await runtime.discard?.(prepared);
+			if (runtime && prepared) {
+				await runtime.discard?.(prepared);
+			}
 			await chain.close();
 			rmSync(directory, { recursive: true, force: true });
 		}

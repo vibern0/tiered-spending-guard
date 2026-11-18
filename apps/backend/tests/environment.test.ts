@@ -17,8 +17,9 @@ function fixture() {
 	return directory;
 }
 afterEach(() => {
-	for (const directory of directories.splice(0))
+	for (const directory of directories.splice(0)) {
 		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 describe("backend environment loading", () => {

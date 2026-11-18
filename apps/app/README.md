@@ -23,7 +23,7 @@ pnpm --dir apps/app dev
 
 ## Local wallet backend
 
-The wallet is a testnet-only USDC prototype. It pins Circle's Ethereum Sepolia USDC contract at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` and reviewed runtime hash `0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb`; active balances, policies, and transfers use six-decimal USDC bigint units. The canonical two-provider artifact and fixed X/Y/Z profile live in `packages/security-core/config/sepolia.pwa-phase-one.json`.
+The wallet is a testnet-only USDC prototype. It pins Circle's Ethereum Sepolia USDC contract at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` and reviewed runtime hash `0xcd3f29e2ea9c61dadd48bfeaf8b2884b6de9dfee7bf45329452c4c33d0868ceb`; active balances, policies, and transfers use six-decimal USDC bigint units. The canonical two-provider artifact and fixed X/Y/Z profile live in `packages/core/config/sepolia.pwa-phase-one.json`.
 
 The wallet requires the loopback backend for passkey registration, automatic local Phase One vault provisioning, and Safe submissions. Set `VITE_SEPOLIA_RPC_URL` for direct Sepolia reads and select one closed identity profile. The browser reads one verified snapshot when a configured vault loads, when the Send flow opens, on explicit user refresh, and after a terminal submission; it does not poll chain state in the background. Simultaneous contract reads are grouped through Sepolia Multicall3 with a 10 ms collection window, while retaining the pinned-block and final block-hash checks. This read policy limits hosted RPC use and grants no signing or write authority.
 

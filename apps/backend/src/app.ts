@@ -7,7 +7,11 @@ import { loadEvidenceAccess } from "./chain/evidence-access";
 import { VaultHistory } from "./history/service";
 import { createHistoryReadClient } from "./history/read-client";
 
-/** One local account application. Importing this module never reads secrets or starts work. */
+/**
+ * Open external stores and verified history readers, compose the account API, and listen on loopback.
+ * Importing this module never reads secrets or starts work; calling it owns the opened resources.
+ * @returns The listening server and an idempotent close operation for the server and stores.
+ */
 export async function createConfiguredBackend(
 	config = loadBackendConfig(),
 	options: BackendServerOptions = {},
@@ -31,6 +35,7 @@ export async function createConfiguredBackend(
 		let closing: Promise<void> | undefined;
 		return {
 			server: backend.server,
+			/** Drain the server and its workers before closing history and account storage. */
 			close: () =>
 				(closing ??= (async () => {
 					await backend.close();

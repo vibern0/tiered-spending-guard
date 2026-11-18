@@ -66,13 +66,14 @@ function fixture() {
 			transactions: { hash: Hex; to: Address | null; input: Hex }[];
 		}
 	>();
-	for (let n = 9; n < 40; n++)
+	for (let n = 9; n < 40; n++) {
 		blocks.set(BigInt(n), {
 			hash: hash(n),
 			parentHash: hash(n - 1),
 			timestamp: BigInt(1000 + n),
 			transactions: [],
 		});
+	}
 	let latest = 16n,
 		head = 0n,
 		tail = 0n,
@@ -82,9 +83,11 @@ function fixture() {
 	const nonces = new Map<bigint, { head: bigint; tail: bigint }>();
 	const transactions = (n: bigint) => {
 		const txs = [...blocks.get(n)!.transactions];
-		for (const log of logs.filter((l) => l.blockNumber === n))
-			if (!txs.some((t) => t.hash === log.transactionHash))
+		for (const log of logs.filter((l) => l.blockNumber === n)) {
+			if (!txs.some((t) => t.hash === log.transactionHash)) {
 				txs.push({ hash: log.transactionHash, to: log.address, input: "0x" });
+			}
+		}
 		return txs;
 	};
 	const client = (source: string): HistoryReadClient => ({
@@ -221,7 +224,7 @@ describe("confirmed account vault history", () => {
 		f.blocks.get(12n)!.transactions.push({ hash: hash(300), to: recipient, input: "0x1234" });
 		const transfer = f.transfer(12, safe, recipient, 9n);
 		transfer.transactionHash = hash(300);
-		for (const logIndex of [1, 2])
+		for (const logIndex of [1, 2]) {
 			f.logs.push({
 				...transfer,
 				address: safe,
@@ -233,6 +236,7 @@ describe("confirmed account vault history", () => {
 				}) as Hex[],
 				data: "0x",
 			});
+		}
 		f.setNonce(2n, 2n);
 		f.setLatest(17n);
 		await s.scan("alice", vault);
@@ -449,7 +453,9 @@ describe("confirmed account vault history", () => {
 			s = f.open();
 		const log = f.transfer(10, recipient, delay);
 		f.logs.splice(0);
-		for (let i = 0; i < 10001; i++) f.logs.push({ ...log, logIndex: i });
+		for (let i = 0; i < 10001; i++) {
+			f.logs.push({ ...log, logIndex: i });
+		}
 		await s.scan("alice", vault);
 		expect(s.page("alice").items).toEqual([]);
 		expect(s.page("alice").indexedThrough).toBe(11n);

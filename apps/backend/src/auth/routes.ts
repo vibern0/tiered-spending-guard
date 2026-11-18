@@ -8,6 +8,7 @@ import { AccountAuthService } from "./service";
 import { type AccountRouteContext } from "../http/security";
 import { object, ref, routeSchema, string } from "../http/schema";
 
+/** Register setup, login, logout and session routes, applying returned session rotations to browser cookies. */
 export function registerAccountAuthRoutes(
 	fastify: FastifyInstance,
 	config: BackendConfig,
@@ -122,7 +123,9 @@ export function registerAccountAuthRoutes(
 			const state = context.state(request);
 			const session = context.session(request);
 			const action = auth.logout({ token: state.token, session });
-			if (action.clearCookie) context.clearCookie(reply);
+			if (action.clearCookie) {
+				context.clearCookie(reply);
+			}
 			return reply.send(action.body);
 		},
 	);

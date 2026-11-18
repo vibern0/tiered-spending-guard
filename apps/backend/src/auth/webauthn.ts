@@ -88,27 +88,38 @@ export type AssertionVerifier = (
 	}>,
 ) => Promise<AssertionVerification>;
 
+/** Encode the exact Safe transaction digest as the WebAuthn challenge without introducing another hash. */
 const challengeForDigest = (digest: Hex): string =>
 	Buffer.from(hexToBytes(digest)).toString("base64url");
 
+/** Restrict verified credential operations to the two supported signer roles. */
 function role(role: string): asserts role is BackendPasskeyRole {
-	if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
+	if (role !== "primary" && role !== "secondary") {
+		throw new Error("unsupported passkey role");
+	}
 }
 
+/** Require matching Sepolia, Safe, transaction digest and credential bindings before assertion verification. */
 function assertSafeBinding(input: AssertionInput): void {
 	role(input.role);
-	if (input.chainId !== 11155111 || input.binding.chainId !== input.chainId)
+	if (input.chainId !== 11155111 || input.binding.chainId !== input.chainId) {
 		throw new Error("WebAuthn chain binding mismatch");
-	if (input.binding.safe.toLowerCase() !== input.safe.toLowerCase())
+	}
+	if (input.binding.safe.toLowerCase() !== input.safe.toLowerCase()) {
 		throw new Error("WebAuthn Safe binding mismatch");
-	if (input.binding.safeTxHash.toLowerCase() !== input.safeTxHash.toLowerCase())
+	}
+	if (input.binding.safeTxHash.toLowerCase() !== input.safeTxHash.toLowerCase()) {
 		throw new Error("WebAuthn digest binding mismatch");
-	if (input.challenge !== challengeForDigest(input.safeTxHash))
+	}
+	if (input.challenge !== challengeForDigest(input.safeTxHash)) {
 		throw new Error("WebAuthn challenge is not the Safe digest");
-	if (input.credentialId !== input.credential.id)
+	}
+	if (input.credentialId !== input.credential.id) {
 		throw new Error("WebAuthn credential binding mismatch");
+	}
 }
 
+/** Verify enrollment with required user verification and retain only public credential and backup metadata. */
 async function defaultRegistrationVerifier(
 	input: Readonly<{ response: unknown; challenge: string; rpId: string; origin: string }>,
 ): Promise<RegistrationVerification> {
@@ -119,8 +130,9 @@ async function defaultRegistrationVerifier(
 		expectedRPID: input.rpId,
 		requireUserVerification: true,
 	});
-	if (!result.verified || !result.registrationInfo)
+	if (!result.verified || !result.registrationInfo) {
 		throw new Error("WebAuthn registration was not verified");
+	}
 	return {
 		verified: true,
 		credentialId: result.registrationInfo.credential.id,
@@ -131,6 +143,7 @@ async function defaultRegistrationVerifier(
 	};
 }
 
+/** Verify an assertion against the stored public key, counter, RP and origin with user verification required. */
 async function defaultAssertionVerifier(
 	input: Readonly<{
 		response: unknown;
@@ -160,6 +173,7 @@ async function defaultAssertionVerifier(
 	};
 }
 
+/** Validate enrollment identity and role constraints, then return public ES256 metadata without persisting it. */
 export async function verifyPasskeyRegistration(
 	input: RegistrationResponse,
 	verifier: RegistrationVerifier = defaultRegistrationVerifier,
@@ -174,8 +188,9 @@ export async function verifyPasskeyRegistration(
 		!input.credentialId ||
 		input.credentialId !== input.response.id ||
 		input.response.type !== "public-key"
-	)
+	) {
 		throw new Error("registration credential binding mismatch");
+	}
 	const result = await verifier({
 		response: input.response,
 		challenge: input.challenge,
@@ -187,10 +202,12 @@ export async function verifyPasskeyRegistration(
 		result.credentialId !== input.credentialId ||
 		!Number.isSafeInteger(result.counter) ||
 		result.counter < 0
-	)
+	) {
 		throw new Error("WebAuthn registration was not verified");
-	if (input.role === "secondary" && input.response.authenticatorAttachment !== "cross-platform")
+	}
+	if (input.role === "secondary" && input.response.authenticatorAttachment !== "cross-platform") {
 		throw new Error("secondary registration must use a cross-platform authenticator");
+	}
 	const coordinates = decodeP256Credential(result.publicKey);
 	return Object.freeze({
 		role: input.role,
@@ -208,6 +225,7 @@ export async function verifyPasskeyRegistration(
 	});
 }
 
+/** Verify a transaction-bound assertion and encode its authenticator data and signature for the Safe passkey contract. */
 export async function verifyPasskeyAssertion(
 	input: AssertionInput,
 	verifier: AssertionVerifier = defaultAssertionVerifier,
@@ -222,8 +240,9 @@ export async function verifyPasskeyAssertion(
 		input.credential.role !== input.role ||
 		input.credentialId !== input.response.id ||
 		input.response.type !== "public-key"
-	)
+	) {
 		throw new Error("WebAuthn assertion credential binding mismatch");
+	}
 	const result = await verifier({
 		response: input.response,
 		credential: input.credential,
@@ -231,10 +250,13 @@ export async function verifyPasskeyAssertion(
 		rpId: input.rpId,
 		origin: input.origin,
 	});
-	if (!result.verified) throw new Error("WebAuthn assertion was not verified");
+	if (!result.verified) {
+		throw new Error("WebAuthn assertion was not verified");
+	}
 	const counter = result.authenticationInfo?.newCounter ?? input.credential.counter;
-	if (!Number.isSafeInteger(counter) || counter < input.credential.counter)
+	if (!Number.isSafeInteger(counter) || counter < input.credential.counter) {
 		throw new Error("WebAuthn counter is invalid");
+	}
 	const authenticatorData = decodeWebAuthnField(
 		input.response.response.authenticatorData,
 		"WebAuthn authenticatorData",
@@ -243,8 +265,9 @@ export async function verifyPasskeyAssertion(
 		authenticatorData.length < 37 ||
 		(authenticatorData[32]! & 0x01) === 0 ||
 		(authenticatorData[32]! & 0x04) === 0
-	)
+	) {
 		throw new Error("WebAuthn user presence and verification are required");
+	}
 	const clientDataSuffix = extractClientDataSuffix(input.response.response.clientDataJSON, {
 		challenge: input.challenge,
 		origin: input.origin,
@@ -283,25 +306,31 @@ export async function verifyPasskeyLogin(
 		input.credential.role !== "primary" ||
 		input.response.id !== input.credential.id ||
 		input.response.type !== "public-key"
-	)
+	) {
 		throw new Error("first passkey authentication required");
+	}
 	if (
 		input.userHandle !== undefined &&
 		input.response.response.userHandle !== input.userHandle &&
 		!(input.allowMissingUserHandle && input.response.response.userHandle == null)
-	)
+	) {
 		throw new Error("passkey user handle mismatch");
+	}
 	const result = await verifier({ ...input, response: input.response });
-	if (!result.verified) throw new Error("passkey login was not verified");
+	if (!result.verified) {
+		throw new Error("passkey login was not verified");
+	}
 	const counter = result.authenticationInfo?.newCounter ?? input.credential.counter;
-	if (!Number.isSafeInteger(counter) || counter < input.credential.counter)
+	if (!Number.isSafeInteger(counter) || counter < input.credential.counter) {
 		throw new Error("WebAuthn counter is invalid");
+	}
 	const data = decodeWebAuthnField(
 		input.response.response.authenticatorData,
 		"WebAuthn authenticatorData",
 	);
-	if (data.length < 37 || (data[32]! & 5) !== 5)
+	if (data.length < 37 || (data[32]! & 5) !== 5) {
 		throw new Error("WebAuthn user presence and verification required");
+	}
 	extractClientDataSuffix(input.response.response.clientDataJSON, {
 		challenge: input.challenge,
 		origin: input.origin,
@@ -324,8 +353,9 @@ export function passkeyApprovalFingerprint(
 	// SEC2 P-256 order, also pinned OpenZeppelin P256.N. Normalize the
 	// ECDSA (r,s)/(r,N-s) ambiguity before recording one-use verification.
 	const order = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
-	if (r <= 0n || s <= 0n || r >= order || s >= order)
+	if (r <= 0n || s <= 0n || r >= order || s >= order) {
 		throw new Error("invalid P-256 signature scalars");
+	}
 	const canonical = encodeAbiParameters(parameters, [
 		authenticatorData,
 		clientData,

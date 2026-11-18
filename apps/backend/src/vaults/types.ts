@@ -1,7 +1,4 @@
-import type {
-	PwaProvisioningPlan,
-	PwaProvisioningResult,
-} from "@tiered-spending-guard/security-core/pwa";
+import type { PwaProvisioningPlan, PwaProvisioningResult } from "@tiered-spending-guard/sdk/pwa";
 import type { Address, Hex } from "viem";
 import type { VerifiedPasskeyApproval } from "../auth/webauthn";
 import { type BackendPasskeyRole, type StoredCredential } from "../auth/webauthn";

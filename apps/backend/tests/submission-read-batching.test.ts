@@ -23,7 +23,9 @@ async function rpc(failStorage = false, mutate?: (responses: any[]) => unknown) 
 	const batches: unknown[] = [];
 	const server = createServer(async (req, res) => {
 		let body = "";
-		for await (const chunk of req) body += chunk;
+		for await (const chunk of req) {
+			body += chunk;
+		}
 		const parsed = JSON.parse(body);
 		batches.push(parsed);
 		const answer = (request: { id: number; method: string }) => ({
