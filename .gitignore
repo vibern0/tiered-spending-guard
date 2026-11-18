@@ -10,6 +10,8 @@ apps/backend/*.local.json
 /artifacts
 packages/*/cache
 packages/*/artifacts
+packages/sdk/generated/
+packages/sdk/.generated-*.tmp/
 
 # TypeChain files
 /typechain

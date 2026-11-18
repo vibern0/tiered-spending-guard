@@ -21,7 +21,7 @@ Reduce `apps/backend` to accounts, passkey login, automatic vault creation, ordi
 - Retain the ordinary-Safe backend relay while the contracts lack a verified replacement execution path. ERC-4337 remains separate work.
 - Explore and agree on cuts before implementation. Tests were excluded from exploration, not from required implementation verification.
 
-Public credential IDs, keys, account associations and anti-replay metadata remain necessary for the existing login design. The user's database-tampering concern and suggested future ZK research are recorded in [signer provider evaluation](../../../packages/security-core/docs/security/signer-provider-evaluation.md#2026-11-12-known-risk-account-database-integrity). This approved design retains those public records; it adds no ZK mechanism or private-key storage.
+Public credential IDs, keys, account associations and anti-replay metadata remain necessary for the existing login design. The user's database-tampering concern and suggested future ZK research are recorded in [signer provider evaluation](../../../packages/core/docs/security/signer-provider-evaluation.md#2026-11-12-known-risk-account-database-integrity). This approved design retains those public records; it adds no ZK mechanism or private-key storage.
 
 ## Approaches
 
@@ -45,7 +45,7 @@ Independent monitoring remains mandatory and non-authorizing. Neither the histor
 
 ### Explicit Background-Creation Amendment
 
-Approval supersedes the earlier rule that startup never leads to provisioning broadcasts in the [dynamic recovery design](../../../packages/security-core/docs/superpowers/specs/2026-11-01-dynamic-pwa-provisioning-envelope-and-recovery-design.md) and [automatic provisioning design](../../../packages/security-core/docs/superpowers/specs/2026-11-01-phase-one-automated-pwa-provisioning-design.md). Startup verification itself stays read-only. After the server starts, only an explicitly committed current-account creation job may resume through the unchanged payer coordinator, bounded authorizer, exact recovery verifier and seven-transaction executor. Completed jobs do not broadcast. Startup discovery never creates a job from historical files or credential records alone. Receipt/history workers remain read-only. Carry this narrowly scoped amendment into those specifications and the call graph before enabling the worker.
+Approval supersedes the earlier rule that startup never leads to provisioning broadcasts in the [dynamic recovery design](../../../packages/core/docs/superpowers/specs/2026-11-01-dynamic-pwa-provisioning-envelope-and-recovery-design.md) and [automatic provisioning design](../../../packages/core/docs/superpowers/specs/2026-11-01-phase-one-automated-pwa-provisioning-design.md). Startup verification itself stays read-only. After the server starts, only an explicitly committed current-account creation job may resume through the unchanged payer coordinator, bounded authorizer, exact recovery verifier and seven-transaction executor. Completed jobs do not broadcast. Startup discovery never creates a job from historical files or credential records alone. Receipt/history workers remain read-only. Carry this narrowly scoped amendment into those specifications and the call graph before enabling the worker.
 
 ## Concrete Cuts
 

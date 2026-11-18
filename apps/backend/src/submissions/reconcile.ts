@@ -1,5 +1,5 @@
 import { type Hex } from "viem";
-import type { PwaObservedState, PwaObserverClient } from "@tiered-spending-guard/security-core/pwa";
+import type { PwaObservedState, PwaObserverClient } from "@tiered-spending-guard/sdk/pwa";
 import type { BackendIntent, BackendVaultRecord } from "../vaults/types";
 import type {
 	BackendPreparedSubmission,
@@ -14,6 +14,10 @@ import { SubmissionJournal } from "./journal";
 import { persistPwaObservation, submissionObserverExecutableHash } from "./observations";
 import { core, hash } from "./core";
 
+/**
+ * Build read-only receipt reconciliation with dual-provider confirmation and durable success observations.
+ * Recovery reconstructs public intent evidence; it grants no signing or broadcasting capability.
+ */
 export function createSubmissionReconciliation(
 	journalPath: string,
 	providers: readonly [ReadClient, ReadClient],
@@ -24,11 +28,17 @@ export function createSubmissionReconciliation(
 ) {
 	const { stateAt, snapshotAt } = preparation;
 	const { discard, entryForOuterHash } = execution;
+	/**
+	 * Rebuild an intent from durable public metadata and its historical snapshot after a process restart.
+	 * Retain it only after its reconstructed hash matches the journal binding.
+	 */
 	const recoverEntry = async (transactionHash: Hex): Promise<Entry | undefined> => {
 		const journal = new SubmissionJournal(journalPath);
 		const stored = journal.findByOuterHash(transactionHash);
 		const vault = currentVault?.();
-		if (!stored || !vault) return undefined;
+		if (!stored || !vault) {
+			return undefined;
+		}
 		const publicIntent = stored.publicRequest.intent;
 		const preparedBlock = stored.publicRequest.preparedBlockNumber;
 		if (
@@ -36,8 +46,9 @@ export function createSubmissionReconciliation(
 			typeof publicIntent !== "object" ||
 			typeof preparedBlock !== "string" ||
 			!/^\d+$/.test(preparedBlock)
-		)
+		) {
 			throw new Error("durable submission reconstruction metadata is missing");
+		}
 		const rawIntent = publicIntent as Record<string, unknown>;
 		const request = {
 			...rawIntent,
@@ -49,8 +60,9 @@ export function createSubmissionReconciliation(
 		const intent = canonicalIntent(request);
 		const { snapshot } = await snapshotAt(vault, BigInt(preparedBlock));
 		const prepared = core.preparePwaIntent(snapshot, intent);
-		if (hash(prepared) !== stored.requestHash.toLowerCase())
+		if (hash(prepared) !== stored.requestHash.toLowerCase()) {
 			throw new Error("reconstructed submission does not match durable intent hash");
+		}
 		const publicPrepared: BackendPreparedSubmission = Object.freeze({
 			id: stored.id,
 			requestHash: stored.requestHash as Hex,
@@ -64,35 +76,48 @@ export function createSubmissionReconciliation(
 		return entry;
 	};
 
+	/**
+	 * Require matching canonical receipts with six confirmations before reporting a terminal result.
+	 * For success, persist verified state-effect evidence before releasing any retained execution envelope.
+	 * @returns Terminal receipt evidence, or undefined while either receipt or confirmation depth is incomplete.
+	 */
 	const reconcile = async (
 		transactionHash: Hex,
 	): Promise<BackendSubmissionReceipt | undefined> => {
 		const receipts = await Promise.all(
 			providers.map((client) => client.getTransactionReceipt({ hash: transactionHash })),
 		);
-		if (receipts.some((receipt) => !receipt)) return undefined;
+		if (receipts.some((receipt) => !receipt)) {
+			return undefined;
+		}
 		const first = receipts[0]!;
-		if (first.transactionHash.toLowerCase() !== transactionHash.toLowerCase())
+		if (first.transactionHash.toLowerCase() !== transactionHash.toLowerCase()) {
 			throw new Error("receipt does not match the durable submission hash");
-		if (first.status !== "success" && first.status !== "reverted")
+		}
+		if (first.status !== "success" && first.status !== "reverted") {
 			throw new Error("submission receipt has an invalid status");
-		if (core.canonicalSubmissionJson(first) !== core.canonicalSubmissionJson(receipts[1]))
+		}
+		if (core.canonicalSubmissionJson(first) !== core.canonicalSubmissionJson(receipts[1])) {
 			throw new Error("submission receipt providers disagree");
+		}
 		const [heads, blocks] = await Promise.all([
 			Promise.all(providers.map((client) => client.getBlockNumber())),
 			Promise.all(
 				providers.map((client) => client.getBlock({ blockNumber: first.blockNumber })),
 			),
 		]);
-		if (heads.some((head) => head < first.blockNumber + 5n)) return undefined;
+		if (heads.some((head) => head < first.blockNumber + 5n)) {
+			return undefined;
+		}
 		if (
 			blocks.some(
 				(block) =>
 					block.number !== first.blockNumber ||
 					block.hash?.toLowerCase() !== first.blockHash.toLowerCase(),
 			)
-		)
+		) {
 			throw new Error("submission receipt is not canonical");
+		}
 		const envelopeEntry = entryForOuterHash(transactionHash);
 		const entry =
 			envelopeEntry ??
@@ -103,10 +128,11 @@ export function createSubmissionReconciliation(
 						?.outerTransactionHash?.toLowerCase() === transactionHash.toLowerCase(),
 			) ??
 			(await recoverEntry(transactionHash));
-		if (!entry)
+		if (!entry) {
 			throw new Error(
 				"durable server-held submission evidence is required for reconciliation",
 			);
+		}
 		if (first.status === "success") {
 			const clients = providers.map((client) =>
 				Object.freeze({
@@ -115,6 +141,7 @@ export function createSubmissionReconciliation(
 					getTransactionReceipt: client.getTransactionReceipt,
 					getTransaction: client.getTransaction,
 					getBlock: client.getBlock,
+					/** Collect pinned policy, topology, queue and transfer balances for independent receipt-effect verification. */
 					readStateAt: async (blockNumber: bigint): Promise<PwaObservedState> => {
 						const state = await stateAt(
 							client,
@@ -155,7 +182,9 @@ export function createSubmissionReconciliation(
 			);
 			persistPwaObservation(`${journalPath}.observations`, record);
 		}
-		if (envelopeEntry) discard(entry.publicPrepared);
+		if (envelopeEntry) {
+			discard(entry.publicPrepared);
+		}
 		return {
 			status: first.status === "success" ? "confirmed" : "reverted",
 			transactionHash,

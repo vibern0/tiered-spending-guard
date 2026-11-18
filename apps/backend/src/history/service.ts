@@ -9,7 +9,7 @@ import {
 	type Address,
 	type Hex,
 } from "viem";
-import * as coreNamespace from "@tiered-spending-guard/security-core/pwa";
+import * as coreNamespace from "@tiered-spending-guard/sdk/pwa";
 import type {
 	HistoryLog,
 	HistoryPage,
@@ -40,21 +40,31 @@ const ABI = parseAbi([
 	"function txNonce() view returns (uint256)",
 	"function queueNonce() view returns (uint256)",
 ]);
+/** Compares chain identities case-insensitively while treating a missing value as unequal. */
 const same = (a: string | null, b: string) => a?.toLowerCase() === b.toLowerCase();
+/** Serializes display-cache data with a stable bigint representation for storage and reader agreement. */
 const json = (v: unknown): string =>
 	JSON.stringify(v, (_, x) => (typeof x === "bigint" ? `${x}n` : x));
+/** Restores bigint values from the cache representation; callers validate the resulting structure. */
 const parse = <T>(v: string): T =>
 	JSON.parse(v, (_, x) =>
 		typeof x === "string" && /^(0|[1-9][0-9]*)n$/.test(x) ? BigInt(x.slice(0, -1)) : x,
 	) as T;
+/** Rejects block numbers or timestamps that cannot be represented safely in cache columns. */
 const integer = (n: bigint): number => {
 	const v = Number(n);
-	if (!Number.isSafeInteger(v) || v < 0) throw new Error("invalid history block/time");
+	if (!Number.isSafeInteger(v) || v < 0) {
+		throw new Error("invalid history block/time");
+	}
 	return v;
 };
+/** Rejects account identifiers outside the bounded cache-key format. */
 const identity = (id: string) => {
-	if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new Error("invalid history account");
+	if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) {
+		throw new Error("invalid history account");
+	}
 };
+/** Decodes supported history events and leaves unknown or malformed events unclassified. */
 function decoded(log: HistoryLog) {
 	try {
 		return decodeEventLog({
@@ -67,6 +77,7 @@ function decoded(log: HistoryLog) {
 		return undefined;
 	}
 }
+/** Recognizes supported calldata only when its decoded arguments re-encode to the exact original bytes. */
 function call(input: Hex) {
 	try {
 		const d = decodeFunctionData({ abi: ABI, data: input });
@@ -79,13 +90,15 @@ function call(input: Hex) {
 				}),
 				input,
 			)
-		)
+		) {
 			return undefined;
+		}
 		return d;
 	} catch {
 		return undefined;
 	}
 }
+/** Recomputes the Delay transaction fingerprint used to bind queued proposals to their payload. */
 function fingerprint(to: Address, value: bigint, data: Hex, operation: number) {
 	return keccak256(
 		encodePacked(["address", "uint256", "bytes", "uint8"], [to, value, data, operation]),
@@ -121,8 +134,11 @@ const cacheFields = new Set([
 	"expiresAt",
 	"status",
 ]);
+/** Validates the persisted vault binding, confirmed block anchor, and queue bounds before replay. */
 function readCheckpoint(row: CursorRow | undefined): CursorRow | undefined {
-	if (!row) return undefined;
+	if (!row) {
+		return undefined;
+	}
 	let binding: unknown;
 	try {
 		binding = parse(row.binding);
@@ -151,14 +167,18 @@ function readCheckpoint(row: CursorRow | undefined): CursorRow | undefined {
 		binding[5] < 0n ||
 		binding[5] > BigInt(row.block) ||
 		json(binding) !== row.binding
-	)
+	) {
 		throw new Error("invalid history cache checkpoint");
+	}
 	return row;
 }
+/** Validates cached display records before using them in replay or returning them to the browser. */
 function cached(payload: string): HistoryRecord {
 	try {
 		const r = parse<HistoryRecord>(payload);
+		/** Recognizes nonnegative safe integers for persisted timestamps. */
 		const positive = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+		/** Recognizes uint256 values before accepting cached amounts, blocks, or queue nonces. */
 		const uint = (v: unknown) => typeof v === "bigint" && v >= 0n && v < 1n << 256n;
 		if (
 			!r ||
@@ -190,8 +210,9 @@ function cached(payload: string): HistoryRecord {
 			(r.queueFingerprint !== undefined && !hashPattern.test(r.queueFingerprint)) ||
 			(r.readyAt !== undefined && !positive(r.readyAt)) ||
 			(r.expiresAt !== undefined && !positive(r.expiresAt))
-		)
+		) {
 			throw new Error();
+		}
 		return r;
 	} catch {
 		throw new Error("invalid history cache record");
@@ -205,19 +226,22 @@ export class VaultHistory {
 	private readonly maxBlocks: number;
 	private readonly now: () => number;
 	private readonly busy = new Set<string>();
+	/** Opens the rebuildable history database after requiring distinct reader identities and a bounded scan size. */
 	constructor(options: {
 		databasePath: string;
 		clients: readonly [HistoryReadClient, HistoryReadClient];
 		maxBlocks?: number;
 		now?: () => number;
 	}) {
-		if (!options.clients[0].source || options.clients[0].source === options.clients[1].source)
+		if (!options.clients[0].source || options.clients[0].source === options.clients[1].source) {
 			throw new Error("independent history readers required");
+		}
 		this.clients = options.clients;
 		this.maxBlocks = options.maxBlocks ?? 32;
 		this.now = options.now ?? Date.now;
-		if (!Number.isInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > 200)
+		if (!Number.isInteger(this.maxBlocks) || this.maxBlocks < 1 || this.maxBlocks > 200) {
 			throw new Error("invalid history scan bound");
+		}
 		this.db = new DatabaseSync(options.databasePath);
 		this.db
 			.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF;
@@ -226,14 +250,19 @@ export class VaultHistory {
       CREATE INDEX IF NOT EXISTS history_page ON history_records(account,block DESC,idx DESC,id DESC);
       CREATE INDEX IF NOT EXISTS history_queue ON history_records(account,queue,proposal);`);
 	}
+	/** Releases the history database connection. */
 	close(): void {
 		this.db.close();
 	}
+	/** Requires identical serialized observations from both history readers before accepting evidence. */
 	private async agree<T>(read: (client: HistoryReadClient) => Promise<T>): Promise<T> {
 		const [a, b] = await Promise.all(this.clients.map(read));
-		if (json(a) !== json(b)) throw new Error("history readers disagree");
+		if (json(a) !== json(b)) {
+			throw new Error("history readers disagree");
+		}
 		return a;
 	}
+	/** Requires reader agreement on the requested canonical block and unique, well-formed transaction identities. */
 	private async block(number: bigint) {
 		const block = await this.agree((c) => c.getBlock({ blockNumber: number }));
 		if (
@@ -243,19 +272,24 @@ export class VaultHistory {
 			!/^0x[0-9a-fA-F]{64}$/.test(block.parentHash) ||
 			block.timestamp < 0n ||
 			!Array.isArray(block.transactions)
-		)
+		) {
 			throw new Error("invalid history canonical block");
+		}
 		const hashes = new Set<string>();
 		for (const tx of block.transactions) {
-			if (!/^0x[0-9a-fA-F]{64}$/.test(tx.hash) || hashes.has(tx.hash.toLowerCase()))
+			if (!/^0x[0-9a-fA-F]{64}$/.test(tx.hash) || hashes.has(tx.hash.toLowerCase())) {
 				throw new Error("duplicate or malformed history transaction identity");
+			}
 			hashes.add(tx.hash.toLowerCase());
 		}
 		return block as typeof block & { hash: Hex };
 	}
+	/** Runs at most one bounded history scan per account and clears the in-flight marker on every outcome. */
 	async scan(accountId: string, vault: HistoryVault): Promise<void> {
 		identity(accountId);
-		if (this.busy.has(accountId)) return;
+		if (this.busy.has(accountId)) {
+			return;
+		}
 		this.busy.add(accountId);
 		try {
 			await this.scanRange(accountId, vault);
@@ -263,9 +297,11 @@ export class VaultHistory {
 			this.busy.delete(accountId);
 		}
 	}
+	/** Replays confirmed vault activity against two readers and atomically persists verified display records and a cursor. */
 	private async scanRange(accountId: string, vault: HistoryVault): Promise<void> {
-		if (!/^(0|[1-9][0-9]*)$/.test(vault.evidence.blockNumber))
+		if (!/^(0|[1-9][0-9]*)$/.test(vault.evidence.blockNumber)) {
 			throw new Error("verified setup block required for history");
+		}
 		const setup = BigInt(vault.evidence.blockNumber);
 		const binding = json([
 			vault.chainId,
@@ -279,13 +315,18 @@ export class VaultHistory {
 			this.db.prepare("SELECT * FROM history_cursors WHERE account=?").get(accountId) as
 				CursorRow | undefined,
 		);
-		if (cursor && cursor.binding !== binding) throw new Error("history vault identity changed");
-		if ((await this.agree((c) => c.getChainId())) !== vault.chainId)
+		if (cursor && cursor.binding !== binding) {
+			throw new Error("history vault identity changed");
+		}
+		if ((await this.agree((c) => c.getChainId())) !== vault.chainId) {
 			throw new Error("history chain mismatch");
+		}
 		const heads = await Promise.all(this.clients.map((c) => c.getBlockNumber()));
 		const confirmed = (heads[0]! < heads[1]! ? heads[0]! : heads[1]!) - 5n;
 		if (cursor) {
-			if (confirmed < BigInt(cursor.block)) throw new Error("history reader head regressed");
+			if (confirmed < BigInt(cursor.block)) {
+				throw new Error("history reader head regressed");
+			}
 			const checkpoint = await this.block(BigInt(cursor.block));
 			if (!same(checkpoint.hash, cursor.hash)) {
 				// A deep reorg invalidates only this rebuildable account cache. Replay is still bounded.
@@ -302,12 +343,15 @@ export class VaultHistory {
 			}
 		}
 		const from = cursor ? BigInt(cursor.block) + 1n : setup;
-		if (confirmed < from) return;
+		if (confirmed < from) {
+			return;
+		}
 		const to =
 			confirmed < from + BigInt(this.maxBlocks) - 1n
 				? confirmed
 				: from + BigInt(this.maxBlocks) - 1n;
 		const addresses = [vault.usdc, vault.safe, vault.guard, vault.delay];
+		/** Keeps vault-contract logs and token transfers involving this Safe for receipt and range comparison. */
 		const relevant = (log: HistoryLog): boolean => {
 			if (same(log.address, vault.usdc)) {
 				const event = decoded(log);
@@ -338,7 +382,9 @@ export class VaultHistory {
 							: 1,
 				),
 		);
-		if (logs.length > 10_000) throw new Error("history log range too large");
+		if (logs.length > 10_000) {
+			throw new Error("history log range too large");
+		}
 		const keys = new Set<string>();
 		for (const log of logs) {
 			const key = `${log.blockNumber}:${log.logIndex}`;
@@ -350,17 +396,23 @@ export class VaultHistory {
 				log.logIndex < 0 ||
 				keys.has(key) ||
 				!addresses.some((a) => same(a, log.address))
-			)
+			) {
 				throw new Error("invalid history log identity");
+			}
 			keys.add(key);
 		}
 		const changes = new Map<string, HistoryRecord>();
 		let head = BigInt(cursor?.head ?? "0"),
 			tail = BigInt(cursor?.tail ?? "0");
+		/** Stages a display-record replacement in memory until the entire scan range passes verification. */
 		const put = (record: HistoryRecord) => changes.set(record.id, record);
+		/** Finds a proposal in staged updates or validates its archived cache record for queue replay. */
 		const queued = (nonce: bigint): HistoryRecord | undefined => {
-			for (const r of changes.values())
-				if (r.queueNonce === nonce && r.readyAt !== undefined) return r;
+			for (const r of changes.values()) {
+				if (r.queueNonce === nonce && r.readyAt !== undefined) {
+					return r;
+				}
+			}
 			const row = this.db
 				.prepare(
 					"SELECT payload FROM history_records WHERE account=? AND queue=? AND proposal=1",
@@ -368,15 +420,19 @@ export class VaultHistory {
 				.get(accountId, String(nonce)) as Stored | undefined;
 			return row ? cached(row.payload) : undefined;
 		};
+		/** Retires a bounded run of archived queue proposals with the observed lifecycle status. */
 		const advance = (
 			nonce: bigint,
 			status: "executed" | "cancelled" | "expired" | "unresolved",
 		) => {
-			if (nonce < head || nonce > tail || nonce - head > 1000n)
+			if (nonce < head || nonce > tail || nonce - head > 1000n) {
 				throw new Error("invalid history queue transition");
+			}
 			while (head < nonce) {
 				const r = queued(head);
-				if (!r) throw new Error("history queue archive missing");
+				if (!r) {
+					throw new Error("history queue archive missing");
+				}
 				put({ ...r, status });
 				head++;
 			}
@@ -387,23 +443,28 @@ export class VaultHistory {
 		for (let number = from; number <= to; number++) {
 			const headBeforeBlock = head;
 			const b = await this.block(number);
-			if (parentHash && !same(b.parentHash, parentHash))
+			if (parentHash && !same(b.parentHash, parentHash)) {
 				throw new Error("history range parent mismatch");
+			}
 			parentHash = b.hash;
 			finalBlock = b;
 			const blockLogs = logs.filter((l) => l.blockNumber === number);
 			const blockTransactions = new Set(b.transactions.map((t) => t.hash.toLowerCase()));
 			for (const hash of blockTransactions) {
-				if (rangeTransactions.has(hash))
+				if (rangeTransactions.has(hash)) {
 					throw new Error("history transaction repeated across blocks");
+				}
 				rangeTransactions.add(hash);
 			}
-			for (const l of blockLogs)
+			for (const l of blockLogs) {
 				if (
 					!same(l.blockHash, b.hash) ||
 					!blockTransactions.has(l.transactionHash.toLowerCase())
-				)
+				) {
 					throw new Error("history log block/transaction membership mismatch");
+				}
+			}
+			/** Requires both readers to agree on nonnegative Delay state at the block being replayed. */
 			const timing = async (name: string) => {
 				const v = await this.agree((c) =>
 					c.readContract({
@@ -413,7 +474,9 @@ export class VaultHistory {
 						blockNumber: number,
 					}),
 				);
-				if (typeof v !== "bigint" || v < 0n) throw new Error("invalid history queue state");
+				if (typeof v !== "bigint" || v < 0n) {
+					throw new Error("invalid history queue state");
+				}
 				return v;
 			};
 			const hasProposal = blockLogs.some(
@@ -423,6 +486,7 @@ export class VaultHistory {
 			);
 			const cooldown = hasProposal ? await timing("txCooldown") : 0n,
 				expiration = hasProposal ? await timing("txExpiration") : 0n;
+			/** Builds a conservatively unsupported display record bound to the current canonical block and log identity. */
 			const base = (l: Pick<HistoryLog, "transactionHash" | "logIndex">): HistoryRecord => ({
 				id: `${l.transactionHash.toLowerCase()}:${l.logIndex}`,
 				kind: "unsupported",
@@ -465,8 +529,9 @@ export class VaultHistory {
 						same(outer.args[0], vault.delay) &&
 						outer.args[1] === 0n &&
 						outer.args[3] === 0
-					)
+					) {
 						lifecycle = call(outer.args[2]);
+					}
 				}
 				const isLifecycle =
 					lifecycle &&
@@ -481,8 +546,9 @@ export class VaultHistory {
 						!same(receipt.transactionHash, txHash) ||
 						receipt.blockNumber !== number ||
 						!same(receipt.blockHash, b.hash)
-					)
+					) {
 						throw new Error("history receipt block/transaction mismatch");
+					}
 					const receiptLogs = receipt.logs
 						.filter(relevant)
 						.slice()
@@ -496,10 +562,12 @@ export class VaultHistory {
 								!same(l.blockHash, b.hash),
 						) ||
 						json(receiptLogs) !== json(related)
-					)
+					) {
 						throw new Error("history receipt log membership mismatch");
-					if (related.length && receipt.status !== "success")
+					}
+					if (related.length && receipt.status !== "success") {
 						throw new Error("reverted history receipt contains logs");
+					}
 				}
 				let directExecuted = false;
 				if (
@@ -512,12 +580,15 @@ export class VaultHistory {
 							let skipped = 0;
 							while (head < tail) {
 								const q = queued(head);
-								if (!q) throw new Error("history queue archive missing");
+								if (!q) {
+									throw new Error("history queue archive missing");
+								}
 								if (
 									q.expiresAt === undefined ||
 									integer(b.timestamp) <= q.expiresAt
-								)
+								) {
 									break;
+								}
 								put({
 									...base({ transactionHash: txHash, logIndex: -1 - skipped }),
 									kind: "skip",
@@ -527,8 +598,9 @@ export class VaultHistory {
 									counterparty: q.counterparty,
 								});
 								advance(head + 1n, "expired");
-								if (++skipped > 1000)
+								if (++skipped > 1000) {
 									throw new Error("history skip bound exceeded");
+								}
 							}
 						} else if (lifecycle.functionName === "executeNextTx") {
 							if (
@@ -542,8 +614,9 @@ export class VaultHistory {
 									),
 									item.queueFingerprint!,
 								)
-							)
+							) {
 								throw new Error("history execution queue mismatch");
+							}
 							put({
 								...base({ transactionHash: txHash, logIndex: -1 }),
 								kind: "execute",
@@ -565,8 +638,9 @@ export class VaultHistory {
 								!event ||
 								(decoded(event)!.args as { nonce: bigint }).nonce !==
 									lifecycle.args[0]
-							)
+							) {
 								throw new Error("history cancellation event mismatch");
+							}
 							put({
 								...base(event),
 								kind: "cancel",
@@ -583,9 +657,13 @@ export class VaultHistory {
 				for (const log of related) {
 					const event = decoded(log);
 					if (same(log.address, vault.usdc)) {
-						if (event?.eventName !== "Transfer") continue;
+						if (event?.eventName !== "Transfer") {
+							continue;
+						}
 						const { from: sender, to: recipient, value } = event.args;
-						if (!same(sender, vault.safe) && !same(recipient, vault.safe)) continue;
+						if (!same(sender, vault.safe) && !same(recipient, vault.safe)) {
+							continue;
+						}
 						const auth = related
 							.map((l) => (same(l.address, vault.guard) ? decoded(l) : undefined))
 							.find(
@@ -623,8 +701,9 @@ export class VaultHistory {
 						if (
 							q.queueNonce !== tail ||
 							!same(fingerprint(q.to, q.value, q.data, q.operation), q.txHash)
-						)
+						) {
 							throw new Error("history queue fingerprint/nonce mismatch");
+						}
 						let kind: HistoryRecord["kind"] = "unsupported",
 							amount = 0n,
 							counterparty = vault.safe;
@@ -672,14 +751,17 @@ export class VaultHistory {
 									same(l.address, vault.usdc) &&
 									decoded(l)?.eventName === "Transfer",
 							)
-						)
+						) {
 							put(base(log));
+						}
 					} else if (
 						same(log.address, vault.safe) &&
 						event?.eventName === "ExecutionFromModuleSuccess" &&
 						same(event.args.module, vault.delay)
 					) {
-						if (directExecuted) continue;
+						if (directExecuted) {
+							continue;
+						}
 						// Delay has no execution event. Its exact Safe module-success log proves a
 						// permissionless execution even when an outside contract wraps the call.
 						while (head < tail) {
@@ -688,8 +770,9 @@ export class VaultHistory {
 								!old ||
 								old.expiresAt === undefined ||
 								integer(b.timestamp) <= old.expiresAt
-							)
+							) {
 								break;
+							}
 							advance(head + 1n, "expired");
 						}
 						const item = queued(head);
@@ -725,11 +808,15 @@ export class VaultHistory {
 							counterparty: item?.counterparty ?? vault.safe,
 							lane: supported ? "delayed" : "blocked",
 						});
-						if (item) advance(head + 1n, supported ? "executed" : "unresolved");
+						if (item) {
+							advance(head + 1n, supported ? "executed" : "unresolved");
+						}
 						if (supported && transfer) {
 							const id = base(transfer).id;
 							const r = changes.get(id);
-							if (r) put({ ...r, lane: "delayed", status: "executed" });
+							if (r) {
+								put({ ...r, lane: "delayed", status: "executed" });
+							}
 						}
 						previousModuleIndex = log.logIndex;
 					} else if (
@@ -755,11 +842,14 @@ export class VaultHistory {
 			}
 			if (tail > head || head !== headBeforeBlock) {
 				const canonical = await timing("txNonce");
-				if (canonical < head || canonical > tail || canonical - head > 1000n)
+				if (canonical < head || canonical > tail || canonical - head > 1000n) {
 					throw new Error("history queue replay/state mismatch");
+				}
 				while (head < canonical) {
 					const item = queued(head);
-					if (!item) throw new Error("history queue archive missing");
+					if (!item) {
+						throw new Error("history queue archive missing");
+					}
 					// A head observation cannot supply a transaction identity. Retire expired
 					// entries or expose an unresolved outcome on their original proposal only.
 					advance(
@@ -771,7 +861,9 @@ export class VaultHistory {
 				}
 			}
 		}
-		if (!finalBlock) return;
+		if (!finalBlock) {
+			return;
+		}
 		for (const [name, expected] of [
 			["txNonce", head],
 			["queueNonce", tail],
@@ -785,22 +877,26 @@ export class VaultHistory {
 						blockNumber: to,
 					}),
 				)) !== expected
-			)
+			) {
 				throw new Error("history queue replay/state mismatch");
+			}
 		}
 		// Re-read both range anchors after RPC work before committing a confirmed cursor.
-		if (!same((await this.block(to)).hash, finalBlock.hash))
+		if (!same((await this.block(to)).hash, finalBlock.hash)) {
 			throw new Error("history range changed during scan");
-		if (cursor && !same((await this.block(BigInt(cursor.block))).hash, cursor.hash))
+		}
+		if (cursor && !same((await this.block(BigInt(cursor.block))).hash, cursor.hash)) {
 			throw new Error("history checkpoint changed during scan");
+		}
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
-			if (!cursor)
+			if (!cursor) {
 				this.db.prepare("DELETE FROM history_records WHERE account=?").run(accountId);
+			}
 			const write = this.db.prepare(
 				"INSERT OR REPLACE INTO history_records(account,id,block,idx,queue,proposal,payload) VALUES(?,?,?,?,?,?,?)",
 			);
-			for (const r of changes.values())
+			for (const r of changes.values()) {
 				write.run(
 					accountId,
 					r.id,
@@ -810,6 +906,7 @@ export class VaultHistory {
 					r.readyAt === undefined ? 0 : 1,
 					json(r),
 				);
+			}
 			this.db
 				.prepare(
 					"INSERT OR REPLACE INTO history_cursors(account,binding,block,hash,observed,timestamp,head,tail) VALUES(?,?,?,?,?,?,?,?)",
@@ -830,23 +927,28 @@ export class VaultHistory {
 			throw e;
 		}
 	}
+	/** Returns validated cached records with an account-bound pagination cursor and display-time expiry status. */
 	page(accountId: string, input: { cursor?: string; limit?: number } = {}): HistoryPage {
 		identity(accountId);
 		const limit = input.limit ?? 25;
-		if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+		if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
 			throw new Error("invalid history page limit");
+		}
 		const checkpoint = readCheckpoint(
 			this.db.prepare("SELECT * FROM history_cursors WHERE account=?").get(accountId) as
 				CursorRow | undefined,
 		);
 		if (!checkpoint) {
-			if (input.cursor !== undefined) throw new Error("invalid history cursor");
+			if (input.cursor !== undefined) {
+				throw new Error("invalid history cursor");
+			}
 			return { items: [], observedAt: 0 };
 		}
 		let before: { block: number; idx: number; id: string } | undefined;
 		if (input.cursor !== undefined) {
-			if (input.cursor.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(input.cursor))
+			if (input.cursor.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(input.cursor)) {
 				throw new Error("invalid history cursor");
+			}
 			try {
 				const c = JSON.parse(Buffer.from(input.cursor, "base64url").toString()) as {
 					account: string;
@@ -865,15 +967,17 @@ export class VaultHistory {
 					typeof c.id !== "string" ||
 					c.id.length > 128 ||
 					typeof c.hash !== "string"
-				)
+				) {
 					throw new Error();
+				}
 				const retained = this.db
 					.prepare(
 						"SELECT payload FROM history_records WHERE account=? AND id=? AND block=? AND idx=?",
 					)
 					.get(accountId, c.id, c.block, c.idx) as Stored | undefined;
-				if (!retained || !same(cached(retained.payload).blockHash, c.hash))
+				if (!retained || !same(cached(retained.payload).blockHash, c.hash)) {
 					throw new Error();
+				}
 				before = c;
 			} catch {
 				throw new Error("invalid history cursor");
@@ -910,8 +1014,9 @@ export class VaultHistory {
 					r.blockNumber !== BigInt(row.block) ||
 					r.logIndex !== row.idx ||
 					row.block > checkpoint.block
-				)
+				) {
 					throw new Error("invalid history cache ordering");
+				}
 				return r;
 			})
 			.map((r) =>

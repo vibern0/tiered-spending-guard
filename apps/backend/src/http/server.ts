@@ -16,21 +16,29 @@ import { registerAccountHealthRoutes } from "./health";
 import { AccountHttpError, AccountRouteContext, registerAccountSecurity } from "./security";
 import type { BackendServerOptions } from "./types";
 
-/** Only localhost multi-user HTTP. Public identifiers never authenticate a request. */
+/**
+ * Compose the local account API and start its workers only after the server begins listening.
+ * Public identifiers never authenticate a request; history and receipt workers cannot sign.
+ * @returns The unbound Fastify server and an idempotent shutdown that drains requests and workers.
+ */
 export function createAccountServer(
 	config: BackendConfig,
 	store: AccountStore,
 	gateway: AccountGateway,
 	options: BackendServerOptions & { history?: Pick<VaultHistory, "scan" | "page"> } = {},
 ) {
-	if (config.id !== "local") throw new Error("multi-user provisioning is localhost-only");
+	if (config.id !== "local") {
+		throw new Error("multi-user provisioning is localhost-only");
+	}
 	const fastify = createBackendFastify({
 		logger: options.logger,
 	});
 	let stopping = false;
 	let closing: Promise<void> | undefined;
 	fastify.addHook("onRequest", async (_request, reply) => {
-		if (stopping) await reply.code(503).send({ error: "backend is shutting down" });
+		if (stopping) {
+			await reply.code(503).send({ error: "backend is shutting down" });
+		}
 	});
 	const context = new AccountRouteContext(store);
 	const accounts = new AccountService(store, gateway);
@@ -42,7 +50,7 @@ export function createAccountServer(
 		registerAccountRegistrationRoutes(routes, config, store, context);
 		registerAccountVaultRoutes(routes, gateway, context);
 		registerAccountSubmissionRoutes(routes, gateway, context);
-		if (options.history)
+		if (options.history) {
 			routes.get(
 				"/v1/vaults/current/history",
 				{
@@ -65,8 +73,9 @@ export function createAccountServer(
 				async (request, reply) => {
 					context.session(request, true);
 					const account = context.account(request);
-					if (account.state !== "verified")
+					if (account.state !== "verified") {
 						return reply.code(404).send({ error: "vault is not provisioned" });
+					}
 					const query = request.query as { cursor?: string; limit?: string };
 					return reply.send(
 						options.history!.page(account.id, {
@@ -76,6 +85,7 @@ export function createAccountServer(
 					);
 				},
 			);
+		}
 	});
 	fastify.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: "not found" }));
 	fastify.setErrorHandler((error, request, reply) => {
@@ -126,19 +136,22 @@ export function createAccountServer(
 	const workers: ReturnType<typeof startBackgroundWorker>[] = [];
 	let historyCursor: string | undefined;
 	fastify.server.once("listening", () => {
-		if (gateway.reconcilePending)
+		if (gateway.reconcilePending) {
 			workers.push(
 				startBackgroundWorker("receipt", () => gateway.reconcilePending!(() => stopping), {
 					logger: fastify.log,
 				}),
 			);
-		if (gateway.runProvisioning)
+		}
+		if (gateway.runProvisioning) {
 			workers.push(
 				startBackgroundWorker(
 					"provisioning",
 					async () => {
 						for (const account of store.provisioningJobs()) {
-							if (stopping) break;
+							if (stopping) {
+								break;
+							}
 							try {
 								await gateway.runProvisioning!(account.id, () => stopping);
 							} catch {
@@ -152,7 +165,8 @@ export function createAccountServer(
 					{ logger: fastify.log },
 				),
 			);
-		if (options.history)
+		}
+		if (options.history) {
 			workers.push(
 				startBackgroundWorker(
 					"history",
@@ -163,11 +177,15 @@ export function createAccountServer(
 							batch = store.historyAccounts();
 						}
 						for (const account of batch) {
-							if (stopping) break;
+							if (stopping) {
+								break;
+							}
 							historyCursor = account.id;
 							try {
 								const vault = store.historyVault(account.id);
-								if (vault) await options.history!.scan(account.id, vault);
+								if (vault) {
+									await options.history!.scan(account.id, vault);
+								}
 							} catch {
 								fastify.log.warn(
 									{ code: "history_scan_failed", stage: "history" },
@@ -179,10 +197,12 @@ export function createAccountServer(
 					{ logger: fastify.log },
 				),
 			);
+		}
 	});
 	return {
 		fastify,
 		server: fastify.server,
+		/** Stop new requests and scheduling, then wait for active operations to finish. */
 		close: () => {
 			if (!closing) {
 				stopping = true;

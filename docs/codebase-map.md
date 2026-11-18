@@ -1,6 +1,8 @@
 # Current codebase map
 
-Snapshot: 2026-11-12, after the approved minimal-backend change. See the [file guide](file-guide.md) for file responsibilities and the [backend README](../apps/backend/README.md) for current configuration.
+Snapshot: 2026-11-16, after the approved backend cleanup and core/SDK split. See the [backend folder guide](../apps/backend/src/README.md) for responsibilities and the [backend README](../apps/backend/README.md) for current configuration.
+
+For a short introduction, start with [Read the backend from here](../apps/backend/src/README.md). It explains each backend folder, one request's path, and which complexity belongs to runtime behavior versus supporting types, schemas, and tests. The [core](../packages/core/README.md) and [SDK](../packages/sdk/README.md) guides explain the new package folders and build order.
 
 ## Workspace layout
 
@@ -9,14 +11,16 @@ apps/
   app/                    Browser wallet: routes, account state, passkeys, verified reads
   backend/                Local accounts, background creation, Safe submissions, history
   landing/                Separate public marketing site
-packages/security-core/
+packages/core/
   contracts/              Guard, approved maintenance/setup helpers, test contracts
-  src/                    Policy, signers, topology, queue, provisioning, transport, monitoring
   scripts/                Review, verification, rehearsal and evidence commands
   config/                 Committed profiles, policies and artifact anchors
   test/                   Unit, real-Safe integration and invariant tests
   docs/                   Research, security decisions, plans and public evidence
   legacy/                 Quarantined 2024 experiment; no current security authority
+packages/sdk/
+  src/                    Reusable policy, signers, topology, queue, provisioning, transport, monitoring
+  generated/              Ignored public resources published by core compilation
 docs/                     Repository-wide guides and approved design records
 ```
 
@@ -29,7 +33,7 @@ flowchart LR
     Wallet -->|"read-only RPC"| Chain["Ethereum Sepolia"]
     API --> Store["External SQLite v2 / public metadata / jobs / history cache"]
     API --> Evidence["External authoritative journals + unsigned reviews"]
-    API --> Core["security-core verification / plans / exact encoding"]
+    API --> Core["sdk verification / plans / exact encoding"]
     API -->|"independent canonical reads"| Readers["Configured Infura + Alchemy"]
     API -->|"bounded ordinary outer transaction"| Payer["One shared payer"]
     Readers --> Chain
@@ -107,3 +111,7 @@ Startup validation remains read-only. After listening, an explicit committed cur
 The current backend has one local composition. Singleton/HTTPS compatibility, legacy adoption/rebind/import, historical successor rebasing and verification profiling were deleted. Fresh external roots use database version 2; incompatible retained data fails closed. Existing historical research, immutable deployment commitments and archived evidence remain preserved.
 
 The browser no longer imports/archives earlier accounts or selects a historical four-word guard ABI. New accounts use discoverable first-key login; unsupported chain responses fail closed. Monetary values remain bigint units, time states use `effectiveStatus`, and only current verified queue rows supply lifecycle execution controls.
+
+## Package dependency rule
+
+Backend and core operational scripts consume named SDK subpaths. SDK runtime never imports core source or operational commands. Core builds contracts, then publishes exact public artifact/configuration bytes plus a manifest into SDK `generated/`; build/check verifies freshness and runtime reads verify resource integrity. Run `pnpm core:build` before starting the backend. Do not clean/compile while the local backend is using those files. Historical `security-core:*` commands remain aliases; source/package imports use the new names. Existing evidence retains its historical paths and hashes.

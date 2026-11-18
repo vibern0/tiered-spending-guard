@@ -6,7 +6,9 @@ import type { AccountRouteContext } from "../src/http/security";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
-	for (const close of cleanups.splice(0)) await close();
+	for (const close of cleanups.splice(0)) {
+		await close();
+	}
 });
 function fixture() {
 	const seen: unknown[] = [];

@@ -7,6 +7,10 @@ import { submissionsSchemas } from "../submissions/schemas";
 import { vaultsSchemas } from "../vaults/schemas";
 import { sharedSchemas } from "./schemas";
 
+/**
+ * Register shared API models and generate OpenAPI plus read-only Swagger UI from route schemas.
+ * Documentation inherits the server security hooks; its UI cannot submit requests.
+ */
 export function registerBackendDocumentation(fastify: FastifyInstance): void {
 	for (const [name, schema] of Object.entries({
 		...sharedSchemas,
@@ -14,9 +18,11 @@ export function registerBackendDocumentation(fastify: FastifyInstance): void {
 		...accountsSchemas,
 		...vaultsSchemas,
 		...submissionsSchemas,
-	}))
+	})) {
 		fastify.addSchema({ $id: name, ...schema });
+	}
 	fastify.register(swagger, {
+		/** Document headers as required without changing the security hooks' rejection order. */
 		transform: ({ schema, url }) => ({
 			url,
 			schema: schema.headers

@@ -14,7 +14,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { describe, expect, it, vi } from "vitest";
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
 import type { BackendConfig } from "../src/config/config";
 import { AccountStore } from "../src/accounts/store";
 import { VaultHistory } from "../src/history/service";
@@ -221,9 +221,13 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 								}),
 					});
 					const set = response.headers.get("set-cookie");
-					if (set) cookie = set.split(";", 1)[0]!;
+					if (set) {
+						cookie = set.split(";", 1)[0]!;
+					}
 					const data = await response.json();
-					if (data.csrfToken) csrf = data.csrfToken;
+					if (data.csrfToken) {
+						csrf = data.csrfToken;
+					}
 					if (data.account) {
 						accountId = data.account.id;
 						userHandle = data.account.userHandle;
@@ -287,7 +291,9 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 					expect((await request(`/v1/registrations/${role}/verify`, body)).status).toBe(
 						409,
 					);
-					if (role === "primary") await login();
+					if (role === "primary") {
+						await login();
+					}
 				}
 				expect(
 					(await request("/v1/vaults/auto-provision", { safe: RECIPIENT })).status,
@@ -296,11 +302,12 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 					request("/v1/vaults/auto-provision", {}),
 					request("/v1/vaults/auto-provision", {}),
 				]);
-				for (const result of observations)
+				for (const result of observations) {
 					expect(result).toMatchObject({
 						status: 202,
 						body: { state: expect.stringMatching(/queued|provisioning|verified/) },
 					});
+				}
 				// The request only observes. The committed worker completes independently.
 				await vi.waitFor(
 					() =>
@@ -450,8 +457,9 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 				expect(readFileSync(config.provisioningJournalPath, "utf8")).toBe(
 					provisioningBytes,
 				);
-				for (const [name, bytes] of Object.entries(authorizationBytes))
+				for (const [name, bytes] of Object.entries(authorizationBytes)) {
 					expect(readFileSync(join(authorizationDirectory, name), "utf8")).toBe(bytes);
+				}
 				expect(readdirSync(config.provisioningReviewDirectory)).toEqual(reviewFiles);
 				expect(readdirSync(`${config.journalPath}.observations`)).toContain(
 					`${pending.transactionHash.slice(2)}.json`,
@@ -465,11 +473,11 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 					});
 					expect(prepared.kind).toBe(expectedKind);
 					let result: unknown;
-					if (!prepared.requiredApprovals.length)
+					if (!prepared.requiredApprovals.length) {
 						result = await post(`/v1/submissions/${prepared.id}/submit`, {
 							role: "none",
 						});
-					else {
+					} else {
 						if (prepared.requiredApprovals.includes("secondary")) {
 							expect(
 								await request(`/v1/submissions/${prepared.id}/submit`, {
@@ -493,7 +501,7 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 							if (
 								role === "primary" &&
 								prepared.requiredApprovals.includes("secondary")
-							)
+							) {
 								expect(
 									await request(
 										`/v1/submissions/${prepared.id}/submit`,
@@ -502,6 +510,7 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 								).toMatchObject({
 									status: 400,
 								});
+							}
 						}
 					}
 					expect(result).toMatchObject({ state: "uncertain" });
@@ -631,8 +640,9 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 						scan < maxScans &&
 						history.page(accountId).indexedThrough !== indexedThrough;
 						scan++
-					)
+					) {
 						await history.scan(accountId, trustedVault);
+					}
 					const page = history.page(accountId, { limit: 100 });
 					expect(page.indexedThrough).toBe(indexedThrough);
 					expect(page.nextCursor).toBeUndefined();
@@ -686,7 +696,9 @@ describe("automatic account creation through frontend-equivalent HTTP", () => {
 					history.close();
 				}
 			} finally {
-				if (runtime && prepared) await runtime.discard?.(prepared);
+				if (runtime && prepared) {
+					await runtime.discard?.(prepared);
+				}
 				await backend?.close();
 				store?.close();
 				await chain.close();

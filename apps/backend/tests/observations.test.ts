@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keccak256, stringToHex, type Address, type Hex } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
-import type { PwaObserverRecord } from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
+import type { PwaObserverRecord } from "@tiered-spending-guard/sdk/pwa";
 import { persistPwaObservation } from "../src/submissions/observations";
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
 const evidence = vi.hoisted(() => ({ events: [] as string[], fail: false }));
@@ -14,7 +14,9 @@ vi.mock("node:fs", async (original) => {
 		...fs,
 		fsyncSync: (fd: number) => {
 			evidence.events.push(fs.fstatSync(fd).isDirectory() ? "sync-directory" : "sync-file");
-			if (evidence.fail) throw new Error("sync failed");
+			if (evidence.fail) {
+				throw new Error("sync failed");
+			}
 			fs.fsyncSync(fd);
 		},
 		linkSync: (...args: Parameters<typeof fs.linkSync>) => {

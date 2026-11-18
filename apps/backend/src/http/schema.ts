@@ -20,7 +20,13 @@ export const inputUint: Schema = {
 };
 export const role: Schema = { type: "string", enum: ["primary", "secondary"] };
 export const id: Schema = { type: "string", pattern: "^[A-Za-z0-9._:-]{1,160}$" };
+/**
+ * Reference a shared Fastify schema by its registered identifier.
+ */
 export const ref = (name: string): Schema => ({ $ref: `${name}#` });
+/**
+ * Build a closed object schema; fields are required unless the caller supplies a different list.
+ */
 export function object(
 	properties: Record<string, Schema>,
 	required = Object.keys(properties),
@@ -28,6 +34,9 @@ export function object(
 ): OpenAPIV3.SchemaObject {
 	return { type: "object", properties, required, additionalProperties };
 }
+/**
+ * Build an array schema whose elements share the supplied item definition.
+ */
 export const array = (items: Schema): Schema => ({ type: "array", items });
 export type Access = "public" | "session" | "account" | "authenticated";
 
@@ -48,9 +57,13 @@ export function routeSchema(
 	const headers: Record<string, Schema> = {};
 	if (input.body) {
 		headers.origin = { type: "string", description: "Exact configured browser origin." };
-		if (access !== "public") headers["x-csrf-token"] = string;
+		if (access !== "public") {
+			headers["x-csrf-token"] = string;
+		}
 	}
-	if (access === "account" || access === "authenticated") headers["x-vault-account"] = string;
+	if (access === "account" || access === "authenticated") {
+		headers["x-vault-account"] = string;
+	}
 	return {
 		summary: input.summary,
 		description: input.description,

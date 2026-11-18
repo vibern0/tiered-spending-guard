@@ -3,6 +3,10 @@ import type { AccountGateway } from "../accounts/types";
 import { type AccountRouteContext } from "../http/security";
 import { ref, routeSchema } from "../http/schema";
 
+/**
+ * Register account-scoped provisioning observation and verified-vault lookup endpoints.
+ * Provisioning delegates only to the account job; clients cannot override deployment inputs.
+ */
 export function registerAccountVaultRoutes(
 	fastify: FastifyInstance,
 	gateway: AccountGateway,

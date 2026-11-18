@@ -3,7 +3,7 @@ import type {
 	PreparedPwaIntent,
 	PwaIntent,
 	VerifiedPwaSnapshot,
-} from "@tiered-spending-guard/security-core/pwa";
+} from "@tiered-spending-guard/sdk/pwa";
 import type { BackendIntent, BackendVaultRecord } from "../vaults/types";
 import type {
 	BackendPreparedSubmission,
@@ -24,12 +24,17 @@ const ABI = parseAbi([
 ]);
 const MAX_LOG_BLOCK_RANGE = 10_000n;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+/**
+ * Scan Delay events in bounded RPC ranges for one exact queue nonce.
+ * @param input Inclusive block interval and Delay identity to reconstruct.
+ */
 async function readDelayLogs(
 	client: ReadClient,
 	input: Readonly<{ address: Address; fromBlock: bigint; toBlock: bigint; queueNonce: bigint }>,
 ): Promise<Awaited<ReturnType<ReadClient["getLogs"]>>> {
-	if (input.fromBlock > input.toBlock)
+	if (input.fromBlock > input.toBlock) {
 		throw new Error("Delay event scan boundary is in the future");
+	}
 	const logs: Awaited<ReturnType<ReadClient["getLogs"]>> = [];
 	for (let start = input.fromBlock; start <= input.toBlock; start += MAX_LOG_BLOCK_RANGE) {
 		const end = start + MAX_LOG_BLOCK_RANGE - 1n;
@@ -44,37 +49,45 @@ async function readDelayLogs(
 	}
 	return logs;
 }
+/** Parse a canonical decimal or bigint uint256, rejecting alternate encodings and overflow. */
 function uint(value: unknown, label: string): bigint {
 	if (
 		typeof value === "string" &&
 		/^(0|[1-9][0-9]{0,77})$/.test(value) &&
 		BigInt(value) < 1n << 256n
-	)
+	) {
 		return BigInt(value);
-	if (typeof value === "bigint" && value >= 0n && value < 1n << 256n) return value;
+	}
+	if (typeof value === "bigint" && value >= 0n && value < 1n << 256n) {
+		return value;
+	}
 	throw new Error(`${label} must be a canonical nonnegative integer`);
 }
+/** Normalize the closed browser intent into validated addresses, uint256 values and queue fingerprints. */
 export function canonicalIntent(request: BackendIntent): PwaIntent {
 	if (request.kind === "transfer" || request.kind === "add-recipient") {
 		if (
 			typeof request.recipient !== "string" ||
 			!isAddress(request.recipient) ||
 			isAddressEqual(request.recipient, ZERO)
-		)
+		) {
 			throw new Error("recipient must be a nonzero address");
+		}
 		const recipient = getAddress(request.recipient);
 		return request.kind === "transfer"
 			? { kind: "transfer", recipient, amount: uint(request.amount, "amount") }
 			: { kind: "add-recipient", recipient };
 	}
-	if (typeof request.queueFingerprint !== "string" || !bytes32.test(request.queueFingerprint))
+	if (typeof request.queueFingerprint !== "string" || !bytes32.test(request.queueFingerprint)) {
 		throw new Error("canonical queue fingerprint is required");
+	}
 	return {
 		kind: request.kind,
 		queueNonce: uint(request.queueNonce, "queueNonce"),
 		queueFingerprint: request.queueFingerprint.toLowerCase() as Hex,
 	};
 }
+/** Remove observation-time metadata so revalidation compares execution meaning across fresh snapshots. */
 function semantic(prepared: PreparedPwaIntent): unknown {
 	const {
 		snapshotHash: _snapshotHash,
@@ -86,10 +99,15 @@ function semantic(prepared: PreparedPwaIntent): unknown {
 	return remaining;
 }
 
+/**
+ * Build preparation and revalidation helpers from two fixed read providers and server-held intents.
+ * No helper signs or broadcasts; newly prepared evidence is retained in the supplied process-local map.
+ */
 export function createSubmissionPreparation(
 	providers: readonly [ReadClient, ReadClient],
 	entries: Map<string, Entry>,
 ) {
+	/** Read a reviewed ABI function at the exact pinned block used for the surrounding snapshot. */
 	const read = <T>(
 		client: ReadClient,
 		address: Address,
@@ -98,17 +116,24 @@ export function createSubmissionPreparation(
 		args: readonly unknown[] = [],
 	) => client.readContract({ address, abi: ABI, functionName, args, blockNumber }) as Promise<T>;
 
+	/**
+	 * Verify deployed topology and policy, then collect bounded queue, spending and optional balance evidence.
+	 * Reject a block identity change during collection.
+	 * @param recipient Include Safe and recipient USDC balances when supplied.
+	 */
 	const stateAt = async (
 		client: ReadClient,
 		vault: BackendVaultRecord,
 		blockNumber: bigint,
 		recipient?: Address,
 	) => {
-		if (!vault.provisioningPlan)
+		if (!vault.provisioningPlan) {
 			throw new Error("original reviewed provisioning plan is required for submissions");
+		}
 		const anchor = await client.getBlock({ blockNumber });
-		if (anchor.number !== blockNumber || !anchor.hash || !bytes32.test(anchor.hash))
+		if (anchor.number !== blockNumber || !anchor.hash || !bytes32.test(anchor.hash)) {
 			throw new Error("submission state block is unavailable");
+		}
 		const scoped = core.createPinnedReadScope(client, blockNumber);
 		const proof = await core.verifyPwaSubmissionState({
 			plan: vault.provisioningPlan,
@@ -129,8 +154,9 @@ export function createSubmissionPreparation(
 			read<bigint>(scoped, vault.delay, "queueNonce", blockNumber),
 			read<boolean>(scoped, vault.guard, "frozen", blockNumber),
 		]);
-		if (queueTailNonce < queueHeadNonce || queueTailNonce - queueHeadNonce > 128n)
+		if (queueTailNonce < queueHeadNonce || queueTailNonce - queueHeadNonce > 128n) {
 			throw new Error("Delay queue is inconsistent or exceeds the supported bound");
+		}
 		let queueHead: VerifiedPwaSnapshot["queueHead"] = null;
 		if (queueHeadNonce < queueTailNonce) {
 			const [fingerprint, createdAt, logs] = await Promise.all([
@@ -143,7 +169,9 @@ export function createSubmissionPreparation(
 					queueNonce: queueHeadNonce,
 				}),
 			]);
-			if (logs.length !== 1) throw new Error("Delay head requires one canonical queue event");
+			if (logs.length !== 1) {
+				throw new Error("Delay head requires one canonical queue event");
+			}
 			const log = logs[0]!;
 			if (
 				log.removed ||
@@ -153,8 +181,9 @@ export function createSubmissionPreparation(
 				log.args.data === undefined ||
 				createdAt <= 0n ||
 				log.args.txHash?.toLowerCase() !== fingerprint.toLowerCase()
-			)
+			) {
 				throw new Error("Delay queue event identity is inconsistent");
+			}
 			const item = {
 				safe: vault.safe,
 				delay: vault.delay,
@@ -168,8 +197,9 @@ export function createSubmissionPreparation(
 				expiresAt: createdAt + 720n,
 				queueFingerprint: fingerprint,
 			};
-			if (core.queueFingerprint(item) !== fingerprint)
+			if (core.queueFingerprint(item) !== fingerprint) {
 				throw new Error("Delay queue fingerprint mismatch");
+			}
 			queueHead = Object.freeze(item);
 		}
 		const asset = proof.policy.assets[0]!;
@@ -215,15 +245,21 @@ export function createSubmissionPreparation(
 			block.number !== blockNumber ||
 			block.hash?.toLowerCase() !== anchor.hash.toLowerCase() ||
 			block.timestamp !== anchor.timestamp
-		)
+		) {
 			throw new Error("submission state block changed during collection");
+		}
 		return { proof, snapshotState, block, frozen, balances };
 	};
 
+	/**
+	 * Require both providers to agree on one canonical snapshot and freeze state.
+	 * @param at Historical reconstruction block; otherwise use the lower provider head after checking height agreement.
+	 */
 	const snapshotAt = async (vault: BackendVaultRecord, at?: bigint) => {
 		const heads = await Promise.all(providers.map((client) => client.getBlockNumber()));
-		if (heads[0] > heads[1] + 2n || heads[1] > heads[0] + 2n)
+		if (heads[0] > heads[1] + 2n || heads[1] > heads[0] + 2n) {
 			throw new Error("submission providers disagree on chain height");
+		}
 		const blockNumber = at ?? (heads[0] < heads[1] ? heads[0] : heads[1]);
 		const values = await Promise.all(
 			providers.map(async (client) => {
@@ -233,14 +269,16 @@ export function createSubmissionPreparation(
 					blockNumber,
 					{
 						getBlock: client.getBlock,
+						/** Expose the already-collected pinned state to snapshot verification without making another state read. */
 						readAt: async () => value.snapshotState,
 					},
 				);
 				if (
 					snapshot.blockHash.toLowerCase() !== value.block.hash!.toLowerCase() ||
 					snapshot.timestamp !== value.block.timestamp
-				)
+				) {
 					throw new Error("submission snapshot block changed after collection");
+				}
 				return { ...value, snapshot };
 			}),
 		);
@@ -248,8 +286,9 @@ export function createSubmissionPreparation(
 			core.canonicalSubmissionJson(values[0]!.snapshot) !==
 				core.canonicalSubmissionJson(values[1]!.snapshot) ||
 			values[0]!.frozen !== values[1]!.frozen
-		)
+		) {
 			throw new Error("submission providers disagree on the canonical snapshot");
+		}
 		return {
 			snapshot: values[0]!.snapshot,
 			proof: values[0]!.proof,
@@ -257,16 +296,22 @@ export function createSubmissionPreparation(
 		};
 	};
 
+	/** Require an exact match with the server-held public prepared intent before using its private runtime context. */
 	const entryFor = (prepared: BackendPreparedSubmission) => {
 		const entry = entries.get(prepared.id);
 		if (
 			!entry ||
 			core.canonicalSubmissionJson(entry.publicPrepared) !==
 				core.canonicalSubmissionJson(prepared)
-		)
+		) {
 			throw new Error("server-held prepared intent is required");
+		}
 		return entry;
 	};
+	/**
+	 * Reject reorged preparation anchors, frozen instant spending and any execution-relevant state drift.
+	 * @returns A fresh dual-provider snapshot and provisioning proof for the unchanged intent.
+	 */
 	const revalidatedSnapshot = async (prepared: BackendPreparedSubmission) => {
 		const entry = entryFor(prepared);
 		const originalBlocks = await Promise.all(
@@ -276,49 +321,61 @@ export function createSubmissionPreparation(
 			originalBlocks.some(
 				(block) => block.hash?.toLowerCase() !== entry.prepared.blockHash.toLowerCase(),
 			)
-		)
+		) {
 			throw new Error("prepared snapshot block changed");
+		}
 		const fresh = await snapshotAt(entry.vault);
-		if (fresh.frozen && ["base-transfer", "step-up-transfer"].includes(entry.prepared.kind))
+		if (fresh.frozen && ["base-transfer", "step-up-transfer"].includes(entry.prepared.kind)) {
 			throw new Error("instant spending is frozen");
+		}
 		const actual = core.preparePwaIntent(fresh.snapshot, entry.intent);
 		if (
 			core.canonicalSubmissionJson(semantic(actual)) !==
 			core.canonicalSubmissionJson(semantic(entry.prepared))
-		)
+		) {
 			throw new Error(
 				"prepared intent is stale after policy, nonce, counters, or queue drift",
 			);
+		}
 		return fresh;
 	};
+	/** Check the prepared intent against current canonical state without returning new execution authority. */
 	const revalidate = async (prepared: BackendPreparedSubmission): Promise<void> => {
 		await revalidatedSnapshot(prepared);
 	};
+	/**
+	 * Derive and simulate a closed intent on both providers, then retain its immutable public binding.
+	 * Reusing an idempotency key is allowed only for the same canonical intent.
+	 */
 	const prepare: ConfiguredSubmissionRuntime["prepare"] = async ({ vault, request }) => {
 		if (
 			typeof request.idempotencyKey !== "string" ||
 			!/^[A-Za-z0-9._:-]{1,160}$/.test(request.idempotencyKey)
-		)
+		) {
 			throw new Error("idempotency key is invalid");
+		}
 		const intent = canonicalIntent(request);
 		const existing = entries.get(request.idempotencyKey);
 		if (existing) {
 			if (
 				core.canonicalSubmissionJson(existing.intent) !==
 				core.canonicalSubmissionJson(intent)
-			)
+			) {
 				throw new Error("idempotency key is already bound to another intent");
+			}
 			return existing.publicPrepared;
 		}
 		const { snapshot, frozen } = await snapshotAt(vault);
 		const prepared = core.preparePwaIntent(snapshot, intent);
-		if (frozen && ["base-transfer", "step-up-transfer"].includes(prepared.kind))
+		if (frozen && ["base-transfer", "step-up-transfer"].includes(prepared.kind)) {
 			throw new Error("instant spending is frozen");
+		}
 		const simulations = await Promise.all(
 			providers.map((client) => core.simulatePwaIntent(prepared, client)),
 		);
-		if (simulations.some((evidence) => !evidence.ok))
+		if (simulations.some((evidence) => !evidence.ok)) {
 			throw new Error("prepared intent simulation failed");
+		}
 		const publicRequest = Object.freeze({
 			...request,
 			intent: JSON.parse(core.canonicalSubmissionJson(intent)),
@@ -336,8 +393,11 @@ export function createSubmissionPreparation(
 		});
 		const raced = entries.get(publicPrepared.id);
 		if (raced) {
-			if (core.canonicalSubmissionJson(raced.intent) !== core.canonicalSubmissionJson(intent))
+			if (
+				core.canonicalSubmissionJson(raced.intent) !== core.canonicalSubmissionJson(intent)
+			) {
 				throw new Error("idempotency key is already bound to another intent");
+			}
 			return raced.publicPrepared;
 		}
 		entries.set(publicPrepared.id, { vault, intent, snapshot, prepared, publicPrepared });

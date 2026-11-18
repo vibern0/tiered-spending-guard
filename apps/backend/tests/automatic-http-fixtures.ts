@@ -12,10 +12,7 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simp
 import { encodeP256CosePublicKey } from "./webauthn-fixtures";
 
 // The canonical fixture matches submission-runtime.integration.test.ts; local only.
-const coreDirectory = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../../packages/security-core",
-);
+const coreDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../../packages/core");
 const requireCore = createRequire(join(coreDirectory, "package.json"));
 export const TOKEN = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as Address;
 export const RECIPIENT = "0x0000000000000000000000000000000000000a11" as Address;
@@ -73,12 +70,16 @@ export async function localChain(directory: string) {
 			body: JSON.stringify({ jsonrpc: "2.0", id: ++serial, method, params }),
 		});
 		const result = (await response.json()) as { result: T; error?: { message: string } };
-		if (result.error) throw new Error(`local ${method}: ${result.error.message}`);
+		if (result.error) {
+			throw new Error(`local ${method}: ${result.error.message}`);
+		}
 		return result.result;
 	};
 	for (let attempt = 0; ; attempt++) {
 		try {
-			if ((await rpc<string>("eth_chainId")) === "0xaa36a7") break;
+			if ((await rpc<string>("eth_chainId")) === "0xaa36a7") {
+				break;
+			}
 		} catch {
 			/* Wait only for the fresh local test node. */
 		}
@@ -93,7 +94,9 @@ export async function localChain(directory: string) {
 		rpc,
 		async close() {
 			child.kill("SIGTERM");
-			if (child.exitCode === null) await once(child, "exit");
+			if (child.exitCode === null) {
+				await once(child, "exit");
+			}
 		},
 	};
 }
@@ -253,7 +256,9 @@ export function softwareAuthenticator(
 			};
 		},
 		assertion(challenge: string, origin = "http://localhost:5173"): AuthenticationResponseJSON {
-			if (!options.synced) ++counter;
+			if (!options.synced) {
+				++counter;
+			}
 			const data = clientData("webauthn.get", challenge, origin);
 			const authData = authenticatorData(options.synced ? 0x1d : 0x05);
 			const signature = sign(

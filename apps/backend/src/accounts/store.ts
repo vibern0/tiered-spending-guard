@@ -15,10 +15,15 @@ import type {
 } from "./types";
 
 type Row = Record<string, string | number | Uint8Array | null>;
+/** Hash session tokens for lookup without persisting the browser bearer token. */
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
+/** Derive a domain-separated CSRF token from the browser session token. */
 const csrf = (v: string) => hash(`vault-csrf:${v}`);
+/** Reject identifiers that could escape account-specific evidence paths. */
 const identifier = (v: string) => {
-	if (!/^[A-Za-z0-9-]{1,64}$/.test(v)) throw new Error("invalid account identifier");
+	if (!/^[A-Za-z0-9-]{1,64}$/.test(v)) {
+		throw new Error("invalid account identifier");
+	}
 };
 
 /** Metadata is not chain verification or signer authority. Execution journals remain authoritative. */
@@ -27,13 +32,15 @@ export class AccountStore {
 	readonly dataDirectory: string;
 	private readonly db: DatabaseSync;
 	private inTransaction = false;
+	/** Open the private SQLite registry, bind it to this environment, and reject incompatible or orphaned evidence. */
 	constructor(
 		private readonly base: BackendConfig,
 		private readonly now: () => number = Date.now,
 	) {
 		this.databasePath = assertExternalBackendPath(base.accountDatabasePath, "account database");
-		if ([base.journalPath, base.provisioningJournalPath].includes(this.databasePath))
+		if ([base.journalPath, base.provisioningJournalPath].includes(this.databasePath)) {
 			throw new Error("account database cannot replace an execution journal");
+		}
 		if (existsSync(base.dataRoot)) {
 			const root = opendirSync(base.dataRoot);
 			const name = basename(this.databasePath);
@@ -45,9 +52,11 @@ export class AccountStore {
 				`${name}.payer.lock`,
 			]);
 			try {
-				for (let entry = root.readSync(); entry; entry = root.readSync())
-					if (!allowed.has(entry.name))
+				for (let entry = root.readSync(); entry; entry = root.readSync()) {
+					if (!allowed.has(entry.name)) {
 						throw new Error("backend requires a fresh or compatible data directory");
+					}
+				}
 			} finally {
 				root.closeSync();
 			}
@@ -65,15 +74,18 @@ export class AccountStore {
 					retained?.readSync() ||
 					existsSync(`${this.databasePath}-wal`) ||
 					existsSync(`${this.databasePath}-shm`)
-				)
+				) {
 					throw new Error("account registry missing with retained execution evidence");
+				}
 			} finally {
 				retained?.closeSync();
 			}
 		}
 		mkdirSync(dirname(this.databasePath), { recursive: true, mode: 0o700 });
 		mkdirSync(this.dataDirectory, { recursive: true, mode: 0o700 });
-		if (!existsSync(this.databasePath)) closeSync(openSync(this.databasePath, "wx", 0o600));
+		if (!existsSync(this.databasePath)) {
+			closeSync(openSync(this.databasePath, "wx", 0o600));
+		}
 		chmodSync(this.databasePath, 0o600);
 		this.db = new DatabaseSync(this.databasePath);
 		try {
@@ -91,8 +103,9 @@ export class AccountStore {
 						"SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
 					)
 					.get()
-			)
+			) {
 				throw new Error("unsupported account database format");
+			}
 			this.db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS identity (id INTEGER PRIMARY KEY CHECK(id=1), chain INTEGER NOT NULL, rp TEXT NOT NULL, origin TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, user_handle TEXT UNIQUE NOT NULL, state TEXT NOT NULL CHECK(state IN ('registering','queued','provisioning','verified','blocked')), created INTEGER NOT NULL, creation_attempts INTEGER NOT NULL DEFAULT 0, creation_error TEXT, history_vault TEXT);
@@ -122,8 +135,11 @@ export class AccountStore {
 			throw error;
 		}
 	}
+	/** Run an atomic registry change, reusing an enclosing transaction and rolling back failures. */
 	private transaction<T>(operation: () => T): T {
-		if (this.inTransaction) return operation();
+		if (this.inTransaction) {
+			return operation();
+		}
 		this.db.exec("BEGIN IMMEDIATE");
 		this.inTransaction = true;
 		try {
@@ -137,6 +153,7 @@ export class AccountStore {
 			this.inTransaction = false;
 		}
 	}
+	/** Build an account record with evidence paths confined to its managed directory. */
 	private decodeAccount(row: Row): AccountRecord {
 		const id = String(row.id);
 		identifier(id);
@@ -147,8 +164,9 @@ export class AccountStore {
 		if (
 			directory !== join(this.dataDirectory, id) ||
 			relative(this.dataDirectory, directory).startsWith("..")
-		)
+		) {
 			throw new Error("account directory escapes its managed root");
+		}
 		return Object.freeze({
 			id,
 			userHandle: String(row.user_handle),
@@ -163,8 +181,11 @@ export class AccountStore {
 			},
 		});
 	}
+	/** Fail closed if retained evidence has no registry account or contains an unexpected entry. */
 	validateEvidenceInventory(): void {
-		if (!existsSync(this.databasePath)) throw new Error("account registry disappeared");
+		if (!existsSync(this.databasePath)) {
+			throw new Error("account registry disappeared");
+		}
 		const directory = opendirSync(this.dataDirectory);
 		try {
 			for (let entry = directory.readSync(); entry; entry = directory.readSync()) {
@@ -172,16 +193,20 @@ export class AccountStore {
 					!entry.isDirectory() ||
 					entry.isSymbolicLink() ||
 					!/^[A-Za-z0-9-]{1,64}$/.test(entry.name)
-				)
+				) {
 					throw new Error("account registry has unknown evidence entries");
+				}
 				const row = this.db.prepare("SELECT id FROM accounts WHERE id=?").get(entry.name);
-				if (!row) throw new Error("account registry omits retained execution evidence");
+				if (!row) {
+					throw new Error("account registry omits retained execution evidence");
+				}
 				this.account(entry.name);
 			}
 		} finally {
 			directory.closeSync();
 		}
 	}
+	/** Persist a new registration record and random WebAuthn user handle before any vault exists. */
 	createAccount(): AccountRecord {
 		const id = randomUUID();
 		this.db
@@ -191,11 +216,13 @@ export class AccountStore {
 			.run(id, randomBytes(32).toString("base64url"), this.now());
 		return this.account(id)!;
 	}
+	/** Read account metadata and reconstruct its confined evidence configuration. */
 	account(id: string): AccountRecord | undefined {
 		identifier(id);
 		const row = this.db.prepare("SELECT * FROM accounts WHERE id=?").get(id) as Row | undefined;
 		return row && this.decodeAccount(row);
 	}
+	/** Page through registry accounts without retaining a SQLite read snapshot across consumer awaits. */
 	*accounts(): IterableIterator<AccountRecord> {
 		let created: number | null = null,
 			id = "";
@@ -205,21 +232,28 @@ export class AccountStore {
 		for (;;) {
 			// Materialize each bounded page before yielding across an await: no WAL snapshot stays pinned.
 			const rows = query.all(created, created, created, id) as Row[];
-			if (!rows.length) return;
-			for (const row of rows) yield this.decodeAccount(row);
+			if (!rows.length) {
+				return;
+			}
+			for (const row of rows) {
+				yield this.decodeAccount(row);
+			}
 			const last = rows.at(-1)!;
 			created = Number(last.created);
 			id = String(last.id);
 		}
 	}
+	/** Return a bounded provisioning work batch, prioritizing interrupted jobs before queued accounts. */
 	*provisioningJobs(): IterableIterator<AccountRecord> {
 		for (const row of this.db
 			.prepare(
 				"SELECT * FROM accounts WHERE state IN ('queued','provisioning') ORDER BY CASE state WHEN 'provisioning' THEN 0 ELSE 1 END,created,id LIMIT 20",
 			)
-			.all())
+			.all()) {
 			yield this.decodeAccount(row as Row);
+		}
 	}
+	/** Read a bounded page of verified accounts with history projections for background indexing. */
 	historyAccounts(after = ""): readonly AccountRecord[] {
 		return this.db
 			.prepare(
@@ -242,9 +276,12 @@ export class AccountStore {
 		this.transaction(() => {
 			const row = this.db.prepare("SELECT history_vault FROM accounts WHERE id=?").get(id) as
 				Row | undefined;
-			if (!row) throw new Error("unknown account");
-			if (row.history_vault && row.history_vault !== serialized)
+			if (!row) {
+				throw new Error("unknown account");
+			}
+			if (row.history_vault && row.history_vault !== serialized) {
 				throw new Error("verified vault projection changed");
+			}
 			this.db
 				.prepare(
 					"UPDATE accounts SET state='verified',history_vault=?,creation_error=NULL WHERE id=?",
@@ -252,11 +289,14 @@ export class AccountStore {
 				.run(serialized, id);
 		});
 	}
+	/** Validate and return the stored Sepolia display identity; it grants no execution authority. */
 	historyVault(id: string): HistoryVault | undefined {
 		const row = this.db
 			.prepare("SELECT history_vault FROM accounts WHERE id=? AND state='verified'")
 			.get(id) as Row | undefined;
-		if (!row?.history_vault) return;
+		if (!row?.history_vault) {
+			return;
+		}
 		try {
 			const value = JSON.parse(String(row.history_vault));
 			if (
@@ -273,22 +313,26 @@ export class AccountStore {
 						!isAddress(address) ||
 						address.toLowerCase() === zeroAddress,
 				)
-			)
+			) {
 				throw new Error();
+			}
 			return value as HistoryVault;
 		} catch {
 			throw new Error("stored vault history identity is invalid");
 		}
 	}
+	/** Claim a queued or interrupted creation attempt while enforcing the three-attempt budget. */
 	beginCreation(id: string): void {
 		const changed = this.db
 			.prepare(
 				"UPDATE accounts SET state='provisioning',creation_attempts=creation_attempts+1,creation_error=NULL WHERE id=? AND state IN ('queued','provisioning') AND creation_attempts<3",
 			)
 			.run(id);
-		if (changed.changes !== 1)
+		if (changed.changes !== 1) {
 			throw new Error("creation job unavailable or retry budget exhausted");
+		}
 	}
+	/** Record a sanitized creation failure and requeue only recoverable jobs with retries remaining. */
 	creationFailed(id: string, retryable: boolean): void {
 		this.db
 			.prepare(
@@ -296,10 +340,14 @@ export class AccountStore {
 			)
 			.run(retryable ? 1 : 0, id);
 	}
+	/** Persist a provisioning state for an existing registry account. */
 	markProvisioning(id: string, state: AccountRecord["state"]): void {
-		if (!this.account(id)) throw new Error("unknown account");
+		if (!this.account(id)) {
+			throw new Error("unknown account");
+		}
 		this.db.prepare("UPDATE accounts SET state=? WHERE id=?").run(state, id);
 	}
+	/** Validate persisted public metadata and restore credential key coordinates and counter types. */
 	private decodeCredential(row: Row): AccountCredential {
 		const metadata = JSON.parse(String(row.metadata)) as Record<string, unknown>;
 		if (
@@ -315,8 +363,9 @@ export class AccountStore {
 			(metadata.transports !== undefined &&
 				(!Array.isArray(metadata.transports) ||
 					metadata.transports.some((v) => typeof v !== "string")))
-		)
+		) {
 			throw new Error("invalid credential metadata");
+		}
 		return Object.freeze({
 			accountId: String(row.account_id),
 			id: String(row.id),
@@ -329,26 +378,32 @@ export class AccountStore {
 			...(metadata as Pick<StoredCredential, "backupEligible" | "backedUp" | "transports">),
 		});
 	}
+	/** Find public credential metadata by its globally unique WebAuthn credential ID. */
 	credential(id: string): AccountCredential | undefined {
 		const row = this.db.prepare("SELECT * FROM credentials WHERE id=?").get(id) as
 			Row | undefined;
 		return row && this.decodeCredential(row);
 	}
+	/** Read the immutable role credentials belonging to an existing account. */
 	credentials(id: string): readonly AccountCredential[] {
-		if (!this.account(id)) throw new Error("unknown account");
+		if (!this.account(id)) {
+			throw new Error("unknown account");
+		}
 		return this.db
 			.prepare("SELECT * FROM credentials WHERE account_id=? ORDER BY role")
 			.all(id)
 			.map((row) => this.decodeCredential(row as Row));
 	}
+	/** Atomically add a distinct immutable role key and queue creation once the secondary key follows the primary. */
 	storeCredential(id: string, value: StoredCredential, userHandle?: string): void {
 		if (
 			!this.account(id) ||
 			!value.id ||
 			!Number.isSafeInteger(value.counter) ||
 			value.counter < 0
-		)
+		) {
 			throw new Error("invalid account credential");
+		}
 		this.transaction(() => {
 			if (
 				this.credentials(id).some(
@@ -357,8 +412,9 @@ export class AccountStore {
 						(c.x === value.x && c.y === value.y) ||
 						Buffer.from(c.publicKey).equals(Buffer.from(value.publicKey)),
 				)
-			)
+			) {
 				throw new Error("account roles are immutable and must use distinct keys");
+			}
 			this.db.prepare("INSERT INTO credentials VALUES (?,?,?,?,?,?,?,?,?)").run(
 				value.id,
 				id,
@@ -379,8 +435,9 @@ export class AccountStore {
 				}),
 			);
 			if (value.role === "secondary") {
-				if (!this.credentials(id).some((c) => c.role === "primary"))
+				if (!this.credentials(id).some((c) => c.role === "primary")) {
 					throw new Error("first credential required before creation");
+				}
 				this.db
 					.prepare(
 						"UPDATE accounts SET state='queued' WHERE id=? AND state='registering'",
@@ -389,15 +446,19 @@ export class AccountStore {
 			}
 		});
 	}
+	/** Advance the credential counter with a compare-and-set check to reject stale concurrent assertions. */
 	updateCounter(id: string, previous: number, next: number): void {
-		if (!Number.isSafeInteger(next) || next < previous || next < 0)
+		if (!Number.isSafeInteger(next) || next < previous || next < 0) {
 			throw new Error("invalid credential counter");
+		}
 		const changed = this.db
 			.prepare("UPDATE credentials SET counter=? WHERE id=? AND counter=?")
 			.run(next, id, previous);
-		if (changed.changes !== 1)
+		if (changed.changes !== 1) {
 			throw new Error("credential counter changed; use a fresh assertion");
+		}
 	}
+	/** Atomically advance the account credential counter and record a unique fingerprint to prevent approval reuse. */
 	consumeApproval(
 		accountId: string,
 		credentialId: string,
@@ -407,18 +468,23 @@ export class AccountStore {
 	): void {
 		this.transaction(() => {
 			const c = this.credential(credentialId);
-			if (!c || c.accountId !== accountId)
+			if (!c || c.accountId !== accountId) {
 				throw new Error("approval credential account mismatch");
+			}
 			this.updateCounter(credentialId, previous, next);
 			this.db
 				.prepare("INSERT INTO consumed_approvals VALUES (?,?,?,?)")
 				.run(accountId, credentialId, fingerprint, this.now());
 		});
 	}
+	/** Issue a random browser token, persist only its hash, and prune expired or idle sessions. */
 	createSession(accountId?: string, authenticated = false): NewAccountSession {
-		if (authenticated && !accountId)
+		if (authenticated && !accountId) {
 			throw new Error("authenticated session requires an account");
-		if (accountId && !this.account(accountId)) throw new Error("unknown account");
+		}
+		if (accountId && !this.account(accountId)) {
+			throw new Error("unknown account");
+		}
 		const id = randomUUID(),
 			token = randomBytes(32).toString("base64url"),
 			now = this.now();
@@ -444,12 +510,17 @@ export class AccountStore {
 			csrfToken: csrf(token),
 		});
 	}
+	/** Resolve a browser token, revoke expired sessions, and refresh activity for a live session. */
 	session(token: string): AccountSession | undefined {
-		if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return;
+		if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+			return;
+		}
 		const row = this.db
 			.prepare("SELECT * FROM sessions WHERE token_hash=?")
 			.get(hash(token)) as Row | undefined;
-		if (!row) return;
+		if (!row) {
+			return;
+		}
 		const now = this.now();
 		if (Number(row.expires) <= now || Number(row.last_used) + 30 * 60_000 <= now) {
 			this.revokeSession(token);
@@ -463,17 +534,21 @@ export class AccountStore {
 			csrfToken: csrf(token),
 		});
 	}
+	/** Delete the token-backed session and its challenges through the database cascade. */
 	revokeSession(token: string): void {
 		this.db.prepare("DELETE FROM sessions WHERE token_hash=?").run(hash(token));
 	}
+	/** Require the session-bound CSRF token using a fixed-length timing-safe comparison. */
 	assertCsrf(session: AccountSession, value: unknown): void {
 		if (
 			typeof value !== "string" ||
 			!/^[0-9a-f]{64}$/.test(value) ||
 			!timingSafeEqual(Buffer.from(value), Buffer.from(session.csrfToken))
-		)
+		) {
 			throw new Error("invalid session CSRF token");
+		}
 	}
+	/** Persist a five-minute, purpose-separated challenge bound to a session and optional signer role. */
 	createChallenge(
 		sessionId: string,
 		purpose: string,
@@ -490,6 +565,7 @@ export class AccountStore {
 			.run(id, sessionId, purpose, role ?? null, challenge, now + 5 * 60_000);
 		return Object.freeze({ id, challenge, ...(role ? { role } : {}) });
 	}
+	/** Atomically remove a live challenge only when its session, purpose and signer role match. */
 	consumeChallenge(
 		sessionId: string,
 		id: string,
@@ -502,8 +578,9 @@ export class AccountStore {
 					"SELECT * FROM challenges WHERE id=? AND session_id=? AND purpose=? AND role IS ?",
 				)
 				.get(id, sessionId, purpose, role ?? null) as Row | undefined;
-			if (!row || Number(row.expires) <= this.now())
+			if (!row || Number(row.expires) <= this.now()) {
 				throw new Error("unknown, expired or consumed challenge");
+			}
 			this.db.prepare("DELETE FROM challenges WHERE id=?").run(id);
 			return Object.freeze({
 				id,
@@ -512,6 +589,7 @@ export class AccountStore {
 			});
 		});
 	}
+	/** Reject expired, revoked or unauthenticated sessions before account-scoped execution work. */
 	assertActiveSession(id: string, accountId: string): void {
 		const row = this.db
 			.prepare("SELECT * FROM sessions WHERE id=? AND account_id=? AND authenticated=1")
@@ -520,28 +598,34 @@ export class AccountStore {
 			!row ||
 			Number(row.expires) <= this.now() ||
 			Number(row.last_used) + 30 * 60_000 <= this.now()
-		)
+		) {
 			throw new Error("account session expired or revoked");
+		}
 	}
+	/** Read the session that first claimed an account-scoped submission identifier. */
 	submissionOwner(accountId: string, id: string): string | undefined {
 		const row = this.db
 			.prepare("SELECT session_id FROM submission_owners WHERE account_id=? AND id=?")
 			.get(accountId, id) as Row | undefined;
 		return row ? String(row.session_id) : undefined;
 	}
+	/** Persist first-session ownership of a submission and reject attempts to reuse it from another session. */
 	claimSubmission(accountId: string, id: string, sessionId: string): void {
 		this.db
 			.prepare("INSERT OR IGNORE INTO submission_owners VALUES (?,?,?)")
 			.run(accountId, id, sessionId);
 		this.assertSubmissionOwner(accountId, id, sessionId);
 	}
+	/** Require the submission to belong to the initiating browser session. */
 	assertSubmissionOwner(accountId: string, id: string, sessionId: string): void {
 		const row = this.db
 			.prepare("SELECT session_id FROM submission_owners WHERE account_id=? AND id=?")
 			.get(accountId, id) as Row | undefined;
-		if (!row || row.session_id !== sessionId)
+		if (!row || row.session_id !== sessionId) {
 			throw new Error("submission belongs to another session");
+		}
 	}
+	/** Release the SQLite connection when the backend shuts down. */
 	close(): void {
 		this.db.close();
 	}

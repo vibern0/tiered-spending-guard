@@ -29,7 +29,9 @@ describe("bounded provisioning RPC read recovery", () => {
 		const attempts: number[] = [];
 		const read = vi.fn(async () => {
 			attempts.push(Date.now() - initial);
-			if (attempts.length <= 4) throw throttled;
+			if (attempts.length <= 4) {
+				throw throttled;
+			}
 			return 123n;
 		});
 		const result = sanitizeRpc("relay", "getTransactionCount", read, true).then(

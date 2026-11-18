@@ -112,7 +112,9 @@ describe("automatic receipt reconciliation worker", () => {
 		});
 		const manual = service.status("pending");
 		const worker = startBackgroundWorker("receipt", async () => {
-			for (const entry of journal.listPending()) await service.status(entry.id);
+			for (const entry of journal.listPending()) {
+				await service.status(entry.id);
+			}
 		});
 		await Promise.resolve();
 		let stopped = false;

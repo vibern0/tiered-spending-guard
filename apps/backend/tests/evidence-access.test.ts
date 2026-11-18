@@ -30,10 +30,11 @@ it("rejects changed chains/operators, redirects in configuration, extra fields a
 		{ ...valid, infuraUrl: valid.infuraUrl.replace("sepolia.", "mainnet.") },
 		{ ...valid, alchemyUrl: valid.alchemyUrl + "?secret=token" },
 		{ ...valid, extra: true },
-	])
+	]) {
 		expect(() => loadEvidenceAccess(file(value))).toThrow(
 			"evidence access configuration failed closed",
 		);
+	}
 	const path = file(valid);
 	chmodSync(path, 0o644);
 	expect(() => loadEvidenceAccess(path)).toThrow("evidence access configuration failed closed");

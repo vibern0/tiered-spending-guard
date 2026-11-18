@@ -72,7 +72,9 @@ describe("fresh account lifecycle", () => {
 					page: () => ({ items: [], observedAt: 0 }),
 					scan: async (id) => {
 						calls.push(id);
-						if (calls.length === 1) throw new Error("one unavailable account");
+						if (calls.length === 1) {
+							throw new Error("one unavailable account");
+						}
 					},
 				},
 			},
@@ -104,7 +106,7 @@ describe("fresh account lifecycle", () => {
 					})
 				).statusCode,
 			).toBe(403);
-			for (const query of ["limit=101", "limit=0", "other=1"])
+			for (const query of ["limit=101", "limit=0", "other=1"]) {
 				expect(
 					(
 						await backend.fastify.inject({
@@ -114,6 +116,7 @@ describe("fresh account lifecycle", () => {
 						})
 					).statusCode,
 				).toBe(400);
+			}
 		} finally {
 			await backend.close();
 		}

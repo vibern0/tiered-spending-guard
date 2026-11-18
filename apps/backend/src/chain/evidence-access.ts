@@ -9,16 +9,22 @@ export function loadEvidenceAccess(configPath?: string): EvidenceAccess {
 	try {
 		const path = assertExternalBackendPath(configPath, "evidence access configuration");
 		const stat = statSync(path);
-		if (!stat.isFile() || stat.size > 16384 || (stat.mode & 0o077) !== 0) throw new Error();
+		if (!stat.isFile() || stat.size > 16384 || (stat.mode & 0o077) !== 0) {
+			throw new Error();
+		}
 		const value = JSON.parse(readFileSync(path, "utf8"));
 		if (
 			!value ||
 			Object.keys(value).sort().join() !== "alchemyUrl,infuraUrl,version" ||
 			value.version !== 2
-		)
+		) {
 			throw new Error();
+		}
+		/** Accepts only canonical credential-bearing HTTPS URLs for the expected evidence operator. */
 		const checked = (input: unknown, host: string, pattern: RegExp) => {
-			if (typeof input !== "string") throw new Error();
+			if (typeof input !== "string") {
+				throw new Error();
+			}
 			const url = new URL(input);
 			if (
 				url.href !== input ||
@@ -30,8 +36,9 @@ export function loadEvidenceAccess(configPath?: string): EvidenceAccess {
 				url.search ||
 				url.hash ||
 				!pattern.test(url.pathname)
-			)
+			) {
 				throw new Error();
+			}
 			return url.href;
 		};
 		return Object.freeze({

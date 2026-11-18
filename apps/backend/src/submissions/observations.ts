@@ -12,10 +12,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { Hex } from "viem";
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
-import type { PwaObserverRecord } from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
+import type { PwaObserverRecord } from "@tiered-spending-guard/sdk/pwa";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
+/** Compare receipt evidence independently of observer metadata and the derived record hash. */
 const comparable = ({
 	observer: _observer,
 	observedAt: _observedAt,
@@ -28,11 +29,13 @@ export function persistPwaObservation(directory: string, record: PwaObserverReco
 	const bytes = core.serializePwaObserverRecord(record);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	const path = join(directory, `${record.transactionHash.slice(2).toLowerCase()}.json`);
+	/** Validate and flush retained evidence, refusing to overwrite a conflicting observation. */
 	const existing = () => {
 		const previous = JSON.parse(readFileSync(path, "utf8")) as PwaObserverRecord;
 		core.serializePwaObserverRecord(previous);
-		if (comparable(previous) !== comparable(record))
+		if (comparable(previous) !== comparable(record)) {
 			throw new Error("receipt observation conflicts with retained evidence");
+		}
 		const fd = openSync(path, "r");
 		try {
 			fsyncSync(fd);
@@ -40,8 +43,9 @@ export function persistPwaObservation(directory: string, record: PwaObserverReco
 			closeSync(fd);
 		}
 	};
-	if (existsSync(path)) existing();
-	else {
+	if (existsSync(path)) {
+		existing();
+	} else {
 		const temporary = `${path}.${randomUUID()}.tmp`;
 		try {
 			const fd = openSync(temporary, "wx", 0o600);
@@ -54,11 +58,15 @@ export function persistPwaObservation(directory: string, record: PwaObserverReco
 			try {
 				linkSync(temporary, path);
 			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+					throw error;
+				}
 				existing();
 			}
 		} finally {
-			if (existsSync(temporary)) unlinkSync(temporary);
+			if (existsSync(temporary)) {
+				unlinkSync(temporary);
+			}
 		}
 	}
 	const directoryFd = openSync(directory, "r");

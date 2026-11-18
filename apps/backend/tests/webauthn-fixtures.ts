@@ -8,8 +8,9 @@ export function encodeP256CosePublicKey(
 		coordinates.y < 0n ||
 		coordinates.x >= 1n << 256n ||
 		coordinates.y >= 1n << 256n
-	)
+	) {
 		throw new Error("P-256 coordinate is out of range");
+	}
 	const x = hexToBytes(toHex(coordinates.x, { size: 32 }));
 	const y = hexToBytes(toHex(coordinates.y, { size: 32 }));
 	return Uint8Array.from([

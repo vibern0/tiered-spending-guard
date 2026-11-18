@@ -1,4 +1,4 @@
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
 import { existsSync, readdirSync } from "node:fs";
 import type { Address } from "viem";
 import type { AccountStore } from "../accounts/store";
@@ -9,6 +9,7 @@ const core = (namespace as unknown as { default?: typeof namespace }).default ??
 /** One queue and filesystem lease for the shared payer across every account. */
 export function createPayerCoordinator(store: AccountStore, payer: Address) {
 	let queue: Promise<unknown> = Promise.resolve();
+	/** Rechecks all durable account evidence and blocks payer reuse while another operation is unresolved. */
 	const assertPayerAvailable = (
 		requesting: string,
 		kind: "provision" | "submit",
@@ -27,29 +28,37 @@ export function createPayerCoordinator(store: AccountStore, payer: Address) {
 			if (
 				journal.entries.some((row) => row.status !== "success") &&
 				!(a.id === requesting && kind === "provision")
-			)
+			) {
 				throw new Error("another account has an unresolved provisioning transaction");
-			if (a.state === "verified" && journal.entries.length !== 7)
+			}
+			if (a.state === "verified" && journal.entries.length !== 7) {
 				throw new Error("completed account provisioning evidence is missing");
+			}
 			if (
 				a.id !== requesting &&
 				(a.state === "provisioning" ||
 					(journal.entries.length > 0 && journal.entries.length < 7) ||
 					(hasReviews && journal.entries.length < 7))
-			)
+			) {
 				throw new Error("another account has an incomplete immutable deployment");
-			if (a.id === requesting && kind === "submit" && a.state !== "verified")
+			}
+			if (a.id === requesting && kind === "submit" && a.state !== "verified") {
 				throw new Error("account deployment is not verified");
-			if (a.state === "verified" && !existsSync(a.config.journalPath))
+			}
+			if (a.state === "verified" && !existsSync(a.config.journalPath)) {
 				throw new Error("completed account submission evidence is missing");
+			}
 			if (existsSync(a.config.journalPath)) {
 				const pending = new SubmissionJournal(a.config.journalPath).listPending();
-				for (const entry of pending)
-					if (!(a.id === requesting && kind === "submit" && entry.id === submissionId))
+				for (const entry of pending) {
+					if (!(a.id === requesting && kind === "submit" && entry.id === submissionId)) {
 						throw new Error("an account has an unresolved durable submission hash");
+					}
+				}
 			}
 		}
 	};
+	/** Serializes payer operations under a filesystem lease and releases the lease on success or failure. */
 	const withPayer = <T>(
 		id: string,
 		kind: "provision" | "submit",

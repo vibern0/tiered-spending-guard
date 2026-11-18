@@ -26,10 +26,11 @@ describe("local backend configuration", () => {
 		for (const root of [
 			resolve(process.cwd(), "journal"),
 			resolve(process.cwd(), "../..", "..profile-output"),
-		])
+		]) {
 			expect(() => loadBackendConfig({ ...valid, BACKEND_DATA_DIRECTORY: root })).toThrow(
 				/outside the repository/,
 			);
+		}
 		expect(() => loadBackendConfig({ ...valid, BACKEND_PROFILE: "https" })).toThrow(
 			/only local/,
 		);

@@ -16,7 +16,9 @@ export function loadBackendEnvironment(
 		try {
 			lstatSync(path!);
 		} catch (error) {
-			if (!explicit && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+			if (!explicit && (error as NodeJS.ErrnoException).code === "ENOENT") {
+				return;
+			}
 			throw error;
 		}
 		const external = assertExternalBackendPath(path, "backend environment file");
@@ -27,7 +29,9 @@ export function loadBackendEnvironment(
 			quiet: true,
 			debug: false,
 		});
-		if (result.error) throw result.error;
+		if (result.error) {
+			throw result.error;
+		}
 	} catch {
 		// Filesystem and parser errors can contain private paths or configuration.
 		throw new Error("backend environment file could not be loaded");

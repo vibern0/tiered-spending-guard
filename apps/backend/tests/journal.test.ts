@@ -12,10 +12,14 @@ vi.mock("node:fs", async (original) => {
 		fsyncSync: (fd: number) => {
 			const stat = actual.fstatSync(fd);
 			// The shared writer lease may also sync its short PID-only lock file.
-			if (!stat.isDirectory() && stat.size <= 32) return actual.fsyncSync(fd);
+			if (!stat.isDirectory() && stat.size <= 32) {
+				return actual.fsyncSync(fd);
+			}
 			const kind = stat.isDirectory() ? "directory" : "file";
 			syncEvidence.events.push(`sync:${kind}`);
-			if (kind === "file" && syncEvidence.failFileSync) throw new Error("file sync failed");
+			if (kind === "file" && syncEvidence.failFileSync) {
+				throw new Error("file sync failed");
+			}
 			return actual.fsyncSync(fd);
 		},
 		renameSync: (...args: Parameters<typeof actual.renameSync>) => {

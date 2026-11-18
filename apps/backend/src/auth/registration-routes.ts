@@ -8,6 +8,7 @@ import { object, ref, routeSchema, string } from "../http/schema";
 
 type RoleParams = Readonly<{ role: string }>;
 
+/** Register account-scoped initial passkey enrollment routes using the shared session and role checks. */
 export function registerAccountRegistrationRoutes(
 	fastify: FastifyInstance,
 	config: BackendConfig,

@@ -27,4 +27,6 @@ export default tseslint.config(
 		},
 	},
 	prettier,
+	// Keep control-flow braces mandatory after Prettier's compatibility overrides.
+	{ rules: { curly: ["error", "all"] } },
 );

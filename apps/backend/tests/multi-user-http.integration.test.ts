@@ -5,7 +5,7 @@ import { createPublicClient, createWalletClient, http, parseAbi, toHex, type Hex
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import { describe, expect, it, vi } from "vitest";
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
 import { AccountStore } from "../src/accounts/store";
 import { createAccountServer } from "../src/http/server";
 import { createAccountGatewayForTestsOnly } from "../src/accounts/runtime";
@@ -155,10 +155,16 @@ describe("real Safe multi-user HTTP", () => {
 									}),
 						});
 						const set = response.headers.get("set-cookie");
-						if (set) cookie = set.split(";", 1)[0]!;
+						if (set) {
+							cookie = set.split(";", 1)[0]!;
+						}
 						const body = await response.json();
-						if (body.csrfToken) csrf = body.csrfToken;
-						if (body.account) account = body.account.id;
+						if (body.csrfToken) {
+							csrf = body.csrfToken;
+						}
+						if (body.account) {
+							account = body.account.id;
+						}
 						return { status: response.status, body };
 					},
 					async post(path: string, value: unknown) {

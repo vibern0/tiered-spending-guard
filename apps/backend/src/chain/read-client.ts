@@ -21,6 +21,7 @@ const RPC_READ_METHODS = new Set([
 	"waitForTransactionReceipt",
 ]);
 
+/** Collects a bounded, cycle-safe error chain for failure classification. */
 function rpcCauses(error: unknown): readonly Error[] {
 	const seen = new Set<Error>();
 	let current = error;
@@ -31,6 +32,7 @@ function rpcCauses(error: unknown): readonly Error[] {
 	return [...seen];
 }
 
+/** Retries eligible read failures when enabled and replaces provider details with safe error categories. */
 export async function sanitizeRpc<T>(
 	label: string,
 	method: string,
@@ -72,7 +74,9 @@ export async function sanitizeRpc<T>(
 				: causes.some((cause) => cause.name === "ResourceNotFoundRpcError")
 					? 1
 					: 0;
-		if (reverted || retry >= limit) break;
+		if (reverted || retry >= limit) {
+			break;
+		}
 		await new Promise<void>((resolve) =>
 			setTimeout(resolve, transientHttpFailure ? 1_000 * 2 ** retry : 500),
 		);
@@ -93,14 +97,16 @@ export async function sanitizeRpc<T>(
 	throw new Error(`${label} Sepolia RPC request failed (${method}; ${category})`);
 }
 
+/** Requires complete EIP-1559 fields and projects the transaction facts needed for recovery checks. */
 function recoveryTransaction(transaction: Awaited<ReturnType<PublicClient["getTransaction"]>>) {
 	if (
 		transaction.type !== "eip1559" ||
 		transaction.chainId === undefined ||
 		transaction.maxFeePerGas === undefined ||
 		transaction.maxPriorityFeePerGas === undefined
-	)
+	) {
 		throw new Error("non-EIP-1559 transaction");
+	}
 	return {
 		hash: transaction.hash,
 		chainId: transaction.chainId,
@@ -116,6 +122,7 @@ function recoveryTransaction(transaction: Awaited<ReturnType<PublicClient["getTr
 	};
 }
 
+/** Creates a frozen Sepolia observation capability with sanitized errors and no broadcast method. */
 export function createReadClient(
 	url: string,
 	label: string,
@@ -125,14 +132,19 @@ export function createReadClient(
 		chain: sepolia,
 		transport: options.batch ? batchedReadTransport(url, options.fetchFn) : http(url),
 	}) as PublicClient;
+	/** Runs an allowed observation with bounded transient-read retries and sanitized failures. */
 	const read = <T>(method: string, operation: () => Promise<T>) =>
 		sanitizeRpc(label, method, operation, true);
 	return Object.freeze({
 		source: options.source ?? label.replaceAll(" ", "-"),
+		/** Reads the account balance at an optional historical block. */
 		getBalance: (args: { address: Address; blockNumber?: bigint }) =>
 			read("getBalance", () => client.getBalance(args)),
+		/** Reads the provider chain identity for evidence validation. */
 		getChainId: () => read("getChainId", () => client.getChainId()),
+		/** Reads the provider head used to choose observation anchors. */
 		getBlockNumber: () => read("getBlockNumber", () => client.getBlockNumber()),
+		/** Returns the block identity, timestamp, and gas fields used to anchor quotes and recovery. */
 		getBlock: ({ blockNumber }: { blockNumber: bigint }) =>
 			read("getBlock", async () => {
 				const block = await client.getBlock({ blockNumber });
@@ -144,6 +156,7 @@ export function createReadClient(
 					gasLimit: block.gasLimit,
 				};
 			}),
+		/** Reads a block with EIP-1559 transactions projected for nonce and transaction recovery. */
 		getBlockWithTransactions: ({ blockNumber }: { blockNumber: bigint }) =>
 			read("getBlock", async () => {
 				const block = await client.getBlock({ blockNumber, includeTransactions: true });
@@ -155,6 +168,7 @@ export function createReadClient(
 						.map(recoveryTransaction),
 				};
 			}),
+		/** Reads a historical or latest/pending nonce, defaulting to the latest mined state. */
 		getTransactionCount: ({
 			address,
 			blockNumber,
@@ -172,6 +186,7 @@ export function createReadClient(
 						: { blockNumber }),
 				}),
 			),
+		/** Simulates transaction gas at an optional block without signing or broadcasting. */
 		estimateGas: ({
 			account,
 			to,
@@ -188,14 +203,18 @@ export function createReadClient(
 			read("estimateGas", () =>
 				client.estimateGas({ account, ...(to ? { to } : {}), data, value, blockNumber }),
 			),
+		/** Reads the relay priority-fee estimate for EIP-1559 quotes. */
 		getMaxPriorityFeePerGas: () =>
 			read("estimateMaxPriorityFeePerGas", () => client.estimateMaxPriorityFeePerGas()),
+		/** Reads deployed runtime code at an optional block for artifact identity checks. */
 		getBytecode: ({ address, blockNumber }: { address: Address; blockNumber?: bigint }) =>
 			read("getCode", () =>
 				client.getCode({ address, ...(blockNumber === undefined ? {} : { blockNumber }) }),
 			),
+		/** Reads a contract storage slot for topology and historical-state checks. */
 		getStorageAt: (args: { address: Address; slot: Hex; blockNumber?: bigint }) =>
 			read("getStorageAt", () => client.getStorageAt(args)),
+		/** Performs an ABI-decoded contract observation with the function name included in safe error labels. */
 		readContract: (args: {
 			address: Address;
 			abi: readonly unknown[];
@@ -203,17 +222,21 @@ export function createReadClient(
 			args?: readonly unknown[];
 			blockNumber?: bigint;
 		}) => read(`readContract:${args.functionName}`, () => client.readContract(args as never)),
+		/** Executes an unsigned creation-style eth_call and returns its simulation result. */
 		call: ({ data }: { data: Hex }) => read("call", () => client.call({ data })),
+		/** Reads EIP-1559 recovery facts, returning null only when the transaction is absent. */
 		getTransaction: ({ hash }: { hash: Hex }) =>
 			read("getTransaction", async () => {
 				try {
 					return recoveryTransaction(await client.getTransaction({ hash }));
 				} catch (error) {
-					if (error instanceof Error && error.name === "TransactionNotFoundError")
+					if (error instanceof Error && error.name === "TransactionNotFoundError") {
 						return null;
+					}
 					throw error;
 				}
 			}),
+		/** Reads receipt identity and cost evidence, returning null only when no receipt exists. */
 		getTransactionReceipt: ({ hash }: { hash: Hex }) =>
 			read("getTransactionReceipt", async () => {
 				try {
@@ -227,8 +250,12 @@ export function createReadClient(
 						blockHash: receipt.blockHash,
 					};
 				} catch (error) {
-					if (error instanceof Error && error.name === "TransactionReceiptNotFoundError")
+					if (
+						error instanceof Error &&
+						error.name === "TransactionReceiptNotFoundError"
+					) {
 						return null;
+					}
 					throw error;
 				}
 			}),

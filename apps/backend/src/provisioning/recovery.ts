@@ -1,11 +1,11 @@
-import * as namespace from "@tiered-spending-guard/security-core/pwa";
+import * as namespace from "@tiered-spending-guard/sdk/pwa";
 import type { Address } from "viem";
 import type {
 	PwaProvisioningRecovery,
 	ResolvePwaProvisioningRecoveryInput,
 	HistoricalPwaReadClient,
 	PwaProvisioningRecoveryClient,
-} from "@tiered-spending-guard/security-core/pwa";
+} from "@tiered-spending-guard/sdk/pwa";
 import type { BackendConfig } from "../config/config";
 
 const core = (namespace as unknown as { default?: typeof namespace }).default ?? namespace;
@@ -27,9 +27,13 @@ export type AutomaticRecovery = Readonly<{
 /** Read/reconcile exact recorded evidence; never signs or broadcasts. */
 export async function recoverAutomaticPwaProvisioning(input: Input): Promise<AutomaticRecovery> {
 	const store = core.createLiveJournalStore(input.config.provisioningJournalPath, input.deployer);
+	/** Reconciles recorded pending hashes, persists resolved journal evidence, and reconstructs recovery without signing. */
 	const restore = async (): Promise<AutomaticRecovery> => {
 		let journal = store.load();
-		if (!journal.entries.length) return {};
+		if (!journal.entries.length) {
+			return {};
+		}
+		/** Packages the current journal with the immutable profile and independent readers for recovery validation. */
 		const facts = () => ({
 			reviewDirectory: input.config.provisioningReviewDirectory,
 			journal,
@@ -49,7 +53,9 @@ export async function recoverAutomaticPwaProvisioning(input: Input): Promise<Aut
 				journal = reconciled;
 				break;
 			}
-			if (!input.waitForPending || attempt >= 24) return { pending: true };
+			if (!input.waitForPending || attempt >= 24) {
+				return { pending: true };
+			}
 			await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
 		}
 		return { recovery: await core.resolvePwaProvisioningRecovery(facts()) };

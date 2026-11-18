@@ -8,10 +8,16 @@ type BackendFastifyOptions = Readonly<{ logger?: FastifyBaseLogger }>;
 
 type StatusError = Error & Readonly<{ statusCode: number }>;
 
+/**
+ * Attach an HTTP status to a parser error for the shared response mapper.
+ */
 function statusError(statusCode: number, message: string): StatusError {
 	return Object.assign(new Error(message), { statusCode });
 }
 
+/**
+ * Decode a JSON request body and reject primitives, arrays, and malformed JSON.
+ */
 function parseJson(value: Buffer): unknown {
 	let parsed: unknown;
 	try {
@@ -19,11 +25,16 @@ function parseJson(value: Buffer): unknown {
 	} catch {
 		throw statusError(400, "invalid JSON request");
 	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw statusError(400, "request must be an object");
+	}
 	return parsed;
 }
 
+/**
+ * Create a strict JSON-only HTTP server with bounded bodies, request IDs, safe logging, and no-store replies.
+ * Wire-format validation precedes conversion of supported bigint fields; routes register separately.
+ */
 export function createBackendFastify(options: BackendFastifyOptions = {}): FastifyInstance {
 	const fastify = Fastify({
 		ajv: { customOptions: { removeAdditional: false, coerceTypes: false, useDefaults: false } },
@@ -33,10 +44,14 @@ export function createBackendFastify(options: BackendFastifyOptions = {}): Fasti
 		requestIdHeader: false,
 		exposeHeadRoutes: false,
 		bodyLimit: BODY_LIMIT,
+		/** Assign a server-generated ID rather than trusting a caller-supplied log identifier. */
 		genReqId: () => randomUUID(),
 	});
 
 	fastify.removeContentTypeParser("application/json");
+	/**
+	 * Adapt strict object-only JSON parsing to Fastify’s callback-based content-type parser.
+	 */
 	const parser = (
 		_request: unknown,
 		payload: string | Buffer,
@@ -57,11 +72,14 @@ export function createBackendFastify(options: BackendFastifyOptions = {}): Fasti
 	// Validate JSON wire types first; preserve the existing domain bigint representation.
 	fastify.addHook("preHandler", async (request) => {
 		const body = request.body as Record<string, unknown> | undefined;
-		if (!body) return;
+		if (!body) {
+			return;
+		}
 		for (const key of ["amount", "queueNonce"]) {
 			const value = body[key];
-			if (typeof value === "string" && /^(0|[1-9][0-9]*)n$/.test(value))
+			if (typeof value === "string" && /^(0|[1-9][0-9]*)n$/.test(value)) {
 				body[key] = BigInt(value.slice(0, -1));
+			}
 		}
 	});
 
@@ -75,14 +93,16 @@ export function createBackendFastify(options: BackendFastifyOptions = {}): Fasti
 			finished = true;
 		});
 		reply.raw.once("close", () => {
-			if (!finished && !reply.raw.writableFinished)
+			if (!finished && !reply.raw.writableFinished) {
 				request.log.warn({ responseTime: reply.elapsedTime }, "request aborted");
+			}
 		});
 		if (
 			request.method === "POST" &&
 			request.headers["content-type"]?.split(";", 1)[0] !== "application/json"
-		)
+		) {
 			throw statusError(415, "JSON request required");
+		}
 	});
 	fastify.addHook("onSend", async (_request, reply, payload) => {
 		reply.header("cache-control", "no-store");

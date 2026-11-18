@@ -262,9 +262,9 @@ importers:
       '@simplewebauthn/server':
         specifier: 14.0.3
         version: 14.0.3
-      '@tiered-spending-guard/security-core':
+      '@tiered-spending-guard/sdk':
         specifier: workspace:*
-        version: link:../../packages/security-core
+        version: link:../../packages/sdk
       dotenv:
         specifier: 18.0.10
         version: 18.0.10
@@ -538,7 +538,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.11(@types/node@22.20.4)(jsdom@20.0.3(supports-color@8.1.1))(vite@8.1.5(@types/node@22.20.4)(jiti@2.7.0)(tsx@4.19.4))
 
-  packages/security-core:
+  packages/core:
     dependencies:
       '@gnosis-guild/zodiac':
         specifier: 5.0.1
@@ -559,6 +559,9 @@ importers:
         specifier: 2.56.7
         version: 2.56.7(typescript@5.0.4)(zod@3.25.76)
     devDependencies:
+      '@tiered-spending-guard/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@nomicfoundation/hardhat-ignition':
         specifier: 0.15.5
         version: 0.15.5(@nomicfoundation/hardhat-verify@2.0.1(hardhat@2.22.6(supports-color@8.1.1)(ts-node@10.9.2(@types/node@26.6.2)(typescript@5.0.4))(typescript@5.0.4))(supports-color@8.1.1))(hardhat@2.22.6(supports-color@8.1.1)(ts-node@10.9.2(@types/node@26.6.2)(typescript@5.0.4))(typescript@5.0.4))(supports-color@8.1.1)
@@ -610,6 +613,28 @@ importers:
       typescript:
         specifier: 5.0.4
         version: 5.0.4
+
+  packages/sdk:
+    dependencies:
+      '@safe-global/safe-deployments':
+        specifier: 1.37.63
+        version: 1.37.63
+      '@safe-global/safe-passkey':
+        specifier: 0.2.0
+        version: 0.2.0(ethers@5.4.0)
+      viem:
+        specifier: 2.56.7
+        version: 2.56.7(typescript@5.8.3)(zod@3.25.76)
+    devDependencies:
+      '@types/node':
+        specifier: 22.16.5
+        version: 22.16.5
+      tsx:
+        specifier: 4.19.4
+        version: 4.19.4
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
 
 packages:
 

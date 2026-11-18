@@ -1,0 +1,199 @@
+{
+  "name": "@tiered-spending-guard/sdk",
+  "private": true,
+  "exports": {
+    "./config/deployment-validation": {
+      "types": "./src/config/deployment-validation.ts",
+      "default": "./src/config/deployment-validation.ts"
+    },
+    "./config/deployments": {
+      "types": "./src/config/deployments.ts",
+      "default": "./src/config/deployments.ts"
+    },
+    "./config/policy": {
+      "types": "./src/config/policy.ts",
+      "default": "./src/config/policy.ts"
+    },
+    "./config/zodiac-delay": {
+      "types": "./src/config/zodiac-delay.ts",
+      "default": "./src/config/zodiac-delay.ts"
+    },
+    "./live/runtime": {
+      "types": "./src/live/runtime.ts",
+      "default": "./src/live/runtime.ts"
+    },
+    "./live/submission": {
+      "types": "./src/live/submission.ts",
+      "default": "./src/live/submission.ts"
+    },
+    "./live/vault-deployment": {
+      "types": "./src/live/vault-deployment.ts",
+      "default": "./src/live/vault-deployment.ts"
+    },
+    "./monitoring/delay-events": {
+      "types": "./src/monitoring/delay-events.ts",
+      "default": "./src/monitoring/delay-events.ts"
+    },
+    "./monitoring/delay-lifecycle-decoder": {
+      "types": "./src/monitoring/delay-lifecycle-decoder.ts",
+      "default": "./src/monitoring/delay-lifecycle-decoder.ts"
+    },
+    "./monitoring/guard-events": {
+      "types": "./src/monitoring/guard-events.ts",
+      "default": "./src/monitoring/guard-events.ts"
+    },
+    "./monitoring/guard-rpc-binding": {
+      "types": "./src/monitoring/guard-rpc-binding.ts",
+      "default": "./src/monitoring/guard-rpc-binding.ts"
+    },
+    "./monitoring/ledger": {
+      "types": "./src/monitoring/ledger.ts",
+      "default": "./src/monitoring/ledger.ts"
+    },
+    "./monitoring/notifier": {
+      "types": "./src/monitoring/notifier.ts",
+      "default": "./src/monitoring/notifier.ts"
+    },
+    "./monitoring/watcher-runtime": {
+      "types": "./src/monitoring/watcher-runtime.ts",
+      "default": "./src/monitoring/watcher-runtime.ts"
+    },
+    "./policy/classify": {
+      "types": "./src/policy/classify.ts",
+      "default": "./src/policy/classify.ts"
+    },
+    "./pwa": {
+      "types": "./src/pwa/backend-api.d.ts",
+      "default": "./src/pwa/index.ts"
+    },
+    "./pwa/authorization": {
+      "types": "./src/pwa/authorization.ts",
+      "default": "./src/pwa/authorization.ts"
+    },
+    "./pwa/intents": {
+      "types": "./src/pwa/intents.ts",
+      "default": "./src/pwa/intents.ts"
+    },
+    "./pwa/observer": {
+      "types": "./src/pwa/observer.ts",
+      "default": "./src/pwa/observer.ts"
+    },
+    "./pwa/pinned-reads": {
+      "types": "./src/pwa/pinned-reads.ts",
+      "default": "./src/pwa/pinned-reads.ts"
+    },
+    "./pwa/profile": {
+      "types": "./src/pwa/profile.ts",
+      "default": "./src/pwa/profile.ts"
+    },
+    "./pwa/provisioning": {
+      "types": "./src/pwa/provisioning.ts",
+      "default": "./src/pwa/provisioning.ts"
+    },
+    "./pwa/provisioning-authorization-store": {
+      "types": "./src/pwa/provisioning-authorization-store.ts",
+      "default": "./src/pwa/provisioning-authorization-store.ts"
+    },
+    "./pwa/provisioning-envelope": {
+      "types": "./src/pwa/provisioning-envelope.ts",
+      "default": "./src/pwa/provisioning-envelope.ts"
+    },
+    "./pwa/provisioning-quote": {
+      "types": "./src/pwa/provisioning-quote.ts",
+      "default": "./src/pwa/provisioning-quote.ts"
+    },
+    "./pwa/provisioning-recovery": {
+      "types": "./src/pwa/provisioning-recovery.ts",
+      "default": "./src/pwa/provisioning-recovery.ts"
+    },
+    "./pwa/submission-api": {
+      "types": "./src/pwa/submission-api.ts",
+      "default": "./src/pwa/submission-api.ts"
+    },
+    "./queue/delay": {
+      "types": "./src/queue/delay.ts",
+      "default": "./src/queue/delay.ts"
+    },
+    "./signers/eip1193": {
+      "types": "./src/signers/eip1193.ts",
+      "default": "./src/signers/eip1193.ts"
+    },
+    "./signers/guard-signatures": {
+      "types": "./src/signers/guard-signatures.ts",
+      "default": "./src/signers/guard-signatures.ts"
+    },
+    "./signers/passkey": {
+      "types": "./src/signers/passkey.ts",
+      "default": "./src/signers/passkey.ts"
+    },
+    "./signers/passkey-core": {
+      "types": "./src/signers/passkey-core.ts",
+      "default": "./src/signers/passkey-core.ts"
+    },
+    "./signers/passkey-helpers": {
+      "types": "./src/signers/passkey-helpers.ts",
+      "default": "./src/signers/passkey-helpers.ts"
+    },
+    "./signers/types": {
+      "types": "./src/signers/types.ts",
+      "default": "./src/signers/types.ts"
+    },
+    "./topology/addressing": {
+      "types": "./src/topology/addressing.ts",
+      "default": "./src/topology/addressing.ts"
+    },
+    "./topology/build": {
+      "types": "./src/topology/build.ts",
+      "default": "./src/topology/build.ts"
+    },
+    "./topology/evidence": {
+      "types": "./src/topology/evidence.ts",
+      "default": "./src/topology/evidence.ts"
+    },
+    "./topology/multisend": {
+      "types": "./src/topology/multisend.ts",
+      "default": "./src/topology/multisend.ts"
+    },
+    "./topology/reviewed-artifacts": {
+      "types": "./src/topology/reviewed-artifacts.ts",
+      "default": "./src/topology/reviewed-artifacts.ts"
+    },
+    "./topology/verify": {
+      "types": "./src/topology/verify.ts",
+      "default": "./src/topology/verify.ts"
+    },
+    "./transport/calldata": {
+      "types": "./src/transport/calldata.ts",
+      "default": "./src/transport/calldata.ts"
+    },
+    "./transport/https": {
+      "types": "./src/transport/https.ts",
+      "default": "./src/transport/https.ts"
+    },
+    "./transport/relayer": {
+      "types": "./src/transport/relayer.ts",
+      "default": "./src/transport/relayer.ts"
+    },
+    "./transport/types": {
+      "types": "./src/transport/types.ts",
+      "default": "./src/transport/types.ts"
+    },
+    "./transport/validate": {
+      "types": "./src/transport/validate.ts",
+      "default": "./src/transport/validate.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@safe-global/safe-deployments": "1.37.63",
+    "@safe-global/safe-passkey": "0.2.0",
+    "viem": "2.56.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.16.5",
+    "typescript": "5.8.3",
+    "tsx": "4.19.4"
+  }
+}

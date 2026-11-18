@@ -16,16 +16,22 @@ import { createSubmissionReconciliation } from "./reconcile";
 
 export { createSubmissionReadClient } from "./read-client";
 
+/**
+ * Wire preparation, bounded execution and read-only reconciliation around one process-local intent map.
+ * Reject non-local/non-Sepolia profiles and duplicate evidence-provider identities.
+ */
 function compose(
 	config: BackendConfig,
 	dependencies: Dependencies,
 	currentVault?: () => BackendVaultRecord | undefined,
 ): ConfiguredSubmissionRuntime {
-	if (config.id !== "local" || config.chainId !== 11155111)
+	if (config.id !== "local" || config.chainId !== 11155111) {
 		throw new Error("configured PWA submissions require the local Sepolia profile");
+	}
 	const { providers } = dependencies;
-	if (providers[0].source === providers[1].source)
+	if (providers[0].source === providers[1].source) {
 		throw new Error("two distinct fixed submission providers are required");
+	}
 	const entries = new Map<string, SubmissionEntry>();
 	const preparation = createSubmissionPreparation(providers, entries);
 	const execution = createSubmissionExecution(
@@ -59,6 +65,10 @@ function compose(
 	});
 }
 
+/**
+ * Create the configured submission boundary using fixed evidence providers and a separate relay transport.
+ * @param beforeSign Optional account-state check invoked immediately before signing or sending.
+ */
 export function createConfiguredSubmissionRuntime(
 	config: BackendConfig,
 	currentVault?: () => BackendVaultRecord | undefined,
@@ -77,6 +87,7 @@ export function createConfiguredSubmissionRuntime(
 			providers,
 			relay,
 			beforeSign,
+			/** Broadcast the already-signed envelope through the fixed relay with sanitized RPC errors. */
 			sendRawTransaction: (serializedTransaction) =>
 				sanitizeRpc("submission relay", "sendRawTransaction", () =>
 					client.sendRawTransaction({ serializedTransaction }),
@@ -86,12 +97,14 @@ export function createConfiguredSubmissionRuntime(
 	);
 }
 
+/** Compose injected dependencies only under NODE_ENV=test so test transports cannot enter the normal runtime. */
 export function createSubmissionRuntimeForTestsOnly(
 	config: BackendConfig,
 	dependencies: Dependencies,
 	currentVault?: () => BackendVaultRecord | undefined,
 ): ConfiguredSubmissionRuntime {
-	if (process.env.NODE_ENV !== "test")
+	if (process.env.NODE_ENV !== "test") {
 		throw new Error("test-only submission dependencies are disabled");
+	}
 	return compose(config, dependencies, currentVault);
 }

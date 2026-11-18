@@ -6,11 +6,13 @@ import type { HistoryReadClient } from "./types";
 /** A separate read-only adapter; no relay account or write transport is accepted. */
 export function createHistoryReadClient(url: string, source: string): HistoryReadClient {
 	const client = createPublicClient({ chain: sepolia, transport: http(url) });
+	/** Sanitizes provider failures before exposing them to history consumers. */
 	const read = <T>(method: string, action: () => Promise<T>) =>
 		sanitizeRpc(source, method, action);
 	const transfer = parseAbiItem(
 		"event Transfer(address indexed from,address indexed to,uint256 value)",
 	);
+	/** Rejects unmined logs and retains the fields needed to verify block and receipt membership. */
 	const normalize = (logs: Awaited<ReturnType<typeof client.getLogs>>) =>
 		logs.map((log) => {
 			if (
@@ -18,8 +20,9 @@ export function createHistoryReadClient(url: string, source: string): HistoryRea
 				log.blockHash === null ||
 				log.transactionHash === null ||
 				log.logIndex === null
-			)
+			) {
 				throw new Error("unmined history log");
+			}
 			return {
 				address: log.address,
 				blockNumber: log.blockNumber,
@@ -33,8 +36,11 @@ export function createHistoryReadClient(url: string, source: string): HistoryRea
 		});
 	return Object.freeze({
 		source,
+		/** Reads the provider chain identity before indexing a vault. */
 		getChainId: () => read("getChainId", () => client.getChainId()),
+		/** Reads the head used to choose the confirmed history range. */
 		getBlockNumber: () => read("getBlockNumber", () => client.getBlockNumber()),
+		/** Reads block ancestry and transaction calldata for canonical replay of eventless Delay calls. */
 		getBlock: (input) =>
 			read("getBlock", async () => {
 				const block = await client.getBlock({ ...input, includeTransactions: true });
@@ -50,6 +56,7 @@ export function createHistoryReadClient(url: string, source: string): HistoryRea
 					})),
 				};
 			}),
+		/** Combines vault logs and inbound/outbound token transfers, rejecting conflicting duplicate identities. */
 		getLogs: (input) =>
 			read("getLogs", async () => {
 				const range = { fromBlock: input.fromBlock, toBlock: input.toBlock };
@@ -79,12 +86,14 @@ export function createHistoryReadClient(url: string, source: string): HistoryRea
 							prior.address !== log.address ||
 							prior.data !== log.data ||
 							prior.topics.join() !== log.topics.join())
-					)
+					) {
 						throw new Error("conflicting history log queries");
+					}
 					unique.set(key, log);
 				}
 				return [...unique.values()];
 			}),
+		/** Returns mined receipt logs and status so history can verify queried log membership. */
 		getTransactionReceipt: (input) =>
 			read("getTransactionReceipt", async () => {
 				const r = await client.getTransactionReceipt(input);
@@ -96,6 +105,7 @@ export function createHistoryReadClient(url: string, source: string): HistoryRea
 					logs: normalize(r.logs),
 				};
 			}),
+		/** Reads historical contract state used to reconcile the displayed Delay queue. */
 		readContract: (input) =>
 			read(`readContract:${input.functionName}`, () => client.readContract(input as never)),
 	} satisfies HistoryReadClient);
