@@ -6,9 +6,12 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run core:build && npm run app:build && npm run landing:build",
-    "test": "npm run core:test && npm run backend:test && npm run app:test && npm run landing:test",
-    "check": "npm run core:check && npm run sdk:check && npm run backend:lint && npm run backend:format:check && npm run backend:test && npm run backend:typecheck && npm run app:test && npm run landing:test",
+    "wallet:dev": "cd packages/core && ./node_modules/.bin/hardhat compile && node ../../apps/static-wallet/scripts/artifacts.cjs && node -r ts-node/register/transpile-only scripts/static-wallet/local.cjs --wallet",
+    "wallet:build": "npm --prefix apps/static-wallet run build",
+    "wallet:test": "npm --prefix apps/static-wallet test",
+    "build": "npm run core:build && npm run app:build && npm run landing:build && npm run wallet:build",
+    "test": "npm run core:test && npm run backend:test && npm run app:test && npm run landing:test && npm run wallet:test",
+    "check": "npm run core:check && npm run sdk:check && npm run backend:lint && npm run backend:format:check && npm run backend:test && npm run backend:typecheck && npm run app:test && npm run landing:test && npm run wallet:test && npm run wallet:build",
     "core:build": "npm --prefix packages/core run build",
     "security-core:build": "npm run core:build",
     "core:test": "npm --prefix packages/core test",
