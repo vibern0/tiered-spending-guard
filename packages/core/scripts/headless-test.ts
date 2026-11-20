@@ -5,7 +5,6 @@ const commands: readonly [string, readonly string[]][] = [
   [npm, ["run", "build"]],
   [npm, ["run", "test:unit"]],
   [npm, ["run", "test:integration"]],
-  [npm, ["run", "test:invariant"]],
 ];
 
 for (const [command, args] of commands) {

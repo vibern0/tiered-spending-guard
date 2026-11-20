@@ -1,5 +1,16 @@
 # Security dependency review
 
+## 2026-11-20 local Safe 4337 research additions
+
+These are exact **dev dependencies for local research**, not additions to the approved ordinary-Safe deployment profile. The original security dependency pins and `TieredSpendingGuard` runtime remain unchanged.
+
+| Package | Exact version / npm integrity | Source and use | Runtime/audit limit |
+| --- | --- | --- | --- |
+| `@safe-global/safe-4337` | `0.3.0-1`; `sha512-utkGzRJ+wU/Xi4PhwYWNYUaVoS7uy41p6+pn++5XKx/627Ztec3sLLP1oQRnTjGrGaMukDe3mdxWTMyaVaWbTA==` | npm `gitHead` `75e56fd52b0ddbe01dc237eaae7edb9a102ffc5c`; published Safe4337Module/SafeModuleSetup artifacts. The local router requires stock module runtime hash `0x2aea997c4e3cf0e2f333025372e219abcfde81c21fc2f8fb066414a5685dd3e0` and its constructor-bound EntryPoint. | The package brings legacy `@safe-global/safe-contracts@1.4.1` transitively; this repository does not compile or deploy that Safe release. No claim is made that any stock-module audit covers the new delegatecall router/guard composition. The local per-Safe router code hash differs with immutable addresses and must be independently anchored for deployment. |
+| `@account-abstraction/contracts` | `0.7.0`; `sha512-Bt/66ilu3u8I9+vFZ9fTd+cWs55fdb9J5YKfrhsrFafH1drkzwuCSL/xEot1GGyXXNJLQuXbMRztQPyelNbY1A==` | npm `gitHead` `59edfbc5e9862d58ebda3429c9890c3497a1d433`; local EntryPoint 0.7 `handleOps` test fixture only. | No live EntryPoint address/runtime or paymaster service is verified here. The test etches a locally deployed EntryPoint runtime at the router's pinned caller address and funds a deposit externally. |
+
+The two package versions are exact in `packages/core/package.json` and `pnpm-lock.yaml`. The reviewed local router source is `contracts/Safe4337RestrictedRouter.sol`; the AA guard variant is `contracts/TieredSpendingGuard4337.sol`. Their source and runtime require independent review and reproducible deployment anchors before any network use. The existing maintenance helper rejects the new guard runtime; delayed profile replacement remains an open gate.
+
 ## 2026-11-16 package ownership
 
 Contracts/tooling moved to `packages/core`; reusable TypeScript moved to `packages/sdk`. SDK directly declares the same pinned `@safe-global/safe-deployments` 1.37.63, `@safe-global/safe-passkey` 0.2.0 and viem 2.56.7. Core retains direct dependencies used by its compiler/scripts/tests and consumes the local SDK workspace. No dependency version, source/audit selection, canonical deployment identity, or runtime allowlist changed. The active pnpm lockfile changes workspace importers only; historical npm/Yarn snapshots are preserved. Generated public resources copy exact reviewed bytes with build-input/resource hashes, reject stale or inconsistent output, and never publish coverage-instrumented artifacts. This is an ownership review, not new audit evidence.

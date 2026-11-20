@@ -1,5 +1,7 @@
 # Security-Core Test Roadmap
 
+**2026-11-20 scope change:** The user requested removal of core tests outside the direct Safe/guard contract scenarios and two Safe 4337 installer unit tests. The current Hardhat suite has 69 passing tests in 13 files. The invariant and resource-test commands below describe the historical roadmap and are no longer available. The current `security:check` gate runs the retained contract tests, coverage, Slither, and rehearsal; it provides narrower evidence than the original roadmap.
+
 **Purpose:** Make the vault security core testable by a developer without
 requiring a product UI, then add a thin UI harness for human-driven scenarios.
 

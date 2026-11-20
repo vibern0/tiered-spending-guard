@@ -10,6 +10,8 @@ The prior ordinary-Safe live gate is open. Task 1 Step 1 therefore permits inves
 
 **2026-10-19 disposition:** The native design is the approved implementation scope once the ordinary-Safe live gate passes. It supersedes this report's hypothetical stock-module nesting and funder-deposit resolution path; the source findings explaining why the stock candidate was rejected remain evidence. Only the named restricted handler/bootstrap/anchors, contract-only secondary, restricted nonzero fallback, sponsored gas, and delayed handler/profile maintenance are in scope. `apps/backend` remains the browser write boundary until replacement evidence is complete.
 
+**2026-11-19 follow-up:** [Standard Safe4337Module on Safe 1.5: X/Y/Z research](../research/2026-11-19-standard-safe4337-xyz-research.md) adds a local real-passkey compatibility probe. It confirms the Safe 1.5 legacy signature overload and standard-module signature validation, while reproducing current guard rejection and the arbitrary-message bypass of guard hooks. It does not revise the approved native scope or close this report's broader security and live gates.
+
 ## Prior evidence audit
 
 | Required evidence | Recorded result | Evidence / limit |

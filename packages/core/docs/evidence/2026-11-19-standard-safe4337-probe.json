@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "scope": "local compatibility research, no modified contracts",
+  "chainId": 31337,
+  "safe": "1.5.0",
+  "safe4337": "0.3.0-1",
+  "passkey": "0.2.0",
+  "limits": [
+    "EntryPoint caller impersonation only",
+    "No real EntryPoint execution or nonce validation",
+    "No bundler, sponsor, browser, live RPC or installation proof",
+    "No guard adaptation implemented or tested"
+  ],
+  "facts": [
+    {
+      "name": "safe15_legacy_signature_overload",
+      "validRealPasskey": true,
+      "safeRuntimeHash": "0xdda019cbd7c867a533a2a86e5c53434fdc50b13122b5a5ddb4a8df61b31c20f2",
+      "moduleRuntimeHash": "0x2aea997c4e3cf0e2f333025372e219abcfde81c21fc2f8fb066414a5685dd3e0",
+      "safeVersion": "1.5.0"
+    },
+    {
+      "name": "standard_module_validation",
+      "validRealPasskey": 0,
+      "mutatedCallData": 1,
+      "missingAccountFunds": 0,
+      "entryPointImpersonated": true,
+      "actualEntryPointOrBundler": false
+    },
+    {
+      "name": "unguarded_module_execution",
+      "success": true,
+      "safeNonceUnchanged": true
+    },
+    {
+      "name": "unchanged_guard_rejects_direct_module_transfer",
+      "rejected": true
+    },
+    {
+      "name": "unchanged_guard_rejects_wrapped_owner_transaction",
+      "rejected": true
+    },
+    {
+      "name": "mutated_message_signature_rejected",
+      "rejected": true
+    },
+    {
+      "name": "arbitrary_safe_message_bypasses_transaction_hooks",
+      "magic": "0x1626ba7e",
+      "guardCountersUnchanged": true,
+      "safeNonceUnchanged": true,
+      "realPasskey": true
+    },
+    {
+      "name": "ordinary_guard_still_enforces_X",
+      "rejected": true
+    },
+    {
+      "name": "ordinary_guard_X_control",
+      "baseSpent": 10,
+      "instantSpent": 10
+    }
+  ]
+}
