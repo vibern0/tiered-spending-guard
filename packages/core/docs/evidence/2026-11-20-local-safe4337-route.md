@@ -1,0 +1,29 @@
+# Local Safe 4337 route experiment — 2026-11-20
+
+**Later test-scope change:** The 865-test core run recorded below predates the user-requested 2026-11-20 test reduction. The current core Hardhat suite retains 69 passing tests across 13 files, centered on direct Safe/guard scenarios and the two installer unit tests. The reduced `security:check` passes with 69 normal tests, 67 coverage tests (2 pending under instrumentation), Slither's 21 exact reviewed findings, and the local rehearsal. Removed SDK, monitoring, CLI, provisioning, invariant, and resource tests no longer support current security-gate claims.
+
+**Scope:** Local Hardhat research only. No network deployment, paymaster proof, browser signing change, backend replacement, or active vault amendment.
+
+## Artifacts and trust boundary
+
+- Safe Smart Account 1.5.0, `@safe-global/safe-4337@0.3.0-1`, EntryPoint 0.7 test artifact, Safe passkey 0.2.0, and the pinned Zodiac Delay 1.1.1 local fixture. Exact package integrities and source commits are in `../security/dependency-review.md` and `pnpm-lock.yaml`.
+- `Safe4337RestrictedRouter` delegates only the standard module's account validation/execution selectors, checks Safe caller plus EntryPoint suffix, and rejects ERC-1271/unknown selectors. Its stock-module runtime pin is `0x2aea997c4e3cf0e2f333025372e219abcfde81c21fc2f8fb066414a5685dd3e0`.
+- `TieredSpendingGuard4337` is separate from the original maintenance-pinned guard. Its constructor pins the exact per-Safe router runtime hash; a mismatched router is rejected during Safe-only configuration. It routes selected native sends and ERC-20 `transfer` calls for listed contract targets through the router, with the existing X/Y/Z policy and passkey/contract-secondary signatures.
+- The local compiled runtimes are 1,793 bytes for the router and 20,865 bytes for the guard variant, both under the 24,576-byte EVM code-size limit. Their deployed runtime hashes require per-instance anchoring because router and guard immutables are constructor-bound.
+- The unsigned MultiSendCallOnly installer and read-only before/after topology verifier are in `packages/sdk/src/topology/safe4337-route-install.ts`. The verifier pins the official MultiSendCallOnly runtime hash `0xcdbdcec38d2f1c7d961b0029ff8416b7e86e9974d6f0e9c9580c7d17fcfb6663` and requires caller-supplied runtime hashes for the other components; those anchors have no independent live provenance in this experiment.
+
+## Local observations
+
+- A real Safe 1.5 proxy with a real P-256 Safe passkey contract signer validates a signed SafeOp through the router. Direct router calls, wrong caller/EntryPoint/module, both ERC-1271 overloads, and unknown fallback selectors reject.
+- A direct owner ERC-20 transfer to a listed token rejects. A guarded AA-wrapped base transfer and a dual-signed step-up transfer succeed; shared X/Y counters become base `1`, combined instant `12`. A direct router module-to-token transfer and an ERC-20 approval reject.
+- A dual-signed over-Y transfer queues through Delay. Execution before Z, direct public Delay execution to the listed token, cancellation of the next item, and execution after expiry reject. The exact ready execution through the router after Z succeeds without incrementing X/Y counters. No rejected item transfers tokens.
+- An actual local EntryPoint 0.7 `handleOps` call validates and executes a further transfer, advancing the EntryPoint nonce. A separate external payer funded the Safe's EntryPoint deposit. This is **not** a sponsorship test.
+- An existing Safe initially configured with the stock 4337 module/fallback installs the router, Delay, and both guard slots in one Safe MultiSendCallOnly transaction. A deliberately invalid guard installation reverts completely. The read-only verifier rejects an unexpected Safe module, wrong runtime anchor, or wrong MultiSendCallOnly runtime and accepts the tested before/after topology. Guard configuration also rejects an incorrect router-code pin.
+- Focused new tests: `npm --prefix packages/core test -- test/integration/safe4337-router.test.ts test/integration/safe4337-route.test.ts test/integration/safe4337-install.test.ts test/unit/topology/safe4337-route-install.test.ts` → **5 passing**. SDK TypeScript check and normal core build pass. The final serial `npm --prefix packages/core run security:check` passes: 865 core tests (2 pending), 5 invariant tests, 863 coverage tests (4 pending), Slither with 21 reviewed exact findings and no new finding, local rehearsal, and `git diff --check`. The first gate run stopped at Slither because the new contract findings lacked baseline keys. All nine new keys were reviewed and recorded in `../security/slither-baseline.md` before the passing final run.
+- `npm --prefix apps/backend test` passes after the normal core build and with no concurrent core coverage run: **27 files, 174 tests**. An earlier overlapping backend run failed because coverage cleaned generated SDK resources; the serial rerun removed that interference.
+
+## Open gates
+
+- The existing `GuardReplacementMaintenance` accepts only the original guard runtime. It cannot replace or repair this AA variant. Delayed handler/profile replacement, signer recovery, and irreversible rollout/rollback design remain missing. **Do not install on a funded Safe.**
+- The local verifier cannot prove historical ERC-20 allowances, complete asset policy, same-block state consistency, canonical live runtime anchors, or all Delay upstream modules in the local fixture. An account with other owners/modules or Safe versions is outside the tested eligibility set.
+- No actual Pimlico/paymaster sponsored UserOperation, zero-prefund validation trace, browser passkey path, independent monitoring/alert, reorg/nonce recovery, or live Sepolia receipt was tested. The ordinary-Safe live gate in the approved plan remains open. A Safe module/guard composition requires independent review and audit before mainnet use.

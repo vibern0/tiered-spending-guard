@@ -6,13 +6,12 @@
     "test": "hardhat test",
     "test:unit": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/unit';const files=process.argv.slice(1);const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};if(!files.length)walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files],{stdio:'inherit'});else console.log('matching test/unit files not present; skipped until a later task adds them')\" --",
     "test:integration": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/integration';const files=[];const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files,...process.argv.slice(1)],{stdio:'inherit'});else console.log('matching test/integration files not present; skipped until a later task adds them')\" --",
-    "test:invariant": "node -e \"const fs=require('fs'),cp=require('child_process');const root='test/invariant';const files=[];const walk=d=>{if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+'/'+e.name;if(e.isDirectory())walk(p);else if(/\\.(ts|js)$/.test(e.name))files.push(p)}};walk(root);if(files.length)cp.execFileSync('npx',['hardhat','test',...files,...process.argv.slice(1)],{stdio:'inherit'});else console.log('matching test/invariant files not present; skipped until a later task adds them')\" --",
     "test:headless": "tsx scripts/headless-test.ts",
-    "check": "npm run build && npm run verify:sdk && npm run test:resources && npm test",
+    "check": "npm run build && npm run verify:sdk && npm test",
     "precoverage": "npm run build",
     "coverage": "SOLIDITY_COVERAGE=true hardhat coverage",
     "slither": "tsx scripts/slither-gate.ts",
-    "security:check": "npx hardhat clean && npm run build && npm run verify:sdk && npm run test:resources && npm test && npm run test:invariant && npm run coverage && npm run slither && npm run rehearse && git diff --check",
+    "security:check": "npx hardhat clean && npm run build && npm run verify:sdk && npm test && npm run coverage && npm run slither && npm run rehearse && git diff --check",
     "plan:deployment": "if [ -f scripts/plan-deployment.ts ]; then tsx scripts/plan-deployment.ts; else echo 'scripts/plan-deployment.ts not present; skipped until a later task adds it'; fi",
     "verify:dependencies": "if [ -f scripts/verify-dependencies.ts ]; then tsx scripts/verify-dependencies.ts; else echo 'scripts/verify-dependencies.ts not present; skipped until a later task adds it'; fi",
     "verify:deployment": "if [ -f scripts/verify-deployment.ts ]; then tsx scripts/verify-deployment.ts; else echo 'scripts/verify-deployment.ts not present; skipped until a later task adds it'; fi",
@@ -30,10 +29,10 @@
     "pwa:observe": "tsx scripts/pwa/observe.ts",
     "pwa:evidence": "tsx scripts/pwa/package-evidence.ts",
     "pwa:rehearse:local": "tsx scripts/pwa/rehearse-local.ts",
-    "test:resources": "node --test scripts/test/sdk-resources.test.cjs",
     "verify:sdk": "node scripts/sdk-resources.cjs check"
   },
   "devDependencies": {
+    "@account-abstraction/contracts": "0.7.0",
     "@nomicfoundation/hardhat-ignition": "0.15.5",
     "@nomicfoundation/hardhat-ignition-viem": "0.15.5",
     "@nomicfoundation/hardhat-network-helpers": "1.0.12",
@@ -41,6 +40,8 @@
     "@nomicfoundation/hardhat-verify": "2.0.1",
     "@nomicfoundation/hardhat-viem": "2.0.0",
     "@nomicfoundation/ignition-core": "0.15.5",
+    "@safe-global/safe-4337": "0.3.0-1",
+    "@tiered-spending-guard/sdk": "workspace:*",
     "@types/chai": "4.3.16",
     "@types/chai-as-promised": "7.1.8",
     "@types/mocha": "10.0.10",
@@ -50,8 +51,7 @@
     "solidity-coverage": "0.8.14",
     "ts-node": "10.9.2",
     "tsx": "4.19.4",
-    "typescript": "5.0.4",
-    "@tiered-spending-guard/sdk": "workspace:*"
+    "typescript": "5.0.4"
   },
   "dependencies": {
     "@gnosis-guild/zodiac": "5.0.1",

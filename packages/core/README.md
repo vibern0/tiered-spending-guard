@@ -12,9 +12,8 @@ This is security research and a testnet prototype. The package move does not com
 | `scripts/` | Commands for unsigned plans, dependency/deployment verification, monitoring, local rehearsals, and reviewed testnet operations. These are entry points, not the SDK. |
 | `scripts/live/` | Reviewed ordinary-Safe CLI workflows. Shared journal/lease/submission implementations now live in SDK `src/live/`. Some commands can sign or broadcast when deliberately configured; inspect their existing gates before running them. |
 | `scripts/pwa/` | Local browser-wallet rehearsal, profile capture, observation, and evidence commands. |
-| `scripts/test/` | Tests the resource build bridge with disposable files, separately from Hardhat coverage. |
 | `scripts/security/` | Input validation for safe rehearsals and validation of the Slither report/baseline. |
-| `test/` | Contract, SDK, actual Safe/Delay integration, invariant, and CLI tests. `unit/` checks components; `integration/` checks composed flows; `invariant/` checks stateful policy; `helpers/`, `support/`, and `fixtures/` provide test data/adapters. |
+| `test/` | Direct Safe/guard contract scenarios and the Safe 4337 installer unit tests. `helpers/`, `support/`, and `fixtures/` provide test data/adapters. |
 | `config/` | Authoritative public profiles, policy settings, reviewed dependency artifacts, and runtime allowlists. `artifacts/` contains committed upstream data, not locally compiled output. |
 | `deployments/` | Public deployment manifests/examples. They contain no private credentials. |
 | `docs/` | Research, security decisions, call graph, plans, test guidance, and public historical evidence. Start with [`research/`](docs/research/2026-09-16-personal-vault-research.md). |
@@ -30,7 +29,6 @@ From the repository root:
 ```sh
 pnpm core:build
 pnpm core:verify:sdk
-pnpm core:test:resources
 pnpm sdk:check
 pnpm core:test
 pnpm core:rehearse

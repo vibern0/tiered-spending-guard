@@ -11,6 +11,15 @@
     "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L557-L608",
     "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L618-L638",
     "timestamp|_currentWindow|contracts/TieredSpendingGuard.sol#L788-L791",
-    "cache-array-length|policyHash|contracts/TieredSpendingGuard.sol#L308"
+    "cache-array-length|policyHash|contracts/TieredSpendingGuard.sol#L308",
+    "incorrect-return|fallback|contracts/Safe4337RestrictedRouter.sol#L48-L72",
+    "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard4337.sol#L913-L916",
+    "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard4337.sol#L743-L763",
+    "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard4337.sol#L396-L399",
+    "unused-return|decodeEcdsaSecondaryExtension|contracts/TieredSpendingGuard4337.sol#L404-L407",
+    "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard4337.sol#L682-L733",
+    "timestamp|_currentWindow|contracts/TieredSpendingGuard4337.sol#L913-L916",
+    "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard4337.sol#L743-L763",
+    "cache-array-length|policyHash|contracts/TieredSpendingGuard4337.sol#L344"
   ]
 }
