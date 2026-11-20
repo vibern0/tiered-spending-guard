@@ -38,3 +38,11 @@ Chromium virtual authenticator. Three sponsored EntryPoint operations: create, p
 Verified both guard slots, one route recipient, zero vault balance. Read-only native transfer simulation accepts 0.001 ETH with the primary passkey and rejects one wei more. Recipient uses the pinned Safe test receiver fixture. Production build passes the browser flow over plain static HTTP. Fifteen app tests pass.
 
 Live bundler admission, sponsor coverage, physical authenticators, alerts and profile repair remain unverified. UI covers creation and installation only.
+
+## GLD sending follow-up
+
+- [x] Deploy ERC20Mock, seed the requested address and show its token balance.
+- [x] Configure one token and recipient in Settings. Require verified GLD guard policy for Send.
+- [x] Sign the exact ERC-20 Safe transaction and router-domain UserOperation. Verify real base and step-up transfers and over-limit rejection through the browser.
+
+The GLD rehearsal replaces the native-transfer preset for new local installations. The old native-only profile remains on its original chain. The requested address was recreated on a separate local chain with its original factory initializer and passkey owner. Installing GLD protection remains an owner action.

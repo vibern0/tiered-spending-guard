@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { keccak256 } = require("viem");
 const core = path.resolve(__dirname, "../../../packages/core");
 const dependency = (p) => require(path.join(core, "node_modules", p));
 const local = (p) => require(path.join(core, "artifacts/contracts", p));
@@ -28,6 +29,7 @@ const items = {
   router: local("Safe4337RestrictedRouter.sol/Safe4337RestrictedRouter.json"),
   guard: local("TieredSpendingGuard4337.sol/TieredSpendingGuard4337.json"),
   delay: local("test/ZodiacDelayV1_1_1.sol/ZodiacDelayV1_1_1.json"),
+  token: local("test/ERC20Mock.sol/ERC20Mock.json"),
 };
 fs.writeFileSync(
   path.resolve(__dirname, "../src/artifacts.json"),
@@ -41,6 +43,9 @@ fs.writeFileSync(
             ? { bytecode: v.bytecode }
             : {}),
           ...(k === "proxy" ? { deployedBytecode: v.deployedBytecode } : {}),
+          ...(k === "token"
+            ? { runtimeHash: keccak256(v.deployedBytecode) }
+            : {}),
         },
       ]),
     ),

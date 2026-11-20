@@ -33,21 +33,21 @@ describe("static wallet fail-closed state", () => {
   it("checks actual limits and secondary, not just slots", () => {
     expect(
       policyMatches(
-        [10n ** 15n, 3n * 10n ** 15n, 10n ** 15n, 3n * 10n ** 15n, 0],
+        [10n ** 19n, 3n * 10n ** 19n, 10n ** 19n, 3n * 10n ** 19n, 0],
         ["0x123", 0, true],
         "0x123",
       ),
     ).toBe(true);
     expect(
       policyMatches(
-        [10n ** 15n, 3n * 10n ** 15n, 10n ** 15n, 4n * 10n ** 15n, 0],
+        [10n ** 19n, 3n * 10n ** 19n, 10n ** 19n, 4n * 10n ** 19n, 0],
         ["0x123", 0, true],
         "0x123",
       ),
     ).toBe(false);
     expect(
       policyMatches(
-        [10n ** 15n, 3n * 10n ** 15n, 10n ** 15n, 3n * 10n ** 15n, 0],
+        [10n ** 19n, 3n * 10n ** 19n, 10n ** 19n, 3n * 10n ** 19n, 0],
         ["0x123", 0, false],
         "0x123",
       ),
@@ -91,6 +91,7 @@ function harness() {
     signerFactory: address,
     verifier: address,
     recipient: address,
+    token: sponsor,
     paymaster: sponsor,
     chainId: 31337,
     rpcUrl: "http://localhost:8545",
@@ -186,17 +187,17 @@ it("rejects missing and inconsistent RPC chain state", async () => {
   await expect(wallet.preflight()).rejects.toThrow("chain changed");
 });
 
-it("refuses an installed policy whose native recipient has no guarded route", async () => {
+it("refuses an installed policy whose token has no guarded route", async () => {
   const { wallet, record } = harness();
   record.secondary = { ...record.primary, id: "secondary", signer: sponsor };
   Object.assign(wallet.manifest, {
     recipient: "0x000000000000000000000000000000000000bEEF",
   });
   const values: Record<string, unknown> = {
-    assetPolicy: [10n ** 15n, 3n * 10n ** 15n, 10n ** 15n, 3n * 10n ** 15n, 0],
+    assetPolicy: [10n ** 19n, 3n * 10n ** 19n, 10n ** 19n, 3n * 10n ** 19n, 0],
     safeContractSecondary: [sponsor, 0, true],
     ecdsaSecondary: ["0x0000000000000000000000000000000000000000", 1, false],
-    getConfiguredTokens: ["0x0000000000000000000000000000000000000000"],
+    getConfiguredTokens: [wallet.manifest.token],
     getPolicyRecipients: [wallet.manifest.recipient],
     txCooldown: 120n,
     txExpiration: 600n,
@@ -221,7 +222,7 @@ it("refuses an installed policy whose native recipient has no guarded route", as
       delay: { address },
     } as any),
   ).toBe(false);
-  values.getRouteOnlyTargets = [wallet.manifest.recipient];
+  values.getRouteOnlyTargets = [wallet.manifest.token];
   values.routeOnlyTarget = true;
   expect(
     await wallet.policy(record, {
@@ -229,4 +230,24 @@ it("refuses an installed policy whose native recipient has no guarded route", as
       delay: { address },
     } as any),
   ).toBe(true);
+});
+
+it("refuses to sign a token send from an ordinary Safe or to a different recipient", async () => {
+  const { wallet, record } = harness();
+  const inspect = vi.spyOn(wallet, "inspect").mockResolvedValue("ordinary");
+  const submit = vi.spyOn(wallet, "submit");
+  await expect(
+    wallet.send(record, wallet.manifest.recipient, "1"),
+  ).rejects.toThrow("Enable");
+  inspect.mockResolvedValue("enabled");
+  await expect(
+    wallet.send(record, "0x0000000000000000000000000000000000000001", "1"),
+  ).rejects.toThrow("approved");
+  expect(submit).not.toHaveBeenCalled();
+});
+it("rejects a manifest that substitutes a different token implementation", async () => {
+  const { wallet } = harness();
+  vi.spyOn(wallet.client, "getChainId").mockResolvedValue(31337);
+  wallet.manifest.hashes.token = hash;
+  await expect(wallet.preflight()).rejects.toThrow("reviewed GLD");
 });

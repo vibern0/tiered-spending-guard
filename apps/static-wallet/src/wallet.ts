@@ -5,6 +5,9 @@ import {
   encodeAbiParameters,
   encodeDeployData,
   encodeFunctionData,
+  erc20Abi,
+  isAddress,
+  formatUnits,
   getContractAddress,
   http,
   keccak256,
@@ -25,14 +28,14 @@ import {
 } from "viem/account-abstraction";
 import artifacts from "./artifacts.json";
 import { providerFields, RpcRejection } from "./provider";
+import { X, Y, instantTier, tokenAmount } from "./transfer";
+import { encodeGuardContractSignatures } from "../../../packages/sdk/src/signers/guard-signatures";
 import { signPasskey } from "./passkey";
 import {
   assertLocal,
   parseRecord,
   same,
   policyMatches,
-  X,
-  Y,
   type Manifest,
   type Credential,
   type WalletRecord,
@@ -143,6 +146,10 @@ export class Wallet {
     if ((await this.client.getChainId()) !== 31337)
       throw Error("RPC chain changed. Refusing to sign.");
     const m = this.manifest;
+    if (!same(m.hashes.token, artifacts.token.runtimeHash))
+      throw Error(
+        "This local chain does not match the reviewed GLD token profile.",
+      );
     for (const name of [
       "entryPoint",
       "singleton",
@@ -156,6 +163,7 @@ export class Wallet {
       "createCall",
       "paymaster",
       "recipient",
+      "token",
     ] as const) {
       const code = await this.client.getCode({ address: m[name] });
       if (!code || code === "0x" || !same(keccak256(code), m.hashes[name]))
@@ -346,6 +354,7 @@ export class Wallet {
     operation: 0 | 1,
     label: string,
     factoryData?: Hex,
+    signingModule: Address = this.manifest.standardModule,
   ) {
     await this.preflight();
     await this.validateRecord(r);
@@ -420,7 +429,7 @@ export class Wallet {
     this.progress(`${label} · approve with your primary passkey`);
     const digest = await this.read(
       "module",
-      m.standardModule,
+      signingModule,
       "getOperationHash",
       [toPackedUserOperation(op)],
     );
@@ -491,6 +500,8 @@ export class Wallet {
     call: Hex,
     operation: 0 | 1,
     label: string,
+    signingModule = this.manifest.standardModule,
+    secondary?: Credential,
   ) {
     const nonce = await this.read("safe", r.safe, "nonce");
     const args = [
@@ -509,13 +520,24 @@ export class Wallet {
       ...args,
       nonce,
     ]);
-    const signature = await signPasskey(r.primary, digest);
+    let signature = await signPasskey(r.primary, digest);
+    if (secondary) {
+      this.progress("Approve the same transfer with your secondary passkey");
+      const second = await signPasskey(secondary, digest);
+      // signPasskey returns the canonical one-contract slot, length and payload.
+      signature = encodeGuardContractSignatures(
+        { address: r.primary.signer, payload: sliceHex(signature, 97) },
+        { address: secondary.signer, payload: sliceHex(second, 97) },
+      );
+    }
     await this.submit(
       r,
       r.safe,
       data("safe", "execTransaction", [...args, signature]),
       0,
       label,
+      undefined,
+      signingModule,
     );
   }
   async components(r: WalletRecord) {
@@ -630,11 +652,11 @@ export class Wallet {
       routeTargets,
       routed,
     ] = await Promise.all([
-      this.read("guard", g, "assetPolicy", [zeroAddress]),
+      this.read("guard", g, "assetPolicy", [this.manifest.token]),
       this.read("guard", g, "safeContractSecondary"),
       this.read("guard", g, "ecdsaSecondary"),
       this.read("guard", g, "getConfiguredTokens"),
-      this.read("guard", g, "getPolicyRecipients", [zeroAddress]),
+      this.read("guard", g, "getPolicyRecipients", [this.manifest.token]),
       this.delayUpstream(d, r.safe),
       this.read("delay", d, "txCooldown"),
       this.read("delay", d, "txExpiration"),
@@ -642,16 +664,16 @@ export class Wallet {
       this.read("guard", g, "frozen"),
       this.read("guard", g, "maintenance"),
       this.read("guard", g, "getRouteOnlyTargets"),
-      this.read("guard", g, "routeOnlyTarget", [this.manifest.recipient]),
+      this.read("guard", g, "routeOnlyTarget", [this.manifest.token]),
     ]);
     return (
       policyMatches(p, s, r.secondary.signer) &&
       same(e[0], zeroAddress) &&
       !e[2] &&
       tokens.length === 1 &&
-      same(tokens[0], zeroAddress) &&
+      same(tokens[0], this.manifest.token) &&
       recipients.length === 1 &&
-      same(recipients[0], this.manifest.recipient) &&
+      same(recipients[0], r.recipient ?? this.manifest.recipient) &&
       upstream &&
       cooldown === 120n &&
       expiration === 600n &&
@@ -659,7 +681,7 @@ export class Wallet {
       !frozen &&
       same(maintenance, zeroAddress) &&
       routeTargets.length === 1 &&
-      same(routeTargets[0], this.manifest.recipient) &&
+      same(routeTargets[0], this.manifest.token) &&
       routed === true
     );
   }
@@ -726,12 +748,69 @@ export class Wallet {
       ? "enabled"
       : "blocked";
   }
-  async enable(r: WalletRecord) {
+  async tokenBalance(safe: Address) {
+    return this.client.readContract({
+      address: this.manifest.token,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [safe],
+    });
+  }
+  async send(r: WalletRecord, recipient: string, text: string) {
+    if ((await this.inspect(r)) !== "enabled")
+      throw Error("Enable protected GLD transfers in Settings first.");
+    if (
+      !isAddress(recipient) ||
+      !same(recipient, r.recipient ?? this.manifest.recipient)
+    )
+      throw Error("Choose the GLD recipient approved in Settings.");
+    const amount = tokenAmount(text);
+    if ((await this.tokenBalance(r.safe)) < amount)
+      throw Error("Insufficient GLD balance.");
+    const components = await this.components(r);
+    const [spend, block] = await Promise.all([
+      this.read("guard", components.guard.address, "spendState", [
+        this.manifest.token,
+      ]),
+      this.client.getBlock(),
+    ]);
+    const tier = instantTier(amount, spend, block.timestamp);
+    if (tier === "step-up" && !r.secondary)
+      throw Error("Secondary passkey is required.");
+    const call = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [recipient, amount],
+    });
+    await this.inner(
+      r,
+      this.manifest.token,
+      call,
+      0,
+      `Send ${formatUnits(amount, 18)} GLD`,
+      components.router.address,
+      tier === "step-up" ? r.secondary : undefined,
+    );
+  }
+  async enable(
+    r: WalletRecord,
+    recipient: string = r.recipient ?? this.manifest.recipient,
+  ) {
     await this.preflight();
     const state = await this.inspect(r);
     if (state === "enabled") return;
     if (state !== "ordinary")
       throw Error("This Safe is not eligible for installation.");
+    if (
+      !isAddress(recipient) ||
+      same(recipient, zeroAddress) ||
+      same(recipient, r.safe)
+    )
+      throw Error("Choose a valid recipient different from your Safe.");
+    if (r.recipient && !same(r.recipient, recipient))
+      throw Error("Continue with the original recipient.");
+    r.recipient = recipient;
+    this.persist(r);
     if (!r.secondary) {
       r.secondary = await this.enroll("secondary");
       if (
@@ -774,16 +853,9 @@ export class Wallet {
       );
       add(
         c.guard.address,
-        data("guard", "setAssetPolicy", [
-          zeroAddress,
-          X,
-          Y,
-          X,
-          Y,
-          [m.recipient],
-        ]),
+        data("guard", "setAssetPolicy", [m.token, X, Y, X, Y, [r.recipient]]),
       );
-      add(c.guard.address, data("guard", "addRouteOnlyTarget", [m.recipient]));
+      add(c.guard.address, data("guard", "addRouteOnlyTarget", [m.token]));
       add(
         c.guard.address,
         data("guard", "configureSafeContractSecondary", [

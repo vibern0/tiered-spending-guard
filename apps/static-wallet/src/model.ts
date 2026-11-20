@@ -1,6 +1,5 @@
 import { isAddress, type Address, type Hex } from "viem";
-export const X = 10n ** 15n,
-  Y = 3n * X;
+import { X, Y } from "./transfer";
 export type Manifest = {
   chainId: number;
   rpcUrl: string;
@@ -18,7 +17,8 @@ export type Manifest = {
   | "verifier"
   | "createCall"
   | "paymaster"
-  | "recipient",
+  | "recipient"
+  | "token",
   Address
 >;
 export type Credential = { id: string; publicKey: Hex; signer: Address };
@@ -30,6 +30,7 @@ export type WalletRecord = {
   salt: Hex;
   initializer: Hex;
   secondary?: Credential;
+  recipient?: Address;
   pending?: { hash: Hex; label: string };
 };
 export type WalletState = "undeployed" | "ordinary" | "enabled" | "blocked";
@@ -67,6 +68,7 @@ export function parseRecord(raw: string | null): WalletRecord | null {
       !/^0x[0-9a-f]{128}$/i.test(r.primary?.publicKey) ||
       !/^0x[0-9a-f]{64}$/i.test(r.salt) ||
       !/^0x(?:[0-9a-f]{2})+$/i.test(r.initializer) ||
+      (r.recipient !== undefined && !isAddress(r.recipient)) ||
       (r.secondary &&
         (!isAddress(r.secondary.signer) ||
           typeof r.secondary.id !== "string" ||

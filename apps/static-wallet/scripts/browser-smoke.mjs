@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
 import { createPublicClient, http, parseAbi, zeroAddress } from "viem";
 
-const origin = "http://localhost:5180";
+const origin =
+  "http://localhost:" + (process.env.STATIC_WALLET_UI_PORT || "5180");
 const config = await (await fetch(origin + "/local.json")).json();
 assert.equal(config.chainId, 31337);
 assert.equal(new URL(config.rpcUrl).hostname, "127.0.0.1");
@@ -68,7 +69,7 @@ try {
   await page.reload();
   await visible(/Wallet ready/);
   await button("Settings").click();
-  await button("Enable tiered spending").click();
+  await button("Enable protected GLD transfers").click();
   await visible(/Rehearsal sponsorship declined/);
   assert.equal(await readSlot(guardSlot), zeroAddress);
   assert.equal(await readSlot(moduleGuardSlot), zeroAddress);
@@ -97,10 +98,35 @@ try {
       address: guard,
       abi: parseAbi(["function routeOnlyTarget(address) view returns (bool)"]),
       functionName: "routeOnlyTarget",
-      args: [config.recipient],
+      args: [config.token],
     }),
     true,
   );
+  const tokenBalance = (owner) =>
+    chain.readContract({
+      address: config.token,
+      abi: parseAbi(["function balanceOf(address) view returns(uint256)"]),
+      functionName: "balanceOf",
+      args: [owner],
+    });
+  const initialBalance = await tokenBalance(safe);
+  const destinationBefore = await tokenBalance(config.recipient);
+  assert.equal(initialBalance, 100n * 10n ** 18n);
+  await button("← Wallet").click();
+  for (const amount of ["1", "10"]) {
+    await page.getByLabel("Amount (GLD)").fill(amount);
+    await button("Send GLD").click();
+    await visible(new RegExp("Sent " + amount + " GLD"));
+  }
+  assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
+  assert.equal(
+    await tokenBalance(config.recipient),
+    destinationBefore + 11n * 10n ** 18n,
+  );
+  await page.getByLabel("Amount (GLD)").fill("20");
+  await button("Send GLD").click();
+  await visible(/needs a delayed withdrawal/);
+  assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
   const operations = await chain.getContractEvents({
     address: config.entryPoint,
     abi: parseAbi([
@@ -111,7 +137,7 @@ try {
     fromBlock: 0n,
     toBlock: "latest",
   });
-  assert.equal(operations.length, 3);
+  assert.equal(operations.length, 5);
   assert.ok(
     operations.every(
       ({ args }) =>
@@ -121,7 +147,7 @@ try {
   );
   assert.equal(await chain.getBalance({ address: safe }), 0n);
   console.log(
-    "Passed: creation, interrupted installation, same-wallet resume, verified guards, sponsored receipts and mobile layout.",
+    "Passed: creation, interrupted installation, same-wallet resume, verified guards, GLD base and step-up transfers, over-limit rejection, sponsored receipts and mobile layout.",
   );
 } finally {
   await browser.close();

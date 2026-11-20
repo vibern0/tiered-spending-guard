@@ -15,7 +15,9 @@ const { generatePrivateKey, privateKeyToAccount } = require("viem/accounts");
 const entryArtifact = require("@account-abstraction/contracts/artifacts/EntryPoint.json");
 const payerArtifact = require("@account-abstraction/contracts/artifacts/VerifyingPaymaster.json");
 const EP = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
-const port = 8547;
+const port = Number(process.env.STATIC_WALLET_RPC_PORT || 8547);
+const fundedSafe = "0x614f2F5011b9C329770576be59Ae294a6e7D9fdC";
+const tokenUnit = 10n ** 18n;
 const rpcUrl = "http://127.0.0.1:" + port;
 const safe = (name) =>
   require(
@@ -97,6 +99,28 @@ async function main() {
       await client.getCode({ address: manifest[name] }),
     );
   }
+  const tokenArtifact = await hre.artifacts.readArtifact("ERC20Mock");
+  manifest.token = await deploy(tokenArtifact, [
+    wallet.account.address,
+    1_000_000n * tokenUnit,
+  ]);
+  manifest.hashes.token = keccak256(
+    await client.getCode({ address: manifest.token }),
+  );
+  async function fundDemoSafe(address, amount) {
+    const tx = await wallet.writeContract({
+      address: manifest.token,
+      abi: tokenArtifact.abi,
+      functionName: "transfer",
+      args: [address, amount * tokenUnit],
+    });
+    if (
+      (await client.waitForTransactionReceipt({ hash: tx })).status !==
+      "success"
+    )
+      throw Error("Local GLD funding failed");
+  }
+  await fundDemoSafe(fundedSafe, 1000n);
   const entry = { address: EP, abi: entryArtifact.abi };
   const gas = {
     preVerificationGas: toHex(750000n),
@@ -243,6 +267,13 @@ async function main() {
         logs: receipt.logs,
         receipt,
       });
+      // Give newly created demo Safes a test balance once. The named Safe is already seeded.
+      if (
+        success &&
+        op.factory?.toLowerCase() === manifest.proxyFactory.toLowerCase() &&
+        sender.toLowerCase() !== fundedSafe.toLowerCase()
+      )
+        await fundDemoSafe(sender, 100n);
       return hash;
     }
     throw Error("Missing EntryPoint receipt");
@@ -299,10 +330,9 @@ async function main() {
   await new Promise((resolve, reject) =>
     server.once("error", reject).listen(port, "127.0.0.1", resolve),
   );
-  const directory = path.resolve(
-    __dirname,
-    "../../../../apps/static-wallet/public",
-  );
+  const root = path.resolve(__dirname, "../../../../apps/static-wallet");
+  const directory =
+    process.env.STATIC_WALLET_PUBLIC_DIR || path.join(root, "public");
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, "local.json");
   await writeFile(file + ".tmp", JSON.stringify(manifest, null, 2) + "\n");
@@ -311,7 +341,6 @@ async function main() {
     "Disposable local chain, bundler and paymaster ready at " + rpcUrl,
   );
   if (process.argv.includes("--wallet")) {
-    const root = path.dirname(directory);
     const vite = await import(
       require("node:module")
         .createRequire(path.join(root, "package.json"))
@@ -319,7 +348,12 @@ async function main() {
     );
     const frontend = await vite.createServer({
       root,
-      server: { host: "localhost", port: 5180, strictPort: true },
+      publicDir: directory,
+      server: {
+        host: "localhost",
+        port: Number(process.env.STATIC_WALLET_UI_PORT || 5180),
+        strictPort: true,
+      },
     });
     await frontend.listen();
     frontend.printUrls();

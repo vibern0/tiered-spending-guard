@@ -1,4 +1,4 @@
-import { formatEther } from "viem";
+import { formatUnits } from "viem";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -20,6 +20,9 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Connecting to local research chain…");
   const [error, setError] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [amount, setAmount] = useState("1");
+  const [confirmation, setConfirmation] = useState("");
   const [settings, setSettings] = useState(false);
   const persist = (r: WalletRecord) => {
     localStorage.setItem(KEY, JSON.stringify(r));
@@ -53,11 +56,10 @@ function App() {
             );
           }
           setRecord(stored);
+          setRecipient(stored?.recipient ?? manifest.recipient);
           setState(stored ? await w.inspect(stored) : undefined);
           if (stored)
-            setBalance(
-              formatEther(await w.client.getBalance({ address: stored.safe })),
-            );
+            setBalance(formatUnits(await w.tokenBalance(stored.safe), 18));
         });
         setMessage("");
       } catch (e) {
@@ -71,9 +73,10 @@ function App() {
       active = false;
     };
   }, []);
-  async function run(action: "create" | "enable" | "refresh") {
+  async function run(action: "create" | "enable" | "refresh" | "send") {
     if (!wallet) return;
     setBusy(true);
+    setConfirmation("");
     setError("");
     let r = record;
     try {
@@ -89,12 +92,14 @@ function App() {
         if (action === "create") {
           r ??= await wallet.prepare();
           await wallet.create(r);
-        } else if (action === "enable" && r) await wallet.enable(r);
+        } else if (action === "enable" && r) await wallet.enable(r, recipient);
+        else if (action === "send" && r) {
+          await wallet.send(r, recipient, amount);
+          setConfirmation(`Sent ${amount} GLD to ${recipient}.`);
+        }
         if (r) {
           setState(await wallet.inspect(r));
-          setBalance(
-            formatEther(await wallet.client.getBalance({ address: r.safe })),
-          );
+          setBalance(formatUnits(await wallet.tokenBalance(r.safe), 18));
         }
         setMessage("");
       });
@@ -161,7 +166,7 @@ function App() {
             {!settings ? (
               <>
                 <div className="balance">
-                  {balance ?? "—"} <span>ETH</span>
+                  {balance ?? "—"} <span>GLD</span>
                 </div>
                 <p>
                   {state === "enabled"
@@ -174,6 +179,32 @@ function App() {
                           ? "Verification failed · actions locked"
                           : "Checking wallet…"}
                 </p>
+                {state === "enabled" && (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void run("send");
+                    }}
+                  >
+                    <label>
+                      Recipient
+                      <input required value={recipient} readOnly />
+                    </label>
+                    <label>
+                      Amount (GLD)
+                      <input
+                        required
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                      />
+                    </label>
+                    <button disabled={busy}>Send GLD</button>
+                  </form>
+                )}
+                {state === "ordinary" && (
+                  <button onClick={() => setSettings(true)}>Send GLD</button>
+                )}
                 {state === "undeployed" && (
                   <button disabled={busy} onClick={() => void run("create")}>
                     Finish creating wallet
@@ -182,7 +213,11 @@ function App() {
               </>
             ) : (
               <>
-                <h2>Tiered spending</h2>
+                <h2>Smart contracts</h2>
+                <p>
+                  <strong>Gold (GLD)</strong> · ERC-20 transfers
+                </p>
+                <p className="address">{wallet?.manifest.token}</p>
                 <p>
                   {state === "enabled"
                     ? "Enabled · verified onchain"
@@ -193,23 +228,29 @@ function App() {
                 <dl>
                   <div>
                     <dt>Primary passkey</dt>
-                    <dd>0.001 ETH per transaction and day</dd>
+                    <dd>10 GLD per transaction and day</dd>
                   </div>
                   <div>
                     <dt>With secondary passkey</dt>
-                    <dd>0.003 ETH shared daily limit</dd>
+                    <dd>30 GLD shared daily limit</dd>
                   </div>
                   <div>
                     <dt>Above the daily limit</dt>
-                    <dd>120-second delay · cancellable</dd>
+                    <dd>120-second delay · outside instant Send</dd>
                   </div>
                   <div>
                     <dt>Queued transfer expires</dt>
                     <dd>600 seconds after the delay</dd>
                   </div>
                 </dl>
-                <p className="small">One local research recipient:</p>
-                <p className="address small">{wallet?.manifest.recipient}</p>
+                <label>
+                  Approved GLD recipient
+                  <input
+                    value={recipient}
+                    readOnly={state !== "ordinary" || !!record.recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                  />
+                </label>
                 <p className="small">
                   A distinct secondary passkey is required. It is not another
                   Safe owner. Separate credentials may still share a device or
@@ -217,9 +258,9 @@ function App() {
                 </p>
                 {state === "ordinary" && (
                   <button disabled={busy} onClick={() => void run("enable")}>
-                    {record.secondary
+                    {record.recipient
                       ? "Continue enabling tiered spending"
-                      : "Enable tiered spending"}
+                      : "Enable protected GLD transfers"}
                   </button>
                 )}
                 {state === "enabled" && (
@@ -239,6 +280,7 @@ function App() {
           </>
         )}
         {message && <p role="status">{message}</p>}
+        {confirmation && <p role="status">{confirmation}</p>}
         {error && <p role="alert">{error}</p>}
         {record?.pending && (
           <p className="small">
@@ -247,9 +289,7 @@ function App() {
           </p>
         )}
       </section>
-      <footer>
-        Disposable local chain · 31337. Keep this Safe unfunded.
-      </footer>
+      <footer>Local chain 31337 · Test GLD only.</footer>
     </main>
   );
 }
