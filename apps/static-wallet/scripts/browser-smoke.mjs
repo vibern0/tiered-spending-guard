@@ -61,9 +61,21 @@ try {
   await visible(/Wallet ready/);
   const activeSafe = () =>
     page.evaluate(
-      () => JSON.parse(localStorage.getItem("static-vault.local.v1")).safe,
+      (rpc) =>
+        JSON.parse(localStorage.getItem("static-vault.local.v1:" + rpc)).safe,
+      config.rpcUrl,
     );
   const safe = await activeSafe();
+  // A saved public record from the earlier wallet must survive the network-specific journal migration.
+  await page.evaluate((rpc) => {
+    const key = "static-vault.local.v1";
+    const scoped = key + ":" + rpc;
+    localStorage.setItem(key, localStorage.getItem(scoped));
+    localStorage.removeItem(scoped);
+  }, config.rpcUrl);
+  await page.reload();
+  await visible(/Wallet ready/);
+  assert.equal(await activeSafe(), safe);
   assert.ok(await chain.getCode({ address: safe }));
   const guardSlot =
     "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8";

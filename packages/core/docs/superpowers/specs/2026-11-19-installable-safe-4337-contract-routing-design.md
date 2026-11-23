@@ -1,5 +1,7 @@
 # Installable Safe 4337 contract routing: focused design proposal
 
+> **2026-11-23 local ERC-4337 amendment.** In new static-wallet installations of `TieredSpendingGuard4337`, the projected total instant spend for this token and day must fit X for primary-only approval. Both passkeys may spend up to shared Y. A step-up payment consumes the remaining capacity under X as well as Y. The raw base counter continues to measure transfers actually approved with the primary alone. The ordinary-Safe profile and previously deployed bytecode retain their original policy.
+
 **Date:** 2026-11-19
 **Status:** Safe 1.5 and reviewed-function scope selected by the user on 2026-11-20. Local implementation and tests authorized; no network deployment or adoption into the active vault profile.
 **Request:** Let an existing ERC-4337 account install enforcement so selected contract interactions can execute only through the account's 4337 route.

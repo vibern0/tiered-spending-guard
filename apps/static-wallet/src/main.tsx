@@ -16,9 +16,7 @@ import "./style.css";
 function App() {
   const [balance, setBalance] = useState<string>();
   const [wallet, setWallet] = useState<Wallet>();
-  const [record, setRecord] = useState<WalletRecord | null>(() =>
-    parseRecord(localStorage.getItem(KEY)),
-  );
+  const [record, setRecord] = useState<WalletRecord | null>(null);
   const [state, setState] = useState<WalletState>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Connecting to local research chain…");
@@ -40,10 +38,6 @@ function App() {
       /* Incomplete amount while typing. */
     }
   }
-  const persist = (r: WalletRecord) => {
-    localStorage.setItem(KEY, JSON.stringify(r));
-    setRecord({ ...r });
-  };
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -54,16 +48,24 @@ function App() {
             "Start the disposable local chain to connect this wallet.",
           );
         const manifest = (await response.json()) as Manifest;
-        const w = new Wallet(manifest, persist, setMessage);
+        const networkKey = KEY + ":" + manifest.rpcUrl;
+        const w = new Wallet(
+          manifest,
+          (r) => {
+            localStorage.setItem(networkKey, JSON.stringify(r));
+            setRecord({ ...r });
+          },
+          setMessage,
+        );
         await w.preflight();
         if (!active) return;
         if (!navigator.locks)
           throw Error(
             "This browser cannot safely coordinate wallet changes across tabs.",
           );
-        setWallet(w);
-        await navigator.locks.request(KEY, async () => {
-          const raw = localStorage.getItem(KEY);
+        await navigator.locks.request(networkKey, async () => {
+          const scoped = localStorage.getItem(networkKey);
+          const raw = scoped ?? localStorage.getItem(KEY);
           const stored = parseRecord(raw);
           if (raw && !stored) {
             setWallet(undefined);
@@ -71,6 +73,15 @@ function App() {
               "Saved wallet metadata is invalid. Refusing to create a second wallet.",
             );
           }
+          if (scoped === null && stored?.pending)
+            throw Error(
+              "Resolve the pending operation in the previous wallet before using this local chain.",
+            );
+          if (scoped === null && raw && stored) {
+            await w.validateRecord(stored);
+            localStorage.setItem(networkKey, raw);
+          }
+          setWallet(w);
           setRecord(stored);
           setRecipient(stored?.recipient ?? manifest.recipient);
           setState(stored ? await w.inspect(stored) : undefined);
@@ -94,6 +105,7 @@ function App() {
     selected?: Queued,
   ) {
     if (!wallet) return;
+    const networkKey = KEY + ":" + wallet.manifest.rpcUrl;
     setBusy(true);
     setConfirmation("");
     setError("");
@@ -103,8 +115,8 @@ function App() {
         throw Error(
           "This browser cannot safely coordinate wallet changes across tabs.",
         );
-      await navigator.locks.request(KEY, async () => {
-        const latestRaw = localStorage.getItem(KEY);
+      await navigator.locks.request(networkKey, async () => {
+        const latestRaw = localStorage.getItem(networkKey);
         r = parseRecord(latestRaw);
         if (latestRaw && !r) throw Error("Saved wallet metadata is invalid.");
         setRecord(r);
@@ -139,8 +151,8 @@ function App() {
       setMessage("");
       if (navigator.locks)
         try {
-          await navigator.locks.request(KEY, async () => {
-            const latest = parseRecord(localStorage.getItem(KEY));
+          await navigator.locks.request(networkKey, async () => {
+            const latest = parseRecord(localStorage.getItem(networkKey));
             setRecord(latest);
             setState(latest ? await wallet.inspect(latest) : undefined);
           });
@@ -358,9 +370,9 @@ function App() {
                   </div>
                 </dl>
                 <p className="small">
-                  This wallet applies the 10 GLD threshold to all instant sends.
-                  The installed guard counts only single-passkey sends toward its
-                  10 GLD limit when used through another client.
+                  The onchain guard checks total instant spending for each
+                  token. Any instant send that takes the daily total above 10
+                  GLD requires both passkeys, from any wallet.
                 </p>
                 <label>
                   Approved GLD recipient

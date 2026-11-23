@@ -172,7 +172,7 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     /// @param token Asset being configured. Use address(0) for native currency.
     /// @param basePerTransaction Maximum passkey-only amount for one transfer.
     /// @param stepUpPerTransaction Maximum secondary-approved amount for one transfer.
-    /// @param baseDailyLimit Cumulative passkey-only amount per policy window.
+    /// @param baseDailyLimit Maximum total instant spend after a primary-only transfer in this window.
     /// @param instantDailyLimit Cumulative base plus step-up amount per window.
     /// @param recipients Exact recipient allowlist for this asset.
     function setAssetPolicy(
@@ -709,8 +709,8 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
         if (!secondaryApproved) {
             if (policy.baseRecipientMode == BaseRecipientMode.Allowlisted && !allowedRecipient[token][recipient]) revert RecipientNotAllowed();
             if (
-                amount > policy.basePerTransaction || amount > policy.baseDailyLimit - state.baseSpent ||
-                amount > policy.instantDailyLimit - state.instantSpent
+                amount > policy.basePerTransaction || state.instantSpent >= policy.baseDailyLimit ||
+                amount > policy.baseDailyLimit - state.instantSpent
             ) revert TransferExceedsLimit();
             tier = AuthorizationTier.Base;
             state.baseSpent += amount;

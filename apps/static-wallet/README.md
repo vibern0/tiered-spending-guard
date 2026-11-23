@@ -4,7 +4,7 @@ Create a Safe with a passkey. Open **Settings** on the same wallet to enable tie
 
 The wallet applies both thresholds to the same UTC day's total instant spending. Sending 1 GLD shows 1 / 10 GLD and 1 / 30 GLD. Sending another 9.1 GLD requires both passkeys and shows 10 / 10 GLD and 10.1 / 30 GLD. Further instant sends from this wallet require both passkeys until the daily reset. Delayed withdrawals are shown separately.
 
-The installed guard tracks primary-only and combined spending independently. Another client submitting directly to this guard can still use its remaining primary-only allowance. The cumulative one-passkey threshold described above is a rule of this wallet.
+The updated ERC-4337 guard enforces both thresholds against the same onchain instant total, including submissions from other clients. The primary-only counter records how much was actually sent with one passkey. Older guard deployments keep their original policy. A separate local chain can recreate the same Safe address with the original owner and fresh balances and spending counters. Enable protection in Settings on that chain.
 
 The withdrawal queue survives a page refresh. Cancel the oldest item with both passkeys, or choose **Execute withdrawal** after 120 seconds and confirm the sponsored submission with the primary passkey. The execution window lasts 600 seconds. Clear an expired head with **Cancel withdrawal** to reach the next item.
 

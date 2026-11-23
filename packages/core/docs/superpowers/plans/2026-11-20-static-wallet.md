@@ -58,3 +58,6 @@ The GLD rehearsal replaces the native-transfer preset for new local installation
 ## Cumulative wallet thresholds
 
 - [x] Base both wallet meters and the passkey prompt on total instant GLD spent today. Preserve the installed guard's separate primary-only accounting and disclose that distinction in Settings.
+
+- [x] Enforce the cumulative X ceiling inside the ERC-4337 guard. Read the same per-token instant total for both signature tiers. Preserve raw signer counters and the UTC rollover.
+- [x] Verify 1 GLD with primary, 9.1 GLD with both, rejection of a one-unit primary-only send, remaining 19.9 GLD with both and next-day primary approval through Safe 1.5.
