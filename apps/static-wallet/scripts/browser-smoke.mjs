@@ -1,7 +1,13 @@
 // Run against npm run wallet:dev, using an isolated Chromium profile and virtual passkeys.
 import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
-import { createPublicClient, http, parseAbi, zeroAddress } from "viem";
+import {
+  createPublicClient,
+  http,
+  parseAbi,
+  parseUnits,
+  zeroAddress,
+} from "viem";
 
 const origin =
   "http://localhost:" + (process.env.STATIC_WALLET_UI_PORT || "5180");
@@ -113,46 +119,58 @@ try {
   const destinationBefore = await tokenBalance(config.recipient);
   assert.equal(initialBalance, 100n * 10n ** 18n);
   await button("← Wallet").click();
-  for (const amount of ["1", "10"]) {
+  const instant = parseUnits("10.1", 18);
+  for (const [amount, approval, firstMeter, totalMeter] of [
+    ["1", "Requires one passkey.", "1 / 10 GLD", "1 / 30 GLD"],
+    ["9.1", "Requires both passkeys.", "10 / 10 GLD", "10.1 / 30 GLD"],
+  ]) {
     await page.getByLabel("Amount (GLD)").fill(amount);
+    await visible(approval);
     await button("Send GLD").click();
-    await visible(new RegExp("Sent " + amount + " GLD"));
+    await visible("Sent " + amount + " GLD");
+    await visible(firstMeter);
+    await visible(totalMeter);
   }
-  assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
+  assert.equal(await tokenBalance(safe), initialBalance - instant);
   assert.equal(
     await tokenBalance(config.recipient),
-    destinationBefore + 11n * 10n ** 18n,
+    destinationBefore + instant,
   );
+  await page.getByLabel("Amount (GLD)").fill("0.1");
+  await visible("Requires both passkeys.");
   await page.getByLabel("Amount (GLD)").fill("20");
   await button("Queue GLD").click();
   await visible(/Queued 20 GLD/);
   await visible(/#0 · 20 GLD/);
   assert.ok(await button("Execute withdrawal").isDisabled());
-  assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
+  assert.equal(await tokenBalance(safe), initialBalance - instant);
   await page.reload();
   await visible(/#0 · 20 GLD/);
   await button("Cancel withdrawal").click();
   await visible(/Withdrawal #0 cancelled/);
   await visible(/No pending withdrawals/);
-  assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
+  assert.equal(await tokenBalance(safe), initialBalance - instant);
   await page.getByLabel("Amount (GLD)").fill("20");
   await button("Queue GLD").click();
   await visible(/#1 · 20 GLD/);
   assert.ok(await button("Execute withdrawal").isDisabled());
-  await visible(/1 \/ 10 GLD/);
-  await visible(/11 \/ 30 GLD/);
+  await visible("10 / 10 GLD");
+  await visible("10.1 / 30 GLD");
   console.log(
     "Cancelled the first withdrawal; waiting for the second onchain cooldown.",
   );
   await button("Execute withdrawal").click({ timeout: 155_000 });
   await visible(/Withdrawal #1 executed/);
   await visible(/No pending withdrawals/);
-  assert.equal(await tokenBalance(safe), initialBalance - 31n * 10n ** 18n);
+  assert.equal(
+    await tokenBalance(safe),
+    initialBalance - (instant + parseUnits("20", 18)),
+  );
   assert.equal(
     await tokenBalance(config.recipient),
-    destinationBefore + 31n * 10n ** 18n,
+    destinationBefore + (instant + parseUnits("20", 18)),
   );
-  await visible(/11 \/ 30 GLD/);
+  await visible("10.1 / 30 GLD");
   assert.equal(
     await page
       .getByText("Delayed withdrawals executed")

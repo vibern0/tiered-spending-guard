@@ -215,19 +215,12 @@ function App() {
                     <h2>Daily usage</h2>
                     <dl className="usage">
                       <div>
-                        <dt>Primary passkey</dt>
-                        <dd>{formatUnits(snapshot.base, 18)} / 10 GLD</dd>
+                        <dt>One-passkey threshold</dt>
+                        <dd>{formatUnits(snapshot.onePasskey, 18)} / 10 GLD</dd>
                       </div>
                       <div>
-                        <dt>Instant spending, both tiers</dt>
+                        <dt>Total instant spending</dt>
                         <dd>{formatUnits(snapshot.combined, 18)} / 30 GLD</dd>
-                      </div>
-                      <div>
-                        <dt>With secondary passkey</dt>
-                        <dd>
-                          {formatUnits(snapshot.combined - snapshot.base, 18)}{" "}
-                          GLD
-                        </dd>
                       </div>
                       <div>
                         <dt>Delayed withdrawals executed</dt>
@@ -265,6 +258,8 @@ function App() {
                         onChange={(e) => setAmount(e.target.value)}
                       />
                     </label>
+                    {tier === "base" && <p>Requires one passkey.</p>}
+                    {tier === "step-up" && <p>Requires both passkeys.</p>}
                     {tier === "delayed" && (
                       <p>
                         Both passkeys will queue the full amount. You can
@@ -346,12 +341,12 @@ function App() {
                 </p>
                 <dl>
                   <div>
-                    <dt>Primary passkey</dt>
-                    <dd>10 GLD per transaction and day</dd>
+                    <dt>One passkey</dt>
+                    <dd>Up to 10 GLD in total instant spending today</dd>
                   </div>
                   <div>
-                    <dt>With secondary passkey</dt>
-                    <dd>30 GLD shared daily limit</dd>
+                    <dt>Both passkeys</dt>
+                    <dd>Over 10 and up to 30 GLD in total today</dd>
                   </div>
                   <div>
                     <dt>Above the daily limit</dt>
@@ -362,6 +357,11 @@ function App() {
                     <dd>600 seconds after the delay</dd>
                   </div>
                 </dl>
+                <p className="small">
+                  This wallet applies the 10 GLD threshold to all instant sends.
+                  The installed guard counts only single-passkey sends toward its
+                  10 GLD limit when used through another client.
+                </p>
                 <label>
                   Approved GLD recipient
                   <input

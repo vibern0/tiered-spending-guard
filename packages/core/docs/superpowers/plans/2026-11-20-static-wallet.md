@@ -54,3 +54,7 @@ The GLD rehearsal replaces the native-transfer preset for new local installation
 - [x] Recover the verified queue from chain data. Display the cooldown, execution window and head-only cancellation and execution actions.
 - [x] Display primary, combined instant, step-up and executed delayed GLD usage for the current UTC day.
 - [x] Verify the browser flow with a separate Safe, including refresh, cancellation, the 120-second cooldown, balances and usage.
+
+## Cumulative wallet thresholds
+
+- [x] Base both wallet meters and the passkey prompt on total instant GLD spent today. Preserve the installed guard's separate primary-only accounting and disclose that distinction in Settings.

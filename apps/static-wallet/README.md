@@ -2,7 +2,9 @@
 
 Create a Safe with a passkey. Open **Settings** on the same wallet to enable tiered spending with a second passkey. This demonstration uses Gold (GLD), an 18-decimal local mock ERC-20. In Settings, choose the approved recipient and enable protected GLD transfers. Send GLD from the wallet home. A primary passkey can spend 10 GLD per day. Both passkeys can spend up to 30 GLD per day combined. When a send would take instant spending over 30 GLD, the button changes to **Queue GLD**. Approve the full payment with both passkeys. The recipient receives GLD only when you execute the withdrawal.
 
-The wallet shows primary and combined instant usage for the UTC day, the amount sent with step-up approval, and executed delayed withdrawals. For example, sending 6 GLD with the primary passkey shows 6 / 10 GLD primary and 6 / 30 GLD combined. Entering 25 GLD next queues all 25 GLD. It leaves both instant counters unchanged.
+The wallet applies both thresholds to the same UTC day's total instant spending. Sending 1 GLD shows 1 / 10 GLD and 1 / 30 GLD. Sending another 9.1 GLD requires both passkeys and shows 10 / 10 GLD and 10.1 / 30 GLD. Further instant sends from this wallet require both passkeys until the daily reset. Delayed withdrawals are shown separately.
+
+The installed guard tracks primary-only and combined spending independently. Another client submitting directly to this guard can still use its remaining primary-only allowance. The cumulative one-passkey threshold described above is a rule of this wallet.
 
 The withdrawal queue survives a page refresh. Cancel the oldest item with both passkeys, or choose **Execute withdrawal** after 120 seconds and confirm the sponsored submission with the primary passkey. The execution window lasts 600 seconds. Clear an expired head with **Cancel withdrawal** to reach the next item.
 

@@ -14,16 +14,16 @@ export function tokenAmount(text: string) {
 export type Spend = readonly [bigint, bigint, bigint];
 export const dayStart = (timestamp: bigint) => timestamp - (timestamp % 86400n);
 
-export function dailyUsage([window, base, combined]: Spend, timestamp: bigint) {
-  return window === dayStart(timestamp)
-    ? { base, combined }
-    : { base: 0n, combined: 0n };
+export function dailyUsage([window, , instantSpent]: Spend, timestamp: bigint) {
+  const combined = window === dayStart(timestamp) ? instantSpent : 0n;
+  return { onePasskey: combined < X ? combined : X, combined };
 }
 
 export function transferTier(
   amount: bigint,
-  { base, combined }: ReturnType<typeof dailyUsage>,
+  { combined }: { combined: bigint },
 ) {
-  if (amount + combined > Y) return "delayed";
-  return amount + base <= X ? "base" : "step-up";
+  const total = combined + amount;
+  if (total > Y) return "delayed";
+  return total <= X ? "base" : "step-up";
 }
