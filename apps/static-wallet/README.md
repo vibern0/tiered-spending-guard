@@ -29,13 +29,18 @@ With the local fixture running, build the static files in another terminal.
 npm --prefix apps/static-wallet run build
 ```
 
-To rehearse the interface with virtual passkeys, install Chromium for the pinned browser test driver and run the smoke test. It interrupts sponsorship between preparation and activation, refreshes the app, and verifies the final guard slots and sponsored receipts onchain. It also sends GLD in both instant tiers, queues two equal withdrawals, counts both cancellation prompts, waits through a real cooldown and executes the surviving withdrawal. It checks token balances and daily usage on a separate test Safe.
+## End-to-end wallet test
+
+From the repository root, install the pinned Chromium browser once, then run the wallet test:
 
 ```sh
-cd apps/static-wallet
-./node_modules/.bin/playwright-core install chromium
-STATIC_WALLET_UI_PORT=5189 npm run smoke
+pnpm --filter @tiered-spending-guard/static-wallet exec playwright install chromium
+npm run wallet:test
 ```
+
+Playwright starts a fresh local Hardhat chain, bundler, paymaster and wallet UI for each run. It uses dedicated loopback ports (18547 for RPC and 15180 for the UI) and an isolated browser context with two virtual WebAuthn credentials. The runner shuts down its servers on exit. Allow about two minutes for the real withdrawal cooldown.
+
+The scenario creates a Safe, enables protection in Settings, sends 1 GLD and then 9.1 GLD, and queues two identical 20 GLD withdrawals. It reloads the page, cancels only the first entry, then executes the second after 120 seconds. It checks passkey requests and assertions by credential, both guard slots, the daily meters, token balances, block timestamps and paymaster charges.
 
 Wallet teams can use this flow to evaluate opt-in installation on a fresh Safe 1.5. The experimental guard profile is restricted to local test assets. See the [implementation plan](../../packages/core/docs/superpowers/plans/2026-11-20-static-wallet.md).
 

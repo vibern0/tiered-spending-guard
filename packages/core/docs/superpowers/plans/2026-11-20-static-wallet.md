@@ -78,3 +78,8 @@ The GLD rehearsal replaces the native-transfer preset for new local installation
 
 - [x] Bind one approval per credential to the selected withdrawal and current head, and verify the one-entry advance onchain.
 - [x] Rehearse cancellation with two identical withdrawals, measure prompts and sponsor charges, and execute the surviving withdrawal after its cooldown. [Local receipts](../specs/2026-11-23-one-prompt-delayed-cancel.md)
+
+## Static wallet browser acceptance test
+
+- [x] Make `npm run wallet:test` own a disposable Hardhat chain and Chromium session. Exercise wallet creation, opt-in protection, both instant tiers, two identical queue entries, cancellation, execution after cooldown and sponsored receipts with virtual passkeys.
+- [x] Replace the static wallet's Vitest files and manual smoke script with the Playwright scenario.

@@ -51,6 +51,13 @@ async function main() {
     hre.network.provider.send(method, params);
   if (hre.network.name !== "hardhat" || (await rpc("eth_chainId")) !== "0x7a69")
     throw Error("Requires a disposable local Hardhat chain");
+  if (process.argv.includes("--e2e")) {
+    // Anchor the test at UTC noon so the real cooldown cannot cross a daily reset.
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(12, 0, 0, 0);
+    await rpc("evm_setNextBlockTimestamp", [tomorrow.getTime() / 1000]);
+  }
   const [wallet] = await hre.viem.getWalletClients();
   const client = await hre.viem.getPublicClient();
   async function deploy(artifact, args = []) {
