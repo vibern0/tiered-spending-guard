@@ -176,28 +176,17 @@ try {
   const destinationBefore = await tokenBalance(recipient);
   assert.equal(initialBalance, 100n * 10n ** 18n);
   await button("← Wallet").click();
-  const instant = parseUnits("10.1", 18);
-  for (const [amount, approval, firstMeter, totalMeter] of [
-    ["1", "Requires one passkey.", "1 / 10 GLD", "1 / 30 GLD"],
-    ["9.1", "Requires both passkeys.", "10 / 10 GLD", "10.1 / 30 GLD"],
-  ]) {
-    await page.getByLabel("Amount (GLD)").fill(amount);
-    await visible(approval);
+  const resetPrompts = async () => {
     assertions.length = 0;
     await page.evaluate(() => {
       window.passkeyRequests.length = 0;
     });
-    await button("Send GLD").click();
-    await visible("Sent " + amount + " GLD");
-    await visible(firstMeter);
-    await visible(totalMeter);
+  };
+  const checkPrompts = async (label, expectedRoles) => {
     const roles = assertions.map(
       (id) => ["primary", "secondary"][ids.indexOf(id)] ?? "unknown",
     );
-    assert.deepEqual(
-      roles,
-      amount === "1" ? ["primary"] : ["primary", "secondary"],
-    );
+    assert.deepEqual(roles, expectedRoles);
     const requests = await page.evaluate(() => window.passkeyRequests);
     assert.equal(requests.length, roles.length);
     assert.equal(new Set(requests.map((r) => r.challenge)).size, 1);
@@ -210,11 +199,24 @@ try {
       ),
     );
     console.log(
-      amount +
-        " GLD confirmed on " +
-        safe +
-        " with assertions " +
-        roles.join(", "),
+      label + " confirmed on " + safe + " with assertions " + roles.join(", "),
+    );
+  };
+  const instant = parseUnits("10.1", 18);
+  for (const [amount, approval, firstMeter, totalMeter] of [
+    ["1", "Requires one passkey.", "1 / 10 GLD", "1 / 30 GLD"],
+    ["9.1", "Requires both passkeys.", "10 / 10 GLD", "10.1 / 30 GLD"],
+  ]) {
+    await page.getByLabel("Amount (GLD)").fill(amount);
+    await visible(approval);
+    await resetPrompts();
+    await button("Send GLD").click();
+    await visible("Sent " + amount + " GLD");
+    await visible(firstMeter);
+    await visible(totalMeter);
+    await checkPrompts(
+      amount + " GLD",
+      amount === "1" ? ["primary"] : ["primary", "secondary"],
     );
   }
   assert.equal(await tokenBalance(safe), initialBalance - instant);
@@ -222,9 +224,11 @@ try {
   await page.getByLabel("Amount (GLD)").fill("0.1");
   await visible("Requires both passkeys.");
   await page.getByLabel("Amount (GLD)").fill("20");
+  await resetPrompts();
   await button("Queue GLD").click();
   await visible(/Queued 20 GLD/);
   await visible(/#0 · 20 GLD/);
+  await checkPrompts("Queue 20 GLD", ["primary", "secondary"]);
   assert.ok(await button("Execute withdrawal").isDisabled());
   assert.equal(await tokenBalance(safe), initialBalance - instant);
   await page.reload();
@@ -234,8 +238,10 @@ try {
   await visible(/No pending withdrawals/);
   assert.equal(await tokenBalance(safe), initialBalance - instant);
   await page.getByLabel("Amount (GLD)").fill("20");
+  await resetPrompts();
   await button("Queue GLD").click();
   await visible(/#1 · 20 GLD/);
+  await checkPrompts("Queue 20 GLD", ["primary", "secondary"]);
   assert.ok(await button("Execute withdrawal").isDisabled());
   await visible("10 / 10 GLD");
   await visible("10.1 / 30 GLD");
@@ -274,7 +280,16 @@ try {
   });
   assert.equal(await deposit(), 0n);
   assert.equal(operations.length, 9);
-  for (const event of operations.slice(3, 5)) {
+  const queued = operations[7];
+  const executed = operations[8];
+  const queuedAt = (await chain.getBlock({ blockNumber: queued.blockNumber }))
+    .timestamp;
+  const executedAt = (
+    await chain.getBlock({ blockNumber: executed.blockNumber })
+  ).timestamp;
+  assert.ok(executedAt - queuedAt >= 120n && executedAt - queuedAt <= 720n);
+  console.log("Queue to execution (seconds)", String(executedAt - queuedAt));
+  for (const event of operations.slice(3)) {
     const before = await deposit(config.paymaster, event.blockNumber - 1n);
     const after = await deposit(config.paymaster, event.blockNumber);
     assert.equal(before - after, event.args.actualGasCost);

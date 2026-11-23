@@ -95,7 +95,7 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     uint256 private pendingSafeBalance;
     uint256 private pendingRecipientBalance;
     bool private pendingTokenProof;
-    enum CheckPhase { Idle, Ordinary, DelayDirect, AaOuter, AaOwner, AaOwnerDone, AaReadyOuter, AaDelay, AaDelayDone, InstantArmed, InstantExecuting }
+    enum CheckPhase { Idle, Ordinary, DelayDirect, AaOuter, AaOwner, AaOwnerDone, AaReadyOuter, AaDelay, AaDelayDone, OperationArmed, OperationExecuting }
     CheckPhase private checkPhase;
     bytes32 public immutable expectedRouterRuntimeHash;
     address public aaRouter;
@@ -103,7 +103,7 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     address[] private routeTargets;
     bytes32 private expectedAaInnerHash;
     bytes32 private expectedAaModuleHash;
-    bytes32 private activeInstantDigest;
+    bytes32 private activeOperationDigest;
     bytes32 private expectedAaDelayHash;
     address public maintenance;
     bool public frozen;
@@ -517,24 +517,46 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
 
     /// @notice The pinned router calls this immediately after verifying the full operation at execution.
     function beginInstant(bytes32 digest, address token, bytes calldata callData, bool stepUp) external {
-        if (checking || msg.sender != aaRouter || aaRouter.codehash != expectedRouterRuntimeHash ||
-            token == address(0) || !routeOnlyTarget[token] || digest == bytes32(0)) revert InvalidAaRoute();
+        _checkOperationRouter(digest, token);
         (, address recipient, uint256 amount) = _decodeTransfer(token, 0, callData);
         SpendState memory state = spendState[token];
         uint256 used = state.window == _currentWindow() ? state.instantSpent : 0;
         uint256 x = assetPolicy[token].baseDailyLimit;
         if (stepUp != (used >= x || amount > x - used)) revert TransferExceedsLimit();
-        checking = true;
-        checkPhase = CheckPhase.InstantArmed;
-        activeInstantDigest = digest;
-        expectedAaModuleHash = keccak256(abi.encode(digest,
-            PolicyDigest.moduleTransactionHash(config.safe, msg.sender, token, 0, callData, Enum.Operation.Call)));
+        _armOperation(digest, token, callData);
         _authorizeDecodedTransfer(token, recipient, amount, stepUp);
+    }
+
+    function queueDelay() external view returns (address) {
+        return config.delay;
+    }
+
+    /// @notice Arm only the Delay enqueue call for the exact approved token transfer.
+    function beginQueue(bytes32 digest, bytes calldata queueCall) external {
+        (address token, uint256 value, bytes memory transfer, uint8 operation) = _decodeQueueCall(queueCall);
+        _checkOperationRouter(digest, token);
+        if (value != 0 || operation != uint8(Enum.Operation.Call)) revert InvalidDelayedAction();
+        (, address recipient, uint256 amount) = _decodeTransfer(token, value, transfer);
+        _checkQueuedTransfer(token, recipient, amount);
+        _armOperation(digest, config.delay, queueCall);
+    }
+
+    function _checkOperationRouter(bytes32 digest, address token) private view {
+        if (checking || msg.sender != aaRouter || aaRouter.codehash != expectedRouterRuntimeHash ||
+            token == address(0) || !routeOnlyTarget[token] || digest == bytes32(0)) revert InvalidAaRoute();
+    }
+
+    function _armOperation(bytes32 digest, address target, bytes calldata callData) private {
+        checking = true;
+        checkPhase = CheckPhase.OperationArmed;
+        activeOperationDigest = digest;
+        expectedAaModuleHash = keccak256(abi.encode(digest,
+            PolicyDigest.moduleTransactionHash(config.safe, msg.sender, target, 0, callData, Enum.Operation.Call)));
     }
 
     /// @notice Only idle after the exact transfer passed both module hooks and its balance proof.
     function instantFinished() external view returns (bool) {
-        return !checking && checkPhase == CheckPhase.Idle && activeInstantDigest == bytes32(0);
+        return !checking && checkPhase == CheckPhase.Idle && activeOperationDigest == bytes32(0);
     }
 
     /// @notice Safe module-guard hook for Delay-module execution.
@@ -547,11 +569,11 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     function checkModuleTransaction(address to, uint256 value, bytes calldata data, Enum.Operation operation, address module)
         external override onlySafe returns (bytes32 moduleTxHash)
     {
-        if (checking && checkPhase == CheckPhase.InstantArmed && module == aaRouter) {
-            moduleTxHash = keccak256(abi.encode(activeInstantDigest,
+        if (checking && checkPhase == CheckPhase.OperationArmed && module == aaRouter) {
+            moduleTxHash = keccak256(abi.encode(activeOperationDigest,
                 PolicyDigest.moduleTransactionHash(config.safe, module, to, value, data, operation)));
             if (moduleTxHash != expectedAaModuleHash) revert InvalidAaRoute();
-            checkPhase = CheckPhase.InstantExecuting;
+            checkPhase = CheckPhase.OperationExecuting;
             return moduleTxHash;
         }
         if (checking && checkPhase == CheckPhase.AaReadyOuter && module == config.delay) {
@@ -601,10 +623,10 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
             checkPhase = CheckPhase.AaDelayDone;
             return;
         }
-        if (checkPhase == CheckPhase.InstantExecuting) {
+        if (checkPhase == CheckPhase.OperationExecuting) {
             if (moduleTxHash != expectedAaModuleHash) revert InvalidAaRoute();
             _finishTokenProof();
-            delete activeInstantDigest;
+            delete activeOperationDigest;
             delete expectedAaModuleHash;
         } else if (checkPhase == CheckPhase.AaOwnerDone || checkPhase == CheckPhase.AaDelayDone) {
             if (moduleTxHash != expectedAaModuleHash) revert InvalidAaRoute();
@@ -797,9 +819,7 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     /// @param data Delay execTransactionFromModule calldata.
     /// @param secondaryApproved Whether an enabled configured secondary approved the outer Safe transaction.
     function _authorizeQueueProposal(bytes calldata data, bool secondaryApproved) internal view {
-        if (data.length < 4 + 32 * 4) revert InvalidDelayedAction();
-        (address target, uint256 value, bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
-        if (keccak256(data) != keccak256(abi.encodeWithSelector(DELAY_QUEUE_SELECTOR, target, value, innerData, operation))) revert InvalidDelayedAction();
+        (address target, uint256 value, bytes memory innerData, uint8 operation) = _decodeQueueCall(data);
         if (!secondaryApproved) revert MissingEcdsaSecondaryExtension();
         if (operation == uint8(Enum.Operation.DelegateCall)) {
             if (!_isMaintenanceAction(target, innerData)) revert InvalidDelayedAction();
@@ -811,6 +831,16 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
             return;
         }
         (address token, address recipient, uint256 amount) = _decodeTransfer(target, value, innerData);
+        _checkQueuedTransfer(token, recipient, amount);
+    }
+
+    function _decodeQueueCall(bytes calldata data) private pure returns (address target, uint256 value, bytes memory innerData, uint8 operation) {
+        if (data.length < 4 + 32 * 4) revert InvalidDelayedAction();
+        (target, value, innerData, operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
+        if (keccak256(data) != keccak256(abi.encodeWithSelector(DELAY_QUEUE_SELECTOR, target, value, innerData, operation))) revert InvalidDelayedAction();
+    }
+
+    function _checkQueuedTransfer(address token, address recipient, uint256 amount) private view {
         AssetPolicy memory policy = assetPolicy[token];
         SpendState memory state = spendState[token];
         uint256 window = _currentWindow();

@@ -82,10 +82,14 @@ const epAbi = parseAbi([
 const executeFullOp = toFunctionSelector(
   "executeUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32)",
 );
-const instantProofTypes = [{ type: "bytes" }, { type: "bytes" }] as const;
+const transferProofTypes = [{ type: "bytes" }, { type: "bytes" }] as const;
 const maxProofBytes = 2048;
 const estimateProof: Hex = `0x${"ff".repeat(maxProofBytes)}`;
-type InstantApproval = { guard: Address; stepUp: boolean };
+type TransferApproval = {
+  guard: Address;
+  requiresSecondary: boolean;
+  delay?: Address;
+};
 function batch(calls: { to: Address; data: Hex; operation?: 0 | 1 }[]): Hex {
   return concatHex(
     calls.map((c) =>
@@ -383,11 +387,11 @@ export class Wallet {
     {
       factoryData,
       beforeBroadcast,
-      instant,
+      approval,
     }: {
       factoryData?: Hex;
       beforeBroadcast?: () => Promise<void>;
-      instant?: InstantApproval;
+      approval?: TransferApproval;
     },
   ) {
     await this.preflight();
@@ -409,10 +413,10 @@ export class Wallet {
       preVerificationGas: 750_000n,
       maxFeePerGas: 2_000_000_000n,
       maxPriorityFeePerGas: 1_000_000_000n,
-      signature: instant
-        ? encodeAbiParameters(instantProofTypes, [
+      signature: approval
+        ? encodeAbiParameters(transferProofTypes, [
             estimateProof,
-            instant.stepUp ? estimateProof : "0x",
+            approval.requiresSecondary ? estimateProof : "0x",
           ])
         : toHex(0, { size: 12 }),
       ...(factoryData ? { factory: m.proxyFactory, factoryData } : {}),
@@ -467,36 +471,46 @@ export class Wallet {
       functionName: "getUserOpHash",
       args: [toPackedUserOperation(op)],
     });
-    if (instant) {
-      const digest = hashTypedData({
-        domain: {
-          name: "GLD Instant Send",
-          version: "1",
-          chainId: m.chainId,
-          verifyingContract: signingModule,
-        },
-        types: {
-          InstantSend: [
-            { name: "userOpHash", type: "bytes32" },
-            { name: "guard", type: "address" },
-          ],
-        },
-        primaryType: "InstantSend",
-        message: { userOpHash: hash, guard: instant.guard },
-      });
+    if (approval) {
+      const domain = {
+        name: "GLD Instant Send",
+        version: "1",
+        chainId: m.chainId,
+        verifyingContract: signingModule,
+      } as const;
+      const fields = [
+        { name: "userOpHash", type: "bytes32" },
+        { name: "guard", type: "address" },
+      ] as const;
+      const message = { userOpHash: hash, guard: approval.guard };
+      const digest = approval.delay
+        ? hashTypedData({
+            domain,
+            primaryType: "QueueWithdrawal",
+            types: {
+              QueueWithdrawal: [...fields, { name: "delay", type: "address" }],
+            },
+            message: { ...message, delay: approval.delay },
+          })
+        : hashTypedData({
+            domain,
+            types: {
+              InstantSend: fields,
+            },
+            primaryType: "InstantSend",
+            message,
+          });
       const primary = await signPasskey(r.primary, digest);
       let secondary: Hex = "0x";
-      if (instant.stepUp) {
+      if (approval.requiresSecondary) {
         if (!r.secondary)
           throw Error("Secondary passkey required for this send.");
-        this.progress(
-          "Approve the same sponsored send with your secondary passkey",
-        );
+        this.progress(label + " · approve with your secondary passkey");
         secondary = sliceHex(await signPasskey(r.secondary, digest), 97);
       }
       if (size(primary) > maxProofBytes || size(secondary) > maxProofBytes)
         throw Error("Passkey proof exceeds the sponsored estimate.");
-      op.signature = encodeAbiParameters(instantProofTypes, [
+      op.signature = encodeAbiParameters(transferProofTypes, [
         primary,
         secondary,
       ]);
@@ -858,29 +872,6 @@ export class Wallet {
       throw Error("Daily usage changed. Review the updated transfer tier.");
     if (tier !== "base" && !r.secondary)
       throw Error("Secondary passkey is required.");
-    const call = encodeFunctionData({
-      abi: erc20Abi,
-      functionName: "transfer",
-      args: [recipient, amount],
-    });
-    if (tier === "delayed") {
-      await this.inner(
-        r,
-        components.delay.address,
-        data("delay", "execTransactionFromModule", [
-          this.manifest.token,
-          0n,
-          call,
-          0,
-        ]),
-        0,
-        `Queue ${formatUnits(amount, 18)} GLD`,
-        components.router.address,
-        r.secondary,
-      );
-      return tier;
-    }
-    const stepUp = tier === "step-up";
     const sendData = concatHex([
       executeFullOp,
       encodeAbiParameters(
@@ -889,7 +880,7 @@ export class Wallet {
           { type: "address" },
           { type: "address" },
           { type: "uint256" },
-          { type: "bool" },
+          { type: "uint8" },
           { type: "uint48" },
         ],
         [
@@ -897,7 +888,7 @@ export class Wallet {
           this.manifest.token,
           recipient,
           amount,
-          stepUp,
+          { base: 0, "step-up": 1, delayed: 2 }[tier],
           Number(block.timestamp + 300n),
         ],
       ),
@@ -905,9 +896,15 @@ export class Wallet {
     await this.submitOperation(
       r,
       sendData,
-      `Send ${formatUnits(amount, 18)} GLD`,
+      `${tier === "delayed" ? "Queue" : "Send"} ${formatUnits(amount, 18)} GLD`,
       components.router.address,
-      { instant: { guard: components.guard.address, stepUp } },
+      {
+        approval: {
+          guard: components.guard.address,
+          requiresSecondary: tier !== "base",
+          delay: tier === "delayed" ? components.delay.address : undefined,
+        },
+      },
     );
     return tier;
   }

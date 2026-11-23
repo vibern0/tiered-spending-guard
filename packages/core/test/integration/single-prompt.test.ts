@@ -1,10 +1,11 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { time, takeSnapshot } from "@nomicfoundation/hardhat-network-helpers";
 import {
   concatHex,
   decodeAbiParameters,
   encodeAbiParameters,
+  encodeFunctionData,
   getContract,
   hashTypedData,
   parseEther,
@@ -20,6 +21,7 @@ import {
   EP,
   slot,
   entryPointArtifact,
+  moduleArtifact,
 } from "../helpers/route-fixture";
 
 describe("sponsored single-assertion GLD route", () => {
@@ -64,11 +66,40 @@ describe("sponsored single-assertion GLD route", () => {
     const nextDay = async () =>
       time.increaseTo((Math.floor((await time.latest()) / 86400) + 1) * 86400);
     await nextDay();
+    const sponsor = async (nonce: bigint, callData: Hex) => {
+      const pmHead = concatHex([
+        pm.address,
+        toHex(200000n, { size: 16 }),
+        toHex(150000n, { size: 16 }),
+        encodeAbiParameters([{ type: "uint48" }, { type: "uint48" }], [0, 0]),
+      ]);
+      const operation = {
+        sender: f.safe.address,
+        nonce,
+        initCode: "0x",
+        callData,
+        accountGasLimits: toHex((2200000n << 128n) | 2000000n, { size: 32 }),
+        preVerificationGas: 200000n,
+        gasFees: toHex((1000000000n << 128n) | 2000000000n, { size: 32 }),
+        paymasterAndData: pmHead,
+        signature: "0x",
+      } as const;
+      const sponsorHash = (await pm.read.getHash([operation, 0, 0])) as Hex;
+      return {
+        ...operation,
+        paymasterAndData: concatHex([
+          pmHead,
+          await sponsorSigner.signMessage({ message: { raw: sponsorHash } }),
+        ]),
+      };
+    };
     const op = async (
       nonce: bigint,
       amount: bigint,
       stepUp: boolean,
       variation: {
+        queue?: boolean;
+        signingDelay?: Address;
         recipient?: Address;
         token?: Address;
         guard?: Address;
@@ -88,7 +119,7 @@ describe("sponsored single-assertion GLD route", () => {
             { type: "address" },
             { type: "address" },
             { type: "uint256" },
-            { type: "bool" },
+            { type: "uint8" },
             { type: "uint48" },
           ],
           [
@@ -96,56 +127,53 @@ describe("sponsored single-assertion GLD route", () => {
             variation.token ?? f.token.address,
             variation.recipient ?? destination,
             amount,
-            stepUp,
+            variation.queue ? 2 : Number(stepUp),
             variation.validUntil ?? (await time.latest()) + 300,
           ],
         ),
       ]);
-      const pmHead = concatHex([
-        pm.address,
-        toHex(200000n, { size: 16 }),
-        toHex(150000n, { size: 16 }),
-        encodeAbiParameters([{ type: "uint48" }, { type: "uint48" }], [0, 0]),
-      ]);
-      const operation = {
-        sender: f.safe.address,
-        nonce,
-        initCode: "0x",
-        callData,
-        accountGasLimits: toHex((2200000n << 128n) | 2000000n, { size: 32 }),
-        preVerificationGas: 200000n,
-        gasFees: toHex((1000000000n << 128n) | 2000000000n, { size: 32 }),
-        paymasterAndData: pmHead,
-        signature: "0x",
-      } as const;
-      const sponsorHash = (await pm.read.getHash([operation, 0, 0])) as Hex;
-      const sponsored = {
-        ...operation,
-        paymasterAndData: concatHex([
-          pmHead,
-          await sponsorSigner.signMessage({ message: { raw: sponsorHash } }),
-        ]),
-      };
+      const sponsored = await sponsor(nonce, callData);
       const userOpHash = (await entry.read.getUserOpHash([sponsored])) as Hex;
-      const digest = hashTypedData({
-        domain: {
-          name: "GLD Instant Send",
-          version: "1",
-          chainId: variation.chainId ?? 31337,
-          verifyingContract: variation.signingRouter ?? f.router.address,
-        },
-        types: {
-          InstantSend: [
-            { name: "userOpHash", type: "bytes32" },
-            { name: "guard", type: "address" },
-          ],
-        },
-        primaryType: "InstantSend",
-        message: {
-          userOpHash,
-          guard: variation.signingGuard ?? f.guard.address,
-        },
-      });
+      const domain = {
+        name: "GLD Instant Send",
+        version: "1",
+        chainId: variation.chainId ?? 31337,
+        verifyingContract: variation.signingRouter ?? f.router.address,
+      } as const;
+      const message = {
+        userOpHash,
+        guard: variation.signingGuard ?? f.guard.address,
+      };
+      const digest = variation.queue
+        ? hashTypedData({
+            domain,
+            primaryType: "QueueWithdrawal",
+            types: {
+              QueueWithdrawal: [
+                { name: "userOpHash", type: "bytes32" },
+                { name: "guard", type: "address" },
+                { name: "delay", type: "address" },
+              ],
+            },
+            message: {
+              ...message,
+              delay: variation.signingDelay ?? f.delay.address,
+            },
+          })
+        : hashTypedData({
+            domain,
+            types: {
+              InstantSend: [
+                { name: "userOpHash", type: "bytes32" },
+                { name: "guard", type: "address" },
+              ],
+            },
+            primaryType: "InstantSend",
+            message: {
+              userOpHash,
+              guard: variation.signingGuard ?? f.guard.address,
+            },
+          });
       const signature = encodeAbiParameters(
         [{ type: "bytes" }, { type: "bytes" }],
         [
@@ -186,6 +214,64 @@ describe("sponsored single-assertion GLD route", () => {
     expect(await f.token.read.balanceOf([destination])).to.equal(
       parseEther("10.1"),
     );
+    const beforeQueue = await takeSnapshot();
+    const withdrawal = parseEther("20");
+    await bundle([await op(2n, withdrawal, true, { queue: true })], [true]);
+    const created = await f.delay.read.txCreatedAt([0n]);
+    const transfer = encodeFunctionData({
+      abi: f.token.abi,
+      functionName: "transfer",
+      args: [destination, withdrawal],
+    });
+    const ready = encodeFunctionData({
+      abi: f.delay.abi,
+      functionName: "executeNextTx",
+      args: [f.token.address, 0n, transfer, 0],
+    });
+    const execute = async (nonce: bigint) => {
+      const callData = encodeFunctionData({
+        abi: moduleArtifact.abi,
+        functionName: "executeUserOp",
+        args: [f.delay.address, 0n, ready, 0],
+      });
+      const sponsored = await sponsor(nonce, callData);
+      const prefix = toHex(0n, { size: 12 });
+      const digest = await client.readContract({
+        address: f.router.address,
+        abi: moduleArtifact.abi,
+        functionName: "getOperationHash",
+        args: [{ ...sponsored, signature: prefix }],
+      });
+      return {
+        ...sponsored,
+        signature: concatHex([
+          prefix,
+          slot(f.primary, signWebAuthn(f.credential, digest)),
+        ]),
+      };
+    };
+    const pendingQueue = await takeSnapshot();
+    const early = await execute(3n);
+    await time.setNextBlockTimestamp(created + 119n);
+    await bundle([early], [false]);
+    expect(await f.delay.read.txNonce()).to.equal(0n);
+    expect(await f.token.read.balanceOf([destination])).to.equal(
+      parseEther("10.1"),
+    );
+    const onTime = await execute(4n);
+    await time.setNextBlockTimestamp(created + 120n);
+    await bundle([onTime], [true]);
+    expect(await f.delay.read.txNonce()).to.equal(1n);
+    expect(await f.token.read.balanceOf([destination])).to.equal(
+      parseEther("30.1"),
+    );
+    expect(await spent()).to.equal(parseEther("10.1"));
+    await bundle([await execute(5n)], [false]);
+    await pendingQueue.restore();
+    await time.setNextBlockTimestamp(created + 721n);
+    await bundle([early], [false]);
+    expect(await f.delay.read.txNonce()).to.equal(0n);
+    await beforeQueue.restore();
     await bundle(
       [
         await op(2n, 1n, false),
@@ -249,7 +335,26 @@ describe("sponsored single-assertion GLD route", () => {
     expect(await f.token.read.balanceOf([destination])).to.equal(
       parseEther("40"),
     );
-    const expired = await op(8n, 1n, true);
+    const amount = parseEther("20.1");
+    const queue = await op(8n, amount, true, { queue: true });
+    const instant = await op(8n, amount, true);
+    for (const invalid of [
+      await op(8n, amount, false, { queue: true }),
+      await op(8n, amount, true, { queue: true, signingDelay: f.safe.address }),
+      { ...queue, signature: instant.signature },
+      { ...instant, signature: queue.signature },
+    ])
+      await expect(entry.write.handleOps([[invalid], bundler.account.address]))
+        .to.be.rejected;
+    await bundle(
+      [queue, await op(9n, parseEther("20"), true, { queue: true })],
+      [true, false],
+    );
+    expect(await f.delay.read.queueNonce()).to.equal(1n);
+    expect(await spent()).to.equal(parseEther("10"));
+    await expect(entry.write.handleOps([[queue], bundler.account.address])).to
+      .be.rejected;
+    const expired = await op(10n, 1n, true);
     await time.increase(301);
     await expect(entry.write.handleOps([[expired], bundler.account.address])).to
       .be.rejected;

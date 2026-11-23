@@ -68,3 +68,8 @@ The GLD rehearsal replaces the native-transfer preset for new local installation
 - [x] Provision a separate local Safe with an EntryPoint v0.7 full-operation router and a guard in both slots.
 - [x] Measure browser passkey requests and successful assertions per credential for 1 GLD and 9.1 GLD. Verify the shared challenge for the second send.
 - [x] Check exact X and Y, stale tiers, same-bundle ordering, failed-token rollback, nonce replay, expiry, daily reset, sponsored receipts and zero Safe gas contributions.
+
+## Sponsored queue on a separate local Safe
+
+- [x] Bind both credentials to one queue-specific operation and restrict execution to the configured Delay's GLD enqueue call.
+- [x] Count both browser assertions for a 20 GLD queue after spending 10.1 GLD. Verify cancellation, timed execution, expiry, paymaster charges and token accounting. [Local receipts](../specs/2026-11-23-one-prompt-delayed-queue.md)
