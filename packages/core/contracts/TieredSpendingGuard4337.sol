@@ -11,6 +11,10 @@ import {PolicyDigest} from "./libraries/PolicyDigest.sol";
 import {SafeSignatureDecoder} from "./libraries/SafeSignatureDecoder.sol";
 
 interface IDelayPolicy {
+    function txNonce() external view returns (uint256);
+    function queueNonce() external view returns (uint256);
+    function txHash(uint256 index) external view returns (bytes32);
+
     /// @notice Returns the Delay cooldown, in seconds, for queued transactions.
     function txCooldown() external view returns (uint256);
 
@@ -539,6 +543,15 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
         (, address recipient, uint256 amount) = _decodeTransfer(token, value, transfer);
         _checkQueuedTransfer(token, recipient, amount);
         _armOperation(digest, config.delay, queueCall);
+    }
+
+    /// @notice Arm only a one-entry advance for the reviewed withdrawal at the live FIFO head.
+    function beginCancel(bytes32 digest, address token, uint256 head, bytes32 transferHash, bytes calldata cancelCall) external {
+        _checkOperationRouter(digest, token);
+        IDelayPolicy delay = IDelayPolicy(config.delay);
+        if (head != delay.txNonce() || head >= delay.queueNonce() || delay.txHash(head) != transferHash ||
+            keccak256(cancelCall) != keccak256(abi.encodeWithSelector(DELAY_SET_NONCE_SELECTOR, head + 1))) revert InvalidDelayedAction();
+        _armOperation(digest, config.delay, cancelCall);
     }
 
     function _checkOperationRouter(bytes32 digest, address token) private view {

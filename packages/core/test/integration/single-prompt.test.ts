@@ -99,6 +99,7 @@ describe("sponsored single-assertion GLD route", () => {
       stepUp: boolean,
       variation: {
         queue?: boolean;
+        cancelHead?: bigint;
         signingDelay?: Address;
         recipient?: Address;
         token?: Address;
@@ -109,6 +110,8 @@ describe("sponsored single-assertion GLD route", () => {
         signingGuard?: Address;
       } = {},
     ) => {
+      const cancel = variation.cancelHead !== undefined;
+      const delayAction = cancel ? "CancelWithdrawal" : "QueueWithdrawal";
       const callData = concatHex([
         toFunctionSelector(
           "executeUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32)",
@@ -127,10 +130,11 @@ describe("sponsored single-assertion GLD route", () => {
             variation.token ?? f.token.address,
             variation.recipient ?? destination,
             amount,
-            variation.queue ? 2 : Number(stepUp),
+            cancel ? 3 : variation.queue ? 2 : Number(stepUp),
             variation.validUntil ?? (await time.latest()) + 300,
           ],
         ),
+        cancel ? toHex(variation.cancelHead!, { size: 32 }) : "0x",
       ]);
       const sponsored = await sponsor(nonce, callData);
       const userOpHash = (await entry.read.getUserOpHash([sponsored])) as Hex;
@@ -144,36 +148,37 @@ describe("sponsored single-assertion GLD route", () => {
         userOpHash,
         guard: variation.signingGuard ?? f.guard.address,
       };
-      const digest = variation.queue
-        ? hashTypedData({
-            domain,
-            primaryType: "QueueWithdrawal",
-            types: {
-              QueueWithdrawal: [
-                { name: "userOpHash", type: "bytes32" },
-                { name: "guard", type: "address" },
-                { name: "delay", type: "address" },
-              ],
-            },
-            message: {
-              ...message,
-              delay: variation.signingDelay ?? f.delay.address,
-            },
-          })
-        : hashTypedData({
-            domain,
-            types: {
-              InstantSend: [
-                { name: "userOpHash", type: "bytes32" },
-                { name: "guard", type: "address" },
-              ],
-            },
-            primaryType: "InstantSend",
-            message: {
-              userOpHash,
-              guard: variation.signingGuard ?? f.guard.address,
-            },
-          });
+      const digest =
+        variation.queue || cancel
+          ? hashTypedData({
+              domain,
+              primaryType: delayAction,
+              types: {
+                [delayAction]: [
+                  { name: "userOpHash", type: "bytes32" },
+                  { name: "guard", type: "address" },
+                  { name: "delay", type: "address" },
+                ],
+              },
+              message: {
+                ...message,
+                delay: variation.signingDelay ?? f.delay.address,
+              },
+            })
+          : hashTypedData({
+              domain,
+              types: {
+                InstantSend: [
+                  { name: "userOpHash", type: "bytes32" },
+                  { name: "guard", type: "address" },
+                ],
+              },
+              primaryType: "InstantSend",
+              message: {
+                userOpHash,
+                guard: variation.signingGuard ?? f.guard.address,
+              },
+            });
       const signature = encodeAbiParameters(
         [{ type: "bytes" }, { type: "bytes" }],
         [
@@ -251,6 +256,48 @@ describe("sponsored single-assertion GLD route", () => {
       };
     };
     const pendingQueue = await takeSnapshot();
+    // The entries deliberately have the same token, recipient and amount.
+    await bundle([await op(3n, withdrawal, true, { queue: true })], [true]);
+    const cancel = (nonce: bigint, head: bigint) =>
+      op(nonce, withdrawal, true, { cancelHead: head });
+    const validCancel = await cancel(4n, 0n);
+    const queueProof = await op(4n, withdrawal, true, { queue: true });
+    for (const invalid of [
+      await op(4n, withdrawal, false, { cancelHead: 0n }),
+      await op(4n, withdrawal, true, {
+        cancelHead: 0n,
+        signingDelay: f.safe.address,
+      }),
+      { ...validCancel, signature: queueProof.signature },
+      { ...queueProof, signature: validCancel.signature },
+    ])
+      await expect(entry.write.handleOps([[invalid], bundler.account.address]))
+        .to.be.rejected;
+    await bundle(
+      [
+        await op(4n, withdrawal + 1n, true, { cancelHead: 0n }),
+        await cancel(5n, 1n),
+        await cancel(6n, 0n),
+        await cancel(7n, 0n),
+      ],
+      [false, false, true, false],
+    );
+    expect(await f.delay.read.txNonce()).to.equal(1n);
+    expect(await f.delay.read.queueNonce()).to.equal(2n);
+    expect(await spent()).to.equal(parseEther("10.1"));
+    expect(await f.token.read.balanceOf([destination])).to.equal(
+      parseEther("10.1"),
+    );
+    const cancelReady = await cancel(8n, 1n);
+    await time.setNextBlockTimestamp(
+      (await f.delay.read.txCreatedAt([1n])) + 120n,
+    );
+    await bundle([cancelReady], [true]);
+    expect(await f.delay.read.txNonce()).to.equal(2n);
+    await expect(
+      entry.write.handleOps([[validCancel], bundler.account.address]),
+    ).to.be.rejected;
+    await pendingQueue.restore();
     const early = await execute(3n);
     await time.setNextBlockTimestamp(created + 119n);
     await bundle([early], [false]);
@@ -271,6 +318,8 @@ describe("sponsored single-assertion GLD route", () => {
     await time.setNextBlockTimestamp(created + 721n);
     await bundle([early], [false]);
     expect(await f.delay.read.txNonce()).to.equal(0n);
+    await bundle([await op(4n, withdrawal, true, { cancelHead: 0n })], [true]);
+    expect(await f.delay.read.txNonce()).to.equal(1n);
     await beforeQueue.restore();
     await bundle(
       [
