@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
 import {
   createPublicClient,
+  getContractAddress,
   http,
   parseAbi,
   parseUnits,
@@ -20,6 +21,24 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.setDefaultTimeout(20_000);
+  // Record browser requests, including unsuccessful attempts. Leave signing to Chromium.
+  await page.addInitScript(() => {
+    const request = CredentialsContainer.prototype.get;
+    window.passkeyRequests = [];
+    CredentialsContainer.prototype.get = function (options) {
+      if (options?.publicKey) {
+        const encode = (bytes) =>
+          btoa(String.fromCharCode(...new Uint8Array(bytes)));
+        window.passkeyRequests.push({
+          credentials: options.publicKey.allowCredentials.map((x) =>
+            encode(x.id),
+          ),
+          challenge: encode(options.publicKey.challenge),
+        });
+      }
+      return request.call(this, options);
+    };
+  });
   const auth = await page.context().newCDPSession(page);
   await auth.send("WebAuthn.enable");
   await auth.send("WebAuthn.addVirtualAuthenticator", {
@@ -66,6 +85,8 @@ try {
       config.rpcUrl,
     );
   const safe = await activeSafe();
+  // Keep recipient balance checks independent of other rehearsals on this local node.
+  const recipient = getContractAddress({ from: safe, nonce: 0n });
   // A saved public record from the earlier wallet must survive the network-specific journal migration.
   await page.evaluate((rpc) => {
     const key = "static-vault.local.v1";
@@ -87,6 +108,7 @@ try {
   await page.reload();
   await visible(/Wallet ready/);
   await button("Settings").click();
+  await page.getByLabel("Approved GLD recipient").fill(recipient);
   await button("Enable protected GLD transfers").click();
   await visible(/Rehearsal sponsorship declined/);
   assert.equal(await readSlot(guardSlot), zeroAddress);
@@ -127,8 +149,31 @@ try {
       functionName: "balanceOf",
       args: [owner],
     });
+  const assertions = [];
+  auth.on("WebAuthn.credentialAsserted", ({ credential }) => {
+    assertions.push(
+      Buffer.from(credential.credentialId, "base64").toString("base64url"),
+    );
+  });
+  const ids = await page.evaluate((rpc) => {
+    const { primary, secondary } = JSON.parse(
+      localStorage.getItem("static-vault.local.v1:" + rpc),
+    );
+    return [primary.id, secondary.id];
+  }, config.rpcUrl);
+  assert.notEqual(ids[0], ids[1]);
+  const deposit = (account = safe, blockNumber) =>
+    chain.readContract({
+      address: config.entryPoint,
+      abi: parseAbi(["function balanceOf(address) view returns(uint256)"]),
+      functionName: "balanceOf",
+      args: [account],
+      blockNumber,
+    });
+  assert.equal(await deposit(), 0n);
+  assert.equal(await chain.getBalance({ address: safe }), 0n);
   const initialBalance = await tokenBalance(safe);
-  const destinationBefore = await tokenBalance(config.recipient);
+  const destinationBefore = await tokenBalance(recipient);
   assert.equal(initialBalance, 100n * 10n ** 18n);
   await button("← Wallet").click();
   const instant = parseUnits("10.1", 18);
@@ -138,16 +183,42 @@ try {
   ]) {
     await page.getByLabel("Amount (GLD)").fill(amount);
     await visible(approval);
+    assertions.length = 0;
+    await page.evaluate(() => {
+      window.passkeyRequests.length = 0;
+    });
     await button("Send GLD").click();
     await visible("Sent " + amount + " GLD");
     await visible(firstMeter);
     await visible(totalMeter);
+    const roles = assertions.map(
+      (id) => ["primary", "secondary"][ids.indexOf(id)] ?? "unknown",
+    );
+    assert.deepEqual(
+      roles,
+      amount === "1" ? ["primary"] : ["primary", "secondary"],
+    );
+    const requests = await page.evaluate(() => window.passkeyRequests);
+    assert.equal(requests.length, roles.length);
+    assert.equal(new Set(requests.map((r) => r.challenge)).size, 1);
+    requests.forEach((r, i) =>
+      assert.deepEqual(
+        r.credentials.map((id) =>
+          Buffer.from(id, "base64").toString("base64url"),
+        ),
+        [assertions[i]],
+      ),
+    );
+    console.log(
+      amount +
+        " GLD confirmed on " +
+        safe +
+        " with assertions " +
+        roles.join(", "),
+    );
   }
   assert.equal(await tokenBalance(safe), initialBalance - instant);
-  assert.equal(
-    await tokenBalance(config.recipient),
-    destinationBefore + instant,
-  );
+  assert.equal(await tokenBalance(recipient), destinationBefore + instant);
   await page.getByLabel("Amount (GLD)").fill("0.1");
   await visible("Requires both passkeys.");
   await page.getByLabel("Amount (GLD)").fill("20");
@@ -179,7 +250,7 @@ try {
     initialBalance - (instant + parseUnits("20", 18)),
   );
   assert.equal(
-    await tokenBalance(config.recipient),
+    await tokenBalance(recipient),
     destinationBefore + (instant + parseUnits("20", 18)),
   );
   await visible("10.1 / 30 GLD");
@@ -201,11 +272,25 @@ try {
     fromBlock: 0n,
     toBlock: "latest",
   });
+  assert.equal(await deposit(), 0n);
   assert.equal(operations.length, 9);
+  for (const event of operations.slice(3, 5)) {
+    const before = await deposit(config.paymaster, event.blockNumber - 1n);
+    const after = await deposit(config.paymaster, event.blockNumber);
+    assert.equal(before - after, event.args.actualGasCost);
+    assert.equal(await deposit(safe, event.blockNumber), 0n);
+    console.log(
+      "Sponsored receipt",
+      event.transactionHash,
+      "gas cost (wei)",
+      String(before - after),
+    );
+  }
   assert.ok(
     operations.every(
       ({ args }) =>
         args.success &&
+        args.actualGasCost > 0n &&
         args.paymaster.toLowerCase() === config.paymaster.toLowerCase(),
     ),
   );

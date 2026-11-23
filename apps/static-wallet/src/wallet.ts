@@ -10,6 +10,8 @@ import {
   formatUnits,
   getContractAddress,
   http,
+  hashTypedData,
+  toFunctionSelector,
   keccak256,
   padHex,
   parseAbi,
@@ -77,6 +79,13 @@ const epAbi = parseAbi([
   "function getNonce(address,uint192) view returns(uint256)",
   "function getUserOpHash((address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)) view returns(bytes32)",
 ]);
+const executeFullOp = toFunctionSelector(
+  "executeUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32)",
+);
+const instantProofTypes = [{ type: "bytes" }, { type: "bytes" }] as const;
+const maxProofBytes = 2048;
+const estimateProof: Hex = `0x${"ff".repeat(maxProofBytes)}`;
+type InstantApproval = { guard: Address; stepUp: boolean };
 function batch(calls: { to: Address; data: Hex; operation?: 0 | 1 }[]): Hex {
   return concatHex(
     calls.map((c) =>
@@ -358,6 +367,29 @@ export class Wallet {
     signingModule: Address = this.manifest.standardModule,
     beforeBroadcast?: () => Promise<void>,
   ) {
+    return this.submitOperation(
+      r,
+      data("module", "executeUserOpWithErrorString", [to, 0n, call, operation]),
+      label,
+      signingModule,
+      { factoryData, beforeBroadcast },
+    );
+  }
+  private async submitOperation(
+    r: WalletRecord,
+    callData: Hex,
+    label: string,
+    signingModule: Address,
+    {
+      factoryData,
+      beforeBroadcast,
+      instant,
+    }: {
+      factoryData?: Hex;
+      beforeBroadcast?: () => Promise<void>;
+      instant?: InstantApproval;
+    },
+  ) {
     await this.preflight();
     await this.validateRecord(r);
     await this.reconcile(r);
@@ -371,18 +403,18 @@ export class Wallet {
         functionName: "getNonce",
         args: [r.safe, 0n],
       }),
-      callData: data("module", "executeUserOpWithErrorString", [
-        to,
-        0n,
-        call,
-        operation,
-      ]),
+      callData,
       callGasLimit: 11_000_000n,
       verificationGasLimit: 2_500_000n,
       preVerificationGas: 750_000n,
       maxFeePerGas: 2_000_000_000n,
       maxPriorityFeePerGas: 1_000_000_000n,
-      signature: toHex(0, { size: 12 }),
+      signature: instant
+        ? encodeAbiParameters(instantProofTypes, [
+            estimateProof,
+            instant.stepUp ? estimateProof : "0x",
+          ])
+        : toHex(0, { size: 12 }),
       ...(factoryData ? { factory: m.proxyFactory, factoryData } : {}),
     };
     op = {
@@ -429,23 +461,58 @@ export class Wallet {
     )
       throw Error("Operation exceeds the local sponsored gas budget.");
     this.progress(`${label} · approve with your primary passkey`);
-    const digest = await this.read(
-      "module",
-      signingModule,
-      "getOperationHash",
-      [toPackedUserOperation(op)],
-    );
-    op.signature = concatHex([
-      toHex(0, { size: 12 }),
-      await signPasskey(r.primary, digest),
-    ]);
-    await this.preflight();
     const hash = await this.client.readContract({
       address: m.entryPoint,
       abi: epAbi,
       functionName: "getUserOpHash",
       args: [toPackedUserOperation(op)],
     });
+    if (instant) {
+      const digest = hashTypedData({
+        domain: {
+          name: "GLD Instant Send",
+          version: "1",
+          chainId: m.chainId,
+          verifyingContract: signingModule,
+        },
+        types: {
+          InstantSend: [
+            { name: "userOpHash", type: "bytes32" },
+            { name: "guard", type: "address" },
+          ],
+        },
+        primaryType: "InstantSend",
+        message: { userOpHash: hash, guard: instant.guard },
+      });
+      const primary = await signPasskey(r.primary, digest);
+      let secondary: Hex = "0x";
+      if (instant.stepUp) {
+        if (!r.secondary)
+          throw Error("Secondary passkey required for this send.");
+        this.progress(
+          "Approve the same sponsored send with your secondary passkey",
+        );
+        secondary = sliceHex(await signPasskey(r.secondary, digest), 97);
+      }
+      if (size(primary) > maxProofBytes || size(secondary) > maxProofBytes)
+        throw Error("Passkey proof exceeds the sponsored estimate.");
+      op.signature = encodeAbiParameters(instantProofTypes, [
+        primary,
+        secondary,
+      ]);
+    } else {
+      const digest = await this.read(
+        "module",
+        signingModule,
+        "getOperationHash",
+        [toPackedUserOperation(op)],
+      );
+      op.signature = concatHex([
+        toHex(0, { size: 12 }),
+        await signPasskey(r.primary, digest),
+      ]);
+    }
+    await this.preflight();
     await beforeBroadcast?.();
     r.pending = { hash, label };
     this.persist(r);
@@ -571,6 +638,8 @@ export class Wallet {
       r.safe,
       m.standardModule,
       m.entryPoint,
+      m.token,
+      m.paymaster,
     ]);
     const routerRuntime = (await this.client.call({ data: router.init })).data;
     if (!routerRuntime)
@@ -811,14 +880,34 @@ export class Wallet {
       );
       return tier;
     }
-    await this.inner(
+    const stepUp = tier === "step-up";
+    const sendData = concatHex([
+      executeFullOp,
+      encodeAbiParameters(
+        [
+          { type: "address" },
+          { type: "address" },
+          { type: "address" },
+          { type: "uint256" },
+          { type: "bool" },
+          { type: "uint48" },
+        ],
+        [
+          components.guard.address,
+          this.manifest.token,
+          recipient,
+          amount,
+          stepUp,
+          Number(block.timestamp + 300n),
+        ],
+      ),
+    ]);
+    await this.submitOperation(
       r,
-      this.manifest.token,
-      call,
-      0,
+      sendData,
       `Send ${formatUnits(amount, 18)} GLD`,
       components.router.address,
-      tier === "step-up" ? r.secondary : undefined,
+      { instant: { guard: components.guard.address, stepUp } },
     );
     return tier;
   }

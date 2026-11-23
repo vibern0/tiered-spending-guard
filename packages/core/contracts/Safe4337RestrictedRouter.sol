@@ -76,7 +76,7 @@ contract Safe4337RestrictedRouter {
         if (keccak256(callData) != keccak256(abi.encodeWithSelector(OPERATION_HASH, op))) revert NonCanonicalCall();
     }
 
-    function _delegate() private {
+    function _delegate() internal {
         address implementation = STANDARD_MODULE;
         assembly ("memory-safe") {
             let ptr := mload(0x40)

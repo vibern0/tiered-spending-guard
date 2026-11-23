@@ -61,3 +61,10 @@ The GLD rehearsal replaces the native-transfer preset for new local installation
 
 - [x] Enforce the cumulative X ceiling inside the ERC-4337 guard. Read the same per-token instant total for both signature tiers. Preserve raw signer counters and the UTC rollover.
 - [x] Verify 1 GLD with primary, 9.1 GLD with both, rejection of a one-unit primary-only send, remaining 19.9 GLD with both and next-day primary approval through Safe 1.5.
+
+
+## Single-prompt local GLD follow-up
+
+- [x] Provision a separate local Safe with an EntryPoint v0.7 full-operation router and a guard in both slots.
+- [x] Measure browser passkey requests and successful assertions per credential for 1 GLD and 9.1 GLD. Verify the shared challenge for the second send.
+- [x] Check exact X and Y, stale tiers, same-bundle ordering, failed-token rollback, nonce replay, expiry, daily reset, sponsored receipts and zero Safe gas contributions.

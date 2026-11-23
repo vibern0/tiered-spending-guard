@@ -95,7 +95,7 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     uint256 private pendingSafeBalance;
     uint256 private pendingRecipientBalance;
     bool private pendingTokenProof;
-    enum CheckPhase { Idle, Ordinary, DelayDirect, AaOuter, AaOwner, AaOwnerDone, AaReadyOuter, AaDelay, AaDelayDone }
+    enum CheckPhase { Idle, Ordinary, DelayDirect, AaOuter, AaOwner, AaOwnerDone, AaReadyOuter, AaDelay, AaDelayDone, InstantArmed, InstantExecuting }
     CheckPhase private checkPhase;
     bytes32 public immutable expectedRouterRuntimeHash;
     address public aaRouter;
@@ -103,6 +103,7 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     address[] private routeTargets;
     bytes32 private expectedAaInnerHash;
     bytes32 private expectedAaModuleHash;
+    bytes32 private activeInstantDigest;
     bytes32 private expectedAaDelayHash;
     address public maintenance;
     bool public frozen;
@@ -480,6 +481,16 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
         if (checkPhase != CheckPhase.Ordinary && checkPhase != CheckPhase.AaOwner) revert NoPendingCheck();
         if (checkPhase == CheckPhase.AaOwner && txHash != expectedAaInnerHash) revert InvalidAaRoute();
         if (!success) revert ExecutionFailed();
+        _finishTokenProof();
+        if (checkPhase == CheckPhase.AaOwner) {
+            checkPhase = CheckPhase.AaOwnerDone;
+        } else {
+            checking = false;
+            checkPhase = CheckPhase.Idle;
+        }
+    }
+
+    function _finishTokenProof() private {
         if (pendingTokenProof) {
             uint256 safeBalance = _readBalance(pendingToken, config.safe);
             uint256 recipientBalance = _readBalance(pendingToken, pendingRecipient);
@@ -489,12 +500,41 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
             ) revert ExecutionFailed();
         }
         _clearPendingTransfer();
-        if (checkPhase == CheckPhase.AaOwner) {
-            checkPhase = CheckPhase.AaOwnerDone;
-        } else {
-            checking = false;
-            checkPhase = CheckPhase.Idle;
-        }
+    }
+
+    /// @notice Check one primary Safe passkey and, for step-up, the configured contract secondary.
+    function verifyInstant(bytes32 digest, bool stepUp, bytes calldata primary, bytes calldata secondary) external view {
+        if (msg.sender != aaRouter || aaRouter.codehash != expectedRouterRuntimeHash) revert InvalidAaRoute();
+        (address signer, uint256 end,) = SafeSignatureDecoder.decode(primary, digest, false);
+        if (signer != config.passkey || end != primary.length) revert InvalidPasskeySignature();
+        ISafe(payable(config.safe)).checkNSignatures(msg.sender, digest, primary, 1);
+        if (stepUp) {
+            SecondarySignerConfig memory coSigner = safeContractSecondary;
+            if (!coSigner.enabled || coSigner.signer == signer || coSigner.signer.code.length == 0 ||
+                !SignatureChecker.isValidSignatureNow(coSigner.signer, digest, secondary)) revert InvalidSecondarySignature();
+        } else if (secondary.length != 0) revert InvalidSecondarySignature();
+    }
+
+    /// @notice The pinned router calls this immediately after verifying the full operation at execution.
+    function beginInstant(bytes32 digest, address token, bytes calldata callData, bool stepUp) external {
+        if (checking || msg.sender != aaRouter || aaRouter.codehash != expectedRouterRuntimeHash ||
+            token == address(0) || !routeOnlyTarget[token] || digest == bytes32(0)) revert InvalidAaRoute();
+        (, address recipient, uint256 amount) = _decodeTransfer(token, 0, callData);
+        SpendState memory state = spendState[token];
+        uint256 used = state.window == _currentWindow() ? state.instantSpent : 0;
+        uint256 x = assetPolicy[token].baseDailyLimit;
+        if (stepUp != (used >= x || amount > x - used)) revert TransferExceedsLimit();
+        checking = true;
+        checkPhase = CheckPhase.InstantArmed;
+        activeInstantDigest = digest;
+        expectedAaModuleHash = keccak256(abi.encode(digest,
+            PolicyDigest.moduleTransactionHash(config.safe, msg.sender, token, 0, callData, Enum.Operation.Call)));
+        _authorizeDecodedTransfer(token, recipient, amount, stepUp);
+    }
+
+    /// @notice Only idle after the exact transfer passed both module hooks and its balance proof.
+    function instantFinished() external view returns (bool) {
+        return !checking && checkPhase == CheckPhase.Idle && activeInstantDigest == bytes32(0);
     }
 
     /// @notice Safe module-guard hook for Delay-module execution.
@@ -507,6 +547,13 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     function checkModuleTransaction(address to, uint256 value, bytes calldata data, Enum.Operation operation, address module)
         external override onlySafe returns (bytes32 moduleTxHash)
     {
+        if (checking && checkPhase == CheckPhase.InstantArmed && module == aaRouter) {
+            moduleTxHash = keccak256(abi.encode(activeInstantDigest,
+                PolicyDigest.moduleTransactionHash(config.safe, module, to, value, data, operation)));
+            if (moduleTxHash != expectedAaModuleHash) revert InvalidAaRoute();
+            checkPhase = CheckPhase.InstantExecuting;
+            return moduleTxHash;
+        }
         if (checking && checkPhase == CheckPhase.AaReadyOuter && module == config.delay) {
             if (operation != Enum.Operation.Call) revert InvalidAaRoute();
             _authorizeDelayedExecution(to, value, data, operation);
@@ -554,7 +601,12 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
             checkPhase = CheckPhase.AaDelayDone;
             return;
         }
-        if (checkPhase == CheckPhase.AaOwnerDone || checkPhase == CheckPhase.AaDelayDone) {
+        if (checkPhase == CheckPhase.InstantExecuting) {
+            if (moduleTxHash != expectedAaModuleHash) revert InvalidAaRoute();
+            _finishTokenProof();
+            delete activeInstantDigest;
+            delete expectedAaModuleHash;
+        } else if (checkPhase == CheckPhase.AaOwnerDone || checkPhase == CheckPhase.AaDelayDone) {
             if (moduleTxHash != expectedAaModuleHash) revert InvalidAaRoute();
             expectedAaInnerHash = bytes32(0);
             expectedAaModuleHash = bytes32(0);
@@ -680,7 +732,6 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
     /// @param operation Safe operation, which must be CALL.
     /// @param secondaryApproved True when one enabled configured secondary verified.
     function _authorizeTransfer(address to, uint256 value, bytes calldata data, Enum.Operation operation, bool secondaryApproved) internal {
-        if (frozen) revert Frozen();
         if (operation != Enum.Operation.Call) revert UnsupportedTransfer();
 
         address token;
@@ -696,6 +747,11 @@ contract TieredSpendingGuard4337 is ITransactionGuard, IModuleGuard {
             (recipient, amount) = abi.decode(data[4:], (address, uint256));
         }
 
+        _authorizeDecodedTransfer(token, recipient, amount, secondaryApproved);
+    }
+
+    function _authorizeDecodedTransfer(address token, address recipient, uint256 amount, bool secondaryApproved) private {
+        if (frozen) revert Frozen();
         AssetPolicy memory policy = assetPolicy[token];
         if (policy.instantDailyLimit == 0) revert UnsupportedTransfer();
         if (recipient == address(0)) revert RecipientNotAllowed();

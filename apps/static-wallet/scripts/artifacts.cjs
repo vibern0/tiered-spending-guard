@@ -26,7 +26,7 @@ const items = {
   createCall: dependency(
     "@safe-global/safe-smart-account/build/artifacts/contracts/libraries/CreateCall.sol/CreateCall.json",
   ),
-  router: local("Safe4337RestrictedRouter.sol/Safe4337RestrictedRouter.json"),
+  router: local("Safe4337InstantRouter.sol/Safe4337InstantRouter.json"),
   guard: local("TieredSpendingGuard4337.sol/TieredSpendingGuard4337.json"),
   delay: local("test/ZodiacDelayV1_1_1.sol/ZodiacDelayV1_1_1.json"),
   token: local("test/ERC20Mock.sol/ERC20Mock.json"),
