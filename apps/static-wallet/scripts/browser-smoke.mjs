@@ -233,15 +233,19 @@ try {
   assert.equal(await tokenBalance(safe), initialBalance - instant);
   await page.reload();
   await visible(/#0 · 20 GLD/);
-  await button("Cancel withdrawal").click();
-  await visible(/Withdrawal #0 cancelled/);
-  await visible(/No pending withdrawals/);
-  assert.equal(await tokenBalance(safe), initialBalance - instant);
   await page.getByLabel("Amount (GLD)").fill("20");
   await resetPrompts();
   await button("Queue GLD").click();
   await visible(/#1 · 20 GLD/);
   await checkPrompts("Queue 20 GLD", ["primary", "secondary"]);
+  await resetPrompts();
+  await button("Cancel withdrawal").click();
+  await visible(/Withdrawal #0 cancelled/);
+  await checkPrompts("Cancel withdrawal #0", ["primary", "secondary"]);
+  await page.getByText(/^#0 · 20 GLD$/).waitFor({ state: "hidden" });
+  await visible(/#1 · 20 GLD/);
+  assert.equal(await tokenBalance(safe), initialBalance - instant);
+  assert.equal(await tokenBalance(recipient), destinationBefore + instant);
   assert.ok(await button("Execute withdrawal").isDisabled());
   await visible("10 / 10 GLD");
   await visible("10.1 / 30 GLD");
@@ -280,7 +284,7 @@ try {
   });
   assert.equal(await deposit(), 0n);
   assert.equal(operations.length, 9);
-  const queued = operations[7];
+  const queued = operations[6];
   const executed = operations[8];
   const queuedAt = (await chain.getBlock({ blockNumber: queued.blockNumber }))
     .timestamp;

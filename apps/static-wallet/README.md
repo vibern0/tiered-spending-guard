@@ -2,22 +2,22 @@
 
 Create a Safe with a passkey. Open **Settings** on the same wallet to enable tiered spending with a second passkey. This demonstration uses Gold (GLD), an 18-decimal local mock ERC-20. In Settings, choose the approved recipient and enable protected GLD transfers. Send GLD from the wallet home. A primary passkey can spend 10 GLD per day. Both passkeys can spend up to 30 GLD per day combined. When a send would take instant spending over 30 GLD, the button changes to **Queue GLD**. Approve the full payment with both passkeys. The recipient receives GLD only when you execute the withdrawal.
 
-For instant GLD sends and new delayed queue entries, the browser finalizes sponsorship first. Every required passkey signs the same operation once. A send of 1 GLD and then 9.1 GLD takes three assertions in total. Queuing 20 GLD after those sends takes two assertions, one from each passkey. Browser tests count credential requests and authenticator events and check their credential IDs.
+For instant GLD sends, queue requests and cancellations, the browser finalizes sponsorship first. Every required passkey signs the same operation once. A send of 1 GLD and then 9.1 GLD takes three assertions in total. Queuing 20 GLD after those sends takes two assertions, one from each passkey. Browser tests count credential requests and authenticator events and check their credential IDs.
 
 The wallet applies both thresholds to the same UTC day's total instant spending. Sending 1 GLD shows 1 / 10 GLD and 1 / 30 GLD. Sending another 9.1 GLD requires both passkeys and shows 10 / 10 GLD and 10.1 / 30 GLD. Further instant sends from this wallet require both passkeys until the daily reset. Delayed withdrawals are shown separately.
 
 The updated ERC-4337 guard enforces both thresholds against the same onchain instant total, including submissions from other clients. The primary-only counter records how much was actually sent with one passkey. Older guard deployments keep their original policy. A separate local chain can recreate the same Safe address with the original owner and fresh balances and spending counters. Enable protection in Settings on that chain.
 
-The withdrawal queue survives a page refresh. Cancel the oldest item with both passkeys, or choose **Execute withdrawal** after 120 seconds and confirm the sponsored submission with the primary passkey. The execution window lasts 600 seconds. Clear an expired head with **Cancel withdrawal** to reach the next item.
+The withdrawal queue survives a page refresh. Cancel the oldest item with one approval from each passkey. Both approve its queue number, token, amount and recipient in one sponsored operation. A changed head requires a fresh review. Choose **Execute withdrawal** after 120 seconds and confirm the sponsored submission with the primary passkey. The execution window lasts 600 seconds. Clear an expired head with **Cancel withdrawal** to reach the next item.
 
 From the repository root, use Node 24 and the workspace lockfile.
 
 ```sh
 pnpm install --frozen-lockfile
-STATIC_WALLET_RPC_PORT=8553 STATIC_WALLET_UI_PORT=5187 npm run wallet:dev
+STATIC_WALLET_RPC_PORT=8555 STATIC_WALLET_UI_PORT=5189 npm run wallet:dev
 ```
 
-Open **http://localhost:5187** in a browser with passkeys. Keep the command running while using the wallet. Refreshing the page keeps the wallet address and checks its installation onchain. Stopping the command discards the local chain. A fresh browser profile gives a clean onboarding rehearsal.
+Open **http://localhost:5189** in a browser with passkeys. Keep the command running while using the wallet. Refreshing the page keeps the wallet address and checks its installation onchain. Stopping the command discards the local chain. A fresh browser profile gives a clean onboarding rehearsal.
 
 The frontend ships as static files. The command starts Vite plus a disposable Hardhat fixture that supplies the RPC, bundler and paymaster for development. The fixture funds its own paymaster with test ETH and submits operations to EntryPoint 0.7. It uses fixed local gas estimates. Hosted bundler admission, public sponsorship, repair and independent alerts remain open research gates.
 
@@ -29,12 +29,12 @@ With the local fixture running, build the static files in another terminal.
 npm --prefix apps/static-wallet run build
 ```
 
-To rehearse the interface with virtual passkeys, install Chromium for the pinned browser test driver and run the smoke test. It interrupts sponsorship between preparation and activation, refreshes the app, and verifies the final guard slots and sponsored receipts onchain. It also sends GLD in both instant tiers, queues and cancels a withdrawal, waits through a real cooldown and executes a second withdrawal. It checks token balances and daily usage on a separate test Safe.
+To rehearse the interface with virtual passkeys, install Chromium for the pinned browser test driver and run the smoke test. It interrupts sponsorship between preparation and activation, refreshes the app, and verifies the final guard slots and sponsored receipts onchain. It also sends GLD in both instant tiers, queues two equal withdrawals, counts both cancellation prompts, waits through a real cooldown and executes the surviving withdrawal. It checks token balances and daily usage on a separate test Safe.
 
 ```sh
 cd apps/static-wallet
 ./node_modules/.bin/playwright-core install chromium
-STATIC_WALLET_UI_PORT=5187 npm run smoke
+STATIC_WALLET_UI_PORT=5189 npm run smoke
 ```
 
 Wallet teams can use this flow to evaluate opt-in installation on a fresh Safe 1.5. The experimental guard profile is restricted to local test assets. See the [implementation plan](../../packages/core/docs/superpowers/plans/2026-11-20-static-wallet.md).

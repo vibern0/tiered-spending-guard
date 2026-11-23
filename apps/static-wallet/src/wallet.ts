@@ -88,8 +88,37 @@ const estimateProof: Hex = `0x${"ff".repeat(maxProofBytes)}`;
 type TransferApproval = {
   guard: Address;
   requiresSecondary: boolean;
-  delay?: Address;
+  delayAction?: {
+    type: "QueueWithdrawal" | "CancelWithdrawal";
+    address: Address;
+  };
 };
+function transferOperation(
+  guard: Address,
+  token: Address,
+  recipient: Address,
+  amount: bigint,
+  tier: number,
+  timestamp: bigint,
+  cancelHead?: bigint,
+) {
+  return concatHex([
+    executeFullOp,
+    encodeAbiParameters(
+      [
+        { type: "address" },
+        { type: "address" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "uint8" },
+        { type: "uint48" },
+      ],
+      [guard, token, recipient, amount, tier, Number(timestamp + 300n)],
+    ),
+    cancelHead === undefined ? "0x" : toHex(cancelHead, { size: 32 }),
+  ]);
+}
+
 function batch(calls: { to: Address; data: Hex; operation?: 0 | 1 }[]): Hex {
   return concatHex(
     calls.map((c) =>
@@ -483,14 +512,17 @@ export class Wallet {
         { name: "guard", type: "address" },
       ] as const;
       const message = { userOpHash: hash, guard: approval.guard };
-      const digest = approval.delay
+      const digest = approval.delayAction
         ? hashTypedData({
             domain,
-            primaryType: "QueueWithdrawal",
+            primaryType: approval.delayAction.type,
             types: {
-              QueueWithdrawal: [...fields, { name: "delay", type: "address" }],
+              [approval.delayAction.type]: [
+                ...fields,
+                { name: "delay", type: "address" },
+              ],
             },
-            message: { ...message, delay: approval.delay },
+            message: { ...message, delay: approval.delayAction.address },
           })
         : hashTypedData({
             domain,
@@ -872,27 +904,14 @@ export class Wallet {
       throw Error("Daily usage changed. Review the updated transfer tier.");
     if (tier !== "base" && !r.secondary)
       throw Error("Secondary passkey is required.");
-    const sendData = concatHex([
-      executeFullOp,
-      encodeAbiParameters(
-        [
-          { type: "address" },
-          { type: "address" },
-          { type: "address" },
-          { type: "uint256" },
-          { type: "uint8" },
-          { type: "uint48" },
-        ],
-        [
-          components.guard.address,
-          this.manifest.token,
-          recipient,
-          amount,
-          { base: 0, "step-up": 1, delayed: 2 }[tier],
-          Number(block.timestamp + 300n),
-        ],
-      ),
-    ]);
+    const sendData = transferOperation(
+      components.guard.address,
+      this.manifest.token,
+      recipient,
+      amount,
+      { base: 0, "step-up": 1, delayed: 2 }[tier],
+      block.timestamp,
+    );
     await this.submitOperation(
       r,
       sendData,
@@ -902,7 +921,10 @@ export class Wallet {
         approval: {
           guard: components.guard.address,
           requiresSecondary: tier !== "base",
-          delay: tier === "delayed" ? components.delay.address : undefined,
+          delayAction:
+            tier === "delayed"
+              ? { type: "QueueWithdrawal", address: components.delay.address }
+              : undefined,
         },
       },
     );
@@ -979,15 +1001,28 @@ export class Wallet {
       await checkHead();
     };
     if (action === "cancel") {
-      await this.inner(
+      const block = await this.client.getBlock({ blockTag: "pending" });
+      await this.submitOperation(
         r,
-        c.delay.address,
-        data("delay", "setTxNonce", [head.nonce + 1n]),
-        0,
-        `Cancel withdrawal #${head.nonce}`,
+        transferOperation(
+          c.guard.address,
+          this.manifest.token,
+          head.recipient,
+          head.amount,
+          3,
+          block.timestamp,
+          head.nonce,
+        ),
+        `Cancel withdrawal #${head.nonce} · ${formatUnits(head.amount, 18)} GLD`,
         c.router.address,
-        r.secondary,
-        recheck,
+        {
+          approval: {
+            guard: c.guard.address,
+            requiresSecondary: true,
+            delayAction: { type: "CancelWithdrawal", address: c.delay.address },
+          },
+          beforeBroadcast: recheck,
+        },
       );
     } else {
       await this.submit(
