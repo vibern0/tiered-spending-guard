@@ -276,16 +276,23 @@ it("rechecks the selected withdrawal after approval before submitting a cancella
     .spyOn(queue, "readQueue")
     .mockResolvedValueOnce([head])
     .mockResolvedValueOnce([{ ...head, nonce: 8n }]);
-  const inner = vi
-    .spyOn(wallet, "inner")
-    .mockImplementation(async (...args) => {
-      await args[7]?.();
-    });
+  const submit = vi
+    .spyOn(
+      wallet as unknown as { submitOperation: Wallet["submitOperation"] },
+      "submitOperation",
+    )
+    .mockImplementation(
+      async (_record, _calldata, _label, _router, options) => {
+        expect(options.approval?.delayAction?.type).toBe("CancelWithdrawal");
+        expect(options.approval?.requiresSecondary).toBe(true);
+        await options.beforeBroadcast!();
+      },
+    );
   try {
     await expect(
       wallet.manageWithdrawal(record, head, "cancel"),
     ).rejects.toThrow("queue head changed");
-    expect(inner).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledOnce();
     expect(read).toHaveBeenCalledTimes(2);
   } finally {
     read.mockRestore();

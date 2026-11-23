@@ -73,3 +73,8 @@ The GLD rehearsal replaces the native-transfer preset for new local installation
 
 - [x] Bind both credentials to one queue-specific operation and restrict execution to the configured Delay's GLD enqueue call.
 - [x] Count both browser assertions for a 20 GLD queue after spending 10.1 GLD. Verify cancellation, timed execution, expiry, paymaster charges and token accounting. [Local receipts](../specs/2026-11-23-one-prompt-delayed-queue.md)
+
+## Sponsored cancellation
+
+- [x] Bind one approval per credential to the selected withdrawal and current head, and verify the one-entry advance onchain.
+- [x] Rehearse cancellation with two identical withdrawals, measure prompts and sponsor charges, and execute the surviving withdrawal after its cooldown. [Local receipts](../specs/2026-11-23-one-prompt-delayed-cancel.md)
