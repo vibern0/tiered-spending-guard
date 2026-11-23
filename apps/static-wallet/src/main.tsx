@@ -9,6 +9,9 @@ import {
   type WalletState,
   type Manifest,
 } from "./wallet";
+import { transferTier, tokenAmount } from "./transfer";
+import { queueStatus, type Queued } from "./queue";
+import { useSpending } from "./useSpending";
 import "./style.css";
 function App() {
   const [balance, setBalance] = useState<string>();
@@ -24,6 +27,19 @@ function App() {
   const [amount, setAmount] = useState("1");
   const [confirmation, setConfirmation] = useState("");
   const [settings, setSettings] = useState(false);
+  const { snapshot, problem } = useSpending(
+    wallet,
+    record,
+    state === "enabled" && !busy,
+  );
+  let tier: ReturnType<typeof transferTier> | undefined;
+  if (snapshot) {
+    try {
+      tier = transferTier(tokenAmount(amount), snapshot);
+    } catch {
+      /* Incomplete amount while typing. */
+    }
+  }
   const persist = (r: WalletRecord) => {
     localStorage.setItem(KEY, JSON.stringify(r));
     setRecord({ ...r });
@@ -73,7 +89,10 @@ function App() {
       active = false;
     };
   }, []);
-  async function run(action: "create" | "enable" | "refresh" | "send") {
+  async function run(
+    action: "create" | "enable" | "refresh" | "send" | "cancel" | "execute",
+    selected?: Queued,
+  ) {
     if (!wallet) return;
     setBusy(true);
     setConfirmation("");
@@ -94,8 +113,20 @@ function App() {
           await wallet.create(r);
         } else if (action === "enable" && r) await wallet.enable(r, recipient);
         else if (action === "send" && r) {
-          await wallet.send(r, recipient, amount);
-          setConfirmation(`Sent ${amount} GLD to ${recipient}.`);
+          if (!tier) throw Error("Review the amount and current usage first.");
+          const result = await wallet.send(r, recipient, amount, tier);
+          setConfirmation(
+            `${result === "delayed" ? "Queued" : "Sent"} ${amount} GLD to ${recipient}.`,
+          );
+        } else if (
+          (action === "cancel" || action === "execute") &&
+          r &&
+          selected
+        ) {
+          await wallet.manageWithdrawal(r, selected, action);
+          setConfirmation(
+            `Withdrawal #${selected.nonce} ${action === "cancel" ? "cancelled" : "executed"}.`,
+          );
         }
         if (r) {
           setState(await wallet.inspect(r));
@@ -179,6 +210,41 @@ function App() {
                           ? "Verification failed · actions locked"
                           : "Checking wallet…"}
                 </p>
+                {state === "enabled" && snapshot && (
+                  <section aria-label="Daily usage">
+                    <h2>Daily usage</h2>
+                    <dl className="usage">
+                      <div>
+                        <dt>Primary passkey</dt>
+                        <dd>{formatUnits(snapshot.base, 18)} / 10 GLD</dd>
+                      </div>
+                      <div>
+                        <dt>Instant spending, both tiers</dt>
+                        <dd>{formatUnits(snapshot.combined, 18)} / 30 GLD</dd>
+                      </div>
+                      <div>
+                        <dt>With secondary passkey</dt>
+                        <dd>
+                          {formatUnits(snapshot.combined - snapshot.base, 18)}{" "}
+                          GLD
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Delayed withdrawals executed</dt>
+                        <dd>{formatUnits(snapshot.delayed, 18)} GLD</dd>
+                      </div>
+                    </dl>
+                    <p className="small">
+                      Resets at 00:00 UTC. Queued withdrawals do not use the
+                      instant allowance.
+                    </p>
+                  </section>
+                )}
+                {state === "enabled" && !snapshot && !busy && (
+                  <p role="status">
+                    {problem || "Reading daily usage and withdrawals…"}
+                  </p>
+                )}
                 {state === "enabled" && (
                   <form
                     onSubmit={(event) => {
@@ -199,8 +265,61 @@ function App() {
                         onChange={(e) => setAmount(e.target.value)}
                       />
                     </label>
-                    <button disabled={busy}>Send GLD</button>
+                    {tier === "delayed" && (
+                      <p>
+                        Both passkeys will queue the full amount. You can
+                        execute it after 120 seconds.
+                      </p>
+                    )}
+                    <button disabled={busy || !tier}>
+                      {tier === "delayed" ? "Queue GLD" : "Send GLD"}
+                    </button>
                   </form>
+                )}
+                {state === "enabled" && snapshot && (
+                  <section aria-label="Withdrawal queue">
+                    <h2>Withdrawal queue</h2>
+                    {!snapshot.queue.length && <p>No pending withdrawals.</p>}
+                    {snapshot.queue.map((item, index) => {
+                      const status = queueStatus(item, snapshot.now);
+                      return (
+                        <article key={item.nonce.toString()}>
+                          <strong>
+                            #{String(item.nonce)} ·{" "}
+                            {formatUnits(item.amount, 18)} GLD
+                          </strong>
+                          <p className="address">{item.recipient}</p>
+                          <p>
+                            {status === "expired"
+                              ? "Expired"
+                              : status === "waiting"
+                                ? `Ready in ${item.readyAt - snapshot.now}s`
+                                : `Ready · expires in ${item.expiresAt - snapshot.now}s`}
+                          </p>
+                          {index === 0 ? (
+                            <div className="queue-actions">
+                              <button
+                                disabled={busy || status !== "ready"}
+                                onClick={() => void run("execute", item)}
+                              >
+                                Execute withdrawal
+                              </button>
+                              <button
+                                disabled={busy}
+                                onClick={() => void run("cancel", item)}
+                              >
+                                Cancel withdrawal
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="small">
+                              Available after earlier withdrawals are resolved.
+                            </p>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </section>
                 )}
                 {state === "ordinary" && (
                   <button onClick={() => setSettings(true)}>Send GLD</button>
@@ -236,7 +355,7 @@ function App() {
                   </div>
                   <div>
                     <dt>Above the daily limit</dt>
-                    <dd>120-second delay · outside instant Send</dd>
+                    <dd>Queue with both passkeys · 120-second delay</dd>
                   </div>
                   <div>
                     <dt>Queued transfer expires</dt>

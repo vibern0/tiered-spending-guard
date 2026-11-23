@@ -46,3 +46,11 @@ Live bundler admission, sponsor coverage, physical authenticators, alerts and pr
 - [x] Sign the exact ERC-20 Safe transaction and router-domain UserOperation. Verify real base and step-up transfers and over-limit rejection through the browser.
 
 The GLD rehearsal replaces the native-transfer preset for new local installations. The old native-only profile remains on its original chain. The requested address was recreated on a separate local chain with its original factory initializer and passkey owner. Installing GLD protection remains an owner action.
+
+
+## Delayed GLD wallet follow-up
+
+- [x] Route sends above the shared 30 GLD daily allowance into the existing two-passkey Delay queue.
+- [x] Recover the verified queue from chain data. Display the cooldown, execution window and head-only cancellation and execution actions.
+- [x] Display primary, combined instant, step-up and executed delayed GLD usage for the current UTC day.
+- [x] Verify the browser flow with a separate Safe, including refresh, cancellation, the 120-second cooldown, balances and usage.

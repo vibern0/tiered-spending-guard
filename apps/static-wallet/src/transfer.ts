@@ -11,16 +11,19 @@ export function tokenAmount(text: string) {
   return amount;
 }
 
-export function instantTier(
+export type Spend = readonly [bigint, bigint, bigint];
+export const dayStart = (timestamp: bigint) => timestamp - (timestamp % 86400n);
+
+export function dailyUsage([window, base, combined]: Spend, timestamp: bigint) {
+  return window === dayStart(timestamp)
+    ? { base, combined }
+    : { base: 0n, combined: 0n };
+}
+
+export function transferTier(
   amount: bigint,
-  spend: readonly [bigint, bigint, bigint],
-  timestamp: bigint,
+  { base, combined }: ReturnType<typeof dailyUsage>,
 ) {
-  const [window, base, combined] = spend;
-  const current = window === timestamp - (timestamp % 86400n);
-  if (amount + (current ? combined : 0n) > Y)
-    throw Error(
-      "This amount needs a delayed withdrawal. The Send button supports instant transfers only.",
-    );
-  return amount + (current ? base : 0n) <= X ? "base" : "step-up";
+  if (amount + combined > Y) return "delayed";
+  return amount + base <= X ? "base" : "step-up";
 }

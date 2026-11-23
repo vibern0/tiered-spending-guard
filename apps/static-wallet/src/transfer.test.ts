@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { instantTier, tokenAmount, X, Y } from "./transfer";
+import { dailyUsage, transferTier, tokenAmount, X, Y } from "./transfer";
 
 describe("GLD transfer review", () => {
   it("accepts exact positive token units", () => {
@@ -16,9 +16,10 @@ describe("GLD transfer review", () => {
     }
   });
   it("honors the shared daily limit and resets at the contract's day boundary", () => {
-    expect(instantTier(X, [0n, 0n, 0n], 1n)).toBe("base");
-    expect(instantTier(1n, [0n, X, X], 1n)).toBe("step-up");
-    expect(() => instantTier(1n, [0n, 0n, Y], 1n)).toThrow(/delay/i);
-    expect(instantTier(1n, [0n, X, Y], 86400n)).toBe("base");
+    expect(transferTier(X, { base: 0n, combined: 0n })).toBe("base");
+    expect(transferTier(1n, { base: X, combined: X })).toBe("step-up");
+    expect(transferTier(1n, { base: 0n, combined: Y })).toBe("delayed");
+    expect(transferTier(Y, { base: 0n, combined: 0n })).toBe("step-up");
+    expect(transferTier(1n, dailyUsage([0n, X, Y], 86400n))).toBe("base");
   });
 });

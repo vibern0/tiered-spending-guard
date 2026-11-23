@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Queued } from "./queue";
 import {
   assertLocal,
   parseRecord,
@@ -250,4 +251,43 @@ it("rejects a manifest that substitutes a different token implementation", async
   vi.spyOn(wallet.client, "getChainId").mockResolvedValue(31337);
   wallet.manifest.hashes.token = hash;
   await expect(wallet.preflight()).rejects.toThrow("reviewed GLD");
+});
+
+it("rechecks the selected withdrawal after approval before submitting a cancellation", async () => {
+  const { wallet, record } = harness();
+  record.secondary = { ...record.primary, id: "secondary" };
+  vi.spyOn(wallet, "inspect").mockResolvedValue("enabled");
+  vi.spyOn(wallet.client, "call").mockResolvedValue({ data: "0x12" });
+  vi.spyOn(wallet.client, "getBlock").mockResolvedValue({
+    number: 10n,
+    timestamp: 1500n,
+  } as Awaited<ReturnType<typeof wallet.client.getBlock>>);
+  const queue = await import("./queue");
+  const head: Queued = {
+    nonce: 7n,
+    hash,
+    recipient: address,
+    calldata: "0x",
+    amount: 1n,
+    readyAt: 1500n,
+    expiresAt: 2100n,
+  };
+  const read = vi
+    .spyOn(queue, "readQueue")
+    .mockResolvedValueOnce([head])
+    .mockResolvedValueOnce([{ ...head, nonce: 8n }]);
+  const inner = vi
+    .spyOn(wallet, "inner")
+    .mockImplementation(async (...args) => {
+      await args[7]?.();
+    });
+  try {
+    await expect(
+      wallet.manageWithdrawal(record, head, "cancel"),
+    ).rejects.toThrow("queue head changed");
+    expect(inner).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledTimes(2);
+  } finally {
+    read.mockRestore();
+  }
 });

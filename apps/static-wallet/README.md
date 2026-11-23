@@ -1,6 +1,10 @@
 # Static wallet
 
-Create a Safe with a passkey. Open **Settings** on the same wallet to enable tiered spending with a second passkey. This demonstration uses Gold (GLD), an 18-decimal local mock ERC-20. In Settings, choose the approved recipient and enable protected GLD transfers. Send GLD from the wallet home. A primary passkey can spend 10 GLD per day. Both passkeys can spend up to 30 GLD per day combined. The instant Send form rejects amounts requiring Delay.
+Create a Safe with a passkey. Open **Settings** on the same wallet to enable tiered spending with a second passkey. This demonstration uses Gold (GLD), an 18-decimal local mock ERC-20. In Settings, choose the approved recipient and enable protected GLD transfers. Send GLD from the wallet home. A primary passkey can spend 10 GLD per day. Both passkeys can spend up to 30 GLD per day combined. When a send would take instant spending over 30 GLD, the button changes to **Queue GLD**. Approve the full payment with both passkeys. The recipient receives GLD only when you execute the withdrawal.
+
+The wallet shows primary and combined instant usage for the UTC day, the amount sent with step-up approval, and executed delayed withdrawals. For example, sending 6 GLD with the primary passkey shows 6 / 10 GLD primary and 6 / 30 GLD combined. Entering 25 GLD next queues all 25 GLD. It leaves both instant counters unchanged.
+
+The withdrawal queue survives a page refresh. Cancel the oldest item with both passkeys, or choose **Execute withdrawal** after 120 seconds and confirm the sponsored submission with the primary passkey. The execution window lasts 600 seconds. Clear an expired head with **Cancel withdrawal** to reach the next item.
 
 From the repository root, use Node 24 and the workspace lockfile.
 
@@ -21,7 +25,7 @@ With the local fixture running, build the static files in another terminal.
 npm --prefix apps/static-wallet run build
 ```
 
-To rehearse the interface with virtual passkeys, install Chromium for the pinned browser test driver and run the smoke test. It interrupts sponsorship between preparation and activation, refreshes the app, and verifies the final guard slots and sponsored receipts onchain.
+To rehearse the interface with virtual passkeys, install Chromium for the pinned browser test driver and run the smoke test. It interrupts sponsorship between preparation and activation, refreshes the app, and verifies the final guard slots and sponsored receipts onchain. It also sends GLD in both instant tiers, queues and cancels a withdrawal, waits through a real cooldown and executes a second withdrawal. It checks token balances and daily usage on a separate test Safe.
 
 ```sh
 cd apps/static-wallet

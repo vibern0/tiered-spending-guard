@@ -194,3 +194,23 @@ input {
 input[readonly] {
   background: #f4f6f3;
 }
+
+.usage div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.usage dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+article {
+  padding: 14px 0;
+  border-top: 1px solid #e1e5dc;
+}
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -124,9 +124,43 @@ try {
     destinationBefore + 11n * 10n ** 18n,
   );
   await page.getByLabel("Amount (GLD)").fill("20");
-  await button("Send GLD").click();
-  await visible(/needs a delayed withdrawal/);
+  await button("Queue GLD").click();
+  await visible(/Queued 20 GLD/);
+  await visible(/#0 · 20 GLD/);
+  assert.ok(await button("Execute withdrawal").isDisabled());
   assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
+  await page.reload();
+  await visible(/#0 · 20 GLD/);
+  await button("Cancel withdrawal").click();
+  await visible(/Withdrawal #0 cancelled/);
+  await visible(/No pending withdrawals/);
+  assert.equal(await tokenBalance(safe), initialBalance - 11n * 10n ** 18n);
+  await page.getByLabel("Amount (GLD)").fill("20");
+  await button("Queue GLD").click();
+  await visible(/#1 · 20 GLD/);
+  assert.ok(await button("Execute withdrawal").isDisabled());
+  await visible(/1 \/ 10 GLD/);
+  await visible(/11 \/ 30 GLD/);
+  console.log(
+    "Cancelled the first withdrawal; waiting for the second onchain cooldown.",
+  );
+  await button("Execute withdrawal").click({ timeout: 155_000 });
+  await visible(/Withdrawal #1 executed/);
+  await visible(/No pending withdrawals/);
+  assert.equal(await tokenBalance(safe), initialBalance - 31n * 10n ** 18n);
+  assert.equal(
+    await tokenBalance(config.recipient),
+    destinationBefore + 31n * 10n ** 18n,
+  );
+  await visible(/11 \/ 30 GLD/);
+  assert.equal(
+    await page
+      .getByText("Delayed withdrawals executed")
+      .locator("..")
+      .locator("dd")
+      .innerText(),
+    "20 GLD",
+  );
   const operations = await chain.getContractEvents({
     address: config.entryPoint,
     abi: parseAbi([
@@ -137,7 +171,7 @@ try {
     fromBlock: 0n,
     toBlock: "latest",
   });
-  assert.equal(operations.length, 5);
+  assert.equal(operations.length, 9);
   assert.ok(
     operations.every(
       ({ args }) =>
@@ -147,7 +181,7 @@ try {
   );
   assert.equal(await chain.getBalance({ address: safe }), 0n);
   console.log(
-    "Passed: creation, interrupted installation, same-wallet resume, verified guards, GLD base and step-up transfers, over-limit rejection, sponsored receipts and mobile layout.",
+    "Passed: creation, interrupted installation, same-wallet resume, verified guards, GLD base and step-up transfers, queue recovery, cancellation, timed execution and daily usage, sponsored receipts and mobile layout.",
   );
 } finally {
   await browser.close();

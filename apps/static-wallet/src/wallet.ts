@@ -28,8 +28,9 @@ import {
 } from "viem/account-abstraction";
 import artifacts from "./artifacts.json";
 import { providerFields, RpcRejection } from "./provider";
-import { X, Y, instantTier, tokenAmount } from "./transfer";
+import { X, Y, dailyUsage, transferTier, tokenAmount } from "./transfer";
 import { encodeGuardContractSignatures } from "../../../packages/sdk/src/signers/guard-signatures";
+import { readQueue, delayedUsage, queueStatus, type Queued } from "./queue";
 import { signPasskey } from "./passkey";
 import {
   assertLocal,
@@ -355,6 +356,7 @@ export class Wallet {
     label: string,
     factoryData?: Hex,
     signingModule: Address = this.manifest.standardModule,
+    beforeBroadcast?: () => Promise<void>,
   ) {
     await this.preflight();
     await this.validateRecord(r);
@@ -444,6 +446,7 @@ export class Wallet {
       functionName: "getUserOpHash",
       args: [toPackedUserOperation(op)],
     });
+    await beforeBroadcast?.();
     r.pending = { hash, label };
     this.persist(r);
     let returned;
@@ -502,6 +505,7 @@ export class Wallet {
     label: string,
     signingModule = this.manifest.standardModule,
     secondary?: Credential,
+    beforeBroadcast?: () => Promise<void>,
   ) {
     const nonce = await this.read("safe", r.safe, "nonce");
     const args = [
@@ -538,6 +542,7 @@ export class Wallet {
       label,
       undefined,
       signingModule,
+      beforeBroadcast,
     );
   }
   async components(r: WalletRecord) {
@@ -756,7 +761,12 @@ export class Wallet {
       args: [safe],
     });
   }
-  async send(r: WalletRecord, recipient: string, text: string) {
+  async send(
+    r: WalletRecord,
+    recipient: string,
+    text: string,
+    reviewedTier?: "base" | "step-up" | "delayed",
+  ) {
     if ((await this.inspect(r)) !== "enabled")
       throw Error("Enable protected GLD transfers in Settings first.");
     if (
@@ -772,16 +782,35 @@ export class Wallet {
       this.read("guard", components.guard.address, "spendState", [
         this.manifest.token,
       ]),
-      this.client.getBlock(),
+      this.client.getBlock({ blockTag: "pending" }),
     ]);
-    const tier = instantTier(amount, spend, block.timestamp);
-    if (tier === "step-up" && !r.secondary)
+    const tier = transferTier(amount, dailyUsage(spend, block.timestamp));
+    if (reviewedTier && tier !== reviewedTier)
+      throw Error("Daily usage changed. Review the updated transfer tier.");
+    if (tier !== "base" && !r.secondary)
       throw Error("Secondary passkey is required.");
     const call = encodeFunctionData({
       abi: erc20Abi,
       functionName: "transfer",
       args: [recipient, amount],
     });
+    if (tier === "delayed") {
+      await this.inner(
+        r,
+        components.delay.address,
+        data("delay", "execTransactionFromModule", [
+          this.manifest.token,
+          0n,
+          call,
+          0,
+        ]),
+        0,
+        `Queue ${formatUnits(amount, 18)} GLD`,
+        components.router.address,
+        r.secondary,
+      );
+      return tier;
+    }
     await this.inner(
       r,
       this.manifest.token,
@@ -791,6 +820,106 @@ export class Wallet {
       components.router.address,
       tier === "step-up" ? r.secondary : undefined,
     );
+    return tier;
+  }
+  async spending(
+    r: WalletRecord,
+    guard: Address,
+    delay: Address,
+    blockNumber: bigint,
+    now: bigint,
+  ) {
+    const recipient = r.recipient ?? this.manifest.recipient;
+    const [spend, queue, delayed] = await Promise.all([
+      this.client.readContract({
+        address: guard,
+        abi: parseAbi([
+          "function spendState(address) view returns(uint256,uint256,uint256)",
+        ]),
+        functionName: "spendState",
+        args: [this.manifest.token],
+        blockNumber,
+      }),
+      readQueue(
+        this.client,
+        delay,
+        this.manifest.token,
+        recipient,
+        blockNumber,
+      ),
+      delayedUsage(
+        this.client,
+        r.safe,
+        delay,
+        this.manifest.token,
+        recipient,
+        blockNumber,
+        now,
+      ),
+    ]);
+    return { ...dailyUsage(spend, now), queue, delayed };
+  }
+  async manageWithdrawal(
+    r: WalletRecord,
+    selected: Queued,
+    action: "execute" | "cancel",
+  ) {
+    if ((await this.inspect(r)) !== "enabled" || !r.secondary)
+      throw Error("Verify the protected GLD wallet first.");
+    const c = await this.components(r);
+    const checkHead = async () => {
+      const [block, pending] = await Promise.all([
+        this.client.getBlock(),
+        this.client.getBlock({ blockTag: "pending" }),
+      ]);
+      const [head] = await readQueue(
+        this.client,
+        c.delay.address,
+        this.manifest.token,
+        r.recipient ?? this.manifest.recipient,
+        block.number,
+      );
+      if (!head || head.nonce !== selected.nonce || head.hash !== selected.hash)
+        throw Error("The queue head changed. Refresh the wallet.");
+      if (
+        action === "execute" &&
+        queueStatus(head, pending.timestamp) !== "ready"
+      )
+        throw Error("The withdrawal is outside its execution window.");
+      return head;
+    };
+    const head = await checkHead();
+    const recheck = async () => {
+      await checkHead();
+    };
+    if (action === "cancel") {
+      await this.inner(
+        r,
+        c.delay.address,
+        data("delay", "setTxNonce", [head.nonce + 1n]),
+        0,
+        `Cancel withdrawal #${head.nonce}`,
+        c.router.address,
+        r.secondary,
+        recheck,
+      );
+    } else {
+      await this.submit(
+        r,
+        c.delay.address,
+        data("delay", "executeNextTx", [
+          this.manifest.token,
+          0n,
+          head.calldata,
+          0,
+        ]),
+        0,
+        `Execute withdrawal #${head.nonce}`,
+        undefined,
+        c.router.address,
+        recheck,
+      );
+    }
   }
   async enable(
     r: WalletRecord,
