@@ -24,7 +24,7 @@ function App() {
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("1");
   const [confirmation, setConfirmation] = useState("");
-  const [settings, setSettings] = useState(false);
+  const [settings, setSettings] = useState(() => location.hash === "#settings");
   const { snapshot, problem } = useSpending(
     wallet,
     record,
@@ -42,7 +42,9 @@ function App() {
     let active = true;
     void (async () => {
       try {
-        const response = await fetch("/local.json", { cache: "no-store" });
+        const response = await fetch(import.meta.env.BASE_URL + "local.json", {
+          cache: "no-store",
+        });
         if (!response.ok)
           throw Error(
             "Start the disposable local chain to connect this wallet.",
