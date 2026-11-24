@@ -35,3 +35,11 @@ Reviewed `/tmp/recent-tx-current-slither.log`, the committed twelve-entry baseli
 | `cache-array-length` | Guard `policyHash`, line 308 | Re-reading the configured-token array length is a view-function gas optimization issue. The Phase One profile verifies exactly one configured asset; changing this loop is unnecessary for the reviewed behavior. |
 
 These decisions retain the original research/testnet limitation. A passing baseline comparison is not an audit or a production-readiness claim. The next Slither run must still produce a readable successful report and no key outside these twelve exact locations.
+
+## 2026-11-20 local Safe 4337 variant review
+
+The separate `TieredSpendingGuard4337` copies eight already reviewed detector patterns from the unchanged guard at new line locations: period-floor arithmetic, current-window equality, two intentionally ignored decoder fields, three timestamp uses, and the `policyHash` array-length read. The AA route adds no Slither finding in those functions beyond the relocated patterns. Their original rationale applies, but the new guard variant and nested hooks remain unaudited and require separate adversarial review.
+
+One new `incorrect-return` finding points to `Safe4337RestrictedRouter.fallback` and its private assembly delegate function. The fallback deliberately returns the exact raw return bytes from the pinned Safe4337Module delegatecall or reverts with its raw revert bytes. A Solidity ABI-typed return from the private function would double-encode the result and break the Safe fallback ABI. The external fallback has no declared return value; the inline `return(ptr,length)` halts execution as intended. This finding is accepted only for the exact router source location. No detector or path filter was disabled or broadened.
+
+The baseline now has 21 exact keys. Passing it means Slither reported no additional detector identity; it does not cover the router's delegatecall trust composition, the guard phase-machine invariant, or delayed maintenance.

@@ -1,5 +1,7 @@
 # Personal Vault: Wallet-Security Research and Product Direction
 
+> **2026-11-23 local ERC-4337 amendment.** In new static-wallet installations of `TieredSpendingGuard4337`, the projected total instant spend for this token and day must fit X for primary-only approval. Both passkeys may spend up to shared Y. A step-up payment consumes the remaining capacity under X as well as Y. The raw base counter continues to measure transfers actually approved with the primary alone. The ordinary-Safe profile and previously deployed bytecode retain their original policy.
+
 **Status:** Research baseline
 **Date:** 2026-09-16
 **Repository:** `tiered-spending-guard`

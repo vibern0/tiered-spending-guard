@@ -1,0 +1,28 @@
+{
+  "name": "@tiered-spending-guard/static-wallet",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host localhost --port 5180 --strictPort",
+    "artifacts": "node scripts/artifacts.cjs",
+    "build": "npm run artifacts && tsc --noEmit && vite build",
+    "test": "playwright test",
+    "local": "cd ../../packages/core && node -r ts-node/register/transpile-only scripts/static-wallet/local.cjs",
+    "predev": "npm run artifacts",
+    "smoke": "npm test"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "viem": "2.56.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "22.20.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3",
+    "vite": "8.1.5"
+  }
+}

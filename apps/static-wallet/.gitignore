@@ -1,0 +1,5 @@
+node_modules/
+dist/
+src/artifacts.json
+public/local.json*
+test-results/

@@ -6,9 +6,12 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run core:build && npm run app:build && npm run landing:build",
-    "test": "npm run core:test && npm run backend:test && npm run app:test && npm run landing:test",
-    "check": "npm run core:check && npm run sdk:check && npm run backend:lint && npm run backend:format:check && npm run backend:test && npm run backend:typecheck && npm run app:test && npm run landing:test",
+    "wallet:dev": "cd packages/core && ./node_modules/.bin/hardhat compile && node ../../apps/static-wallet/scripts/artifacts.cjs && node -r ts-node/register/transpile-only scripts/static-wallet/local.cjs --wallet",
+    "wallet:build": "npm --prefix apps/static-wallet run build",
+    "wallet:test": "npm --prefix apps/static-wallet test",
+    "build": "npm run core:build && npm run app:build && npm run landing:build && npm run wallet:build",
+    "test": "npm run core:test && npm run backend:test && npm run app:test && npm run landing:test && npm run wallet:test",
+    "check": "npm run core:check && npm run sdk:check && npm run backend:lint && npm run backend:format:check && npm run backend:test && npm run backend:typecheck && npm run app:test && npm run landing:test && npm run wallet:test && npm run wallet:build",
     "core:build": "npm --prefix packages/core run build",
     "security-core:build": "npm run core:build",
     "core:test": "npm --prefix packages/core test",
@@ -17,8 +20,6 @@
     "security-core:test:unit": "npm run core:test:unit",
     "core:test:integration": "npm --prefix packages/core run test:integration",
     "security-core:test:integration": "npm run core:test:integration",
-    "core:test:invariant": "npm --prefix packages/core run test:invariant",
-    "security-core:test:invariant": "npm run core:test:invariant",
     "core:check": "npm --prefix packages/core run check",
     "security-core:check": "npm run core:check",
     "core:coverage": "npm --prefix packages/core run coverage",
@@ -62,7 +63,6 @@
     "landing:test": "npm --prefix apps/landing test",
     "landing:test:watch": "npm --prefix apps/landing run test:watch",
     "sdk:check": "npm --prefix packages/sdk run check",
-    "core:test:resources": "npm --prefix packages/core run test:resources",
     "core:verify:sdk": "npm --prefix packages/core run verify:sdk"
   }
 }

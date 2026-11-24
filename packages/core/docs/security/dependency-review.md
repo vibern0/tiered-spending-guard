@@ -1,5 +1,16 @@
 # Security dependency review
 
+## 2026-11-20 local Safe 4337 research additions
+
+These are exact **dev dependencies for local research**, not additions to the approved ordinary-Safe deployment profile. The original security dependency pins and `TieredSpendingGuard` runtime remain unchanged.
+
+| Package | Exact version / npm integrity | Source and use | Runtime/audit limit |
+| --- | --- | --- | --- |
+| `@safe-global/safe-4337` | `0.3.0-1`; `sha512-utkGzRJ+wU/Xi4PhwYWNYUaVoS7uy41p6+pn++5XKx/627Ztec3sLLP1oQRnTjGrGaMukDe3mdxWTMyaVaWbTA==` | npm `gitHead` `75e56fd52b0ddbe01dc237eaae7edb9a102ffc5c`; published Safe4337Module/SafeModuleSetup artifacts. The local router requires stock module runtime hash `0x2aea997c4e3cf0e2f333025372e219abcfde81c21fc2f8fb066414a5685dd3e0` and its constructor-bound EntryPoint. | The package brings legacy `@safe-global/safe-contracts@1.4.1` transitively; this repository does not compile or deploy that Safe release. No claim is made that any stock-module audit covers the new delegatecall router/guard composition. The local per-Safe router code hash differs with immutable addresses and must be independently anchored for deployment. |
+| `@account-abstraction/contracts` | `0.7.0`; `sha512-Bt/66ilu3u8I9+vFZ9fTd+cWs55fdb9J5YKfrhsrFafH1drkzwuCSL/xEot1GGyXXNJLQuXbMRztQPyelNbY1A==` | npm `gitHead` `59edfbc5e9862d58ebda3429c9890c3497a1d433`; local EntryPoint 0.7 `handleOps` test fixture only. | No live EntryPoint address/runtime or paymaster service is verified here. The test etches a locally deployed EntryPoint runtime at the router's pinned caller address and funds a deposit externally. |
+
+The two package versions are exact in `packages/core/package.json` and `pnpm-lock.yaml`. The reviewed local router source is `contracts/Safe4337RestrictedRouter.sol`; the AA guard variant is `contracts/TieredSpendingGuard4337.sol`. Their source and runtime require independent review and reproducible deployment anchors before any network use. The existing maintenance helper rejects the new guard runtime; delayed profile replacement remains an open gate.
+
 ## 2026-11-16 package ownership
 
 Contracts/tooling moved to `packages/core`; reusable TypeScript moved to `packages/sdk`. SDK directly declares the same pinned `@safe-global/safe-deployments` 1.37.63, `@safe-global/safe-passkey` 0.2.0 and viem 2.56.7. Core retains direct dependencies used by its compiler/scripts/tests and consumes the local SDK workspace. No dependency version, source/audit selection, canonical deployment identity, or runtime allowlist changed. The active pnpm lockfile changes workspace importers only; historical npm/Yarn snapshots are preserved. Generated public resources copy exact reviewed bytes with build-input/resource hashes, reject stale or inconsistent output, and never publish coverage-instrumented artifacts. This is an ownership review, not new audit evidence.
@@ -201,3 +212,9 @@ The approved cleanup adds no runtime dependency, provider SDK, database driver, 
 The backend requires private external evidence-access format version 2 with exactly Infura and Alchemy Sepolia HTTPS service identities, both independent operators, bounded private configuration permissions and sanitized errors. Shared read adapters retain strict batch-ID identity validation and canonical evidence predicates. Public/free fallback selection and Tenderly pacing are removed from the current backend. This current access choice does not rewrite prior signed profile commitments or historical provider evidence recorded above. Relay broadcasting remains separately configured and bounded; history/receipt observers receive no signer or broadcaster.
 
 Version-2 account/job/history storage uses the existing built-in SQLite dependency. Creation eligibility commits atomically with the verified second credential; post-listening workers resume only explicit current jobs through unchanged authorization/journal/evidence gates. Rebuildable history is observational. Legacy adoption/rebind/successor and profiling code are removed, while archived records retain their original bytes and scope. The browser's old guard-runtime fixture remains negative test material; the historical four-word ABI fallback is removed. No live, independent-alert or audit gate is advanced.
+
+## Static wallet research fixture — 2026-11-20
+
+The standalone browser app reuses viem 2.56.7 and the existing local Safe 1.5.0, safe-4337 0.3.0-1, safe-passkey 0.2.0 and EntryPoint 0.7.0 pins. The fixture also uses the sample VerifyingPaymaster from the same account-abstraction 0.7.0 package. A fresh, memory-only sponsor key covers local gas. The published Safe CreateCall and MultiSend artifacts supply deterministic deployment and one-time setup. The browser-facing contract addresses and runtime hashes come from the disposable local fixture. This establishes the local test configuration only. External provider validation, canonical live deployment anchors and independent review of the combined profile remain open.
+
+Playwright Core 1.62.1 is a development-only dependency for the local Chromium virtual-authenticator smoke test. Browser code never imports it.

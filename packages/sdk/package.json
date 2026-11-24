@@ -158,6 +158,10 @@
       "types": "./src/topology/reviewed-artifacts.ts",
       "default": "./src/topology/reviewed-artifacts.ts"
     },
+    "./topology/safe4337-route-install": {
+      "types": "./src/topology/safe4337-route-install.ts",
+      "default": "./src/topology/safe4337-route-install.ts"
+    },
     "./topology/verify": {
       "types": "./src/topology/verify.ts",
       "default": "./src/topology/verify.ts"
